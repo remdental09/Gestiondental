@@ -48,4 +48,5 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 - Antes de guardar una evolución o un hallazgo manual del odontograma o periodontograma, la interfaz muestra paciente, contenido clínico y cambios propuestos. Volver permite corregir sin escribir; confirmar ejecuta la escritura. La vista previa de la evolución muestra proyecciones automáticas reconocidas de implante y corona.
 
 - El repositorio público `remdental09/Gestiondental` es un espejo de código y no está conectado al origen del Site privado; los pushes a `main` no publican cambios. Una integración con otro hosting debe conservar la autenticación privada y definir explícitamente cualquier migración de D1/R2; no copiar datos clínicos al repositorio.
+- La migración a Cloudflare fue autorizada, pero aún no se ejecutó: Wrangler no está autenticado en este host. Mantener el Site privado actual como fuente de verdad; no migrar D1/R2 ni habilitar una URL de Worker hasta autenticar la cuenta destino y verificar Cloudflare Access con acceso solo del propietario.
 
