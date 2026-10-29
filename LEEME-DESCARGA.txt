@@ -1,0 +1,1 @@
+Código fuente completo de Gestión Dental. Incluye interfaz, servidor, migraciones, pruebas y manifiesto de despliegue. Para instalar dependencias: pnpm install. Para desarrollar: pnpm dev. Los registros clínicos están en la base de datos privada D1 y los adjuntos en R2; no vienen en el repositorio ni en este ZIP. No compartir sin revisar las condiciones de acceso.

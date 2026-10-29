@@ -1,0 +1,4 @@
+interface:
+  display_name: "Conciliar respaldo clínico"
+  short_description: "Verificar la copia en Drive y los pendientes"
+  default_prompt: "Use $conciliar-respaldo to cotejar la ficha guardada con su respaldo en Drive."

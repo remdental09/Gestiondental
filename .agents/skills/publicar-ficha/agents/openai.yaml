@@ -1,0 +1,4 @@
+interface:
+  display_name: "Publicar ficha clínica"
+  short_description: "Cambiar y desplegar el sitio con verificación"
+  default_prompt: "Use $publicar-ficha to implementar y publicar un cambio en la aplicación clínica."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Registrar paciente"
+  short_description: "Crear y actualizar fichas sin inventar datos"
+  default_prompt: "Use $registrar-paciente to registrar los datos confirmados de un paciente en la ficha clínica."

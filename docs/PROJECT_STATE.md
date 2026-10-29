@@ -1,0 +1,49 @@
+# Estado del proyecto
+
+## Fuentes de verdad
+- Código y procesos: este repositorio.
+- Pacientes, evoluciones, odontograma y presupuestos: base D1 del sitio privado.
+- Imágenes: R2 del sitio.
+- Drive: respaldo independiente que debe verificarse por documento antes de declararlo completo.
+
+## Funcionalidad actual
+- Ficha de paciente con nombre, fecha de nacimiento, RUT opcional, teléfono y correo opcionales, antecedentes, alergias, evolución, odontograma, periodontograma, imágenes, citas y presupuestos. Las altas e importaciones de pacientes nuevos requieren al menos cuatro componentes de nombre en el orden de dos nombres y dos apellidos. Las fichas existentes con nombres incompletos se pueden actualizar por su ID; MCP permite coincidencias únicas por los componentes registrados y exige RUT o fecha de nacimiento cuando hay homónimos.
+- Odontograma permanente y temporal: muestra FDI con punto y equivalencia chilena; conserva códigos compactos existentes. Cada pieza se representa como modelo 3D desde oclusal, con cinco zonas seleccionables que conservan los hallazgos por superficie. Mantiene estado general, caries, restauraciones, ICDAS, actividad de lesión y preconteo COP-D/ceo-d revisable.
+- MCP del Site: permite actualizar el estado general de una pieza del odontograma con validación del paciente y del número FDI, conservando superficies y otros datos existentes.
+- Al guardar una evolución por la interfaz o MCP, una instalación afirmativa y explícita de implante con pieza identificable proyecta «Implante» al odontograma de esa ficha; las planificaciones y negaciones se excluyen. La evolución conserva el estado previo como historia. Se quitan de la pieza las superficies y causas de ausencia obsoletas. Una evolución anterior se puede conciliar desde su tarjeta si el odontograma sigue pendiente; un cambio manual posterior prevalece sobre esa conciliación.
+- Periodontograma: seis sitios por diente con sondaje, margen y nivel de inserción calculado, sangrado, supuración, movilidad y furcación; añade EPB MINSAL por sextantes, índice gingival de Löe-Silness en cuatro sitios y campos manuales para clasificación AAP/EFP 2017.
+- La importación desde Drive puede validarse con una vista previa por la herramienta MCP del sitio antes de guardar; requiere tener conectados Google Drive y Gestión Dental en ChatGPT. Reconoce carpetas y documentos repetidos, y pide aclarar coincidencias de nombre sin fusionar pacientes.
+- La pantalla de importación permite seleccionar un archivo JSON preparado desde Drive, revisar el lote en el servidor y confirmar el guardado. La operación comprueba después las carpetas y documentos persistidos. Los registros históricos sin fecha clínica se conservan sin fecha y se muestran como no consignados; importar no asigna un estado de tratamiento.
+- La aplicación usa inicio de sesión ChatGPT y separa registros por propietario.
+- Google Calendar se importa a una tabla D1 propia y privada, identificando cada evento por propietario, calendario e ID de Google. Reimportar actualiza cambios de hora o t�tulo sin duplicar; los eventos cancelados se excluyen de la agenda. El resumen inicial y la secci�n Agenda muestran la semana en hora America/Santiago y enlazan al evento de origen. Esta importaci�n no crea fichas ni enlaza pacientes autom�ticamente.
+- La creación y edición de contacto se validan en interfaz y servidor.
+- La creación e importación de pacientes nuevos requieren al menos cuatro componentes de nombre. Las fichas existentes no se bloquean por tener menos componentes; los cambios de nombre requieren al menos dos componentes y las demás actualizaciones se autorizan por propietario e ID. MCP exige un identificador adicional solo cuando la coincidencia es ambigua. Al elegir «Sin hallazgos», el estado general se elimina del registro estructurado.
+- El motivo de una cita existente se puede editar desde la ficha; la ruta comprueba propietario, paciente e identificador de cita, y conserva fecha y hora.
+- MCP expone los campos de teléfono y correo en las fichas y permite actualizar solo los contactos entregados, validando el propietario y releyendo el resultado. La creación MCP también acepta ambos campos opcionales.
+
+- La agenda semanal se presenta en un mosaico de siete días; muestra solo eventos confirmados con horario y omite eventos de día completo.
+
+- Importación de citas por archivo JSON desde el calendario leído en ChatGPT: la ficha valida y guarda en D1 por propietario e ID de Google y relee las citas para confirmar. Requiere que el usuario seleccione el archivo en la aplicación; la sincronización automática aún no está activa.
+
+## Decisiones y pendientes
+- Conservar el acceso privado al publicar.
+- Las citas creadas en la ficha y los eventos importados desde Google Calendar se conservan en fuentes separadas. No fusionar ni asociar por coincidencia parcial; la importaci�n solo copia eventos del calendario autenticado del propietario.
+- Mostrar las piezas FDI con punto (por ejemplo, FDI 1.2; código compacto interno 12) junto a la equivalencia nacional chilena. Distinguir esta numeración de la Universal estadounidense: FDI 3.6 = Chile 30 = EE. UU. 19; FDI 4.6 = Chile 19 = EE. UU. 30. Una mención sin etiqueta «pieza 12» sigue la numeración nacional chilena; FDI 1.2 debe identificarse como FDI y no se debe confundir con ella. Indicar el sistema original en evoluciones.
+- EPB y el índice gingival siguen las Orientaciones Técnicas MINSAL de enfermedad gingival/periodontal; las fichas MINSAL de salud oral respaldan FDI, registro de caries/restauraciones/ausencias y COP. ICDAS separa detección/severidad de la actividad; el COP-D/ceo-d que muestra la aplicación es un preconteo y requiere revisión del profesional. No emitir diagnóstico automático desde un índice o una profundidad aislada.
+- El examen de seis sitios complementa el tamizaje nacional. La clasificación AAP/EFP de periodontitis (estadio/grado/extensión) se registra manualmente y no se infiere por software.
+- La cola de respaldo compara una huella del contenido clínico de cada paciente con la última copia confirmada. Expone herramientas MCP para listar pendientes, obtener el texto exacto y acusar una copia solo después de releerla en Drive. La tarea periódica debe usar la conexión de Drive del propietario; la publicación del Site por sí sola no ejecuta respaldos.
+- La copia incluye identidad/contacto, antecedentes, evoluciones, presupuestos, agenda, periodontograma, odontograma y metadatos de imágenes. Los binarios de imágenes y PDF permanecen en R2 y **no** están cubiertos por este documento de Drive. No declarar respaldo completo de adjuntos sin un flujo independiente verificado.
+- Una ficha sigue pendiente si cambia después del acuse o si falla la escritura/lectura de Drive. Las evoluciones solo cambian a «respaldo en Drive» después del acuse confirmado.
+- La ruta MCP permite descubrir y listar herramientas sin identidad clínica; `tools/call` sigue exigiendo la identidad autenticada de ChatGPT. Hay una prueba focalizada de ambas condiciones. Tras publicar, comprobar que el plugin del Site actualice y exponga sus herramientas: la consulta de permisos indica `not_installed`, mientras la sugerencia responde `already_installed`, y las acciones clínicas todavía no aparecen en esta conversación. No pedir repetidamente credenciales ni quitar la autenticación para resolverlo. Confirmar cualquier escritura real con una lectura posterior de D1.
+- Las acciones MCP que escriben en una ficha reciben el nombre dictado además del ID y comparan ambos en el servidor. Si existe una coincidencia única, aceptan registros históricos con nombres incompletos; si hay homónimos, exigen RUT o fecha de nacimiento que resuelva una sola ficha. La acción MCP `evolve_patient_by_name` busca coincidencias normalizadas entre las fichas del propietario con paginación por ID. Guarda con idempotencia y relee la evolución para comprobar cuerpo, título, fecha e identidad. La orden explícita del clínico autoriza esa llamada; una ausencia de ficha no crea paciente. La acción depende de que ChatGPT exponga el plugin del Site y no reemplaza la confirmación del respaldo en Drive.
+
+Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero. No incluir nombres, contactos, historias ni hallazgos de pacientes.
+
+- La agenda puede mostrar una copia puntual de citas desde el secreto de runtime `CALENDAR_WEEK_SNAPSHOT_JSON` para la identidad autenticada de la cuenta propietaria, sin agregar pacientes al repositorio. Se deduplica frente a D1 y se indica la fecha de captura. La copia no es una sincronización automática ni una persistencia D1.
+
+- La pantalla inicial abre en una portada con accesos a Resumen, Pacientes, Ficha clínica, Agenda y Presupuestos. Cada sección tiene Inicio, Volver y accesos directos en móvil; el mosaico semanal sigue visible en la portada.
+
+- Las coronas se destacan en el odontograma y se cuentan separadas del COP-D/ceo-d. Al tocar una corona se muestra el material y el color; si el material proviene solo de una evolucion clara y univoca se indica como derivado de esa evolucion hasta su confirmacion estructurada. La lectura de notas historicas no modifica D1. Las nuevas evoluciones con cementacion definitiva inequivoca proyectan estado y material al odontograma; los registros manuales posteriores prevalecen.
+
+- Antes de guardar una evolución o un hallazgo manual del odontograma o periodontograma, la interfaz muestra paciente, contenido clínico y cambios propuestos. Volver permite corregir sin escribir; confirmar ejecuta la escritura. La vista previa de la evolución muestra proyecciones automáticas reconocidas de implante y corona.
+

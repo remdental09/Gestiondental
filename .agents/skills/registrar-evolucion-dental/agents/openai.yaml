@@ -1,0 +1,4 @@
+interface:
+  display_name: "Registrar evolución dental"
+  short_description: "Documentar evoluciones y piezas con nomenclatura clara"
+  default_prompt: "Use $registrar-evolucion-dental to registrar una evolución y verificar el odontograma."
