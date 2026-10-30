@@ -2,6 +2,7 @@
 import { useMemo, useState } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { formatFdi, type OdontogramData, type OdontogramSurface, type SurfaceFinding } from "@/app/clinical-data";
+import { surfaceScreenSide } from "@/app/odontogram-surface";
 
 const permanentTeeth = [18,17,16,15,14,13,12,11,21,22,23,24,25,26,27,28,48,47,46,45,44,43,42,41,31,32,33,34,35,36,37,38];
 const primaryTeeth = [55,54,53,52,51,61,62,63,64,65,85,84,83,82,81,71,72,73,74,75];
@@ -9,23 +10,32 @@ const surfaceKeys: OdontogramSurface[] = ["V","P","M","D","O"];
 const defaultFinding: SurfaceFinding = {condition:"not_examined",icdas:null,activity:null};
 const primaryLetters: Record<number,string> = {55:"A",54:"B",53:"C",52:"D",51:"E",61:"F",62:"G",63:"H",64:"I",65:"J",75:"K",74:"L",73:"M",72:"N",71:"O",81:"P",82:"Q",83:"R",84:"S",85:"T"};
 const chilePermanent = (fdi:number) => {const q=Math.floor(fdi/10),p=fdi%10;return q===1?9-p:q===2?8+p:q===3?24+p:25-p};
-const surfaceLabel = (tooth:number,surface:OdontogramSurface) => surface==="O"?(tooth%10<=3?"Incisal":"Oclusal"):{V:"Vestibular",P:"Lingual / palatina",M:"Mesial",D:"Distal"}[surface];
+const surfaceLabel = (tooth:number,surface:OdontogramSurface) => {
+  const quadrant = Math.floor(tooth / 10);
+  const lower = quadrant === 3 || quadrant === 4 || quadrant === 7 || quadrant === 8;
+  if (surface === "O") return tooth % 10 <= 3 ? "Incisal" : "Oclusal";
+  if (surface === "P") return lower ? "Lingual" : "Palatina";
+  if (surface === "V") return "Vestibular";
+  if (surface === "M") return "Mesial";
+  return "Distal";
+};
 const conditionLabel:Record<SurfaceFinding["condition"],string> = {not_examined:"Sin examinar",sound:"Sin lesión visible",caries:"Lesión de caries",restored:"Obturación",sealant:"Sellante",other_restoration:"Otra restauración"};
 const surfaceStyle = (condition:SurfaceFinding["condition"]) => condition==="caries"?"border-rose-300 bg-rose-50 text-rose-900":condition==="restored"||condition==="other_restoration"?"border-sky-300 bg-sky-50 text-sky-900":condition==="sealant"?"border-amber-300 bg-amber-50 text-amber-900":"border-[#e2eaeb] bg-white text-[#52666c]";
 const surfaceFill = (condition:SurfaceFinding["condition"]) => condition==="caries"?"#ef8b83":condition==="restored"||condition==="other_restoration"?"#6fc1e2":condition==="sealant"?"#f3d36b":condition==="sound"?"#a9d9b2":"#f4ead8";
 
 function OcclusalToothView({tooth,findings,selectedSurface,disabled,onSelect}:{tooth:number;findings:Record<string,SurfaceFinding|undefined>;selectedSurface:OdontogramSurface|null;disabled:boolean;onSelect:(surface:OdontogramSurface)=>void}) {
-  const q=Math.floor(tooth/10),n=tooth%10,primary=Math.floor(tooth/10)>=5,mesialRight=q===1||q===4;
+  const n=tooth%10,primary=Math.floor(tooth/10)>=5;
   const kind=primary?(n<=2?"incisor":n===3?"canine":"molar"):n<=2?"incisor":n===3?"canine":n<=5?"premolar":"molar";
   const crownPath=kind==="incisor"?"M50 7 C31 7 18 22 21 50 C18 78 31 93 50 93 C69 93 82 78 79 50 C82 22 69 7 50 7 Z":kind==="canine"?"M50 5 C70 8 91 24 91 48 C91 72 73 92 50 95 C27 92 9 72 9 48 C9 24 30 8 50 5 Z":"M50 5 C67 5 76 13 82 20 C90 26 95 37 95 50 C95 67 87 76 80 82 C73 90 63 95 50 95 C37 95 27 90 20 82 C13 76 5 67 5 50 C5 37 10 27 20 20 C26 13 33 5 50 5 Z";
   const groove=kind==="incisor"?"M50 28 C47 38 53 45 50 52 C47 60 53 66 50 73":"M50 28 C43 36 57 42 49 50 C41 58 57 63 50 72 M31 49 C39 43 43 57 50 50 C57 43 61 57 69 49";
-  const zones:Array<{surface:OdontogramSurface;path:string}>=[
-    {surface:"V",path:"M50 6 C34 6 19 10 12 20 L30 35 C35 31 42 29 50 29 Z"},
-    {surface:"P",path:"M50 94 C34 94 19 90 12 80 L30 65 C35 69 42 71 50 71 Z"},
-    {surface:mesialRight?"D":"M",path:"M6 50 C6 34 10 22 20 14 L35 31 C31 36 29 43 29 50 Z"},
-    {surface:mesialRight?"M":"D",path:"M94 50 C94 34 90 22 80 14 L65 31 C69 36 71 43 71 50 Z"},
-    {surface:"O",path:"M50 29 C42 29 35 31 30 35 C27 40 27 60 30 65 C35 69 42 71 50 71 C58 71 65 69 70 65 C73 60 73 40 70 35 C65 31 58 29 50 29 Z"}
-  ];
+  const sidePath:Record<"top"|"bottom"|"left"|"right"|"center",string>={
+    top:"M50 6 C34 6 19 10 12 20 L30 35 C35 31 42 29 50 29 C58 29 65 31 70 35 L88 20 C81 10 66 6 50 6 Z",
+    bottom:"M50 94 C34 94 19 90 12 80 L30 65 C35 69 42 71 50 71 C58 71 65 69 70 65 L88 80 C81 90 66 94 50 94 Z",
+    left:"M6 50 C6 34 10 22 20 14 L35 31 C31 36 29 43 29 50 C29 57 31 64 35 69 L20 86 C10 78 6 66 6 50 Z",
+    right:"M94 50 C94 34 90 22 80 14 L65 31 C69 36 71 43 71 50 C71 57 69 64 65 69 L80 86 C90 78 94 66 94 50 Z",
+    center:"M50 29 C42 29 35 31 30 35 C27 40 27 60 30 65 C35 69 42 71 50 71 C58 71 65 69 70 65 C73 60 73 40 70 35 C65 31 58 29 50 29 Z",
+  };
+  const zones:Array<{surface:OdontogramSurface;path:string}>=(["V","P","M","D","O"] as OdontogramSurface[]).map(surface=>({surface,path:sidePath[surfaceScreenSide(tooth,surface)]}));
   return <svg viewBox="0 0 100 100" role="group" aria-label={`Modelo 3D oclusal FDI ${formatFdi(tooth)}`} className="h-9 w-9 overflow-visible drop-shadow-[0_2px_2px_rgba(44,55,50,0.18)] sm:h-10 sm:w-10">
     <defs><radialGradient id={`enamel-${tooth}`} cx="38%" cy="30%" r="72%"><stop offset="0" stopColor="#fffefa"/><stop offset=".58" stopColor="#f5eddf"/><stop offset="1" stopColor="#d9cbb6"/></radialGradient><filter id={`shadow-${tooth}`} x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="2" stdDeviation="2" floodColor="#52666c" floodOpacity=".22"/></filter></defs>
     <path d={crownPath} fill={`url(#enamel-${tooth})`} stroke="#b6aa96" strokeWidth="3" filter={`url(#shadow-${tooth})`}/>
