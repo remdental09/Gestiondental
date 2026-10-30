@@ -10,7 +10,7 @@ type AiRunner = {
   run(model: string, input: Record<string, unknown>): Promise<unknown>;
 };
 
-/** El modelo solo redacta la evolución. Las piezas y los hallazgos los resuelve el código. */
+/** Binding disponible. La nota no se le pide: la redacta el código desde los hallazgos resueltos. */
 export function createWorkersAiModel(ai: AiRunner): ClinicalModel {
   return {
     id: "workers-ai",

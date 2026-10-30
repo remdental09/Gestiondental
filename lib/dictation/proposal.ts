@@ -116,7 +116,7 @@ export type ChartAction =
   | { action: "setToothSurface"; patientId: number; tooth: number; surface: OdontogramSurface; finding: SurfaceFinding };
 
 const LOCAL_NOTICE = "Workers AI no está enlazado en este entorno. La propuesta salió del estructurador local, sin costo por dictado, y no se guarda sola.";
-const FALLBACK_NOTICE = "No se pudo usar el modelo en este momento. La propuesta salió del estructurador local y sigue sujeta a tu revisión.";
+const DETERMINISTIC_NOTICE = "La evolución sale de los hallazgos resueltos y de las frases dictadas. El modelo no redacta esta nota.";
 
 export const CLINICAL_SYSTEM_PROMPT = `Eres un odontólogo que convierte un dictado en español de Chile en una propuesta JSON para que otro odontólogo la revise. No guardas nada, no diagnosticas y no completas lo que no se dijo.
 
@@ -606,32 +606,112 @@ function perioSite(sentence: string): PerioSite | null {
   return null;
 }
 
-function composeEvolution(transcript: string): { title: string; body: string } | null {
+const SURFACE_ORDER = ["M", "O", "D", "V", "P"];
+
+function fdiToChile(tooth: number): number | null {
+  for (let position = 1; position <= 32; position += 1) if (chileToFdi(position) === tooth) return position;
+  return null;
+}
+
+function faceWord(tooth: number, surface: OdontogramSurface): string {
+  const lower = [3, 4, 7, 8].includes(Math.floor(tooth / 10));
+  if (surface === "P") return lower ? "lingual" : "palatina";
+  if (surface === "O") return tooth % 10 <= 3 ? "incisal" : "oclusal";
+  if (surface === "V") return "vestibular";
+  if (surface === "M") return "mesial";
+  return "distal";
+}
+
+function facesLabel(tooth: number, surfaces: OdontogramSurface[]): string {
+  const sorted = [...surfaces].sort((a, b) => SURFACE_ORDER.indexOf(a) - SURFACE_ORDER.indexOf(b));
+  if (sorted.length === 1) return faceWord(tooth, sorted[0]);
+  return sorted.map((surface) => surface === "O" && tooth % 10 <= 3 ? "I" : surface).join("-");
+}
+
+function describeFinding(tooth: number, finding: SurfaceFinding, surfaces: OdontogramSurface[]): string {
+  const faces = facesLabel(tooth, surfaces);
+  if (finding.condition === "caries") {
+    const activity = finding.activity === "active" ? "activa" : finding.activity === "inactive" ? "inactiva" : "actividad incierta";
+    return `caries ${faces}, ICDAS ${finding.icdas}, ${activity}`;
+  }
+  if (finding.condition === "restored") return `obturación ${faces}`;
+  if (finding.condition === "sealant") return `sellante ${faces}`;
+  if (finding.condition === "sound") return `sin lesión visible ${faces}`;
+  return `otra restauración ${faces}`;
+}
+
+function describeStatus(item: OdontogramChange): string {
+  if (item.status === "Corona") return `corona${item.material ? ` de ${item.material}` : ""}${item.shade ? `, color ${item.shade}` : ""}`;
+  if (item.status === "Ausente" && /extracci/i.test(item.sourceText)) return "ausente por extracción";
+  if (item.status === "Ausente" && item.missingReason === "caries") return "ausente por caries";
+  if (item.status === "Ausente") return "ausente";
+  if (item.status === "Implante") return "implante";
+  if (item.status === "Indicación de exodoncia") return "indicación de exodoncia";
+  if (item.status === "Resto radicular con endodoncia") return "resto radicular con endodoncia";
+  return item.status ?? "estado registrado";
+}
+
+function toothHeading(item: OdontogramChange): string {
+  const chile = fdiToChile(item.tooth);
+  const fdi = `FDI ${formatFdi(item.tooth)}`;
+  return chile && item.tooth < 50 ? `${fdi} (Chile ${chile})` : item.numberingLabel || fdi;
+}
+
+function examLines(items: OdontogramChange[]): string[] {
+  const teeth: number[] = [];
+  for (const item of items) if (!teeth.includes(item.tooth)) teeth.push(item.tooth);
+  return teeth.map((tooth) => {
+    const group = items.filter((item) => item.tooth === tooth);
+    const parts: string[] = [];
+    const buckets = new Map<string, { finding: SurfaceFinding; surfaces: OdontogramSurface[] }>();
+    for (const item of group) {
+      if (item.kind !== "surface" || !item.surface || !item.finding) continue;
+      const key = `${item.finding.condition}:${item.finding.icdas ?? ""}:${item.finding.activity ?? ""}`;
+      const bucket = buckets.get(key) ?? { finding: item.finding, surfaces: [] };
+      bucket.surfaces.push(item.surface);
+      buckets.set(key, bucket);
+    }
+    for (const bucket of buckets.values()) parts.push(describeFinding(tooth, bucket.finding, bucket.surfaces));
+    for (const item of group) if (item.kind !== "surface") parts.push(describeStatus(item));
+    return `${toothHeading(group[0])}: ${parts.join(". ")}.`;
+  });
+}
+
+function composeEvolution(transcript: string, odontogram: OdontogramChange[] = [], clarifications: string[] = []): { title: string; body: string } | null {
   const clean = transcript.trim();
   if (!clean) return null;
+  const sources = new Set(odontogram.map((item) => clip(item.sourceText)));
   const relato: string[] = [];
-  const examen: string[] = [];
   const procedimientos: string[] = [];
   const indicaciones: string[] = [];
   const presupuesto: string[] = [];
+  const sondaje: string[] = [];
   const resto: string[] = [];
+  const unresolved: string[] = [];
   for (const sentence of sentences(clean)) {
+    if (sources.has(clip(sentence))) continue;
     const line = ensurePeriod(sentence);
-    if (isPatient(sentence)) relato.push(/\b(?:refiere|niega)\b/i.test(sentence) ? line : `Refiere: ${line}`);
+    if (isPatient(sentence)) relato.push(line);
     else if (/\b(?:presupuesto|cotizaci[oó]n)\b/i.test(sentence)) presupuesto.push(line);
-    else if (isPerformed(sentence)) procedimientos.push(line);
     else if (/\bse\s+indica\b/i.test(sentence)) indicaciones.push(line);
-    else if (/\b(?:se\s+observa|caries|obturaci|sellante|sondaje|ausente|hallazgo|corona)\b/i.test(sentence)) examen.push(line);
+    else if (isPerformed(sentence)) procedimientos.push(line);
+    else if (/\bsondaje\b/i.test(sentence)) sondaje.push(line);
+    else if (toothMentions(sentence).length > 0) unresolved.push(line);
     else resto.push(line);
   }
-  const lines = ["Dictado para revisión. Lo que no aparece aquí queda sin registrar. Una negación solo se anota si fue dicha."];
-  if (relato.length) lines.push("", "Relato", ...relato);
-  if (examen.length) lines.push("", "Examen", ...examen);
-  if (procedimientos.length) lines.push("", "Procedimientos", ...procedimientos);
-  if (indicaciones.length) lines.push("", "Indicaciones", ...indicaciones);
-  if (presupuesto.length) lines.push("", "Presupuesto mencionado", ...presupuesto);
-  if (resto.length) lines.push("", "Otros dichos", ...resto);
-  return { title: "Evolución dictada", body: lines.join("\n") };
+  const lines: string[] = [];
+  if (relato.length) lines.push("Relato", ...relato, "");
+  const exam = examLines(odontogram);
+  if (exam.length) lines.push("Examen", ...exam, "");
+  if (procedimientos.length) lines.push("Procedimientos", ...procedimientos, "");
+  if (indicaciones.length) lines.push("Indicaciones", ...indicaciones, "");
+  if (presupuesto.length) lines.push("Presupuesto", ...presupuesto, "");
+  if (sondaje.length) lines.push("Sondaje", ...sondaje, "");
+  if (resto.length) lines.push("Otros dichos", ...resto, "");
+  const pending = [...new Set([...unresolved, ...clarifications.map((item) => item.trim()).filter(Boolean)])];
+  if (pending.length) lines.push("Pendiente de aclarar", ...pending.map((item) => ensurePeriod(item)));
+  const body = lines.join("\n").trim();
+  return body ? { title: "Evolución dictada", body } : null;
 }
 
 function dedupeKey(item: OdontogramChange): string {
@@ -772,13 +852,8 @@ export function structureTranscript(transcript: string): DictationProposal {
     }
   }
 
-  return validateProposal({
-    evolution: composeEvolution(transcript),
-    odontogram,
-    budget,
-    perio,
-    clarifications,
-  });
+  const validated = validateProposal({ evolution: null, odontogram, budget, perio, clarifications });
+  return { ...validated, evolution: composeEvolution(transcript, validated.odontogram, validated.clarifications) };
 }
 
 function text(value: unknown, max: number): string {
@@ -974,119 +1049,11 @@ export function sanitizeChart(value: unknown): StructureInput["chart"] {
   return chart;
 }
 
-export function fdiTeethInText(text: string): number[] {
-  return [...new Set(toothMentions(text).flatMap((mention) => mention.ok ? [mention.tooth] : []))];
-}
-
-function supportsCrown(text: string): boolean {
-  return /\b(?:corona|pr[oó]tesis\s+fija\s+definitiva)\b/i.test(text) && PERFORMED.test(text);
-}
-
-function supportsImplant(text: string): boolean {
-  return /\bimplante\b/i.test(text) && PERFORMED.test(text) && !/\b(?:presupuesto|cotizaci[oó]n|se\s+planifica|se\s+indica)\b/i.test(text);
-}
-
-function evolutionMatches(transcript: string, body: string): boolean {
-  const words = transcript.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().split(/[^a-z0-9]+/).filter((word) => word.length > 4);
-  const haystack = body.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
-  const hits = words.filter((word) => haystack.includes(word));
-  return hits.length >= Math.min(2, Math.max(words.length, 1));
-}
-
-function inconsistency(transcript: string, item: OdontogramChange): string | null {
-  if (!fdiTeethInText(transcript).includes(item.tooth)) return "tooth_not_in_transcript";
-  const evidence = item.sourceText.trim() || transcript;
-  if (isPatient(evidence) && !/\bse\s+observa\b/i.test(evidence)) return "patient_statement";
-  if (item.kind === "crown" || item.status === "Corona") {
-    if (/\b(?:caries|obturaci)/i.test(evidence) && !supportsCrown(evidence)) return "crown_on_surface_finding";
-    if (!supportsCrown(evidence) && !supportsCrown(transcript)) return "crown_without_cementation";
-  }
-  if (item.status === "Implante" && !supportsImplant(evidence) && !supportsImplant(transcript)) return "implant_without_placement";
-  if ((item.status === "Ausente" || item.status === "Indicación de exodoncia") && !/\b(?:ausente|extra[ií]d|exodonciad|indicaci[oó]n\s+de\s+exodoncia)/i.test(`${evidence}\n${transcript}`)) return "absence_not_dictated";
-  if (item.kind === "surface" && item.finding?.condition === "caries" && !/\bcaries\b/i.test(`${evidence}\n${transcript}`)) return "caries_not_dictated";
-  if (item.kind === "surface" && item.finding?.condition === "restored" && !/\b(?:obturaci|restauraci|resina)\b/i.test(`${evidence}\n${transcript}`)) return "restoration_not_dictated";
-  if (item.kind === "surface" && item.finding?.condition === "sealant" && !/\bsellante\b/i.test(`${evidence}\n${transcript}`)) return "sealant_not_dictated";
-  return null;
-}
-
 export type DictationLog = (event: string, detail: Record<string, string | number>) => void;
 
 const defaultDictationLog: DictationLog = (event, detail) => {
   console.error(event, detail);
 };
-
-/** Quita cambios que el dictado no sostiene. Si el modelo no deja un odontograma compatible, usa la lectura local. */
-export function alignProposalWithTranscript(transcript: string, proposal: DictationProposal): { proposal: DictationProposal; rejected: string[] } {
-  const local = structureTranscript(transcript);
-  const rejected: string[] = [];
-  const odontogram = proposal.odontogram.filter((item) => {
-    const reason = inconsistency(transcript, item);
-    if (reason) rejected.push(reason);
-    return !reason;
-  });
-  const budget = proposal.budget.filter(() => {
-    if (/\b(?:pesos|clp)\b|\$/i.test(transcript)) return true;
-    rejected.push("budget_without_amount");
-    return false;
-  });
-  const perio = proposal.perio.filter(() => {
-    if (/\bsondaje\b/i.test(transcript)) return true;
-    rejected.push("perio_without_probing");
-    return false;
-  });
-  let evolution = proposal.evolution;
-  if (!evolution?.body || !evolutionMatches(transcript, evolution.body)) {
-    if (proposal.evolution?.body) rejected.push("evolution_unrelated");
-    evolution = local.evolution;
-  }
-  const clarifications = [...proposal.clarifications];
-  const chart = odontogram.length > 0 ? odontogram : local.odontogram;
-  if (odontogram.length === 0 && local.odontogram.length > 0) {
-    clarifications.push("El odontograma sigue la lectura local del dictado, porque el modelo no dejó un cambio compatible.");
-  }
-  const alignedBudget = budget.length > 0 ? budget : local.budget;
-  const alignedPerio = perio.length > 0 ? perio : local.perio;
-  if (budget.length === 0 && local.budget.length > 0 && proposal.budget.length > 0) clarifications.push("El presupuesto del modelo no coincidía con un monto dictado.");
-  return {
-    rejected,
-    proposal: validateProposal({
-      evolution,
-      odontogram: chart,
-      budget: alignedBudget,
-      perio: alignedPerio,
-      clarifications: [...new Set([...clarifications, ...(odontogram.length === 0 ? local.clarifications : [])])],
-    }),
-  };
-}
-
-function unwrapModelValue(result: unknown): unknown {
-  if (typeof result === "string") return parseModelJson(result);
-  if (!result || typeof result !== "object" || Array.isArray(result)) return null;
-  const record = result as Record<string, unknown>;
-  if (typeof record.response === "string") return unwrapModelValue(record.response);
-  if (record.response && typeof record.response === "object") return record.response;
-  return result;
-}
-
-export function evolutionFromModel(result: unknown): { title: string; body: string } | null {
-  const value = unwrapModelValue(result);
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const record = value as Record<string, unknown>;
-  const source = record.evolution && typeof record.evolution === "object" && !Array.isArray(record.evolution)
-    ? record.evolution as Record<string, unknown>
-    : record;
-  const body = typeof source.body === "string" ? source.body.trim() : "";
-  if (!body) return null;
-  const title = typeof source.title === "string" && source.title.trim() ? source.title.trim().slice(0, 180) : "Evolución dictada";
-  return { title, body: body.slice(0, 30000) };
-}
-
-function evolutionMisattributes(transcript: string, body: string): boolean {
-  const patientVoice = /\b(?:refiere|relata|comenta|dice que|cuenta que)\b/i;
-  if (patientVoice.test(body) && !patientVoice.test(transcript)) return true;
-  if (/\bniega\b/i.test(body) && !/\bniega\b/i.test(transcript)) return true;
-  return false;
-}
 
 export async function proposeFromTranscript(input: StructureInput, model: ClinicalModel | null, log: DictationLog = defaultDictationLog): Promise<StructureOutcome> {
   const transcript = input.transcript.trim();
@@ -1094,19 +1061,8 @@ export async function proposeFromTranscript(input: StructureInput, model: Clinic
   if (transcript.length > 8000) throw new Error("El dictado es demasiado largo para este prototipo.");
   const local = structureTranscript(transcript);
   if (model) {
-    try {
-      const note = evolutionFromModel(await model.complete({ transcript, chart: sanitizeChart(input.chart) }));
-      if (!note) return { engine: model.id, model: model.model, notice: null, proposal: local };
-      if (evolutionMisattributes(transcript, note.body) || !evolutionMatches(transcript, note.body)) {
-        log("dictation.evolution_rejected", { model: model.model, reason: evolutionMisattributes(transcript, note.body) ? "patient_voice" : "unrelated" });
-        return { engine: model.id, model: model.model, notice: "La evolución del modelo no respetaba el dictado, así que se usó la redacción local. Las piezas las resolvió el programa.", proposal: local };
-      }
-      return { engine: model.id, model: model.model, notice: null, proposal: { ...local, evolution: note } };
-    } catch (cause) {
-      const message = cause instanceof Error ? cause.message : "error";
-      log("dictation.workers_ai_failed", { model: model.model, message: message.slice(0, 300) });
-      return { engine: "reglas-locales", model: null, notice: FALLBACK_NOTICE, proposal: local };
-    }
+    log("dictation.evolution_not_requested", { model: model.model, reason: "deterministic_note" });
+    return { engine: "reglas-locales", model: null, notice: DETERMINISTIC_NOTICE, proposal: local };
   }
   return { engine: "reglas-locales", model: null, notice: LOCAL_NOTICE, proposal: local };
 }
