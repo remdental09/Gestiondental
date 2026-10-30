@@ -5,7 +5,12 @@
  * No persiste datos ni incluye identidad de pacientes.
  */
 
-export const WORKERS_AI_MODEL = "@cf/meta/llama-3.1-8b-instruct-fp8";
+/**
+ * Llama 3.1 8B fast admite JSON schema en Workers AI y cabe en la cuota
+ * diaria de 10 000 Neurons. La variante fp8 responde 5025 y no sirve.
+ * Los 70B también admiten el esquema, pero gastan varias veces más por la salida.
+ */
+export const WORKERS_AI_MODEL = "@cf/meta/llama-3.1-8b-instruct-fast";
 
 export const TOOTH_STATUSES = [
   "Sin hallazgos",
@@ -115,6 +120,8 @@ const FALLBACK_NOTICE = "No se pudo usar el modelo en este momento. La propuesta
 
 export const CLINICAL_SYSTEM_PROMPT = `Eres un odontólogo que convierte un dictado en español de Chile en una propuesta JSON para que otro odontólogo la revise. No guardas nada, no diagnosticas y no completas lo que no se dijo.
 
+Regla de oro: caries, obturación, sellante y superficie sana son kind "surface". kind "crown" y estado "Corona" solo si el dictado dice que se cementó o se instaló una corona definitiva. Una obturación de resina no es una corona.
+
 Numeración:
 - El campo tooth es el código FDI compacto: FDI 1.2 se guarda como 12 y FDI 3.6 como 36. La etiqueta humana lleva punto.
 - «FDI» o «ISO», o un número con punto (1.2, 3.6, 5.5), es FDI. La dentición temporal usa cuadrantes 5 a 8 y posiciones 1 a 5.
@@ -147,18 +154,13 @@ export const DICTATION_JSON_SCHEMA = {
     required: ["evolution", "odontogram", "budget", "perio", "clarifications"],
     properties: {
       evolution: {
-        anyOf: [
-          {
-            type: "object",
-            additionalProperties: false,
-            required: ["title", "body"],
-            properties: {
-              title: { type: "string" },
-              body: { type: "string" },
-            },
-          },
-          { type: "null" },
-        ],
+        type: "object",
+        additionalProperties: false,
+        required: ["title", "body"],
+        properties: {
+          title: { type: "string" },
+          body: { type: "string" },
+        },
       },
       odontogram: {
         type: "array",
@@ -180,12 +182,12 @@ export const DICTATION_JSON_SCHEMA = {
               required: ["condition", "icdas", "activity"],
               properties: {
                 condition: { type: "string", enum: ["not_examined", "sound", "caries", "restored", "sealant", "other_restoration"] },
-                icdas: { anyOf: [{ type: "integer", minimum: 1, maximum: 6 }, { type: "null" }] },
-                activity: { anyOf: [{ type: "string", enum: ["active", "inactive", "uncertain"] }, { type: "null" }] },
+                icdas: { type: ["integer", "null"] },
+                activity: { type: ["string", "null"] },
               },
             },
             material: { type: "string", enum: [...CROWN_MATERIALS] },
-            shade: { anyOf: [{ type: "string" }, { type: "null" }] },
+            shade: { type: ["string", "null"] },
             missingReason: { type: "string", enum: ["caries", "other", "unknown"] },
           },
         },
@@ -217,7 +219,7 @@ export const DICTATION_JSON_SCHEMA = {
             siteLabel: { type: "string" },
             depth: { type: "integer" },
             sourceText: { type: "string" },
-            persisted: { type: "boolean", const: false },
+            persisted: { type: "boolean" },
           },
         },
       },
@@ -805,11 +807,16 @@ export function modelOutputToJson(result: unknown): unknown {
   throw new Error("Respuesta del modelo vacía.");
 }
 
+const MODEL_EXAMPLES = `Ejemplos (no son el dictado actual):
+1. «Pieza 30 caries oclusal. Pieza 12 obturación oclusal de resina.» → tooth 24, numbering chilena, kind surface, surface O, finding restored. La caries de la pieza 30 no lleva ICDAS ni actividad: no crees ítem y pídelo en clarifications. No uses Corona.
+2. «Se cementó corona de zirconio color A2 en FDI 2.1.» → tooth 21, kind crown, status Corona, material Zirconio, shade A2.
+3. «El paciente refiere dolor. Niega alergia a penicilina.» → evolution con esas dos frases, odontogram vacío. No inventes otras negaciones.`;
+
 export function buildModelUserPrompt(input: StructureInput): string {
   const chart = input.chart.length
     ? input.chart.map((item) => `FDI ${formatFdi(item.tooth)} (código ${item.tooth}): ${item.status}`).join("\n")
     : "Sin estados generales registrados.";
-  return `Transcripción:\n${input.transcript.trim()}\n\nEstado general ya guardado, sin nombre del paciente:\n${chart}\n\nDevuelve solo el JSON.`;
+  return `${MODEL_EXAMPLES}\n\nTranscripción a estructurar:\n${input.transcript.trim()}\n\nEstado general ya guardado, sin nombre del paciente:\n${chart}\n\nDevuelve solo el JSON de esta transcripción.`;
 }
 
 export function sanitizeChart(value: unknown): StructureInput["chart"] {
@@ -830,7 +837,92 @@ function isEmptyProposal(proposal: DictationProposal): boolean {
   return !proposal.evolution && proposal.odontogram.length === 0 && proposal.budget.length === 0 && proposal.perio.length === 0 && proposal.clarifications.length === 0;
 }
 
-export async function proposeFromTranscript(input: StructureInput, model: ClinicalModel | null): Promise<StructureOutcome> {
+export function fdiTeethInText(text: string): number[] {
+  return [...new Set(toothMentions(text).flatMap((mention) => mention.ok ? [mention.tooth] : []))];
+}
+
+function supportsCrown(text: string): boolean {
+  return /\b(?:corona|pr[oó]tesis\s+fija\s+definitiva)\b/i.test(text) && PERFORMED.test(text);
+}
+
+function supportsImplant(text: string): boolean {
+  return /\bimplante\b/i.test(text) && PERFORMED.test(text) && !/\b(?:presupuesto|cotizaci[oó]n|se\s+planifica|se\s+indica)\b/i.test(text);
+}
+
+function evolutionMatches(transcript: string, body: string): boolean {
+  const words = transcript.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().split(/[^a-z0-9]+/).filter((word) => word.length > 4);
+  const haystack = body.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+  const hits = words.filter((word) => haystack.includes(word));
+  return hits.length >= Math.min(2, Math.max(words.length, 1));
+}
+
+function inconsistency(transcript: string, item: OdontogramChange): string | null {
+  if (!fdiTeethInText(transcript).includes(item.tooth)) return "tooth_not_in_transcript";
+  const evidence = item.sourceText.trim() || transcript;
+  if (isPatient(evidence) && !/\bse\s+observa\b/i.test(evidence)) return "patient_statement";
+  if (item.kind === "crown" || item.status === "Corona") {
+    if (/\b(?:caries|obturaci)/i.test(evidence) && !supportsCrown(evidence)) return "crown_on_surface_finding";
+    if (!supportsCrown(evidence) && !supportsCrown(transcript)) return "crown_without_cementation";
+  }
+  if (item.status === "Implante" && !supportsImplant(evidence) && !supportsImplant(transcript)) return "implant_without_placement";
+  if ((item.status === "Ausente" || item.status === "Indicación de exodoncia") && !/\b(?:ausente|extra[ií]d|exodonciad|indicaci[oó]n\s+de\s+exodoncia)/i.test(`${evidence}\n${transcript}`)) return "absence_not_dictated";
+  if (item.kind === "surface" && item.finding?.condition === "caries" && !/\bcaries\b/i.test(`${evidence}\n${transcript}`)) return "caries_not_dictated";
+  if (item.kind === "surface" && item.finding?.condition === "restored" && !/\b(?:obturaci|restauraci|resina)\b/i.test(`${evidence}\n${transcript}`)) return "restoration_not_dictated";
+  if (item.kind === "surface" && item.finding?.condition === "sealant" && !/\bsellante\b/i.test(`${evidence}\n${transcript}`)) return "sealant_not_dictated";
+  return null;
+}
+
+export type DictationLog = (event: string, detail: Record<string, string | number>) => void;
+
+const defaultDictationLog: DictationLog = (event, detail) => {
+  console.error(event, detail);
+};
+
+/** Quita cambios que el dictado no sostiene. Si el modelo no deja un odontograma compatible, usa la lectura local. */
+export function alignProposalWithTranscript(transcript: string, proposal: DictationProposal): { proposal: DictationProposal; rejected: string[] } {
+  const local = structureTranscript(transcript);
+  const rejected: string[] = [];
+  const odontogram = proposal.odontogram.filter((item) => {
+    const reason = inconsistency(transcript, item);
+    if (reason) rejected.push(reason);
+    return !reason;
+  });
+  const budget = proposal.budget.filter(() => {
+    if (/\b(?:pesos|clp)\b|\$/i.test(transcript)) return true;
+    rejected.push("budget_without_amount");
+    return false;
+  });
+  const perio = proposal.perio.filter(() => {
+    if (/\bsondaje\b/i.test(transcript)) return true;
+    rejected.push("perio_without_probing");
+    return false;
+  });
+  let evolution = proposal.evolution;
+  if (!evolution?.body || !evolutionMatches(transcript, evolution.body)) {
+    if (proposal.evolution?.body) rejected.push("evolution_unrelated");
+    evolution = local.evolution;
+  }
+  const clarifications = [...proposal.clarifications];
+  const chart = odontogram.length > 0 ? odontogram : local.odontogram;
+  if (odontogram.length === 0 && local.odontogram.length > 0) {
+    clarifications.push("El odontograma sigue la lectura local del dictado, porque el modelo no dejó un cambio compatible.");
+  }
+  const alignedBudget = budget.length > 0 ? budget : local.budget;
+  const alignedPerio = perio.length > 0 ? perio : local.perio;
+  if (budget.length === 0 && local.budget.length > 0 && proposal.budget.length > 0) clarifications.push("El presupuesto del modelo no coincidía con un monto dictado.");
+  return {
+    rejected,
+    proposal: validateProposal({
+      evolution,
+      odontogram: chart,
+      budget: alignedBudget,
+      perio: alignedPerio,
+      clarifications: [...new Set([...clarifications, ...(odontogram.length === 0 ? local.clarifications : [])])],
+    }),
+  };
+}
+
+export async function proposeFromTranscript(input: StructureInput, model: ClinicalModel | null, log: DictationLog = defaultDictationLog): Promise<StructureOutcome> {
   const transcript = input.transcript.trim();
   if (transcript.length < 3) throw new Error("El dictado está vacío.");
   if (transcript.length > 8000) throw new Error("El dictado es demasiado largo para este prototipo.");
@@ -839,9 +931,13 @@ export async function proposeFromTranscript(input: StructureInput, model: Clinic
     try {
       const raw = await model.complete(safe);
       const proposal = validateProposal(typeof raw === "string" ? parseModelJson(raw) : raw);
-      if (isEmptyProposal(proposal)) throw new Error("propuesta vacía");
-      return { engine: model.id, model: model.model, notice: null, proposal };
-    } catch {
+      const aligned = alignProposalWithTranscript(transcript, proposal);
+      if (aligned.rejected.length) log("dictation.model_items_rejected", { model: model.model, rejected: aligned.rejected.length, reasons: aligned.rejected.slice(0, 8).join(",") });
+      if (isEmptyProposal(aligned.proposal)) throw new Error("propuesta vacía");
+      return { engine: model.id, model: model.model, notice: null, proposal: aligned.proposal };
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "error";
+      log("dictation.workers_ai_failed", { model: model.model, message: message.slice(0, 300) });
       return { engine: "reglas-locales", model: null, notice: FALLBACK_NOTICE, proposal: structureTranscript(transcript) };
     }
   }
