@@ -35,7 +35,7 @@ test('separa caries con ICDAS del estado general y conserva el relato', () => {
   assert.deepEqual(proposal.odontogram[0].finding, { condition: 'caries', icdas: 3, activity: 'active' });
   assert.equal(proposal.odontogram.some((item) => item.kind !== 'surface'), false);
   assert.match(proposal.evolution.body, /refiere dolor al frío/i);
-  assert.match(proposal.evolution.body, /Se observa caries/i);
+  assert.match(proposal.evolution.body, /FDI 3\.6 \(Chile 30\): caries oclusal, ICDAS 3, activa/);
   assert.match(proposal.clarifications.join(' '), /diagnóstico confirmado/i);
   assert.equal(JSON.stringify(proposal).includes('"diagnosis"'), false);
 });
@@ -156,7 +156,7 @@ test('sin Workers AI se usa el estructurador local y un modelo fallido no reempl
     complete: async () => { throw new Error('sin cuota'); },
   });
   assert.equal(failed.engine, 'reglas-locales');
-  assert.match(failed.notice, /estructurador local/);
+  assert.match(failed.notice, /El modelo no redacta esta nota/);
   assert.equal(failed.proposal.odontogram[0].tooth, 24);
 
   const events = [];
@@ -171,9 +171,9 @@ test('sin Workers AI se usa el estructurador local y un modelo fallido no reempl
       clarifications: ['Revisar numeración.'],
     }),
   }, (event, detail) => events.push({ event, detail }));
-  assert.equal(accepted.engine, 'workers-ai');
-  assert.equal(accepted.model, 'modelo-de-prueba');
-  assert.equal(accepted.notice, null);
+  assert.equal(accepted.engine, 'reglas-locales');
+  assert.equal(accepted.model, null);
+  assert.match(accepted.notice, /El modelo no redacta esta nota/);
   assert.equal(accepted.proposal.odontogram.some((item) => item.status === 'Ausente' || item.tooth === 11), false);
   assert.equal(accepted.proposal.odontogram[0].tooth, 24);
   assert.equal(accepted.proposal.odontogram[0].finding.condition, 'restored');
@@ -203,29 +203,30 @@ test('una corona inventada sobre caries y obturación no llega al odontograma', 
       clarifications: [],
     }),
   }, (event, detail) => events.push({ event, detail }));
-  assert.match(outcome.notice, /redacción local/);
+  assert.match(outcome.notice, /El modelo no redacta esta nota/);
   assert.equal(outcome.proposal.odontogram.some((item) => item.kind === 'crown' || item.status === 'Corona'), false);
   assert.equal(outcome.proposal.odontogram.find((item) => item.tooth === 24)?.finding.condition, 'restored');
   assert.equal(outcome.proposal.odontogram.some((item) => item.tooth === 36), false);
   assert.match(outcome.proposal.evolution.body, /obturación oclusal/i);
   assert.match(outcome.proposal.clarifications.join(' '), /ICDAS/i);
-  assert.equal(events.some((item) => item.event === 'dictation.evolution_rejected'), true);
+  assert.equal(events.some((item) => item.event === 'dictation.evolution_not_requested'), true);
   assert.equal(JSON.stringify(events).includes(transcript), false);
 });
 
-test('el error 5025 queda en el registro y el dentista ve el aviso de respaldo', async () => {
+test('la nota no llama al modelo aunque el binding exista', async () => {
+  let called = false;
   const events = [];
   const outcome = await proposeFromTranscript({ transcript: 'Pieza 12 con obturación oclusal.', chart: [] }, {
     id: 'workers-ai',
-    model: '@cf/meta/llama-3.1-8b-instruct-fp8',
-    complete: async () => { throw new Error('AiError: 5025: This model doesn\'t support JSON Schema.'); },
+    model: '@cf/meta/llama-3.1-8b-instruct-fast',
+    complete: async () => { called = true; throw new Error('AiError: 5025: This model doesn\'t support JSON Schema.'); },
   }, (event, detail) => events.push({ event, detail }));
+  assert.equal(called, false);
   assert.equal(outcome.engine, 'reglas-locales');
-  assert.match(outcome.notice, /No se pudo usar el modelo/);
-  assert.equal(outcome.proposal.odontogram[0].tooth, 24);
-  assert.equal(events[0].event, 'dictation.workers_ai_failed');
-  assert.match(events[0].detail.message, /5025/);
-  assert.equal(Object.values(events[0].detail).join(' ').includes('obturación'), false);
+  assert.match(outcome.notice, /El modelo no redacta esta nota/);
+  assert.match(outcome.proposal.evolution.body, /FDI 2\.4 \(Chile 12\): obturación oclusal/);
+  assert.equal(events[0].event, 'dictation.evolution_not_requested');
+  assert.equal(JSON.stringify(events).includes('obturación'), false);
 });
 
 test('un JSON compatible con caries ICDAS se conserva', async () => {
@@ -241,7 +242,7 @@ test('un JSON compatible con caries ICDAS se conserva', async () => {
       clarifications: [],
     }),
   });
-  assert.equal(outcome.notice, null);
+  assert.match(outcome.notice, /El modelo no redacta esta nota/);
   assert.equal(outcome.proposal.odontogram.length, 1);
   assert.equal(outcome.proposal.odontogram[0].tooth, 36);
   assert.deepEqual(outcome.proposal.odontogram[0].finding, { condition: 'caries', icdas: 3, activity: 'active' });
@@ -300,7 +301,7 @@ test('dos dictados chilenos reales no mezclan piezas ni contradicen las aclaraci
   assert.equal(filling.sourceText.includes('Pieza 30'), false);
   assert.equal(filling.finding.condition, 'restored');
   assert.equal(/refiere|relata/i.test(first.proposal.evolution.body), false);
-  assert.match(first.proposal.evolution.body, /Pieza 30 caries oclusal ICDAS 3 activa/);
+  assert.match(first.proposal.evolution.body, /FDI 3\.6 \(Chile 30\): caries oclusal, ICDAS 3, activa/);
   assert.match(first.proposal.evolution.body, /control en 6 meses/);
   assert.equal(/ICDAS y actividad|no es un FDI válido|lectura local|se dejó fuera/i.test(first.proposal.clarifications.join(' ')), false);
 
@@ -335,6 +336,47 @@ test('dos dictados chilenos reales no mezclan piezas ni contradicen las aclaraci
   assert.match(second.proposal.clarifications.join(' '), /Falta el monto/);
   assert.equal(/no es un FDI válido|lectura local|se dejó fuera/i.test(second.proposal.clarifications.join(' ')), false);
   assert.equal(/refiere|relata/i.test(second.proposal.evolution.body), false);
+});
+
+test('el dictado en vivo no mezcla ICDAS con actividad ni incorpora la pieza sin marcar', async () => {
+  const transcript = 'Pieza 3.6 caries MOD ICDAS 4 activa. Pieza 8 caries palatina ICDAS 2 inactiva. Pieza 24 obturación vestibular. Pieza 19 lingual caries ICDAS 3 activa. Pieza 12 incisal caries ICDAS 2 activa.';
+  const invented = 'La pieza 3.6 presenta caries MOD con un grado de actividad ICDAS 4. La pieza 8 tiene caries palatina con un grado de actividad ICDAS 2. La pieza 24 tiene obturación vestibular. La pieza 19 tiene caries lingual con un grado de actividad ICDAS 3. La pieza 12 tiene caries incisal con un grado de actividad ICDAS 2. Se contempla realizar un tratamiento. Hay extracción previa.';
+  let called = false;
+  const outcome = await proposeFromTranscript({ transcript, chart: [] }, {
+    id: 'workers-ai',
+    model: '@cf/meta/llama-3.1-8b-instruct-fast',
+    complete: async () => {
+      called = true;
+      return { title: 'Evolución', body: invented };
+    },
+  });
+  assert.equal(called, false);
+  const proposal = outcome.proposal;
+  const teeth = proposal.odontogram.map((item) => item.tooth);
+  assert.deepEqual([...new Set(teeth)], [36, 11, 41, 46]);
+  assert.equal(proposal.odontogram.some((item) => item.tooth === 24), false);
+  const byTooth = (tooth) => proposal.odontogram.filter((item) => item.tooth === tooth);
+  assert.deepEqual(byTooth(36).map((item) => item.surface).sort(), ['D', 'M', 'O']);
+  assert.deepEqual(byTooth(36)[0].finding, { condition: 'caries', icdas: 4, activity: 'active' });
+  assert.equal(byTooth(11)[0].surface, 'P');
+  assert.deepEqual(byTooth(11)[0].finding, { condition: 'caries', icdas: 2, activity: 'inactive' });
+  assert.equal(byTooth(41)[0].finding.condition, 'restored');
+  assert.equal(byTooth(41)[0].surface, 'V');
+  assert.equal(byTooth(46)[0].surface, 'P');
+  assert.deepEqual(byTooth(46)[0].finding, { condition: 'caries', icdas: 3, activity: 'active' });
+
+  const body = proposal.evolution.body;
+  const exam = body.split('Pendiente de aclarar')[0];
+  assert.match(exam, /Examen\nFDI 3\.6 \(Chile 30\): caries M-O-D, ICDAS 4, activa\./);
+  assert.match(exam, /FDI 1\.1 \(Chile 8\): caries palatina, ICDAS 2, inactiva\./);
+  assert.match(exam, /FDI 4\.1 \(Chile 24\): obturación vestibular\./);
+  assert.match(exam, /FDI 4\.6 \(Chile 19\): caries lingual, ICDAS 3, activa\./);
+  assert.equal(/incisal|grado de actividad|extracción previa|se contempla|tratamiento/i.test(exam), false);
+  assert.match(body, /Pendiente de aclarar/);
+  assert.match(body, /Pieza 12 incisal caries ICDAS 2 activa/);
+  assert.match(proposal.clarifications.join(' '), /FDI 2\.4.*incisal.*posterior.*no se marcó/);
+  assert.equal(/grado de actividad|extracción previa|se contempla|tratamiento/i.test(body), false);
+  assert.equal(body.includes(invented), false);
 });
 
 test('un implante automático rechazado se restituye y la relectura lo comprueba', () => {

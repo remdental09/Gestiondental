@@ -308,11 +308,11 @@ export function ClinicalDictation({
           {listening && <p role="status" className="font-medium text-[#087f83]">Escuchando en español de Chile…</p>}
           {speechError && <p role="alert" className="text-[#a43542]">{speechError}</p>}
           <label className="block space-y-1.5 font-medium">Transcripción
-            <Textarea data-testid="dictation-transcript" lang="es-CL" rows={5} value={interim ? `${transcript} ${interim}`.trim() : transcript} onChange={(event) => { if (listening) stop(); setTranscript(event.target.value); setInterim(""); resetReview(); }} placeholder="Habla o escribe el dictado. Revisa piezas y dosis antes de proponer cambios." />
+            <Textarea data-testid="dictation-transcript" lang="es-CL" rows={5} className="min-h-32 field-sizing-fixed" value={interim ? `${transcript} ${interim}`.trim() : transcript} onChange={(event) => { if (listening) stop(); setTranscript(event.target.value); setInterim(""); resetReview(); }} placeholder="Habla o escribe el dictado. Revisa piezas y dosis antes de proponer cambios." />
           </label>
           <p className="text-xs leading-5 text-[#60757a]">Chrome usa el reconocimiento del navegador en es-CL. El audio no se envía a una API de transcripción de pago. La propuesta pasa por revisión y la ficha manual no cambia sola.</p>
           {formError && <p role="alert" className="rounded-lg bg-rose-50 p-3 text-rose-950">{formError}</p>}
-          {outcome && <p className="rounded-lg bg-[#f4f7f8] p-3 leading-6 text-[#31575b]" role="status">{outcome.notice ?? `Las piezas y los hallazgos los resolvió el programa. La evolución se pidió a ${outcome.model ?? "la redacción local"}. Sigue sujeta a tu revisión.`}</p>}
+          {outcome && <p className="rounded-lg bg-[#f4f7f8] p-3 leading-6 text-[#31575b]" role="status">{outcome.notice ?? "La evolución y las piezas salen de lo resuelto en el dictado. Sigue sujeta a tu revisión."}</p>}
           {proposal && <div className="space-y-4" data-testid="dictation-review">
             <section className="rounded-xl border border-[#dce5e7] p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
