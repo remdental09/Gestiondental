@@ -326,11 +326,54 @@ function interpretTooth(raw: string, system: string | undefined): Mention {
   return { ok: false, reason: `«pieza ${raw}» no indica el sistema.${hint} Del 1 al 32, sin etiqueta, esta ficha usa numeración nacional chilena.` };
 }
 
+const SPOKEN_DIGIT = "(?:un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho)";
+const SPOKEN_CARDINALS: Array<[string, number]> = [
+  ["treinta y seis", 36], ["treinta y dos", 32], ["treinta y uno", 31], ["treinta", 30],
+  ["veintinueve", 29], ["veintiocho", 28], ["veintisiete", 27], ["veintiseis", 26], ["veinticinco", 25], ["veinticuatro", 24], ["veintitres", 23], ["veintidos", 22], ["veintiuno", 21], ["veinte", 20],
+  ["diecinueve", 19], ["dieciocho", 18], ["diecisiete", 17], ["dieciseis", 16], ["quince", 15], ["catorce", 14], ["trece", 13], ["doce", 12], ["once", 11], ["diez", 10],
+  ["nueve", 9], ["ocho", 8], ["siete", 7], ["seis", 6], ["cinco", 5], ["cuatro", 4], ["tres", 3], ["dos", 2], ["uno", 1], ["un", 1],
+];
+
+function speechText(value: string): string {
+  return value.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+}
+
+function spokenDigit(word: string): number {
+  return { un: 1, uno: 1, una: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8 }[word] ?? 0;
+}
+
 function toothMentions(sentence: string): Mention[] {
   const mentions: Mention[] = [];
   const numbered = /\b(?:pieza|diente)\s+(?:(fdi|iso|chilena|nacional|universal|estadounidense|ee\.?\s*uu\.?|ada)\s+)?(\d{1,2}(?:\.\d)?)\b|\b(fdi|iso|chilena|nacional|universal|estadounidense|ee\.?\s*uu\.?|ada)\s+(\d{1,2}(?:\.\d)?)\b/gi;
   for (const match of sentence.matchAll(numbered)) {
     mentions.push(interpretTooth(match[2] || match[4], match[1] || match[3]));
+  }
+  const spoken = speechText(sentence);
+  const consumed: Array<[number, number]> = [];
+  const overlaps = (start: number, end: number) => consumed.some(([from, to]) => start < to && end > from);
+  const pair = new RegExp(String.raw`\b(?:(?:pieza|diente)\s+)?(?:(?:fdi|iso)\s+)?${SPOKEN_DIGIT}\s+${SPOKEN_DIGIT}\b`, "g");
+  for (const match of spoken.matchAll(pair)) {
+    const start = match.index ?? 0;
+    const end = start + match[0].length;
+    if (overlaps(start, end)) continue;
+    const words = match[0].match(new RegExp(SPOKEN_DIGIT, "g")) ?? [];
+    const first = words[0];
+    const second = words[1];
+    if (!first || !second) continue;
+    consumed.push([start, end]);
+    mentions.push(interpretTooth(`${spokenDigit(first)}.${spokenDigit(second)}`, "fdi"));
+  }
+  for (const [phrase, value] of SPOKEN_CARDINALS) {
+    const labeled = new RegExp(String.raw`\b(pieza|diente|fdi|iso)\s+(?:(fdi|iso|chilena|nacional|universal|estadounidense)\s+)?${phrase}\b`, "g");
+    for (const match of spoken.matchAll(labeled)) {
+      const start = match.index ?? 0;
+      const end = start + match[0].length;
+      if (overlaps(start, end)) continue;
+      consumed.push([start, end]);
+      const cue = match[1];
+      const system = match[2] || (cue === "fdi" || cue === "iso" ? "fdi" : undefined);
+      mentions.push(interpretTooth(String(value), system));
+    }
   }
   const temporal = /\b(?:pieza|diente)\s+(?:temporal|decidua|deciduo|de\s+leche)\s+([a-t])\b/gi;
   for (const match of sentence.matchAll(temporal)) {
@@ -385,14 +428,101 @@ function budgetLabel(sentence: string): string {
   return clean.charAt(0).toUpperCase() + clean.slice(1);
 }
 
-function surfacesIn(sentence: string): OdontogramSurface[] {
-  const found: OdontogramSurface[] = [];
-  if (/\b(?:oclusal|oclual|incisal)\b/i.test(sentence)) found.push("O");
-  if (/\b(?:vestibular|bucal|labial)\b/i.test(sentence)) found.push("V");
-  if (/\b(?:palatin[oa]|lingual)\b/i.test(sentence)) found.push("P");
-  if (/\bmesial\b/i.test(sentence)) found.push("M");
-  if (/\bdistal\b/i.test(sentence)) found.push("D");
+type SurfaceVia = "oclusal" | "incisal" | "vestibular" | "palatina" | "lingual" | "mesial" | "distal";
+type RawSurface = { code: OdontogramSurface; via: SurfaceVia };
+
+const LETTER_GROUPS: Record<string, Array<[OdontogramSurface, SurfaceVia]>> = {
+  mod: [["M", "mesial"], ["O", "oclusal"], ["D", "distal"]],
+  dom: [["D", "distal"], ["O", "oclusal"], ["M", "mesial"]],
+  mo: [["M", "mesial"], ["O", "oclusal"]],
+  om: [["O", "oclusal"], ["M", "mesial"]],
+  od: [["O", "oclusal"], ["D", "distal"]],
+  do: [["D", "distal"], ["O", "oclusal"]],
+  md: [["M", "mesial"], ["D", "distal"]],
+  dm: [["D", "distal"], ["M", "mesial"]],
+  vo: [["V", "vestibular"], ["O", "oclusal"]],
+  ov: [["O", "oclusal"], ["V", "vestibular"]],
+};
+
+function collectRawSurfaces(sentence: string): RawSurface[] {
+  const text = speechText(sentence);
+  const found: RawSurface[] = [];
+  const add = (code: OdontogramSurface, via: SurfaceVia) => {
+    if (!found.some((item) => item.code === code && item.via === via)) found.push({ code, via });
+  };
+  for (const match of text.matchAll(/\b(mesio|disto|ocluso|vestibulo|linguo|palato)\s*-?\s*(oclusal|oclual|incisal|distal|mesial|vestibular|bucal|labial|lingual|palatina|palatino)\b/g)) {
+    const prefix = match[1];
+    const rest = match[2];
+    if (prefix === "mesio") add("M", "mesial");
+    if (prefix === "disto") add("D", "distal");
+    if (prefix === "ocluso") add("O", "oclusal");
+    if (prefix === "vestibulo") add("V", "vestibular");
+    if (prefix === "linguo") add("P", "lingual");
+    if (prefix === "palato") add("P", "palatina");
+    if (rest.startsWith("oclus")) add("O", "oclusal");
+    if (rest === "incisal") add("O", "incisal");
+    if (rest === "distal") add("D", "distal");
+    if (rest === "mesial") add("M", "mesial");
+    if (rest === "vestibular" || rest === "bucal" || rest === "labial") add("V", "vestibular");
+    if (rest === "lingual") add("P", "lingual");
+    if (rest.startsWith("palat")) add("P", "palatina");
+  }
+  for (const group of text.match(/\b(?:mod|dom|mo|om|od|do|md|dm|vo|ov)\b/g) ?? []) {
+    for (const [code, via] of LETTER_GROUPS[group] ?? []) add(code, via);
+  }
+  for (const match of text.matchAll(/\bcaras?\s+([omdvpli]{1,3})\b/g)) {
+    for (const letter of match[1]) {
+      if (letter === "o") add("O", "oclusal");
+      if (letter === "i") add("O", "incisal");
+      if (letter === "m") add("M", "mesial");
+      if (letter === "d") add("D", "distal");
+      if (letter === "v") add("V", "vestibular");
+      if (letter === "p") add("P", "palatina");
+      if (letter === "l") add("P", "lingual");
+    }
+  }
+  if (/\b(?:oclusal|oclual)\b/.test(text)) add("O", "oclusal");
+  if (/\bincisal\b/.test(text)) add("O", "incisal");
+  if (/\b(?:vestibular|bucal|labial)\b/.test(text)) add("V", "vestibular");
+  if (/\bpalatin[oa]\b/.test(text)) add("P", "palatina");
+  if (/\blingual\b/.test(text)) add("P", "lingual");
+  if (/\bmesial\b/.test(text)) add("M", "mesial");
+  if (/\bdistal\b/.test(text)) add("D", "distal");
   return found;
+}
+
+/** Maps dictated faces onto V/P/M/D/O. A mismatch that has one clinical reading is kept and explained; an incisal face on a posterior is not guessed. */
+export function resolveDictatedSurfaces(sentence: string, tooth: number): { surfaces: OdontogramSurface[]; notes: string[] } {
+  const anterior = tooth % 10 <= 3;
+  const upper = [1, 2, 5, 6].includes(Math.floor(tooth / 10));
+  const label = `FDI ${formatFdi(tooth)}`;
+  const surfaces: OdontogramSurface[] = [];
+  const notes: string[] = [];
+  const add = (code: OdontogramSurface) => { if (!surfaces.includes(code)) surfaces.push(code); };
+  const note = (text: string) => { if (!notes.includes(text)) notes.push(text); };
+  for (const item of collectRawSurfaces(sentence)) {
+    if (item.via === "oclusal" && anterior) {
+      add("O");
+      note(`En ${label}, «oclusal» se registró como incisal.`);
+      continue;
+    }
+    if (item.via === "incisal" && !anterior) {
+      note(`En ${label}, «incisal» no corresponde a una pieza posterior y no se marcó.`);
+      continue;
+    }
+    if (item.via === "palatina" && !upper) {
+      add("P");
+      note(`En ${label}, «palatina» se registró como lingual.`);
+      continue;
+    }
+    if (item.via === "lingual" && upper) {
+      add("P");
+      note(`En ${label}, «lingual» se registró como palatina.`);
+      continue;
+    }
+    add(item.code);
+  }
+  return { surfaces, notes };
 }
 
 function icdasFrom(sentence: string): number | null {
@@ -583,7 +713,6 @@ export function structureTranscript(transcript: string): DictationProposal {
     const mentions = toothMentions(sentence);
     const status = statusFrom(sentence);
     const surfaceResult = status === "Ausente" || status === "Implante" ? null : findingFrom(sentence);
-    const surfaces = status ? [] : surfacesIn(sentence);
     if (!mentions.length && (status || surfaceResult)) {
       clarifications.push(`Falta una pieza identificable en: «${clip(sentence)}».`);
       continue;
@@ -617,11 +746,13 @@ export function structureTranscript(transcript: string): DictationProposal {
         clarifications.push(surfaceResult.error);
         continue;
       }
-      if (!surfaces.length) {
-        clarifications.push(`Falta la superficie del hallazgo: «${clip(sentence)}».`);
+      const resolved = resolveDictatedSurfaces(sentence, mention.tooth);
+      for (const note of resolved.notes) clarifications.push(note);
+      if (!resolved.surfaces.length) {
+        if (!resolved.notes.length) clarifications.push(`Falta la superficie del hallazgo: «${clip(sentence)}».`);
         continue;
       }
-      for (const surface of surfaces) {
+      for (const surface of resolved.surfaces) {
         const item: OdontogramChange = {
           id: nextId("odo"),
           tooth: mention.tooth,
