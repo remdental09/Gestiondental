@@ -159,21 +159,118 @@ test('sin Workers AI se usa el estructurador local y un modelo fallido no reempl
   assert.match(failed.notice, /estructurador local/);
   assert.equal(failed.proposal.odontogram[0].tooth, 24);
 
+  const events = [];
   const accepted = await proposeFromTranscript({ transcript: 'Pieza 12 con obturación oclusal.', chart: [] }, {
     id: 'workers-ai',
     model: 'modelo-de-prueba',
     complete: async () => ({
-      evolution: { title: 'Nota', body: 'Texto revisable.' },
+      evolution: { title: 'Nota', body: 'Pieza 12 con obturación oclusal revisable.' },
       odontogram: [{ tooth: 11, numbering: 'FDI', numberingLabel: 'FDI 1.1', sourceText: 'modelo', kind: 'status', status: 'Ausente' }],
       budget: [],
       perio: [],
       clarifications: ['Revisar numeración.'],
     }),
-  });
+  }, (event, detail) => events.push({ event, detail }));
   assert.equal(accepted.engine, 'workers-ai');
   assert.equal(accepted.model, 'modelo-de-prueba');
   assert.equal(accepted.notice, null);
-  assert.equal(accepted.proposal.odontogram[0].tooth, 11);
+  assert.equal(accepted.proposal.odontogram.some((item) => item.status === 'Ausente' || item.tooth === 11), false);
+  assert.equal(accepted.proposal.odontogram[0].tooth, 24);
+  assert.equal(accepted.proposal.odontogram[0].finding.condition, 'restored');
+  assert.equal(events.some((item) => item.event === 'dictation.model_items_rejected'), true);
+});
+
+test('una corona inventada sobre caries y obturación no llega al odontograma', async () => {
+  const transcript = 'Pieza 30 caries oclusal. Pieza 12 obturación oclusal de resina.';
+  const local = structureTranscript(transcript);
+  assert.equal(local.odontogram.some((item) => item.status === 'Corona' || item.kind === 'crown'), false);
+  assert.equal(local.odontogram.find((item) => item.tooth === 24)?.finding.condition, 'restored');
+  assert.equal(local.odontogram.some((item) => item.tooth === 36), false);
+  assert.match(local.clarifications.join(' '), /ICDAS/i);
+
+  const events = [];
+  const outcome = await proposeFromTranscript({ transcript, chart: [] }, {
+    id: 'workers-ai',
+    model: '@cf/meta/llama-3.1-8b-instruct-fast',
+    complete: async () => ({
+      evolution: { title: 'Nota', body: 'Sin relación clínica.' },
+      odontogram: [
+        { tooth: 36, numbering: 'chilena', numberingLabel: 'nacional chilena 30', sourceText: 'Pieza 30 caries oclusal.', kind: 'crown', status: 'Corona' },
+        { tooth: 24, numbering: 'chilena', numberingLabel: 'nacional chilena 12', sourceText: 'Pieza 12 obturación oclusal de resina.', kind: 'crown', status: 'Corona' },
+      ],
+      budget: [],
+      perio: [],
+      clarifications: [],
+    }),
+  }, (event, detail) => events.push({ event, detail }));
+  assert.equal(outcome.notice, null);
+  assert.equal(outcome.proposal.odontogram.some((item) => item.kind === 'crown' || item.status === 'Corona'), false);
+  assert.equal(outcome.proposal.odontogram.find((item) => item.tooth === 24)?.finding.condition, 'restored');
+  assert.equal(outcome.proposal.odontogram.some((item) => item.tooth === 36), false);
+  assert.match(outcome.proposal.evolution.body, /obturación oclusal/i);
+  assert.match(outcome.proposal.clarifications.join(' '), /ICDAS/i);
+  assert.equal(events[0].event, 'dictation.model_items_rejected');
+  assert.match(events[0].detail.reasons, /crown_on_surface_finding/);
+  assert.equal(JSON.stringify(events).includes(transcript), false);
+});
+
+test('el error 5025 queda en el registro y el dentista ve el aviso de respaldo', async () => {
+  const events = [];
+  const outcome = await proposeFromTranscript({ transcript: 'Pieza 12 con obturación oclusal.', chart: [] }, {
+    id: 'workers-ai',
+    model: '@cf/meta/llama-3.1-8b-instruct-fp8',
+    complete: async () => { throw new Error('AiError: 5025: This model doesn\'t support JSON Schema.'); },
+  }, (event, detail) => events.push({ event, detail }));
+  assert.equal(outcome.engine, 'reglas-locales');
+  assert.match(outcome.notice, /No se pudo usar el modelo/);
+  assert.equal(outcome.proposal.odontogram[0].tooth, 24);
+  assert.equal(events[0].event, 'dictation.workers_ai_failed');
+  assert.match(events[0].detail.message, /5025/);
+  assert.equal(Object.values(events[0].detail).join(' ').includes('obturación'), false);
+});
+
+test('un JSON compatible con caries ICDAS se conserva', async () => {
+  const transcript = 'Se observa caries en la cara oclusal de la pieza FDI 3.6, ICDAS 3, lesión activa.';
+  const outcome = await proposeFromTranscript({ transcript, chart: [] }, {
+    id: 'workers-ai',
+    model: '@cf/meta/llama-3.1-8b-instruct-fast',
+    complete: async () => ({
+      evolution: { title: 'Evolución dictada', body: 'Se observa caries en la cara oclusal de la pieza FDI 3.6, ICDAS 3, lesión activa.' },
+      odontogram: [{ tooth: 36, numbering: 'FDI', numberingLabel: 'FDI 3.6', sourceText: transcript, kind: 'surface', surface: 'O', finding: { condition: 'caries', icdas: 3, activity: 'active' } }],
+      budget: [],
+      perio: [],
+      clarifications: [],
+    }),
+  });
+  assert.equal(outcome.notice, null);
+  assert.equal(outcome.proposal.odontogram.length, 1);
+  assert.equal(outcome.proposal.odontogram[0].tooth, 36);
+  assert.deepEqual(outcome.proposal.odontogram[0].finding, { condition: 'caries', icdas: 3, activity: 'active' });
+});
+
+test('dictados chilenos de caries, sellado, sondaje, presupuesto y corona cementada', () => {
+  const vestibular = structureTranscript('Se observa caries vestibular en FDI 1.6, ICDAS 2, inactiva.');
+  assert.equal(vestibular.odontogram[0].tooth, 16);
+  assert.equal(vestibular.odontogram[0].surface, 'V');
+  assert.deepEqual(vestibular.odontogram[0].finding, { condition: 'caries', icdas: 2, activity: 'inactive' });
+
+  const probing = structureTranscript('Sondaje de 5 mm en distal lingual de la pieza chilena 19.');
+  assert.equal(probing.perio[0].tooth, 46);
+  assert.equal(probing.perio[0].site, 'DL');
+  assert.equal(probing.perio[0].depth, 5);
+  assert.equal(probing.perio[0].persisted, false);
+  assert.equal(probing.odontogram.length, 0);
+
+  const budget = structureTranscript('Presupuesto de limpieza, 25000 pesos.');
+  assert.equal(budget.odontogram.length, 0);
+  assert.equal(budget.budget[0].amount, 25000);
+  assert.match(budget.budget[0].label, /limpieza/i);
+
+  const crown = structureTranscript('Se cementó corona de disilicato color B1 en pieza FDI 4.6.');
+  assert.equal(crown.odontogram[0].kind, 'crown');
+  assert.equal(crown.odontogram[0].tooth, 46);
+  assert.equal(crown.odontogram[0].material, 'Disilicato');
+  assert.equal(crown.odontogram[0].shade, 'B1');
 });
 
 test('un implante automático rechazado se restituye y la relectura lo comprueba', () => {

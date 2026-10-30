@@ -26,7 +26,7 @@ export function createWorkersAiModel(ai: AiRunner): ClinicalModel {
           type: "json_schema",
           json_schema: DICTATION_JSON_SCHEMA.schema,
         },
-        max_tokens: 1800,
+        max_tokens: 1200,
         temperature: 0,
       });
       return modelOutputToJson(result);
