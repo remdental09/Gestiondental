@@ -1,0 +1,25 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "gestion-dental-luis-rodriguez",
+  "main": "worker.ts",
+  "compatibility_date": "2026-10-30",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": false,
+  "observability": { "enabled": true },
+  "assets": { "binding": "ASSETS", "run_worker_first": true },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "gestion-dental-clinical",
+      "database_id": "ccc303d1-4550-4e31-a55a-816ccd5c81cc",
+      "migrations_dir": "drizzle"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "BUCKET",
+      "bucket_name": "gestion-dental-clinical-images"
+    }
+  ]
+}
