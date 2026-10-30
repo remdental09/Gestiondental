@@ -1,8 +1,7 @@
 import {
   buildModelUserPrompt,
-  CLINICAL_SYSTEM_PROMPT,
-  DICTATION_JSON_SCHEMA,
-  modelOutputToJson,
+  EVOLUTION_JSON_SCHEMA,
+  EVOLUTION_SYSTEM_PROMPT,
   WORKERS_AI_MODEL,
   type ClinicalModel,
 } from "@/lib/dictation/proposal";
@@ -11,7 +10,7 @@ type AiRunner = {
   run(model: string, input: Record<string, unknown>): Promise<unknown>;
 };
 
-/** Llamada intercambiable al modelo. Otro proveedor solo tiene que cumplir ClinicalModel. */
+/** El modelo solo redacta la evolución. Las piezas y los hallazgos los resuelve el código. */
 export function createWorkersAiModel(ai: AiRunner): ClinicalModel {
   return {
     id: "workers-ai",
@@ -19,17 +18,17 @@ export function createWorkersAiModel(ai: AiRunner): ClinicalModel {
     async complete(input) {
       const result = await ai.run(WORKERS_AI_MODEL, {
         messages: [
-          { role: "system", content: CLINICAL_SYSTEM_PROMPT },
+          { role: "system", content: EVOLUTION_SYSTEM_PROMPT },
           { role: "user", content: buildModelUserPrompt(input) },
         ],
         response_format: {
           type: "json_schema",
-          json_schema: DICTATION_JSON_SCHEMA.schema,
+          json_schema: EVOLUTION_JSON_SCHEMA,
         },
-        max_tokens: 1200,
+        max_tokens: 500,
         temperature: 0,
       });
-      return modelOutputToJson(result);
+      return result;
     },
   };
 }
