@@ -111,11 +111,24 @@ export async function GET() {
       db.select().from(clinicalImages).where(eq(clinicalImages.ownerId, ownerId)).orderBy(desc(clinicalImages.id)),
       db.select().from(calendarEvents).where(eq(calendarEvents.ownerId, ownerId)).orderBy(calendarEvents.startAt),
     ]);
+    const notesByPatient = new Map<number, typeof ns>();
+    for (const note of ns) {
+      const patientNotes = notesByPatient.get(note.patientId);
+      if (patientNotes) patientNotes.push(note);
+      else notesByPatient.set(note.patientId, [note]);
+    }
+    const examsByPatient = new Map<number, typeof pe>();
+    for (const exam of pe) {
+      const patientExams = examsByPatient.get(exam.patientId);
+      if (patientExams) patientExams.push(exam);
+      else examsByPatient.set(exam.patientId, [exam]);
+    }
+    const toothStatusByPatient = new Map(ts.map(status => [status.patientId, status]));
     const snapshot = calendarSnapshot(viewer?.email || "", ces);
     const charts = Object.fromEntries(ps.map(p => {
-      const saved = ts.find(x => x.patientId === p.id);
+      const saved = toothStatusByPatient.get(p.id);
       const chart = normalizeOdontogram(saved ? JSON.parse(saved.data) : {});
-      for (const note of ns.filter(n => n.patientId === p.id)) {
+      for (const note of notesByPatient.get(p.id) ?? []) {
         const crown = cementedCrownFromEvolution(note.body);
         if (crown && chart.teeth[crown.tooth] === "Corona" && !chart.crowns?.[crown.tooth] && crown.material) {
           chart.crowns![crown.tooth] = { material: crown.material, shade: crown.shade, source: "evolution", clinicalDate: note.clinicalDate };
@@ -130,7 +143,7 @@ export async function GET() {
       appointments: as.map(a => ({ id: a.id, patientId: a.patientId, day: a.day.split("-").reverse().join("-"), time: a.time, reason: a.reason })),
       calendarEvents: [...ces.filter(e => e.status !== "cancelled").map(e => ({ id: e.id, title: e.title, startAt: e.startAt, endAt: e.endAt, sourceTimeZone: e.sourceTimeZone, htmlLink: e.htmlLink, status: e.status, allDay: e.allDay, patientId: e.patientId })), ...snapshot.events],
       calendarSnapshotAt: snapshot.events.length ? snapshot.capturedAt : null,
-      periodontalExams: Object.fromEntries(ps.map(p => [p.id, pe.filter(x => x.patientId === p.id).map(x => ({ id: x.id, recordedAt: x.recordedAt, ...normalizePerio(JSON.parse(x.teeth)) }))])),
+      periodontalExams: Object.fromEntries(ps.map(p => [p.id, (examsByPatient.get(p.id) ?? []).map(x => ({ id: x.id, recordedAt: x.recordedAt, ...normalizePerio(JSON.parse(x.teeth)) }))])),
       toothStatuses: charts,
       clinicalImages: imgs.map(i => ({ id: i.id, patientId: i.patientId, url: "/api/images/" + i.id, name: i.name, kind: i.kind, note: i.note, addedAt: displayDate(i.addedAt.slice(0, 10)), size: i.size, contentType: i.contentType })),
     }, { headers: { "Cache-Control": "no-store" } });
