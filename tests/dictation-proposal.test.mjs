@@ -177,7 +177,7 @@ test('sin Workers AI se usa el estructurador local y un modelo fallido no reempl
   assert.equal(accepted.proposal.odontogram.some((item) => item.status === 'Ausente' || item.tooth === 11), false);
   assert.equal(accepted.proposal.odontogram[0].tooth, 24);
   assert.equal(accepted.proposal.odontogram[0].finding.condition, 'restored');
-  assert.equal(events.some((item) => item.event === 'dictation.model_items_rejected'), true);
+  assert.equal(events.some((item) => item.event === 'dictation.model_items_rejected'), false);
 });
 
 test('una corona inventada sobre caries y obturación no llega al odontograma', async () => {
@@ -203,14 +203,13 @@ test('una corona inventada sobre caries y obturación no llega al odontograma', 
       clarifications: [],
     }),
   }, (event, detail) => events.push({ event, detail }));
-  assert.equal(outcome.notice, null);
+  assert.match(outcome.notice, /redacción local/);
   assert.equal(outcome.proposal.odontogram.some((item) => item.kind === 'crown' || item.status === 'Corona'), false);
   assert.equal(outcome.proposal.odontogram.find((item) => item.tooth === 24)?.finding.condition, 'restored');
   assert.equal(outcome.proposal.odontogram.some((item) => item.tooth === 36), false);
   assert.match(outcome.proposal.evolution.body, /obturación oclusal/i);
   assert.match(outcome.proposal.clarifications.join(' '), /ICDAS/i);
-  assert.equal(events[0].event, 'dictation.model_items_rejected');
-  assert.match(events[0].detail.reasons, /crown_on_surface_finding/);
+  assert.equal(events.some((item) => item.event === 'dictation.evolution_rejected'), true);
   assert.equal(JSON.stringify(events).includes(transcript), false);
 });
 
@@ -271,6 +270,71 @@ test('dictados chilenos de caries, sellado, sondaje, presupuesto y corona cement
   assert.equal(crown.odontogram[0].tooth, 46);
   assert.equal(crown.odontogram[0].material, 'Disilicato');
   assert.equal(crown.odontogram[0].shade, 'B1');
+});
+
+test('dos dictados chilenos reales no mezclan piezas ni contradicen las aclaraciones', async () => {
+  const caries = 'Pieza 30 caries oclusal ICDAS 3 activa. Pieza 12 obturación oclusal de resina. Se indica control en 6 meses.';
+  const crown = 'Pieza 19 corona metal porcelana. Pieza 3 ausente por extracción. Presupuesto: resina pieza 12.';
+  const confused = {
+    id: 'workers-ai',
+    model: '@cf/meta/llama-3.1-8b-instruct-fast',
+    complete: async () => ({
+      evolution: { title: 'Evolución', body: 'El paciente refiere caries oclusal en pieza 30 con ICDAS 3 y actividad activa. También refiere obturación oclusal de resina en pieza 12. El paciente se indica control en 6 meses.' },
+      odontogram: [{ tooth: 24, numbering: 'chilena', numberingLabel: 'Pieza 30', sourceText: 'Pieza 30 caries oclusal ICDAS 3 activa.', kind: 'surface', surface: 'O', finding: { condition: 'restored', icdas: null, activity: null } }],
+      budget: [],
+      perio: [],
+      clarifications: ['Caries sin ICDAS y actividad completos, sin cambio de superficie: «Pieza 30 caries oclusal ICDAS 3 activa».'],
+    }),
+  };
+  const first = await proposeFromTranscript({ transcript: caries, chart: [] }, confused);
+  const lesion = first.proposal.odontogram.find((item) => item.tooth === 36);
+  const filling = first.proposal.odontogram.find((item) => item.tooth === 24);
+  assert.equal(first.proposal.odontogram.length, 2);
+  assert.equal(lesion.numberingLabel.includes('3.6'), true);
+  assert.equal(lesion.sourceText.includes('Pieza 30'), true);
+  assert.equal(lesion.sourceText.includes('Pieza 12'), false);
+  assert.equal(lesion.surface, 'O');
+  assert.deepEqual(lesion.finding, { condition: 'caries', icdas: 3, activity: 'active' });
+  assert.equal(filling.numberingLabel.includes('2.4'), true);
+  assert.equal(filling.sourceText.includes('Pieza 12'), true);
+  assert.equal(filling.sourceText.includes('Pieza 30'), false);
+  assert.equal(filling.finding.condition, 'restored');
+  assert.equal(/refiere|relata/i.test(first.proposal.evolution.body), false);
+  assert.match(first.proposal.evolution.body, /Pieza 30 caries oclusal ICDAS 3 activa/);
+  assert.match(first.proposal.evolution.body, /control en 6 meses/);
+  assert.equal(/ICDAS y actividad|no es un FDI válido|lectura local|se dejó fuera/i.test(first.proposal.clarifications.join(' ')), false);
+
+  const second = await proposeFromTranscript({ transcript: crown, chart: [] }, {
+    ...confused,
+    complete: async () => ({
+      evolution: { title: 'Evolución', body: 'El paciente refiere una corona y una ausencia.' },
+      odontogram: [],
+      budget: [],
+      perio: [],
+      clarifications: [
+        'La pieza 19 no es un FDI válido y se dejó fuera.',
+        'La pieza 3 no es un FDI válido y se dejó fuera.',
+        'El odontograma sigue la lectura local del dictado, porque el modelo no dejó un cambio compatible.',
+      ],
+    }),
+  });
+  const observedCrown = second.proposal.odontogram.find((item) => item.tooth === 46);
+  const missing = second.proposal.odontogram.find((item) => item.tooth === 16);
+  assert.equal(observedCrown.kind, 'crown');
+  assert.equal(observedCrown.status, 'Corona');
+  assert.equal(observedCrown.material, 'Metal cerámica');
+  assert.equal(observedCrown.numberingLabel.includes('4.6'), true);
+  assert.equal(observedCrown.sourceText.includes('Pieza 19'), true);
+  assert.equal(missing.status, 'Ausente');
+  assert.equal(missing.missingReason, 'other');
+  assert.equal(missing.numberingLabel.includes('1.6'), true);
+  assert.equal(missing.sourceText.includes('Pieza 3'), true);
+  assert.equal(second.proposal.budget.length, 1);
+  assert.equal(second.proposal.budget[0].amount, 0);
+  assert.match(second.proposal.budget[0].label, /resina/i);
+  assert.match(second.proposal.clarifications.join(' '), /Falta el monto/);
+  assert.equal(/no es un FDI válido|lectura local|se dejó fuera/i.test(second.proposal.clarifications.join(' ')), false);
+  assert.equal(/refiere|relata/i.test(second.proposal.evolution.body), false);
 });
 
 test('un implante automático rechazado se restituye y la relectura lo comprueba', () => {

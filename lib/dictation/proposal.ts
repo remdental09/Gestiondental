@@ -413,7 +413,7 @@ function activityFrom(sentence: string): SurfaceFinding["activity"] {
 function materialFrom(sentence: string): CrownMaterial | undefined {
   if (/\b(?:zirconio|circonio)\b/i.test(sentence)) return "Zirconio";
   if (/\bdisilicato\b/i.test(sentence)) return "Disilicato";
-  if (/\bmetal[ -]?cer[aá]mica\b/i.test(sentence)) return "Metal cerámica";
+  if (/\bmetal\s*-?\s*porcelana\b|\bmetal[ -]?cer[aá]mica\b/i.test(sentence)) return "Metal cerámica";
   if (/\bresina\b/i.test(sentence)) return "Resina";
   if (/\botro\s+material\b/i.test(sentence)) return "Otro";
   return undefined;
@@ -425,7 +425,7 @@ function shadeFrom(sentence: string): string | null {
 
 function missingReasonFrom(sentence: string): OdontogramChange["missingReason"] | undefined {
   if (/\bpor\s+caries\b/i.test(sentence)) return "caries";
-  if (/\botra\s+causa\b/i.test(sentence)) return "other";
+  if (/\bpor\s+extracci[oó]n\b|\botra\s+causa\b/i.test(sentence)) return "other";
   if (/\bcausa\s+(?:desconocida|no\s+precisada)\b/i.test(sentence)) return "unknown";
   return undefined;
 }
@@ -434,7 +434,7 @@ function statusFrom(sentence: string): ToothStatus | null {
   if (/\bresto\s+radicular\b/i.test(sentence) && /\bendodoncia\b/i.test(sentence)) return "Resto radicular con endodoncia";
   if (/\bindicaci[oó]n\s+de\s+exodoncia\b/i.test(sentence)) return "Indicación de exodoncia";
   if (/\bimplante\b/i.test(sentence) && isPerformed(sentence)) return "Implante";
-  if (/\b(?:corona|pr[oó]tesis\s+fija\s+definitiva)\b/i.test(sentence) && isPerformed(sentence) && !/\bprovisori[ao]\b/i.test(sentence)) return "Corona";
+  if (/\b(?:corona|pr[oó]tesis\s+fija\s+definitiva)\b/i.test(sentence) && !/\bprovisori[ao]\b/i.test(sentence)) return "Corona";
   if (/\b(?:ausente|extra[ií]d[oa]|exodonciad[oa])\b/i.test(sentence)) return "Ausente";
   return null;
 }
@@ -482,6 +482,7 @@ function composeEvolution(transcript: string): { title: string; body: string } |
   const relato: string[] = [];
   const examen: string[] = [];
   const procedimientos: string[] = [];
+  const indicaciones: string[] = [];
   const presupuesto: string[] = [];
   const resto: string[] = [];
   for (const sentence of sentences(clean)) {
@@ -489,13 +490,15 @@ function composeEvolution(transcript: string): { title: string; body: string } |
     if (isPatient(sentence)) relato.push(/\b(?:refiere|niega)\b/i.test(sentence) ? line : `Refiere: ${line}`);
     else if (/\b(?:presupuesto|cotizaci[oó]n)\b/i.test(sentence)) presupuesto.push(line);
     else if (isPerformed(sentence)) procedimientos.push(line);
-    else if (/\b(?:se\s+observa|caries|obturaci|sellante|sondaje|ausente|hallazgo)\b/i.test(sentence)) examen.push(line);
+    else if (/\bse\s+indica\b/i.test(sentence)) indicaciones.push(line);
+    else if (/\b(?:se\s+observa|caries|obturaci|sellante|sondaje|ausente|hallazgo|corona)\b/i.test(sentence)) examen.push(line);
     else resto.push(line);
   }
   const lines = ["Dictado para revisión. Lo que no aparece aquí queda sin registrar. Una negación solo se anota si fue dicha."];
   if (relato.length) lines.push("", "Relato", ...relato);
   if (examen.length) lines.push("", "Examen", ...examen);
   if (procedimientos.length) lines.push("", "Procedimientos", ...procedimientos);
+  if (indicaciones.length) lines.push("", "Indicaciones", ...indicaciones);
   if (presupuesto.length) lines.push("", "Presupuesto mencionado", ...presupuesto);
   if (resto.length) lines.push("", "Otros dichos", ...resto);
   return { title: "Evolución dictada", body: lines.join("\n") };
@@ -552,7 +555,9 @@ export function structureTranscript(transcript: string): DictationProposal {
     if (amount) {
       budget.push({ id: nextId("pre"), title: "Presupuesto dictado", label: budgetLabel(sentence), amount, sourceText: clip(sentence) });
     } else if (/\b(?:presupuesto|cotizaci[oó]n|honorarios)\b/i.test(sentence)) {
-      clarifications.push(`Presupuesto sin monto en pesos: «${clip(sentence)}».`);
+      const label = budgetLabel(sentence);
+      budget.push({ id: nextId("pre"), title: "Presupuesto dictado", label, amount: 0, sourceText: clip(sentence) });
+      clarifications.push(`Falta el monto en pesos de «${label}». Complétalo antes de guardar.`);
     }
 
     if (isPatient(sentence)) {
@@ -753,7 +758,7 @@ export function validateProposal(input: unknown): DictationProposal {
       const source = raw as Record<string, unknown>;
       const amount = Number(typeof source.amount === "string" ? source.amount.replace(/\./g, "") : source.amount);
       const label = text(source.label, 180);
-      if (!label || !Number.isSafeInteger(amount) || amount < 1 || amount > 1_000_000_000) {
+      if (!label || !Number.isSafeInteger(amount) || amount < 0 || amount > 1_000_000_000) {
         clarifications.push("Una prestación del presupuesto no tiene monto válido y se omitió.");
         continue;
       }
@@ -807,16 +812,21 @@ export function modelOutputToJson(result: unknown): unknown {
   throw new Error("Respuesta del modelo vacía.");
 }
 
-const MODEL_EXAMPLES = `Ejemplos (no son el dictado actual):
-1. «Pieza 30 caries oclusal. Pieza 12 obturación oclusal de resina.» → tooth 24, numbering chilena, kind surface, surface O, finding restored. La caries de la pieza 30 no lleva ICDAS ni actividad: no crees ítem y pídelo en clarifications. No uses Corona.
-2. «Se cementó corona de zirconio color A2 en FDI 2.1.» → tooth 21, kind crown, status Corona, material Zirconio, shade A2.
-3. «El paciente refiere dolor. Niega alergia a penicilina.» → evolution con esas dos frases, odontogram vacío. No inventes otras negaciones.`;
+export const EVOLUTION_SYSTEM_PROMPT = `Redactas la evolución de un dictado odontológico en español de Chile. Devuelve solo JSON con title y body.
+Los hallazgos del examen se escriben como examen. No uses «refiere», «relata» ni «dice» si el dictado no lo dice. No inventes diagnósticos, piezas, ICDAS ni negaciones. Conserva los números de piezas tal como fueron dictados.`;
+
+export const EVOLUTION_JSON_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["title", "body"],
+  properties: {
+    title: { type: "string" },
+    body: { type: "string" },
+  },
+} as const;
 
 export function buildModelUserPrompt(input: StructureInput): string {
-  const chart = input.chart.length
-    ? input.chart.map((item) => `FDI ${formatFdi(item.tooth)} (código ${item.tooth}): ${item.status}`).join("\n")
-    : "Sin estados generales registrados.";
-  return `${MODEL_EXAMPLES}\n\nTranscripción a estructurar:\n${input.transcript.trim()}\n\nEstado general ya guardado, sin nombre del paciente:\n${chart}\n\nDevuelve solo el JSON de esta transcripción.`;
+  return `Dictado:\n${input.transcript.trim()}\n\nRedacta solo la evolución de este dictado.`;
 }
 
 export function sanitizeChart(value: unknown): StructureInput["chart"] {
@@ -831,10 +841,6 @@ export function sanitizeChart(value: unknown): StructureInput["chart"] {
     chart.push({ tooth, status });
   }
   return chart;
-}
-
-function isEmptyProposal(proposal: DictationProposal): boolean {
-  return !proposal.evolution && proposal.odontogram.length === 0 && proposal.budget.length === 0 && proposal.perio.length === 0 && proposal.clarifications.length === 0;
 }
 
 export function fdiTeethInText(text: string): number[] {
@@ -922,26 +928,56 @@ export function alignProposalWithTranscript(transcript: string, proposal: Dictat
   };
 }
 
+function unwrapModelValue(result: unknown): unknown {
+  if (typeof result === "string") return parseModelJson(result);
+  if (!result || typeof result !== "object" || Array.isArray(result)) return null;
+  const record = result as Record<string, unknown>;
+  if (typeof record.response === "string") return unwrapModelValue(record.response);
+  if (record.response && typeof record.response === "object") return record.response;
+  return result;
+}
+
+export function evolutionFromModel(result: unknown): { title: string; body: string } | null {
+  const value = unwrapModelValue(result);
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const source = record.evolution && typeof record.evolution === "object" && !Array.isArray(record.evolution)
+    ? record.evolution as Record<string, unknown>
+    : record;
+  const body = typeof source.body === "string" ? source.body.trim() : "";
+  if (!body) return null;
+  const title = typeof source.title === "string" && source.title.trim() ? source.title.trim().slice(0, 180) : "Evolución dictada";
+  return { title, body: body.slice(0, 30000) };
+}
+
+function evolutionMisattributes(transcript: string, body: string): boolean {
+  const patientVoice = /\b(?:refiere|relata|comenta|dice que|cuenta que)\b/i;
+  if (patientVoice.test(body) && !patientVoice.test(transcript)) return true;
+  if (/\bniega\b/i.test(body) && !/\bniega\b/i.test(transcript)) return true;
+  return false;
+}
+
 export async function proposeFromTranscript(input: StructureInput, model: ClinicalModel | null, log: DictationLog = defaultDictationLog): Promise<StructureOutcome> {
   const transcript = input.transcript.trim();
   if (transcript.length < 3) throw new Error("El dictado está vacío.");
   if (transcript.length > 8000) throw new Error("El dictado es demasiado largo para este prototipo.");
-  const safe: StructureInput = { transcript, chart: sanitizeChart(input.chart) };
+  const local = structureTranscript(transcript);
   if (model) {
     try {
-      const raw = await model.complete(safe);
-      const proposal = validateProposal(typeof raw === "string" ? parseModelJson(raw) : raw);
-      const aligned = alignProposalWithTranscript(transcript, proposal);
-      if (aligned.rejected.length) log("dictation.model_items_rejected", { model: model.model, rejected: aligned.rejected.length, reasons: aligned.rejected.slice(0, 8).join(",") });
-      if (isEmptyProposal(aligned.proposal)) throw new Error("propuesta vacía");
-      return { engine: model.id, model: model.model, notice: null, proposal: aligned.proposal };
+      const note = evolutionFromModel(await model.complete({ transcript, chart: sanitizeChart(input.chart) }));
+      if (!note) return { engine: model.id, model: model.model, notice: null, proposal: local };
+      if (evolutionMisattributes(transcript, note.body) || !evolutionMatches(transcript, note.body)) {
+        log("dictation.evolution_rejected", { model: model.model, reason: evolutionMisattributes(transcript, note.body) ? "patient_voice" : "unrelated" });
+        return { engine: model.id, model: model.model, notice: "La evolución del modelo no respetaba el dictado, así que se usó la redacción local. Las piezas las resolvió el programa.", proposal: local };
+      }
+      return { engine: model.id, model: model.model, notice: null, proposal: { ...local, evolution: note } };
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "error";
       log("dictation.workers_ai_failed", { model: model.model, message: message.slice(0, 300) });
-      return { engine: "reglas-locales", model: null, notice: FALLBACK_NOTICE, proposal: structureTranscript(transcript) };
+      return { engine: "reglas-locales", model: null, notice: FALLBACK_NOTICE, proposal: local };
     }
   }
-  return { engine: "reglas-locales", model: null, notice: LOCAL_NOTICE, proposal: structureTranscript(transcript) };
+  return { engine: "reglas-locales", model: null, notice: LOCAL_NOTICE, proposal: local };
 }
 
 export function reviewIssue(item: OdontogramChange): string | null {

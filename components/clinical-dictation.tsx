@@ -191,7 +191,7 @@ export function ClinicalDictation({
       setEvolutionBody(data.proposal.evolution?.body ?? "");
       setEvolutionDecision(data.proposal.evolution ? "accepted" : "rejected");
       setTeeth(data.proposal.odontogram.map((item) => ({ ...item, decision: "accepted", toothText: formatFdi(item.tooth) })));
-      setBudgets(data.proposal.budget.map((item) => ({ ...item, decision: "accepted", amountText: String(item.amount) })));
+      setBudgets(data.proposal.budget.map((item) => ({ ...item, decision: "accepted", amountText: item.amount > 0 ? String(item.amount) : "" })));
     } catch (cause) {
       setOutcome(null);
       setFormError(cause instanceof Error ? cause.message : "No se pudo preparar la propuesta.");
@@ -312,7 +312,7 @@ export function ClinicalDictation({
           </label>
           <p className="text-xs leading-5 text-[#60757a]">Chrome usa el reconocimiento del navegador en es-CL. El audio no se envía a una API de transcripción de pago. La propuesta pasa por revisión y la ficha manual no cambia sola.</p>
           {formError && <p role="alert" className="rounded-lg bg-rose-50 p-3 text-rose-950">{formError}</p>}
-          {outcome && <p className="rounded-lg bg-[#f4f7f8] p-3 leading-6 text-[#31575b]" role="status">{outcome.notice ?? `Propuesta preparada con ${outcome.model ?? outcome.engine}. Sigue sujeta a tu revisión.`}</p>}
+          {outcome && <p className="rounded-lg bg-[#f4f7f8] p-3 leading-6 text-[#31575b]" role="status">{outcome.notice ?? `Las piezas y los hallazgos los resolvió el programa. La evolución se pidió a ${outcome.model ?? "la redacción local"}. Sigue sujeta a tu revisión.`}</p>}
           {proposal && <div className="space-y-4" data-testid="dictation-review">
             <section className="rounded-xl border border-[#dce5e7] p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -378,7 +378,7 @@ export function ClinicalDictation({
               {budgets.length === 0 && <p className="rounded-lg border border-dashed border-[#dce5e7] p-3 text-[#71858b]">Sin prestaciones.</p>}
               {budgets.map((item, index) => <article key={item.id} className={`rounded-xl border p-4 ${item.decision === "accepted" ? "border-emerald-200" : "border-[#e4ebed] opacity-70"}`}>
                 <div className="flex flex-wrap items-start justify-between gap-2">
-                  <p><span className="text-[#71858b]">Nueva prestación: </span><ChangeHighlight current="Sin esta prestación" next={`${item.label} · ${Number(item.amountText || 0).toLocaleString("es-CL")} pesos`} /></p>
+                  <p><span className="text-[#71858b]">Nueva prestación: </span><ChangeHighlight current="Sin esta prestación" next={`${item.label} · ${Number(item.amountText) > 0 ? `${Number(item.amountText).toLocaleString("es-CL")} pesos` : "monto pendiente"}`} /></p>
                   <Decision value={item.decision} onChange={(decision) => setBudgets((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, decision } : entry))} />
                 </div>
                 {item.decision === "accepted" && <div className="mt-3 grid gap-2 sm:grid-cols-2">
