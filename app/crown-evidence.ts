@@ -1,5 +1,11 @@
 // Only an explicitly cemented definitive single-tooth restoration is projected.
-export type CrownEvidence = { tooth: number; material: string | null; shade: string | null };
+export type CrownEvidence = { tooth: number; material: string | null; shade: string | null; onImplant: boolean };
+
+/** Corona o prótesis fija dicha sobre un implante. No incluye «corona en la pieza». */
+export function isCrownOnImplantText(text: string): boolean {
+  return /\b(?:corona|pr[oó]tesis\s+fija)\b/i.test(text)
+    && /\b(?:sobre|encima\s+de|en)\s+(?:el\s+|la\s+|un\s+)?implante\b/i.test(text);
+}
 
 export function cementedCrownFromEvolution(body: string): CrownEvidence | null {
   const mentions = [...body.matchAll(/\bpieza\s+(?:(FDI|ISO|chilena|nacional)\s*)?(\d{1,2}(?:\.\d)?)(?!\d)/gi)];
@@ -23,5 +29,5 @@ export function cementedCrownFromEvolution(body: string): CrownEvidence | null {
     : /\bmetal[ -]?cer[aá]mica\b/i.test(body) ? "Metal cerámica"
     : /\bresina\b/i.test(body) ? "Resina" : null;
   const shade = body.match(/\bcolor\s+([A-D][1-4](?:\.5)?)\b/i)?.[1]?.toUpperCase() ?? null;
-  return { tooth, material, shade };
+  return { tooth, material, shade, onImplant: isCrownOnImplantText(body) };
 }

@@ -4,10 +4,10 @@ import { cementedCrownFromEvolution } from "../app/crown-evidence.ts";
 
 test("cemented definitive crown on Chilean tooth 12 is FDI 2.4 with material and shade", () => {
   const note = "Pieza 12: fractura distal. Se confecciona una prótesis fija provisoria y una prótesis fija definitiva de zirconio, color A3.5. Se cementa con ionómero. Restauración completada.";
-  assert.deepEqual(cementedCrownFromEvolution(note), { tooth: 24, material: "Zirconio", shade: "A3.5" });
+  assert.deepEqual(cementedCrownFromEvolution(note), { tooth: 24, material: "Zirconio", shade: "A3.5", onImplant: false });
 });
 test("an explicitly labeled FDI 1.2 is not Chilean tooth 12", () => {
-  assert.deepEqual(cementedCrownFromEvolution("Pieza FDI 1.2: corona de disilicato. Se cementó."), { tooth: 12, material: "Disilicato", shade: null });
+  assert.deepEqual(cementedCrownFromEvolution("Pieza FDI 1.2: corona de disilicato. Se cementó."), { tooth: 12, material: "Disilicato", shade: null, onImplant: false });
 });
 test("proposed, provisional, negated, or multi-tooth work is not projected", () => {
   for (const note of [
