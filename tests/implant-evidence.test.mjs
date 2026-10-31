@@ -24,6 +24,18 @@ test('explicit FDI numbers are kept distinct from Chilean numbering', () => {
   assert.deepEqual(installedImplantTeeth('Se colocó un implante en pieza FDI 46.'), [46]);
 });
 
+test('a cemented crown alone is not an installed implant', () => {
+  assert.deepEqual(installedImplantTeeth('Se cementó corona de zirconio color A2 en pieza 12.'), []);
+  assert.deepEqual(installedImplantTeeth('Se instaló una corona en pieza FDI 1.1.'), []);
+  assert.deepEqual(installedImplantTeeth('Presupuesto de corona en pieza 30, 350000 pesos.'), []);
+});
+
+test('a crown seated on an implant keeps the implant tooth', () => {
+  assert.deepEqual(installedImplantTeeth('Se cementó corona sobre implante en pieza 30.'), [36]);
+  assert.deepEqual(installedImplantTeeth('Corona en el implante de la pieza FDI 4.6. Se cementó.'), [46]);
+  assert.deepEqual(installedImplantTeeth('No se cementó corona sobre implante en pieza 30.'), []);
+});
+
 test('dotted FDI references are parsed as FDI while unmarked Chilean numbering stays national', () => {
   assert.deepEqual(installedImplantTeeth('Se colocó un implante en pieza 1.2.'), [12]);
   assert.deepEqual(installedImplantTeeth('Se colocó un implante en pieza 12.'), [24]);

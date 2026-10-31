@@ -46,7 +46,14 @@ export type SurfaceFinding = {
   icdas?: 1 | 2 | 3 | 4 | 5 | 6 | null;
   activity?: "active" | "inactive" | "uncertain" | null;
 };
-export type CrownDetails = { material: string; shade?: string | null; source?: "evolution" | "manual"; clinicalDate?: string };
+export type CrownDetails = {
+  material: string;
+  shade?: string | null;
+  source?: "evolution" | "manual";
+  clinicalDate?: string;
+  /** tooth: corona sobre diente natural. implant: prótesis fija sobre implante. Ausente en fichas antiguas: diente natural. */
+  foundation?: "tooth" | "implant";
+};
 export type OdontogramData = {
   teeth: Record<number, string>;
   surfaces: Record<number, Partial<Record<OdontogramSurface, SurfaceFinding>>>;

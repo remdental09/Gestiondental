@@ -379,6 +379,38 @@ test('el dictado en vivo no mezcla ICDAS con actividad ni incorpora la pieza sin
   assert.equal(body.includes(invented), false);
 });
 
+test('corona, implante y corona sobre implante quedan en registros distintos', () => {
+  const natural = structureTranscript('Corona en pieza 12.');
+  assert.equal(natural.odontogram.length, 1);
+  assert.equal(natural.odontogram[0].tooth, 24);
+  assert.equal(natural.odontogram[0].kind, 'crown');
+  assert.equal(natural.odontogram[0].foundation, 'tooth');
+  assert.equal(natural.odontogram.some((item) => item.status === 'Implante'), false);
+
+  const implant = structureTranscript('Implante en pieza 30.');
+  assert.equal(implant.odontogram.length, 1);
+  assert.equal(implant.odontogram[0].tooth, 36);
+  assert.equal(implant.odontogram[0].status, 'Implante');
+  assert.equal(implant.odontogram.some((item) => item.kind === 'crown'), false);
+
+  const both = structureTranscript('Corona sobre implante en pieza 19.');
+  const implantItem = both.odontogram.find((item) => item.status === 'Implante');
+  const crownItem = both.odontogram.find((item) => item.kind === 'crown');
+  assert.equal(both.odontogram.length, 2);
+  assert.equal(implantItem.tooth, 46);
+  assert.equal(crownItem.tooth, 46);
+  assert.equal(crownItem.foundation, 'implant');
+  assert.match(both.evolution.body, /FDI 4\.6 \(Chile 19\): implante\. corona sobre implante/);
+  const writes = planChartWrites(1, emptyChart, emptyChart, both.odontogram);
+  assert.equal(writes.some((item) => item.action === 'setToothStatus' && item.status === 'Corona'), false);
+  assert.equal(writes.some((item) => item.action === 'setToothStatus' && item.status === 'Implante'), true);
+  assert.equal(writes.some((item) => item.action === 'setCrownDetails' && item.foundation === 'implant'), true);
+
+  const quote = structureTranscript('Presupuesto de corona en pieza 12, 180000 pesos.');
+  assert.equal(quote.odontogram.length, 0);
+  assert.equal(quote.budget.length, 1);
+});
+
 test('un implante automático rechazado se restituye y la relectura lo comprueba', () => {
   const before = emptyChart;
   const after = { teeth: { 36: 'Implante' }, surfaces: {}, missingReason: {}, crowns: {} };

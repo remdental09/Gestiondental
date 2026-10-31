@@ -49,6 +49,8 @@ export type OdontogramChange = {
   material?: CrownMaterial;
   shade?: string | null;
   missingReason?: "caries" | "other" | "unknown";
+  /** implant: la corona va sobre un implante y no reemplaza ese estado. */
+  foundation?: "tooth" | "implant";
 };
 
 export type BudgetChange = {
@@ -88,7 +90,7 @@ export type ChartSnapshot = {
   teeth: Record<number, string>;
   surfaces: Record<number, Partial<Record<OdontogramSurface, ChartSurface>>>;
   missingReason?: Record<number, "caries" | "other" | "unknown">;
-  crowns?: Record<number, { material: string; shade?: string | null }>;
+  crowns?: Record<number, { material: string; shade?: string | null; foundation?: "tooth" | "implant" }>;
 };
 
 export type StructureInput = {
@@ -112,7 +114,7 @@ export type StructureOutcome = {
 export type ChartAction =
   | { action: "setToothStatus"; patientId: number; tooth: number; status: string }
   | { action: "setToothMissingReason"; patientId: number; tooth: number; reason: "caries" | "other" | "unknown" }
-  | { action: "setCrownDetails"; patientId: number; tooth: number; material: string; shade: string }
+  | { action: "setCrownDetails"; patientId: number; tooth: number; material: string; shade: string; foundation?: "tooth" | "implant" }
   | { action: "setToothSurface"; patientId: number; tooth: number; surface: OdontogramSurface; finding: SurfaceFinding };
 
 const LOCAL_NOTICE = "Workers AI no está enlazado en este entorno. La propuesta salió del estructurador local, sin costo por dictado, y no se guarda sola.";
@@ -560,10 +562,21 @@ function missingReasonFrom(sentence: string): OdontogramChange["missingReason"] 
   return undefined;
 }
 
+function crownOnImplantSentence(sentence: string): boolean {
+  return /\b(?:corona|pr[oó]tesis\s+fija)\b/i.test(sentence)
+    && /\b(?:sobre|encima\s+de|en)\s+(?:el\s+|la\s+|un\s+)?implante\b/i.test(sentence)
+    && !(/\bprovisori[ao]\b/i.test(sentence) && !/\bdefinitiv[ao]\b/i.test(sentence));
+}
+
 function statusFrom(sentence: string): ToothStatus | null {
   if (/\bresto\s+radicular\b/i.test(sentence) && /\bendodoncia\b/i.test(sentence)) return "Resto radicular con endodoncia";
   if (/\bindicaci[oó]n\s+de\s+exodoncia\b/i.test(sentence)) return "Indicación de exodoncia";
-  if (/\bimplante\b/i.test(sentence) && isPerformed(sentence)) return "Implante";
+  if (crownOnImplantSentence(sentence)) return null;
+  if (/\bimplante\b/i.test(sentence) && !/\b(?:corona|pr[oó]tesis\s+fija)\b/i.test(sentence)) {
+    if (/\b(?:control|seguimiento|revisi[oó]n|mantenimiento)\b/i.test(sentence) && !isPerformed(sentence)) return null;
+    if (/\b(?:planific|se\s+indic|program)\b/i.test(sentence)) return null;
+    return "Implante";
+  }
   if (/\b(?:corona|pr[oó]tesis\s+fija\s+definitiva)\b/i.test(sentence) && !/\bprovisori[ao]\b/i.test(sentence)) return "Corona";
   if (/\b(?:ausente|extra[ií]d[oa]|exodonciad[oa])\b/i.test(sentence)) return "Ausente";
   return null;
@@ -641,7 +654,10 @@ function describeFinding(tooth: number, finding: SurfaceFinding, surfaces: Odont
 }
 
 function describeStatus(item: OdontogramChange): string {
-  if (item.status === "Corona") return `corona${item.material ? ` de ${item.material}` : ""}${item.shade ? `, color ${item.shade}` : ""}`;
+  if (item.status === "Corona" || item.kind === "crown") {
+    const seat = item.foundation === "implant" ? " sobre implante" : "";
+    return `corona${seat}${item.material ? ` de ${item.material}` : ""}${item.shade ? `, color ${item.shade}` : ""}`;
+  }
   if (item.status === "Ausente" && /extracci/i.test(item.sourceText)) return "ausente por extracción";
   if (item.status === "Ausente" && item.missingReason === "caries") return "ausente por caries";
   if (item.status === "Ausente") return "ausente";
@@ -715,7 +731,7 @@ function composeEvolution(transcript: string, odontogram: OdontogramChange[] = [
 }
 
 function dedupeKey(item: OdontogramChange): string {
-  return [item.tooth, item.kind, item.surface ?? "", item.status ?? "", item.finding?.condition ?? "", item.finding?.icdas ?? "", item.material ?? ""].join(":");
+  return [item.tooth, item.kind, item.surface ?? "", item.status ?? "", item.foundation ?? "", item.finding?.condition ?? "", item.finding?.icdas ?? "", item.material ?? ""].join(":");
 }
 
 export function structureTranscript(transcript: string): DictationProposal {
@@ -791,8 +807,9 @@ export function structureTranscript(transcript: string): DictationProposal {
     }
 
     const mentions = toothMentions(sentence);
+    const onImplant = crownOnImplantSentence(sentence);
     const status = statusFrom(sentence);
-    const surfaceResult = status === "Ausente" || status === "Implante" ? null : findingFrom(sentence);
+    const surfaceResult = onImplant || status === "Ausente" || status === "Implante" ? null : findingFrom(sentence);
     if (!mentions.length && (status || surfaceResult)) {
       clarifications.push(`Falta una pieza identificable en: «${clip(sentence)}».`);
       continue;
@@ -802,22 +819,32 @@ export function structureTranscript(transcript: string): DictationProposal {
         clarifications.push(mention.reason);
         continue;
       }
-      if (status) {
-        const item: OdontogramChange = {
-          id: nextId("odo"),
+      if (onImplant || status) {
+        const base = {
           tooth: mention.tooth,
           numbering: mention.numbering,
           numberingLabel: mention.numberingLabel,
           sourceText: clip(sentence),
-          kind: status === "Corona" ? "crown" : "status",
-          status,
-          ...(status === "Corona" ? { material: materialFrom(sentence), shade: shadeFrom(sentence) } : {}),
-          ...((status === "Ausente" || status === "Indicación de exodoncia") && missingReasonFrom(sentence) ? { missingReason: missingReasonFrom(sentence) } : {}),
         };
-        const key = dedupeKey(item);
-        if (!seen.has(key)) {
-          seen.add(key);
-          odontogram.push(item);
+        const items: OdontogramChange[] = onImplant
+          ? [
+              { ...base, id: nextId("odo"), kind: "status", status: "Implante" },
+              { ...base, id: nextId("odo"), kind: "crown", status: "Corona", foundation: "implant", material: materialFrom(sentence), shade: shadeFrom(sentence) },
+            ]
+          : [{
+              ...base,
+              id: nextId("odo"),
+              kind: status === "Corona" ? "crown" : "status",
+              status: status ?? "Sin hallazgos",
+              ...(status === "Corona" ? { foundation: "tooth" as const, material: materialFrom(sentence), shade: shadeFrom(sentence) } : {}),
+              ...((status === "Ausente" || status === "Indicación de exodoncia") && missingReasonFrom(sentence) ? { missingReason: missingReasonFrom(sentence) } : {}),
+            }];
+        for (const item of items) {
+          const key = dedupeKey(item);
+          if (!seen.has(key)) {
+            seen.add(key);
+            odontogram.push(item);
+          }
         }
         continue;
       }
@@ -922,6 +949,7 @@ function coerceOdontogram(value: unknown): OdontogramChange | { error: string } 
     if (!["caries", "other", "unknown"].includes(record.missingReason)) return { error: "Causa de ausencia no reconocida." };
     item.missingReason = record.missingReason as OdontogramChange["missingReason"];
   }
+  if ((status === "Corona" || status === "Implante") && (record.foundation === "implant" || record.foundation === "tooth")) item.foundation = record.foundation;
   return item;
 }
 
@@ -1091,27 +1119,33 @@ function readTeeth(chart: ChartSnapshot): Map<number, string> {
 
 export function planChartWrites(patientId: number, before: ChartSnapshot, after: ChartSnapshot, accepted: OdontogramChange[]): ChartAction[] {
   const actions: ChartAction[] = [];
-  const acceptedStatus = new Map<number, OdontogramChange>();
+  const acceptedGeneral = new Map<number, string>();
   for (const item of accepted) {
-    if (item.kind === "status" || item.kind === "crown") acceptedStatus.set(item.tooth, item);
+    if (item.kind === "status" && item.status) acceptedGeneral.set(item.tooth, item.status);
+    else if (item.kind === "crown" && item.foundation === "implant") {
+      if (!acceptedGeneral.has(item.tooth)) acceptedGeneral.set(item.tooth, "Implante");
+    } else if (item.kind === "crown") acceptedGeneral.set(item.tooth, "Corona");
   }
   const acceptedSurfaces = new Set(accepted.filter((item) => item.kind === "surface" && item.surface).map((item) => `${item.tooth}:${item.surface}`));
   const toothIds = new Set<number>([...readTeeth(before).keys(), ...readTeeth(after).keys(), ...accepted.map((item) => item.tooth)]);
 
   for (const tooth of [...toothIds].sort((a, b) => a - b)) {
-    if (acceptedStatus.has(tooth)) continue;
+    if (acceptedGeneral.has(tooth)) continue;
     const previous = statusOf(before, tooth);
     const current = statusOf(after, tooth);
     if (previous !== current) actions.push({ action: "setToothStatus", patientId, tooth, status: previous });
-    if (previous === "Corona" && current !== "Corona") {
-      const crown = before.crowns?.[tooth];
-      if (crown && CROWN_MATERIALS.includes(crown.material as CrownMaterial)) {
-        actions.push({ action: "setCrownDetails", patientId, tooth, material: crown.material, shade: crown.shade || "" });
-      }
+    const crown = before.crowns?.[tooth];
+    if (crown && CROWN_MATERIALS.includes(crown.material as CrownMaterial) && ((previous === "Corona" && current !== "Corona") || (previous === "Implante" && crown.foundation === "implant" && current !== "Implante"))) {
+      actions.push({ action: "setCrownDetails", patientId, tooth, material: crown.material, shade: crown.shade || "", foundation: crown.foundation === "implant" ? "implant" : "tooth" });
     }
   }
 
   for (const item of accepted) {
+    if (item.kind === "crown" && item.foundation === "implant") {
+      actions.push({ action: "setToothStatus", patientId, tooth: item.tooth, status: "Implante" });
+      actions.push({ action: "setCrownDetails", patientId, tooth: item.tooth, material: item.material || "", shade: item.shade || "", foundation: "implant" });
+      continue;
+    }
     if (item.kind !== "status" && item.kind !== "crown") continue;
     const status = item.kind === "crown" ? "Corona" : item.status;
     if (!status) continue;
@@ -1120,13 +1154,12 @@ export function planChartWrites(patientId: number, before: ChartSnapshot, after:
       actions.push({ action: "setToothMissingReason", patientId, tooth: item.tooth, reason: item.missingReason });
     }
     if (status === "Corona" && item.material) {
-      actions.push({ action: "setCrownDetails", patientId, tooth: item.tooth, material: item.material, shade: item.shade || "" });
+      actions.push({ action: "setCrownDetails", patientId, tooth: item.tooth, material: item.material, shade: item.shade || "", foundation: "tooth" });
     }
   }
 
   const blocksSurfaces = (tooth: number) => {
-    const acceptedItem = acceptedStatus.get(tooth);
-    const status = acceptedItem ? (acceptedItem.kind === "crown" ? "Corona" : acceptedItem.status) : statusOf(before, tooth);
+    const status = acceptedGeneral.get(tooth) ?? statusOf(before, tooth);
     return status === "Implante" || status === "Ausente";
   };
 
@@ -1177,7 +1210,9 @@ export function verifyDictationSave(input: {
   const acceptedStatus = new Map<number, string>();
   for (const item of input.accepted) {
     if (item.kind === "status" && item.status) acceptedStatus.set(item.tooth, item.status);
-    if (item.kind === "crown") acceptedStatus.set(item.tooth, "Corona");
+    if (item.kind === "crown" && item.foundation === "implant") {
+      if (!acceptedStatus.has(item.tooth)) acceptedStatus.set(item.tooth, "Implante");
+    } else if (item.kind === "crown") acceptedStatus.set(item.tooth, "Corona");
   }
   const toothIds = new Set<number>([...readTeeth(input.before).keys(), ...readTeeth(chart).keys(), ...acceptedStatus.keys()]);
   for (const tooth of toothIds) {
@@ -1188,7 +1223,7 @@ export function verifyDictationSave(input: {
   for (const item of input.accepted) {
     if (item.kind === "crown" && item.material) {
       const crown = chart.crowns?.[item.tooth];
-      if (!crown || crown.material !== item.material || (crown.shade || "") !== (item.shade || "")) errors.push(`La corona de FDI ${formatFdi(item.tooth)} no coincide al releer.`);
+      if (!crown || crown.material !== item.material || (crown.shade || "") !== (item.shade || "") || (item.foundation === "implant" && crown.foundation !== "implant") || (item.foundation !== "implant" && crown.foundation === "implant")) errors.push(`La corona de FDI ${formatFdi(item.tooth)} no coincide al releer.`);
       else messages.push(`Corona FDI ${formatFdi(item.tooth)}: ${item.material}.`);
     }
     if (item.kind === "surface" && item.surface && item.finding) {

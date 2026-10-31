@@ -296,7 +296,7 @@ export default function Home(){
       if(modal==="note"){
         if(!noteBody.trim())throw new Error("Escribe o dicta el registro clínico antes de guardar.");
         const body=noteBody.trim(),crown=cementedCrownFromEvolution(body),implants=installedImplantTeeth(body);
-        const details=[...(implants.length?[`Posible actualización automática del odontograma: implante en FDI ${implants.map(formatFdi).join(", ")}.`]:[]),...(crown?[`Posible actualización automática: corona en FDI ${formatFdi(crown.tooth)}${crown.material?`, material ${crown.material}`:""}${crown.shade?`, color ${crown.shade}`:""}.`]:[])];
+        const details=[...(implants.length?[`Posible actualización automática del odontograma: implante en FDI ${implants.map(formatFdi).join(", ")}.`]:[]),...(crown?[`Posible actualización automática: corona${crown.onImplant?" sobre implante":""} en FDI ${formatFdi(crown.tooth)}${crown.material?`, material ${crown.material}`:""}${crown.shade?`, color ${crown.shade}`:""}.`]:[])];
         if(!await reviewChange({patientId:selectedId,heading:noteTitle.trim()||"Evolución clínica",details,body}))return;
         requestIdRef.current ||= crypto.randomUUID();
         const data=await persist({action:"addNote",patientId:selectedId,title:noteTitle.trim(),body:noteBody.trim(),requestId:requestIdRef.current});

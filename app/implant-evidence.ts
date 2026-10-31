@@ -8,12 +8,21 @@ for (let position = 1; position <= 8; position++) {
   chileToFdi[position + 24] = 30 + position;
 }
 
+function crownSitsOnImplant(sentence: string): boolean {
+  return /\b(?:corona|pr[oó]tesis\s+fija)\b/i.test(sentence)
+    && /\b(?:sobre|encima\s+de|en)\s+(?:el\s+|la\s+|un\s+)?implante\b/i.test(sentence)
+    && !(/\bprovisori[ao]\b/i.test(sentence) && !/\bdefinitiv[ao]\b/i.test(sentence));
+}
+
 export function installedImplantTeeth(body: string): number[] {
   const result = new Set<number>();
   for (const sentence of body.split(/[;\n]+|\.(?!\d)/)) {
-    // A plan, a negation, or a historical quotation is not an installed implant.
-    if (!/\b(?:se\s+instal[oó]|se\s+coloc[oó]|se\s+insert[oó])\s+(?:un\s+)?implante\b/i.test(sentence) ||
-        /\b(?:no\s+se\s+instal[oó]|no\s+se\s+coloc[oó]|no\s+se\s+insert[oó]|sin\s+instalar|se\s+planifica|se\s+planific[oó]|se\s+indica|se\s+program[oó])\b/i.test(sentence)) continue;
+    const placed = /\b(?:se\s+instal[oó]|se\s+coloc[oó]|se\s+insert[oó])\s+(?:un\s+)?implante\b/i.test(sentence);
+    const onImplant = crownSitsOnImplant(sentence);
+    // A plan, a negation, or a crown without an implant is not an installed implant.
+    const crownWithoutImplant = /\b(?:corona|pr[oó]tesis\s+fija)\b/i.test(sentence) && !/\bimplante\b/i.test(sentence);
+    const blocked = /\b(?:no\s+se\s+instal[oó]|no\s+se\s+coloc[oó]|no\s+se\s+insert[oó]|no\s+se\s+cement[oó]|sin\s+instalar|sin\s+cementar|se\s+planifica|se\s+planific[oó]|se\s+indica|se\s+program[oó])\b/i.test(sentence);
+    if ((!placed && !onImplant) || crownWithoutImplant || blocked) continue;
     const clauses = sentence.split(/\s+(?:y|adem[aá]s)\s+(?=(?:se\s+)?(?:instal[oó]|coloc[oó]|insert[oó])|(?:un\s+)?implante)|[,;]\s*(?=(?:se\s+)?(?:instal[oó]|coloc[oó]|insert[oó]))/i);
     for (const clause of clauses) {
       if (!/\bimplante\b/i.test(clause) || /\b(?:no|planifica|indica|programa)\b/i.test(clause)) continue;
