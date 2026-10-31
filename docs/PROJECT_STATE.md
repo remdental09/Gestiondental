@@ -21,7 +21,7 @@
 - El motivo de una cita existente se puede editar desde la ficha; la ruta comprueba propietario, paciente e identificador de cita, y conserva fecha y hora.
 - MCP expone los campos de teléfono y correo en las fichas y permite actualizar solo los contactos entregados, validando el propietario y releyendo el resultado. La creación MCP también acepta ambos campos opcionales.
 
-- La agenda semanal se presenta en un mosaico de siete días; muestra solo eventos confirmados con horario y omite eventos de día completo.
+- La agenda semanal se presenta en un mosaico de siete días, de lunes a domingo, en America/Santiago. De lunes a viernes abre la semana en curso; el sábado y el domingo abren la semana del lunes siguiente. Hay controles para la semana anterior, la siguiente y «Esta semana». Muestra solo eventos confirmados con horario y omite eventos de día completo.
 
 - Importación de citas por archivo JSON desde el calendario leído en ChatGPT: la ficha valida y guarda en D1 por propietario e ID de Google y relee las citas para confirmar. Requiere que el usuario seleccione el archivo en la aplicación; la sincronización automática aún no está activa.
 
