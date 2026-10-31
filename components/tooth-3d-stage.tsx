@@ -16,20 +16,12 @@ type StageProps = {
 
 function zoneOf(tooth: number, x: number, y: number, z: number): OdontogramSurface {
   const ax = Math.abs(x);
-  const ay = Math.abs(y);
   const az = Math.abs(z);
-  if (y > 0.15 && ay >= ax * 0.85 && ay >= az * 0.85) return "O";
+  if (y > 0.66 && y > ax * 0.85 && y > az * 0.85) return "O";
   if (az >= ax && z >= 0) return "V";
   if (az >= ax && z < 0) return "P";
   const mesial = surfaceAxis(tooth, "M").sign;
   return x * mesial >= 0 ? "M" : "D";
-}
-
-function profile(kind: ToothKind): Array<[number, number]> {
-  if (kind === "incisor") return [[0, 0.46], [0.28, 0.52], [0.78, 0.4], [1.12, 0.06]];
-  if (kind === "canine") return [[0, 0.42], [0.34, 0.55], [0.86, 0.26], [1.22, 0.02]];
-  if (kind === "premolar") return [[0, 0.5], [0.26, 0.62], [0.68, 0.52], [0.96, 0.2]];
-  return [[0, 0.58], [0.24, 0.78], [0.58, 0.7], [0.92, 0.28]];
 }
 
 function crownStretch(kind: ToothKind): [number, number] {
@@ -49,6 +41,7 @@ export function Tooth3DStage({ tooth, status, surfaces, hasCrown, reducedMotion 
     if (!canvas) return;
     let disposed = false;
     let release = () => {};
+    setError("");
     import("three").then((THREE) => {
       if (disposed) return;
       try { release = mountTooth(THREE, canvas, { tooth, status, surfaces, hasCrown, reducedMotion }); }
@@ -66,8 +59,9 @@ export function Tooth3DStage({ tooth, status, surfaces, hasCrown, reducedMotion 
 function mountTooth(THREE: ThreeModule, canvas: HTMLCanvasElement, props: StageProps): () => void {
   const { tooth, status, surfaces, hasCrown, reducedMotion } = props;
   const kind = toothKind(tooth);
-  const roots = status === "Implante" ? 0 : rootCount(tooth);
-  const missing = status === "Ausente" || status === "Indicación de exodoncia";
+  const roots = status === "Implante" || status === "Ausente" ? 0 : rootCount(tooth);
+  const missing = status === "Ausente";
+  const implant = status === "Implante";
   const endodontic = status === "Resto radicular con endodoncia";
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
@@ -95,31 +89,41 @@ function mountTooth(THREE: ThreeModule, canvas: HTMLCanvasElement, props: StageP
 
   const colorFor = (surface: OdontogramSurface) => new THREE.Color(surfaceMarkColor(surfaces[surface]?.condition));
   const [stretchX, stretchZ] = crownStretch(kind);
-  const points = profile(kind).map(([y, radius]) => new THREE.Vector2(radius, y));
-  const crown = track(new THREE.LatheGeometry(points, kind === "molar" ? 10 : 8));
-  crown.scale(stretchX, 1, stretchZ);
+  const crown = track(new THREE.SphereGeometry(1, kind === "molar" ? 24 : 20, 14).toNonIndexed());
+  crown.scale(0.56 * stretchX, kind === "incisor" ? 0.36 : kind === "canine" ? 0.5 : 0.46, 0.56 * stretchZ);
+  crown.translate(0, 0.48, 0);
   crown.computeVertexNormals();
+  // Non-indexed triangles receive one face color each; adjacent faces never interpolate.
   const position = crown.getAttribute("position");
   const colors = new Float32Array(position.count * 3);
-  const scratch = new THREE.Color();
-  for (let index = 0; index < position.count; index += 1) {
-    const zone = zoneOf(tooth, position.getX(index), position.getY(index), position.getZ(index));
-    scratch.copy(colorFor(zone));
-    colors[index * 3] = scratch.r;
-    colors[index * 3 + 1] = scratch.g;
-    colors[index * 3 + 2] = scratch.b;
+  for (let index = 0; index < position.count; index += 3) {
+    const x = (position.getX(index) + position.getX(index + 1) + position.getX(index + 2)) / 3;
+    const y = (position.getY(index) + position.getY(index + 1) + position.getY(index + 2)) / 3;
+    const z = (position.getZ(index) + position.getZ(index + 1) + position.getZ(index + 2)) / 3;
+    const color = new THREE.Color(surfaceMarkColor(surfaces[zoneOf(tooth, x, y, z)]?.condition));
+    for (let vertex = index; vertex < index + 3; vertex++) {
+      colors[vertex * 3] = color.r;
+      colors[vertex * 3 + 1] = color.g;
+      colors[vertex * 3 + 2] = color.b;
+    }
   }
   crown.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-  const enamel = track(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.04 }));
-  toothGroup.add(new THREE.Mesh(crown, enamel));
-
-  if (hasCrown || status === "Corona") {
+  if (!missing && !implant && !endodontic) {
+    toothGroup.add(new THREE.Mesh(crown, track(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.04, flatShading: true, side: THREE.DoubleSide }))));
+  }
+  if (!missing && (hasCrown || status === "Corona")) {
     const capGeo = track(crown.clone());
     capGeo.scale(1.04, 1.03, 1.04);
-    const cap = track(new THREE.MeshStandardMaterial({ color: 0xe7f4f8, metalness: 0.72, roughness: 0.18, transparent: true, opacity: missing ? 0.28 : 0.42 }));
+    const cap = track(new THREE.MeshStandardMaterial({ color: 0xe7f4f8, metalness: 0.5, roughness: 0.28, transparent: true, opacity: 0.35 }));
     toothGroup.add(new THREE.Mesh(capGeo, cap));
   }
-
+  if (endodontic) {
+    const stumpGeo = track(new THREE.CylinderGeometry(0.3, 0.42, 0.3, 10));
+    const stumpMat = track(new THREE.MeshStandardMaterial({ color: 0xdac5a8, roughness: 0.8 }));
+    const stump = new THREE.Mesh(stumpGeo, stumpMat);
+    stump.position.y = 0.08;
+    toothGroup.add(stump);
+  }
   const mesial = surfaceAxis(tooth, "M").sign;
   const rootSpots = roots === 3
     ? [[0.3 * mesial, 0.16], [-0.3 * mesial, 0.16], [0, -0.34]]
@@ -159,15 +163,10 @@ function mountTooth(THREE: ThreeModule, canvas: HTMLCanvasElement, props: StageP
   }
 
   if (missing) {
-    toothGroup.traverse((node) => {
-      const mesh = node as InstanceType<ThreeModule["Mesh"]>;
-      const material = mesh.material as InstanceType<ThreeModule["Material"]> | undefined;
-      if (!material || !("opacity" in material)) return;
-      material.transparent = true;
-      material.opacity = Math.min(material.opacity, 0.28);
-    });
+    const marker = new THREE.Mesh(track(new THREE.TorusGeometry(0.52, 0.055, 8, 32)), track(new THREE.MeshBasicMaterial({ color: 0x75858b })));
+    marker.rotation.x = Math.PI / 2;
+    toothGroup.add(marker);
   }
-
   toothGroup.rotation.x = -0.45;
   const pointers = new Map<number, { x: number; y: number }>();
   let dragging = false;
@@ -226,7 +225,7 @@ function mountTooth(THREE: ThreeModule, canvas: HTMLCanvasElement, props: StageP
   let frame = 0;
   const draw = () => {
     frame = requestAnimationFrame(draw);
-    if (!dragging && !reducedMotion) toothGroup.rotation.y += 0.004;
+    if (!dragging && !reducedMotion) toothGroup.rotation.y += 0.01;
     camera.position.z = distance;
     camera.lookAt(0, 0.05, 0);
     renderer.render(scene, camera);

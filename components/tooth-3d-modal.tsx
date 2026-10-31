@@ -1,6 +1,6 @@
 "use client";
 
-import { lazy, Suspense, useLayoutEffect, useState } from "react";
+import { lazy, Suspense, useLayoutEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { formatFdi, type OdontogramSurface, type SurfaceFinding } from "@/app/clinical-data";
 import { bitingFaceName, chileLabel, innerFaceName, surfaceMarkColor, toothKind, toothKindLabel } from "@/app/tooth-3d-map";
@@ -25,6 +25,7 @@ export function Tooth3DModal({
   hasCrown,
   origin,
   onClose,
+  returnFocusTo,
 }: {
   tooth: number;
   status: string;
@@ -32,22 +33,36 @@ export function Tooth3DModal({
   hasCrown: boolean;
   origin: Origin | null;
   onClose: () => void;
+  returnFocusTo: HTMLElement | null;
 }) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
   const [reducedMotion, setReducedMotion] = useState(() => window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   const [grown, setGrown] = useState(reducedMotion);
   useLayoutEffect(() => {
     const media = window.matchMedia("(prefers-reduced-motion: reduce)");
     const apply = () => setReducedMotion(media.matches);
     media.addEventListener("change", apply);
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    closeRef.current?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { event.preventDefault(); onClose(); }
+      if (event.key === "Tab") {
+        const items = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>("button, [tabindex]:not([tabindex='-1'])") ?? []);
+        if (!items.length) return;
+        const first = items[0], last = items[items.length - 1];
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+      }
+    };
     window.addEventListener("keydown", onKey);
     const frame = reducedMotion ? 0 : requestAnimationFrame(() => setGrown(true));
     return () => {
       media.removeEventListener("change", apply);
       window.removeEventListener("keydown", onKey);
       if (frame) cancelAnimationFrame(frame);
+      returnFocusTo?.focus();
     };
-  }, [onClose, reducedMotion]);
+  }, [reducedMotion, returnFocusTo]);
   const dx = origin ? origin.left + origin.width / 2 - window.innerWidth / 2 : 0;
   const dy = origin ? origin.top + origin.height / 2 - window.innerHeight / 2 : 0;
   const placed = reducedMotion || grown || !origin;
@@ -64,6 +79,7 @@ export function Tooth3DModal({
   return <div className="fixed inset-0 z-50" role="presentation">
     <button type="button" className="absolute inset-0 bg-[#10343a]/45" aria-label="Cerrar vista 3D" onClick={onClose} />
     <div
+      ref={dialogRef}
       role="dialog"
       aria-modal="true"
       aria-labelledby="tooth-3d-title"
@@ -75,7 +91,7 @@ export function Tooth3DModal({
           <p id="tooth-3d-title" className="text-lg font-semibold text-[#16343a]">FDI {formatFdi(tooth)} · {chileLabel(tooth)}</p>
           <p className="mt-0.5 text-sm text-[#5d7579]">{toothKindLabel(toothKind(tooth))} · solo lectura</p>
         </div>
-        <button type="button" className="rounded-lg p-2 text-[#31575b] hover:bg-[#e7f3f1]" onClick={onClose} aria-label="Cerrar"><X className="size-5" /></button>
+        <button ref={closeRef} type="button" className="rounded-lg p-2 text-[#31575b] hover:bg-[#e7f3f1]" onClick={onClose} aria-label="Cerrar"><X className="size-5" /></button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 sm:px-5">
         {findings.length > 0 ? <ul className="mb-3 flex flex-wrap gap-2">{findings.map((line) => <li key={line} className="rounded-full bg-[#f3f7f7] px-3 py-1 text-xs font-medium text-[#31575b]">{line}</li>)}</ul> : <p className="mb-3 text-sm text-[#71858b]">Sin hallazgos registrados en esta pieza.</p>}
