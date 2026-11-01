@@ -24,7 +24,7 @@ export async function GET() {
 
   try {
     const db = getDb();
-    const [patientRows, evolutionRows, budgetRows, appointmentRows, perioRows, toothRows, imageRows, backupRows, paymentRows] = await Promise.all([
+    const [patientRows, allEvolutionRows, budgetRows, appointmentRows, perioRows, toothRows, imageRows, backupRows, paymentRows] = await Promise.all([
       db.select().from(patients).where(eq(patients.ownerId, ownerId)).orderBy(patients.name),
       db.select().from(evolutions).where(eq(evolutions.ownerId, ownerId)).orderBy(desc(evolutions.clinicalDate), desc(evolutions.recordedAt)),
       db.select().from(budgets).where(eq(budgets.ownerId, ownerId)).orderBy(desc(budgets.id)),
@@ -35,6 +35,10 @@ export async function GET() {
       db.select().from(driveBackups).where(eq(driveBackups.ownerId, ownerId)),
       db.select().from(payments).where(eq(payments.ownerId, ownerId)).orderBy(desc(payments.paidOn)),
     ]);
+
+    // Las evoluciones anuladas no salen en la descarga; se conservan en la base y en el respaldo de Drive (marcadas).
+    const evolutionRows = allEvolutionRows.filter((row) => row.status !== "anulada");
+    const annulledEvolutionsOmitted = allEvolutionRows.length - evolutionRows.length;
 
     const images = await Promise.all(imageRows.map(async (image) => {
       const object = env.BUCKET ? await env.BUCKET.get(image.objectKey) : null;
@@ -64,6 +68,7 @@ export async function GET() {
       counts: {
         patients: patientRows.length,
         evolutions: evolutionRows.length,
+        annulledEvolutionsOmitted,
         budgets: budgetRows.length,
         appointments: appointmentRows.length,
         payments: paymentRows.length,

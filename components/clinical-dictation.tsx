@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Mic, MicOff } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Mic, MicOff, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -9,6 +9,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { formatFdi, type ClinicalImage, type OdontogramData, type PerioExam } from "@/app/clinical-data";
 import { createWebSpeechTranscription, IOS_DICTATION_HINT, MIC_DENIED, micAllowed } from "@/lib/dictation/transcription";
 import { checkPatientMentions, patientWarning } from "@/lib/dictation/patient-check";
+import { WordDiffView } from "@/components/text-correction";
+import { VoiceCommandCard, type AnnulHandler } from "@/components/evolution-annul";
+import { chileTodayIso, parseVoiceCommand, type CommandNote } from "@/lib/dictation/voice-command";
 import {
   answerLines,
   buildDictatedPerio,
@@ -141,6 +144,8 @@ export function ClinicalDictation({
   onApplied,
   budgetOptions = [],
   request = null,
+  notes = [],
+  onAnnul,
 }: {
   patientId: number;
   patientName: string;
@@ -151,7 +156,10 @@ export function ClinicalDictation({
   budgetOptions?: { id: number; title: string }[];
   onApplied: (data: Reload) => void;
   /** Abre el dictado desde otro lugar (p. ej. «Nueva evolución») con un texto ya escrito o dictado, y lo corrige con IA. */
-  request?: { nonce: number; text: string } | null;
+  request?: { nonce: number; text: string; ignoreCommand?: boolean } | null;
+  /** Evoluciones del paciente, para resolver órdenes dictadas («elimina el último dictado…»). */
+  notes?: CommandNote[];
+  onAnnul?: AnnulHandler;
 }) {
   const engine = useRef(createWebSpeechTranscription());
   const answerEngine = useRef(createWebSpeechTranscription());
@@ -194,6 +202,10 @@ export function ClinicalDictation({
   const heard = useRef({ text: "", interim: "" });
   const [lastStructured, setLastStructured] = useState("");
   const stopFallback = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Una orden dictada (anular/reemplazar una evolución) no se corrige como nota: se muestra su tarjeta.
+  const [commandIgnored, setCommandIgnored] = useState(false);
+  const isCommand = (text: string) => !!onAnnul && !!parseVoiceCommand(text, chileTodayIso());
+  const command = useMemo(() => listening || commandIgnored || !onAnnul ? null : parseVoiceCommand(transcript, chileTodayIso()), [transcript, listening, commandIgnored, onAnnul]);
   // Chequeo de paciente en el navegador: el nombre y el RUT de la ficha no viajan a la IA.
   const patientCheck = outcome ? checkPatientMentions([transcript, workingText].filter(Boolean).join("\n"), { name: patientName, rut: patient?.rut }) : null;
   const patientWarnings = patientCheck ? patientWarning(patientCheck, patientName, patient?.rut) : [];
@@ -362,6 +374,7 @@ export function ClinicalDictation({
     heard.current = { text, interim: "" };
     if (text.length < 3) return;
     setTranscript(text);
+    if (!commandIgnored && isCommand(text)) return;
     void structure(text);
   };
 
@@ -394,7 +407,8 @@ export function ClinicalDictation({
         setTranscript(text);
         setInterim("");
         resetReview();
-        void structure(text);
+        setCommandIgnored(!!request.ignoreCommand);
+        if (request.ignoreCommand || !isCommand(text)) void structure(text);
       }
     }, 0);
     return () => clearTimeout(pending);
@@ -648,15 +662,16 @@ export function ClinicalDictation({
               {listening ? "Detener" : "Dictar"}
             </Button>
             <Button type="button" variant="outline" onClick={() => { stopWithoutCorrecting(); setTranscript(EXAMPLE); setInterim(""); resetReview(); }} data-testid="dictation-example">Cargar ejemplo</Button>
-            <Button type="button" className="bg-[#087f83] hover:bg-[#07676b]" disabled={structuring || listening || transcript.trim().length < 3} onClick={() => void structure(transcript)} data-testid="dictation-structure">{structuring ? "Corrigiendo con IA…" : outcome ? "Volver a corregir" : "Corregir con IA"}</Button>
+            <Button type="button" className="bg-[#087f83] hover:bg-[#07676b]" disabled={structuring || listening || transcript.trim().length < 3} onClick={() => void structure(transcript)} data-testid="dictation-structure"><Sparkles className="mr-2 size-4" aria-hidden="true" />{structuring ? "Corrigiendo texto…" : outcome ? "Volver a corregir texto" : "Corregir texto"}</Button>
           </div>
           {listening && <p role="status" className="font-medium text-[#087f83]">Escuchando en español de Chile… Al detener, el texto se corrige solo con IA.</p>}
           {structuring && <p role="status" aria-live="polite" className="flex items-center gap-2 rounded-lg bg-sky-50 p-3 font-medium text-sky-950" data-testid="dictation-correcting"><span className="size-4 shrink-0 animate-spin rounded-full border-2 border-sky-700 border-t-transparent" aria-hidden="true" />Corrigiendo con IA… redactando la nota por secciones.</p>}
           {speechError && <p role="alert" className="text-[#a43542]">{speechError}</p>}
           <label className="block space-y-1.5 font-medium">Transcripción original, sin corregir (en vivo, editable; se guarda aparte al final de la evolución)
-            <Textarea data-testid="dictation-transcript" lang="es-CL" rows={5} className="min-h-32 field-sizing-fixed text-base sm:text-sm" autoCapitalize="sentences" autoCorrect="off" spellCheck={false} value={interim ? `${transcript} ${interim}`.trim() : transcript} onChange={(event) => { if (listening) stopWithoutCorrecting(); setTranscript(event.target.value); setInterim(""); resetReview(); }} placeholder="Habla o escribe el dictado. Revisa piezas y dosis antes de proponer cambios." />
+            <Textarea data-testid="dictation-transcript" lang="es-CL" rows={5} className="min-h-32 field-sizing-fixed text-base sm:text-sm" autoCapitalize="sentences" autoCorrect="off" spellCheck={false} value={interim ? `${transcript} ${interim}`.trim() : transcript} onChange={(event) => { if (listening) stopWithoutCorrecting(); setTranscript(event.target.value); setInterim(""); resetReview(); setCommandIgnored(false); }} placeholder="Habla o escribe el dictado. Revisa piezas y dosis antes de proponer cambios." />
           </label>
           {IOS_DICTATION_HINT && <p className="rounded-lg bg-sky-50 p-3 text-xs leading-5 text-sky-950" role="note">{IOS_DICTATION_HINT}</p>}
+          {command && onAnnul && !structuring && <VoiceCommandCard key={command.evidence} command={command} notes={notes} patientName={patientName} onConfirm={onAnnul} onDismiss={() => { setCommandIgnored(true); void structure(transcript); }} />}
           <p className="text-xs leading-5 text-[#60757a]">Dicta libre: «punto» o «punto aparte» separa frases. La IA redacta la nota y propone los cambios con la frase dicha como respaldo; nada se aplica sin tu aceptación. El reconocimiento es el del navegador (Chrome o Safari) en es-CL. El audio no se envía a una API de transcripción de pago. La propuesta pasa por revisión y la ficha manual no cambia sola.</p>
           {formError && <div role="alert" className="rounded-lg bg-rose-50 p-3 text-rose-950" data-testid="dictation-error">
             <p>{formError}</p>
@@ -687,7 +702,8 @@ export function ClinicalDictation({
                   <span className="ml-1 text-[10px] uppercase text-[#71858b]">{item.origin === "ia" ? "IA" : "diccionario"}{item.applied ? "" : " · no aplicado"}</span>
                   {!item.applied && item.reason && <span className="block text-[11px]">{item.reason}</span>}
                 </li>)}
-              </ul> : <p className="mt-2 text-xs text-[#71858b]">Sin correcciones: el texto se entendió tal como se dictó.</p>}
+              </ul> : null}
+              <div className="mt-2"><WordDiffView before={lastStructured || transcript} after={proposal.corrected?.text ?? workingText} testId="dictation-diff" /></div>
               <Textarea className="mt-2 bg-white text-base sm:text-sm" aria-label="Texto corregido (editable)" rows={4} value={workingText} onChange={(event) => setWorkingText(event.target.value)} data-testid="dictation-corrected-text" />
               <Button type="button" variant="outline" size="sm" className="mt-2" disabled={structuring || workingText.trim().length < 3} onClick={() => void structure(workingText)}>Volver a proponer con este texto</Button>
               <p className="mt-1 text-[11px] text-[#71858b]">Volver a proponer rehace la propuesta y descarta los ajustes hechos abajo.</p>

@@ -34,6 +34,7 @@ const STOP = new Set(`
 rut run carnet cedula numero fecha nacimiento nacido nacida edad anos ano telefono celular fono correo mail email
 que quien con sin por para en el la los las un una tiene tenia viene vino llega acude consulta refiere presenta y e o
 paciente nuevo nueva primera vez hoy control dolor pieza piezas diente muela se le lo es esta fue
+pon pone poner escribe escribir anota deja dejar elimina borra anula reemplaza cambia solamente solo
 `.split(/\s+/).filter(Boolean));
 
 // Dónde suele empezar el nombre de quien consulta.
@@ -71,6 +72,8 @@ function extractName(text: string): { name: string; quote: string } | null {
       if (CONNECTORS.has(folded) && parts.length) { parts.push(bare); if (bare !== clean) break; continue; }
       if (STOP.has(folded) || folded.length < 2) break;
       const capital = /^\p{Lu}/u.test(bare);
+      // «Acevedo y pon solamente…»: tras «y» solo sigue el nombre si viene con mayúscula.
+      if (!capital && parts.length && fold(parts[parts.length - 1]) === "y") break;
       // Sin mayúscula solo se acepta como continuación de un nombre ya empezado con mayúscula.
       if (!capital && !parts.some((part) => /^\p{Lu}/u.test(part))) break;
       if (!capital && /(?:ico|ica|ente|ante|oso|osa|mente|cion|ado|ada|ido|ida)$/.test(folded)) break;
@@ -181,6 +184,53 @@ export function nameSimilarity(spoken: string, stored: string): number {
   return Math.round(coverage * weight * 100) / 100;
 }
 
+type SpokenToken = { folded: string; raw: string; start: number; end: number };
+
+function spokenTokens(text: string): SpokenToken[] {
+  return [...text.matchAll(/\p{L}[\p{L}'-]*/gu)].map((match) => ({ folded: fold(match[0]), raw: match[0], start: match.index ?? 0, end: (match.index ?? 0) + match[0].length }));
+}
+
+export type NameMention = { patientId: number; score: number; span: string; start: number };
+
+/**
+ * Busca los nombres de las fichas en CUALQUIER parte del dictado (no solo tras «paciente»):
+ * recorre la transcripción y alinea, en orden, los nombres y apellidos de cada ficha.
+ * Tolera tildes/mayúsculas, segundo nombre o apellido omitido, «del Pilar», palabras de relleno
+ * y una letra mal oída. Exige al menos dos partes del nombre cerca una de otra.
+ */
+export function findNameMentions(transcript: string, patients: StoredPatient[]): NameMention[] {
+  const tokens = spokenTokens(transcript);
+  const mentions: NameMention[] = [];
+  for (const patient of patients) {
+    const own = nameTokens(patient.name);
+    if (own.length < 2) continue;
+    // En Chile los dos últimos son apellidos; lo anterior, nombres de pila.
+    const surnameFrom = own.length >= 3 ? own.length - 2 : 1;
+    let best: NameMention | null = null;
+    for (let i = 0; i < tokens.length; i += 1) {
+      const firstOwn = own.findIndex((part) => tokenMatches(tokens[i].folded, part));
+      if (firstOwn < 0 || CONNECTORS.has(tokens[i].folded)) continue;
+      if (BLOCK_BEFORE.test(transcript.slice(Math.max(0, tokens[i].start - 25), tokens[i].start))) continue;
+      const matched = [firstOwn];
+      let last = i;
+      let next = firstOwn + 1;
+      for (let j = i + 1; j < tokens.length && j - last <= 2 && next < own.length; j += 1) {
+        if (CONNECTORS.has(tokens[j].folded)) continue;
+        const hit = own.slice(next).findIndex((part) => tokenMatches(tokens[j].folded, part));
+        if (hit >= 0) { matched.push(next + hit); next += hit + 1; last = j; }
+      }
+      if (matched.length < 2) continue;
+      const given = matched.filter((index) => index < surnameFrom).length;
+      const surnames = matched.length - given;
+      const coverage = matched.length / own.length;
+      const score = given && surnames ? Math.min(1, 0.95 + 0.05 * coverage) : surnames >= 2 ? 0.9 : 0.6;
+      if (!best || score > best.score) best = { patientId: patient.id, score: Math.round(score * 100) / 100, span: transcript.slice(tokens[i].start, tokens[last].end), start: tokens[i].start };
+    }
+    if (best) mentions.push(best);
+  }
+  return mentions.sort((a, b) => b.score - a.score);
+}
+
 /**
  * Decide en código a qué ficha va el dictado: RUT primero, luego parecido de nombre.
  * Nunca crea nada: solo propone; crear un paciente exige un toque de confirmación en la app.
@@ -197,6 +247,18 @@ export function decidePatient(transcript: string, patients: StoredPatient[]): Pa
   if (rutClean) {
     rutHit = patients.find((patient) => patient.rut && normalizeRut(patient.rut) === rutClean);
     if (rutHit) add(rutHit, 1, "El RUT dictado coincide con esta ficha");
+  }
+  const mentions = findNameMentions(transcript, patients);
+  if (!identity.name && mentions.length) {
+    // Nombre dicho a mitad de frase («elimina el dictado de Marcela Acevedo…»).
+    identity.name = mentions[0].span.split(/\s+/).map(titleCase).join(" ");
+    identity.quotes.unshift(mentions[0].span);
+  }
+  for (const mention of mentions) {
+    const patient = patients.find((item) => item.id === mention.patientId);
+    if (!patient) continue;
+    const rutConflict = rutClean && patient.rut && normalizeRut(patient.rut) !== rutClean;
+    add(patient, rutConflict ? Math.min(mention.score, 0.5) : mention.score, rutConflict ? "Nombre parecido, pero con otro RUT" : mention.score >= 0.95 ? `Se nombró en el dictado («${mention.span}»)` : "Nombre parecido en el dictado");
   }
   if (identity.name) {
     for (const patient of patients) {
