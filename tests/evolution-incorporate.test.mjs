@@ -48,6 +48,8 @@ test("sin cupo de IA (4006): control de implante ya registrado no toca el odonto
   assert.deepEqual(p.odontogram, []);
   assert.deepEqual(p.appointments.map((a) => a.day), ["2026-11-22"]);
   assert.ok(p.clarifications.some((q) => /en la mesa/i.test(q)));
-  assert.ok(p.clarifications.some((q) => /30/.test(q)));
+  // «pieza 30» es chilena (FDI 3.6): ya tiene implante y no se pregunta.
+  assert.equal(p.clarifications.some((q) => /pieza 30/.test(q)), false);
+  assert.match(p.evolution.title, /FDI 3\.6/);
   assert.doesNotMatch(p.evolution.body, /evolucionar|Hola/);
 });

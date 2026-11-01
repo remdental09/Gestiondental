@@ -24,7 +24,7 @@ function canonicalSurfaces(tooth) {
 test('las 32 piezas permanentes aceptan cada cara válida en chilena y en FDI', () => {
   for (const tooth of permanent) {
     for (const [word, surface] of canonicalSurfaces(tooth)) {
-      const chile = `Caries ${word} en pieza chilena ${chileOf[tooth]}, ICDAS 2, activa.`;
+      const chile = `Caries ${word} en pieza ${chileOf[tooth]}, ICDAS 2, activa.`;
       const fdi = `Caries ${word} en pieza ${formatFdi(tooth)}, ICDAS 2, activa.`;
       for (const phrase of [chile, fdi]) {
         const proposal = structureTranscript(phrase);
@@ -40,21 +40,21 @@ test('las 32 piezas permanentes aceptan cada cara válida en chilena y en FDI', 
 });
 
 test('abreviaturas, compuestos y las tres formas de decir FDI 3.6', () => {
-  const mod = structureTranscript('Caries MOD en pieza 3.6, ICDAS 4, activa.');
+  const mod = structureTranscript('Caries MOD en pieza 30, ICDAS 4, activa.');
   assert.deepEqual(mod.odontogram.map((item) => item.surface).sort(), ['D', 'M', 'O']);
   assert.equal(new Set(mod.odontogram.map((item) => item.tooth)).size, 1);
   assert.equal(mod.odontogram[0].tooth, 36);
-  assert.equal(mod.odontogram.every((item) => item.sourceText.includes('Pieza 3.6') || item.sourceText.includes('pieza 3.6')), true);
+  assert.equal(mod.odontogram.every((item) => item.sourceText.includes('Pieza 30') || item.sourceText.includes('pieza 30')), true);
 
-  const compounds = structureTranscript('Caries mesio-oclusal y ocluso-distal en pieza 3.6, ICDAS 2, activa.');
+  const compounds = structureTranscript('Caries mesio-oclusal y ocluso-distal en pieza 30, ICDAS 2, activa.');
   assert.deepEqual(compounds.odontogram.map((item) => item.surface).sort(), ['D', 'M', 'O']);
 
-  const words = structureTranscript('Caries en cara mesial y distal de la pieza 2.6, ICDAS 2, activa.');
+  const words = structureTranscript('Caries en cara mesial y distal de la pieza 14, ICDAS 2, activa.');
   assert.deepEqual(words.odontogram.map((item) => item.surface).sort(), ['D', 'M']);
   assert.equal(words.odontogram[0].tooth, chileToFdi(14));
 
   for (const phrase of [
-    'Caries oclusal en pieza 3.6, ICDAS 2, activa.',
+    'Caries oclusal en pieza 30, ICDAS 2, activa.',
     'Caries oclusal en pieza 3.6, ICDAS 2, activa.',
     'Caries oclusal en pieza tres seis, ICDAS 2, activa.',
     'Caries oclusal en FDI 36, ICDAS 2, activa.',
@@ -78,11 +78,11 @@ test('un desajuste de cara se explica y la incisal posterior no se adivina', () 
   assert.equal(anteriorOcclusal.odontogram[0].surface, 'O');
   assert.match(anteriorOcclusal.clarifications.join(' '), /incisal/);
 
-  const posteriorIncisal = structureTranscript('Caries incisal en pieza 3.6, ICDAS 2, activa.');
+  const posteriorIncisal = structureTranscript('Caries incisal en pieza 30, ICDAS 2, activa.');
   assert.equal(posteriorIncisal.odontogram.length, 0);
   assert.match(posteriorIncisal.clarifications.join(' '), /no corresponde a una pieza posterior/);
 
-  const palatalBelow = structureTranscript('Caries palatina en pieza 3.6, ICDAS 2, activa.');
+  const palatalBelow = structureTranscript('Caries palatina en pieza 30, ICDAS 2, activa.');
   assert.equal(palatalBelow.odontogram[0].tooth, 36);
   assert.equal(palatalBelow.odontogram[0].surface, 'P');
   assert.match(palatalBelow.clarifications.join(' '), /lingual/);

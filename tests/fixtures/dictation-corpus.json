@@ -21,15 +21,12 @@
       }
     },
     {
-      "id": "c02-pieza-30-no-es-fdi",
-      "text": "pieza 30 obturacion oclusal de resina pieza 4.6 ausente",
+      "id": "c02-numeracion-chilena",
+      "text": "pieza 30 obturacion oclusal de resina pieza 19 ausente",
       "expect": {
         "odontogram": [
+          "36 O restored",
           "46 Ausente"
-        ],
-        "clarify": [
-          "«pieza 30» no es una pieza FDI",
-          "¿Qué pieza\\? \\(FDI\\)$"
         ],
         "patientWarning": false
       }
@@ -148,7 +145,7 @@
     },
     {
       "id": "c13-fractura-no-es-caries",
-      "text": "pieza 1.6 con fractura de la cúspide mesiopalatina y obturación oclusal de amalgama",
+      "text": "pieza 3 con fractura de la cúspide mesiopalatina y obturación oclusal de amalgama",
       "expect": {
         "odontogram": [
           "16 O restored"
@@ -172,7 +169,7 @@
     },
     {
       "id": "c15-dentina-sin-profundidad",
-      "text": "pieza 2.4 caries oclusal de dentina",
+      "text": "pieza 12 caries oclusal de dentina",
       "expect": {
         "odontogram": [
           "24 O caries:-"
@@ -515,7 +512,7 @@
       "id": "c42-sin-ia-preambulo-nombre-oido-mal",
       "chart": [
         {
-          "tooth": 26,
+          "tooth": 36,
           "status": "Implante"
         }
       ],
@@ -527,25 +524,35 @@
           "2026-11-22 -"
         ],
         "clarify": [
-          "en la mesa",
-          "«pieza 30» no es una pieza FDI.*¿Qué pieza\\? \\(FDI\\) Primera opción: FDI 2\\.6"
+          "en la mesa"
         ],
         "noteExcludes": [
           "evolucionar",
           "Hola"
         ],
-        "patientWarning": false
+        "patientWarning": false,
+        "titleIncludes": "3.6"
       }
     },
     {
-      "id": "c43-pieza-30-sugiere-implante-dictado",
-      "chart": [],
+      "id": "c43-pieza-30-es-chilena-junto-a-fdi",
+      "chart": [
+        {
+          "tooth": 26,
+          "status": "Implante"
+        },
+        {
+          "tooth": 36,
+          "status": "Implante"
+        }
+      ],
       "text": "Control de implante 2.6 instalado hace tres meses. Pieza 30 sin dolor a la percusión, implante estable.",
       "expect": {
         "type": "implante-control",
         "odontogram": [],
-        "clarify": [
-          "«pieza 30» no es una pieza FDI.*Primera opción: FDI 2\\.6 \\(implante dicho en este mismo dictado\\)"
+        "unchecked": [],
+        "clarifyExcludes": [
+          "pieza 30"
         ],
         "patientWarning": false
       }
@@ -629,6 +636,19 @@
           "36 corona:implante"
         ],
         "unchecked": [],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c49-fdi-sin-punto-y-numero-invalido",
+      "text": "pieza 46 ausente pieza 39 obturacion oclusal de resina",
+      "expect": {
+        "odontogram": [
+          "46 Ausente"
+        ],
+        "clarify": [
+          "«pieza 39» no es una pieza válida ni en numeración chilena \\(1–32\\) ni en FDI \\(33–48, 51–85\\)\\. ¿Qué pieza\\?$"
+        ],
         "patientWarning": false
       }
     }
