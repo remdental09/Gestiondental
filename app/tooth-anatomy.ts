@@ -18,6 +18,12 @@ export type AnatomyMesh = {
   /** One zone per triangle (indices.length / 3). R = root, S = cut dentine of a stump. */
   zones: ToothZone[];
   part: "body" | "root";
+  /** Per vertex: 0 at the CEJ → 1 at the cusp tips / incisal edge; negative down the root (−1 = apex). */
+  level: number[];
+  /** Per vertex: 0–1 depth of an occlusal fissure (used for the dark stain in the grooves). */
+  stain: number[];
+  /** Optional per-vertex normals (implicit root complexes use the field gradient). */
+  normals?: number[];
 };
 
 export type ToothAnatomy = {
@@ -30,7 +36,8 @@ export type AnatomyMode = "full" | "crown" | "stump";
 
 type Cusp = [nx: number, nz: number, height: number, sx: number, sz: number];
 type Groove = [x0: number, z0: number, x1: number, z1: number, depth: number, width: number];
-type RootSpec = { nx: number; nz: number; len: number; a: number; b: number; tipX: number; tipZ: number };
+/** tipX/tipZ: divergence reached near the apex; bend: extra (mostly distal) apical curvature; groove: longitudinal concavity depth. */
+type RootSpec = { nx: number; nz: number; len: number; a: number; b: number; tipX: number; tipZ: number; bend?: number; groove?: number };
 
 type Spec = {
   kind: ToothKind;
@@ -63,6 +70,8 @@ type Spec = {
   roots: RootSpec[];
   trunk: number;
   rootCurve: number;
+  /** Depth of the proximal longitudinal concavity on single roots. */
+  rootGroove: number;
 };
 
 const MM = 0.1;
@@ -77,7 +86,11 @@ const softAbs = (v: number, e = 0.004) => Math.sqrt(v * v + e);
 
 /** Width profile along the crown: cervix → maximum at `peak` → rim. */
 function profile(u: number, cerv: number, peak: number, rim: number, power = 1.4): number {
-  if (u <= peak) return cerv + (1 - cerv) * Math.sin((Math.PI / 2) * (u / Math.max(peak, 1e-6)));
+  if (u <= peak) {
+    const s = u / Math.max(peak, 1e-6);
+    // Eased start: the crown leaves the CEJ tangent to the root, then bulges to the contour.
+    return cerv + (1 - cerv) * Math.sin((Math.PI / 2) * s * (0.35 + 0.65 * s));
+  }
   return 1 - (1 - rim) * Math.pow((u - peak) / (1 - peak), power);
 }
 
@@ -88,19 +101,35 @@ function segmentDistance(x: number, z: number, g: Groove): number {
   return Math.hypot(x - (x0 + dx * t), z - (z0 + dz * t));
 }
 
+let lastStain = 0;
+
 function occlusalHeight(spec: Spec, nx: number, nz: number): number {
+  lastStain = 0;
   // Edge crowns: the incisal edge is rounded labiolingually rather than a flat ledge.
   if (spec.edge) return spec.edge(nx) - 0.045 * nz * nz;
   let h = 0;
-  for (const [cx, cz, ch, sx, sz] of spec.cusps) h += ch * Math.exp(-(((nx - cx) / sx) ** 2) - (((nz - cz) / sz) ** 2));
+  for (const [cx, cz, ch, sx, sz] of spec.cusps) {
+    // Bulbous cusps: flatter, rounder tops with steeper slopes than a plain Gaussian.
+    const r2 = ((nx - cx) / sx) ** 2 + ((nz - cz) / sz) ** 2;
+    h += ch * Math.exp(-Math.pow(r2, 1.35));
+    // Triangular ridge running from the cusp tip down towards the central fossa.
+    const ridge: Groove = [cx, cz, cx * 0.3, cz * 0.3, 0, 0];
+    const dr = segmentDistance(nx, nz, ridge);
+    h += ch * 0.28 * Math.exp(-((dr / 0.13) ** 2)) * Math.exp(-r2 * 0.25);
+  }
+  let stain = 0;
   for (const g of spec.grooves) {
     const d = segmentDistance(nx, nz, g);
     // Fissures fade out before the outline so they never notch the marginal ridges.
     const fade = 1 - smooth(0.82, 1.02, Math.max(Math.abs(nx), Math.abs(nz)) * (Math.abs(g[3]) > 0.9 || Math.abs(g[1]) > 0.9 ? 0.86 : 1));
-    h -= g[4] * Math.exp(-((d / g[5]) ** 2)) * fade;
+    // Sharper, deeper V-shaped fissure than the previous soft Gaussian.
+    const w = g[5] * 0.8;
+    h -= g[4] * 1.45 * Math.exp(-Math.pow(d / w, 1.4)) * fade;
+    stain = Math.max(stain, Math.exp(-((d / (w * 1.7)) ** 2)) * fade);
   }
   // Marginal ridges close the occlusal table mesially and distally.
-  h += 0.035 * Math.exp(-(((Math.abs(nx) - 0.8) / 0.14) ** 2)) * (1 - nz * nz * 0.6);
+  h += 0.045 * Math.exp(-(((Math.abs(nx) - 0.8) / 0.13) ** 2)) * (1 - nz * nz * 0.6);
+  lastStain = stain;
   return h;
 }
 
@@ -122,7 +151,7 @@ function specFor(tooth: number): Spec {
   const base: Omit<Spec, "md" | "bl" | "crownH" | "rootLen"> = {
     kind, n: 2.3, cervMD: 0.72, cervBL: 0.86, contactU: 0.72, buccalU: 0.28, lingualU: 0.45,
     rimMD: 0.9, rimB: 0.82, rimL: 0.82, buccalShare: 0.5, cejCurve: 0.1, shear: 0,
-    cusps: [], grooves: [], lingualFossa: 0, roots: [], trunk: 0, rootCurve: 0.06,
+    cusps: [], grooves: [], lingualFossa: 0, roots: [], trunk: 0, rootCurve: 0.06, rootGroove: 0.04,
   };
   let spec: Spec;
   if (kind === "incisor") {
@@ -132,26 +161,26 @@ function specFor(tooth: number): Spec {
     spec = {
       ...base, md: dims[0] * MM, bl: dims[1] * MM, crownH: dims[2] * MM, rootLen: dims[3] * MM,
       n: 2.7, cervMD: upper ? 0.74 : 0.68, cervBL: 0.92, contactU: 0.82, buccalU: 0.14, lingualU: 0.16,
-      rimMD: upper ? 0.97 : 0.99, rimB: 0.16, rimL: 0.12, buccalShare: 0.44, cejCurve: 0.3,
+      rimMD: upper ? 0.97 : 0.99, rimB: 0.16, rimL: 0.12, buccalShare: 0.44, cejCurve: 0.36,
       edge: (nx) => {
         const m = Math.max(0, nx - 0.55) / 0.45, d = Math.max(0, -nx - 0.55) / 0.45;
         return -0.03 * m * m - distalRound * d * d;
       },
-      lingualFossa: upper ? 0.62 : 0.4, rootCurve: 0.05,
+      lingualFossa: upper ? 0.62 : 0.4, rootCurve: 0.05, rootGroove: upper ? 0.03 : 0.14,
     };
   } else if (kind === "canine") {
     const dims = upper ? [7.6, 8.1, 10, 17] : [7.0, 7.6, 11, 16];
     spec = {
       ...base, md: dims[0] * MM, bl: dims[1] * MM, crownH: dims[2] * MM, rootLen: dims[3] * MM,
       n: 2.3, cervMD: 0.7, cervBL: 0.9, contactU: 0.66, buccalU: 0.2, lingualU: 0.2,
-      rimMD: 0.98, rimB: 0.24, rimL: 0.2, buccalShare: 0.46, cejCurve: 0.26,
+      rimMD: 0.98, rimB: 0.24, rimL: 0.2, buccalShare: 0.46, cejCurve: 0.3,
       edge: (nx) => {
         const tip = 0.08, d = nx - tip;
         // Shorter, steeper mesial cusp ridge; longer distal cusp ridge.
         const slope = d > 0 ? 0.3 / (1 - tip) : 0.38 / (1 + tip);
         return -slope * (softAbs(d, 0.002) - Math.sqrt(0.002));
       },
-      lingualFossa: 0.32, rootCurve: 0.07,
+      lingualFossa: 0.32, rootCurve: 0.07, rootGroove: 0.1,
     };
   } else if (kind === "premolar") {
     const first = pos === 4;
@@ -160,19 +189,19 @@ function specFor(tooth: number): Spec {
     spec = {
       ...base, md: dims[0] * MM, bl: dims[1] * MM, crownH: dims[2] * MM, rootLen: dims[3] * MM,
       n: 2.25, cervMD: 0.72, cervBL: 0.84, contactU: 0.74, buccalU: 0.3, lingualU: 0.5,
-      rimMD: 0.84, rimB: 0.72, rimL: upper ? 0.74 : 0.62, buccalShare: upper ? 0.5 : 0.56, cejCurve: 0.1,
+      rimMD: 0.84, rimB: 0.72, rimL: upper ? 0.74 : 0.62, buccalShare: upper ? 0.5 : 0.56, cejCurve: 0.22,
       cusps: [
         [first && upper ? -0.06 : 0.04, 0.42, 0.2, 0.48, 0.4],
         [upper ? 0.06 : 0.12, upper ? -0.42 : -0.5, lingual, upper ? 0.45 : 0.36, 0.36],
       ],
       grooves: [[0.62, upper ? 0.02 : -0.05, -0.62, upper ? 0.02 : -0.05, 0.06, 0.09]],
-      rootCurve: 0.07,
+      rootCurve: 0.07, rootGroove: 0.14,
     };
     if (upper && first && !primary) {
-      spec.trunk = 0.45 * spec.rootLen;
+      spec.trunk = 0.4 * spec.rootLen;
       spec.roots = [
-        { nx: 0, nz: 0.36, len: spec.rootLen, a: 0.2, b: 0.17, tipX: -0.04, tipZ: 0.08 },
-        { nx: 0, nz: -0.36, len: spec.rootLen * 0.97, a: 0.19, b: 0.16, tipX: -0.03, tipZ: -0.08 },
+        { nx: 0, nz: 0.36, len: spec.rootLen, a: 0.2, b: 0.17, tipX: 0, tipZ: 0.14, bend: -0.07, groove: 0.1 },
+        { nx: 0, nz: -0.36, len: spec.rootLen * 0.97, a: 0.19, b: 0.16, tipX: 0, tipZ: -0.13, bend: -0.05, groove: 0.08 },
       ];
     }
   } else {
@@ -184,7 +213,7 @@ function specFor(tooth: number): Spec {
       spec = {
         ...base, md: dims[0] * MM, bl: dims[1] * MM, crownH: dims[2] * MM, rootLen: dims[3] * MM,
         n: 2.6, cervMD: 0.78, cervBL: 0.84, contactU: 0.68, buccalU: 0.3, lingualU: 0.5,
-        rimMD: 0.86, rimB: 0.74, rimL: 0.74, buccalShare: 0.48, cejCurve: 0.06, shear: 0.16,
+        rimMD: 0.86, rimB: 0.74, rimL: 0.74, buccalShare: 0.48, cejCurve: 0.13, shear: 0.16,
         cusps: [
           [0.44, 0.5, 0.2, 0.36, 0.36],   // mesiobuccal
           [-0.46, 0.5, 0.18, 0.34, 0.36], // distobuccal
@@ -199,9 +228,9 @@ function specFor(tooth: number): Spec {
         ],
         trunk: 0.32 * dims[3] * MM,
         roots: [
-          { nx: 0.44, nz: 0.36, len: dims[3] * MM, a: 0.16, b: 0.22, tipX: 0.02, tipZ: 0.1 },
-          { nx: -0.46, nz: 0.36, len: dims[3] * MM * 0.92, a: 0.14, b: 0.19, tipX: -0.09, tipZ: 0.1 },
-          { nx: 0.04, nz: -0.42, len: dims[3] * MM * 1.06, a: 0.2, b: 0.19, tipX: 0, tipZ: -0.26 },
+          { nx: 0.44, nz: 0.36, len: dims[3] * MM, a: 0.16, b: 0.22, tipX: 0.12, tipZ: 0.14, bend: -0.12, groove: 0.12 },
+          { nx: -0.46, nz: 0.36, len: dims[3] * MM * 0.92, a: 0.14, b: 0.19, tipX: -0.16, tipZ: 0.12, bend: -0.05, groove: 0.05 },
+          { nx: 0.04, nz: -0.42, len: dims[3] * MM * 1.06, a: 0.2, b: 0.19, tipX: 0, tipZ: -0.36, bend: 0, groove: 0.07 },
         ],
       };
     } else {
@@ -210,7 +239,7 @@ function specFor(tooth: number): Spec {
       spec = {
         ...base, md: dims[0] * MM, bl: dims[1] * MM, crownH: dims[2] * MM, rootLen: dims[3] * MM,
         n: 2.7, cervMD: 0.8, cervBL: 0.84, contactU: 0.7, buccalU: 0.26, lingualU: 0.52,
-        rimMD: 0.88, rimB: 0.7, rimL: 0.8, buccalShare: 0.52, cejCurve: 0.05,
+        rimMD: 0.88, rimB: 0.7, rimL: 0.8, buccalShare: 0.52, cejCurve: 0.12,
         cusps: five
           ? [
             [0.56, 0.48, 0.17, 0.3, 0.38],   // mesiobuccal
@@ -239,8 +268,8 @@ function specFor(tooth: number): Spec {
           ],
         trunk: 0.26 * dims[3] * MM,
         roots: [
-          { nx: 0.5, nz: 0, len: dims[3] * MM, a: 0.16, b: 0.38, tipX: -0.14, tipZ: 0 },
-          { nx: -0.5, nz: 0, len: dims[3] * MM * 0.93, a: 0.15, b: 0.34, tipX: -0.08, tipZ: 0 },
+          { nx: 0.5, nz: 0, len: dims[3] * MM, a: 0.16, b: 0.38, tipX: 0.1, tipZ: 0, bend: -0.2, groove: 0.16 },
+          { nx: -0.5, nz: 0, len: dims[3] * MM * 0.93, a: 0.15, b: 0.34, tipX: -0.12, tipZ: 0, bend: -0.06, groove: 0.1 },
         ],
       };
     }
@@ -263,7 +292,10 @@ function specFor(tooth: number): Spec {
 }
 
 const SEGMENTS = 72;
+/** Vertices per ring; in "crown" mode the first ring is the cervical margin. */
+export const ANATOMY_SEGMENTS = SEGMENTS;
 const TRUNK_SHRINK = 0.14;
+const CERVICAL_SHEAR = smooth(-0.2, 0.6, 0);
 
 function ringAngles(): number[] {
   return Array.from({ length: SEGMENTS }, (_, i) => (i / SEGMENTS) * Math.PI * 2);
@@ -279,7 +311,7 @@ function wallZone(cx: number, cz: number, mesialSign: number): ToothZone {
   return cx * mesialSign >= 0 ? "M" : "D";
 }
 
-type Ring = { pts: [number, number, number][]; zone: (column: number) => ToothZone };
+type Ring = { pts: [number, number, number][]; zone: (column: number) => ToothZone; level: number; stain?: number[] };
 
 export function buildToothAnatomy(tooth: number, mode: AnatomyMode = "full"): ToothAnatomy {
   const spec = specFor(tooth);
@@ -343,12 +375,15 @@ export function buildToothAnatomy(tooth: number, mode: AnatomyMode = "full"): To
           b0 = halfB * spec.cervBL * shrink;
           b1 = halfL * spec.cervBL * shrink;
         }
+        // Longitudinal proximal concavity (root groove) along the middle of the root.
+        const groove = spec.rootGroove * Math.exp(-((sz / 0.5) ** 2)) * smooth(0.06, 0.3, t) * (1 - smooth(0.75, 1, t));
+        a *= 1 - groove;
         const z = sz >= 0 ? sz * b0 : sz * b1;
         const bend = singleRoot ? -spec.rootCurve * Math.pow(t, 2.2) * mesial : 0;
         const y = -t * depth + cejOffset(cx) * Math.pow(1 - t, 3);
         return [toWorldX(sx * a, z, 0) + bend, y, z] as [number, number, number];
       });
-      rings.push({ pts, zone: rootZone });
+      rings.push({ pts, zone: rootZone, level: -t });
     }
   }
   const wallSteps = Math.max(2, Math.round(22 * cutU));
@@ -358,6 +393,7 @@ export function buildToothAnatomy(tooth: number, mode: AnatomyMode = "full"): To
     rings.push({
       pts,
       zone: (i) => (edgeTooth && u > 0.9 ? "O" : wallZone(units[i][0], units[i][1], mesial)),
+      level: u,
     });
   }
   const capCenter: [number, number, number] = [0, 0, 0];
@@ -366,20 +402,22 @@ export function buildToothAnatomy(tooth: number, mode: AnatomyMode = "full"): To
     const yTop = Math.max(...rim.map((p) => p[1]));
     capCenter[1] = yTop;
     for (const s of [0.82, 0.5]) {
-      rings.push({ pts: rim.map(([x, , z]) => [x * s, yTop, z * s] as [number, number, number]), zone: () => "S" });
+      rings.push({ pts: rim.map(([x, , z]) => [x * s, yTop, z * s] as [number, number, number]), zone: () => "S", level: 0.5 });
     }
   } else {
-    const capSteps = 24;
+    const capSteps = edgeTooth ? 16 : 34;
     for (let k = 1; k < capSteps; k += 1) {
       const s = 1 - k / capSteps;
+      const stain: number[] = [];
       const pts = phis.map((_, i) => {
         const [cx, cz] = units[i];
         const a = halfMD * spec.rimMD;
         const z = cz >= 0 ? cz * halfB * spec.rimB : cz * halfL * spec.rimL;
         const y = wallH + occlusalHeight(spec, cx * s, cz * s);
+        stain.push(lastStain);
         return [toWorldX(cx * a * s, z * s, 1), y, z * s] as [number, number, number];
       });
-      rings.push({ pts, zone: () => "O" });
+      rings.push({ pts, zone: () => "O", level: 1, stain });
     }
     capCenter[1] = wallH + occlusalHeight(spec, 0, 0);
   }
@@ -387,7 +425,12 @@ export function buildToothAnatomy(tooth: number, mode: AnatomyMode = "full"): To
   const positions: number[] = [];
   const indices: number[] = [];
   const zones: ToothZone[] = [];
-  for (const ring of rings) for (const p of ring.pts) positions.push(...p);
+  const level: number[] = [];
+  const stain: number[] = [];
+  for (const ring of rings) {
+    for (const p of ring.pts) positions.push(...p);
+    for (let i = 0; i < ring.pts.length; i += 1) { level.push(ring.level); stain.push(ring.stain ? ring.stain[i] : 0); }
+  }
   const N = SEGMENTS;
   for (let r = 0; r < rings.length - 1; r += 1) {
     const zoneRing = rings[r + 1].zone === rootZone ? rings[r + 1] : rings[r].zone === rootZone ? rings[r] : rings[r + 1];
@@ -402,6 +445,8 @@ export function buildToothAnatomy(tooth: number, mode: AnatomyMode = "full"): To
   // Close the top (occlusal centre or stump) and the bottom (apex, trunk floor, or crown base).
   const topIndex = positions.length / 3;
   positions.push(...capCenter);
+  level.push(mode === "stump" ? 0.5 : 1);
+  stain.push(mode === "stump" ? 0 : (occlusalHeight(spec, 0, 0), lastStain));
   const lastRing = (rings.length - 1) * N;
   for (let i = 0; i < N; i += 1) {
     indices.push(lastRing + ((i + 1) % N), lastRing + i, topIndex);
@@ -414,12 +459,14 @@ export function buildToothAnatomy(tooth: number, mode: AnatomyMode = "full"): To
   const bx = first.reduce((sum, p) => sum + p[0], 0) / N;
   const bz = first.reduce((sum, p) => sum + p[2], 0) / N;
   positions.push(bx, bottomY, bz);
+  level.push(mode === "crown" || !singleRoot ? 0 : -1);
+  stain.push(0);
   for (let i = 0; i < N; i += 1) {
     indices.push(i, (i + 1) % N, bottomIndex);
     zones.push(mode === "crown" ? "S" : "R");
   }
 
-  const meshes: AnatomyMesh[] = [{ positions, indices, zones, part: "body" }];
+  const meshes: AnatomyMesh[] = [{ positions, indices, zones, part: "body", level, stain }];
   const canals: [number, number, number][][] = [];
   let rootComplex: AnatomyMesh | null = null;
   const chamberTop = mode === "stump" ? capCenter[1] : Math.min(wallH * 0.45, 0.35);
@@ -460,26 +507,43 @@ type Vec3 = [number, number, number];
 /** Taubin smoothing (shrink-free Laplacian) to remove marching-grid ripples. */
 function smoothMesh(positions: number[], indices: number[], iterations: number): void {
   const count = positions.length / 3;
-  const neighbours: Set<number>[] = Array.from({ length: count }, () => new Set<number>());
+  // Unique-edge adjacency in compressed rows (much faster than per-vertex Sets).
+  const edgeSeen = new Set<number>();
+  const pairs: number[] = [];
+  const degree = new Uint32Array(count);
   for (let k = 0; k < indices.length; k += 3) {
-    const [a, b, c] = [indices[k], indices[k + 1], indices[k + 2]];
-    neighbours[a].add(b).add(c); neighbours[b].add(a).add(c); neighbours[c].add(a).add(b);
-  }
-  const pass = (factor: number) => {
-    const next = positions.slice();
-    for (let v = 0; v < count; v += 1) {
-      const set = neighbours[v];
-      if (set.size === 0) continue;
-      let mx = 0, my = 0, mz = 0;
-      for (const n of set) { mx += positions[n * 3]; my += positions[n * 3 + 1]; mz += positions[n * 3 + 2]; }
-      const inv = 1 / set.size;
-      next[v * 3] += factor * (mx * inv - positions[v * 3]);
-      next[v * 3 + 1] += factor * (my * inv - positions[v * 3 + 1]);
-      next[v * 3 + 2] += factor * (mz * inv - positions[v * 3 + 2]);
+    for (let e = 0; e < 3; e += 1) {
+      const a = indices[k + e], b = indices[k + ((e + 1) % 3)];
+      const key = a < b ? a * count + b : b * count + a;
+      if (edgeSeen.has(key)) continue;
+      edgeSeen.add(key);
+      pairs.push(a, b);
+      degree[a] += 1; degree[b] += 1;
     }
-    for (let i = 0; i < positions.length; i += 1) positions[i] = next[i];
+  }
+  const start = new Uint32Array(count + 1);
+  for (let v = 0; v < count; v += 1) start[v + 1] = start[v] + degree[v];
+  const fill = start.slice(0, count);
+  const adj = new Uint32Array(start[count]);
+  for (let p = 0; p < pairs.length; p += 2) { adj[fill[pairs[p]]++] = pairs[p + 1]; adj[fill[pairs[p + 1]]++] = pairs[p]; }
+  const cur = Float64Array.from(positions);
+  const next = new Float64Array(cur.length);
+  const pass = (factor: number) => {
+    for (let v = 0; v < count; v += 1) {
+      const s0 = start[v], s1 = start[v + 1];
+      const o = v * 3;
+      if (s1 === s0) { next[o] = cur[o]; next[o + 1] = cur[o + 1]; next[o + 2] = cur[o + 2]; continue; }
+      let mx = 0, my = 0, mz = 0;
+      for (let q = s0; q < s1; q += 1) { const n = adj[q] * 3; mx += cur[n]; my += cur[n + 1]; mz += cur[n + 2]; }
+      const inv = 1 / (s1 - s0);
+      next[o] = cur[o] + factor * (mx * inv - cur[o]);
+      next[o + 1] = cur[o + 1] + factor * (my * inv - cur[o + 1]);
+      next[o + 2] = cur[o + 2] + factor * (mz * inv - cur[o + 2]);
+    }
+    cur.set(next);
   };
   for (let i = 0; i < iterations; i += 1) { pass(0.5); pass(-0.53); }
+  for (let i = 0; i < positions.length; i += 1) positions[i] = cur[i];
 }
 
 /** Polynomial smooth minimum: blends two distance fields with a fillet of size k. */
@@ -515,37 +579,15 @@ function buildRootComplex(
     const x0 = root.nx * cervA, z0 = root.nz * cervB;
     const yTop = -spec.trunk * 0.4;
     const length = root.len - spec.trunk * 0.4;
+    const bend = root.bend ?? 0;
     const center = (t: number): Vec3 => {
-      const z = z0 + root.tipZ * Math.pow(t, 1.4);
-      return [toWorldX(x0 + root.tipX * Math.pow(t, 1.6), z, 0), yTop - t * length, z];
+      // Roots diverge right after the furcation, run fairly straight, then curve apically.
+      const spread = 1.6 * t - 0.6 * t * t;
+      const z = z0 + root.tipZ * spread;
+      return [toWorldX(x0 + root.tipX * spread + bend * Math.pow(t, 2.2), z, 0), yTop - t * length, z];
     };
-    return { root, yTop, length, center };
+    return { root, yTop, length, center, groove: root.groove ?? 0 };
   });
-
-  const field = (x: number, y: number, z: number): number => {
-    // Root trunk: the cervical section shrinking slightly towards a rounded floor.
-    const t = clamp(-y / spec.trunk);
-    const scale = (1 - TRUNK_SHRINK * t * t) * 0.985;
-    const n = spec.n + (2.05 - spec.n) * smooth(0, 0.25, t);
-    const A = cervA * scale;
-    const B = (z >= 0 ? halfB : halfL) * spec.cervBL * scale;
-    const nx = x * mesial - spec.shear * z * smooth(-0.2, 0.6, 0);
-    const r = Math.pow(Math.pow(Math.abs(nx / A), n) + Math.pow(Math.abs(z / B), n), 1 / n);
-    const side = (r - 1) * Math.min(A, B);
-    const q1 = side + trunkRound, q2 = -spec.trunk - y + trunkRound;
-    let d = Math.min(Math.max(q1, q2), 0) + Math.hypot(Math.max(q1, 0), Math.max(q2, 0)) - trunkRound;
-    d = Math.max(d, y - top);
-    for (const { root, yTop, length, center } of roots) {
-      const tr = clamp((yTop - y) / length, 0, 0.999);
-      const taper = Math.max(0.02, Math.pow(1 - Math.pow(tr, 2.2), 0.55) * (1 - 0.3 * tr));
-      const [cx, , cz] = center(tr);
-      const a = root.a * taper, b = root.b * taper;
-      let dr = (Math.hypot((x - cx) / a, (z - cz) / b) - 1) * Math.min(a, b);
-      dr = Math.max(dr, y - top, yTop - length - y);
-      d = smin(d, dr, 0.07);
-    }
-    return d;
-  };
 
   // Sampling grid around the whole complex.
   let xMax = cervA + 0.08, zMax = Math.max(halfB, halfL) * spec.cervBL + 0.08, yMin = -spec.trunk - 0.05;
@@ -557,26 +599,105 @@ function buildRootComplex(
     }
     yMin = Math.min(yMin, yTop - length - 0.05);
   }
-  const step = Math.min(0.024, Math.min(...spec.roots.map((r) => Math.min(r.a, r.b))) / 4.5);
+  const step = Math.min(0.036, Math.min(...spec.roots.map((r) => Math.min(r.a, r.b))) / 3.6);
   const nxs = Math.ceil((2 * xMax) / step) + 1, nys = Math.ceil((top + 0.04 - yMin) / step) + 1, nzs = Math.ceil((2 * zMax) / step) + 1;
   const px = (i: number) => -xMax + i * step, py = (j: number) => yMin + j * step, pz = (k: number) => -zMax + k * step;
   const values = new Float32Array(nxs * nys * nzs);
   const id = (i: number, j: number, k: number) => (j * nzs + k) * nxs + i;
-  for (let j = 0; j < nys; j += 1) for (let k = 0; k < nzs; k += 1) for (let i = 0; i < nxs; i += 1) {
-    values[id(i, j, k)] = field(px(i), py(j), pz(k));
+
+  // Everything that depends only on the height is computed once per slice, so the
+  // inner loop is just a superellipse distance plus one ellipse per root.
+  const rootCount = roots.length;
+  const rcx = new Float64Array(rootCount), rcz = new Float64Array(rootCount), ra = new Float64Array(rootCount), rb = new Float64Array(rootCount), rcap = new Float64Array(rootCount);
+  for (let j = 0; j < nys; j += 1) {
+    const y = py(j);
+    const t = clamp(-y / spec.trunk);
+    const scale = (1 - TRUNK_SHRINK * t * t) * 0.975;
+    const n = spec.n + (2.05 - spec.n) * smooth(0, 0.25, t);
+    const invN = 1 / n;
+    const A = cervA * scale;
+    const Bp = halfB * spec.cervBL * scale, Bn = halfL * spec.cervBL * scale;
+    const q2 = -spec.trunk - y + trunkRound;
+    const capTop = y - top;
+    for (let r = 0; r < rootCount; r += 1) {
+      const { root, yTop, length, center } = roots[r];
+      const tr = clamp((yTop - y) / length, 0, 0.999);
+      const taper = Math.max(0.02, Math.pow(1 - Math.pow(tr, 2.2), 0.55) * (1 - 0.3 * tr));
+      const c = center(tr);
+      rcx[r] = c[0]; rcz[r] = c[2];
+      ra[r] = root.a * taper; rb[r] = root.b * taper;
+      rcap[r] = Math.max(capTop, yTop - length - y);
+    }
+    for (let k = 0; k < nzs; k += 1) {
+      const z = pz(k);
+      const B = z >= 0 ? Bp : Bn;
+      const zAbs = Math.abs(z / B);
+      const zTerm = Math.pow(zAbs, n);
+      const minAB = Math.min(A, B);
+      const shearZ = spec.shear * z * CERVICAL_SHEAR;
+      const row = (j * nzs + k) * nxs;
+      // Height-only lower bound of the trunk distance (below the trunk or past its top).
+      const trunkFloor = Math.max(q2 - trunkRound, capTop - 0.2);
+      for (let i = 0; i < nxs; i += 1) {
+        const x = px(i);
+        const nx = x * mesial - shearZ;
+        const cxu = nx / A;
+        let d: number;
+        // The superellipse norm is at least max(|x/A|, |z/B|): far from the trunk skip the pows.
+        const far = (Math.max(Math.abs(cxu), zAbs) - 1) * minAB;
+        if (far > 0.12 || trunkFloor > 0.12) {
+          d = Math.max(far, trunkFloor);
+        } else {
+          const rr = Math.pow(Math.pow(Math.abs(cxu), n) + zTerm, invN);
+          const q1 = (rr - 1) * minAB + trunkRound;
+          d = Math.min(Math.max(q1, q2), 0) + Math.hypot(Math.max(q1, 0), Math.max(q2, 0)) - trunkRound;
+        }
+        // The trunk stops just under the scalloped CEJ so it never shows above the enamel.
+        const capCej = y - cejOffset(cxu > 1 ? 1 : cxu < -1 ? -1 : cxu) - 0.025;
+        if (capCej > d) d = capCej;
+        for (let r = 0; r < rootCount; r += 1) {
+          if (rcap[r] > d + 0.07) continue; // slice outside this root: no influence on smin
+          const a = ra[r], b = rb[r];
+          const dz = (z - rcz[r]) / b;
+          const m = a < b ? a : b;
+          if ((Math.abs(dz) - 1) * m > d + 0.07) continue;
+          // Longitudinal groove: the root is pinched on its mesial/distal faces.
+          const g = roots[r].groove;
+          const pinch = g > 0 ? 1 - g * Math.exp(-dz * dz * 4) : 1;
+          const dx = (x - rcx[r]) / (a * pinch);
+          let dr = (Math.sqrt(dx * dx + dz * dz) - 1) * m;
+          if (rcap[r] > dr) dr = rcap[r];
+          d = smin(d, dr, 0.07);
+        }
+        values[row + i] = d;
+      }
+    }
   }
 
   const positions: number[] = [];
+  const normals: number[] = [];
   const indices: number[] = [];
   const cache = new Map<number, number>();
-  const total = nxs * nys * nzs;
+  const layer = nxs * nzs;
+  // Field gradient at a grid node (central differences) for smooth, ripple-free shading.
+  const gradient = (index: number): Vec3 => {
+    const i = index % nxs, rest = (index - i) / nxs, k = rest % nzs, j = (rest - k) / nzs;
+    const at = (ii: number, jj: number, kk: number) => values[id(Math.min(nxs - 1, Math.max(0, ii)), Math.min(nys - 1, Math.max(0, jj)), Math.min(nzs - 1, Math.max(0, kk)))];
+    return [at(i + 1, j, k) - at(i - 1, j, k), at(i, j + 1, k) - at(i, j - 1, k), at(i, j, k + 1) - at(i, j, k - 1)];
+  };
   const vertexOn = (a: number, b: number, pa: Vec3, pb: Vec3, va: number, vb: number) => {
-    const key = a < b ? a * total + b : b * total + a;
+    // Small-integer key: lower node index × 8 + which of the 7 cube diagonals/edges it is.
+    const lo = a < b ? a : b, delta = (a < b ? b - a : a - b);
+    const key = lo * 8 + (delta === 1 ? 0 : delta === nxs ? 1 : delta === layer ? 2 : delta === nxs + 1 ? 3 : delta === layer + 1 ? 4 : delta === layer + nxs ? 5 : 6);
     const hit = cache.get(key);
     if (hit !== undefined) return hit;
     const f = va / (va - vb);
     const index = positions.length / 3;
     positions.push(pa[0] + (pb[0] - pa[0]) * f, pa[1] + (pb[1] - pa[1]) * f, pa[2] + (pb[2] - pa[2]) * f);
+    const ga = gradient(a), gb = gradient(b);
+    const gx = ga[0] + (gb[0] - ga[0]) * f, gy = ga[1] + (gb[1] - ga[1]) * f, gz = ga[2] + (gb[2] - ga[2]) * f;
+    const len = Math.hypot(gx, gy, gz) || 1;
+    normals.push(gx / len, gy / len, gz / len);
     cache.set(key, index);
     return index;
   };
@@ -590,15 +711,17 @@ function buildRootComplex(
     else indices.push(a, c, b);
   };
   const ids = new Array<number>(8), pts = new Array<Vec3>(8), vals = new Array<number>(8);
+  const offsets = CUBE_CORNERS.map(([ox, oy, oz]) => oy * layer + oz * nxs + ox);
   for (let j = 0; j < nys - 1; j += 1) for (let k = 0; k < nzs - 1; k += 1) for (let i = 0; i < nxs - 1; i += 1) {
-    let anyIn = false, anyOut = false;
+    const base = id(i, j, k);
+    let inside = 0;
     for (let c = 0; c < 8; c += 1) {
-      const [ox, oy, oz] = CUBE_CORNERS[c];
-      ids[c] = id(i + ox, j + oy, k + oz);
-      vals[c] = values[ids[c]];
-      if (vals[c] < 0) anyIn = true; else anyOut = true;
+      const v = values[base + offsets[c]];
+      ids[c] = base + offsets[c];
+      vals[c] = v;
+      if (v < 0) inside += 1;
     }
-    if (!anyIn || !anyOut) continue;
+    if (inside === 0 || inside === 8) continue;
     for (let c = 0; c < 8; c += 1) {
       const [ox, oy, oz] = CUBE_CORNERS[c];
       pts[c] = [px(i + ox), py(j + oy), pz(k + oz)];
@@ -624,9 +747,13 @@ function buildRootComplex(
       }
     }
   }
-  smoothMesh(positions, indices, 2);
+  smoothMesh(positions, indices, 3);
   const zones: ToothZone[] = new Array(indices.length / 3).fill("R");
-  return { mesh: { positions, indices, zones, part: "root" }, centers: roots.map((r) => r.center) };
+  const longest = Math.max(...roots.map((r) => r.length - r.yTop));
+  const level: number[] = [];
+  for (let v = 1; v < positions.length; v += 3) level.push(-clamp(-positions[v] / longest));
+  const stain: number[] = new Array(level.length).fill(0);
+  return { mesh: { positions, indices, zones, part: "root", level, stain, normals }, centers: roots.map((r) => r.center) };
 }
 
 export function toothAnatomySpec(tooth: number) {
