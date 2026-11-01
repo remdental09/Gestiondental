@@ -2,7 +2,8 @@
 // Set de regresión del dictado clínico.
 //   node scripts/dictation-eval.mjs            → solo reglas locales (sin red, sin costo)
 //   node scripts/dictation-eval.mjs --ai       → además la cadena de Workers AI del deploy (login de wrangler)
-// Opciones: --out <dir> (por defecto /workspace/gd-eval), --only c01,c02, --strict (sale con 1 si algo falla).
+// Opciones: --out <dir> (por defecto /workspace/gd-eval), --only c01,c02, --strict (sale con 1 si algo falla),
+//   --model <id> (prueba un solo modelo, sin respaldo; para comparar 8B vs 70B).
 // Nada se guarda en ninguna ficha: solo se comparan propuestas con lo esperado.
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -22,7 +23,9 @@ const corpus = JSON.parse(readFileSync(join(root, 'tests/fixtures/dictation-corp
 const cases = corpus.cases.filter((item) => !only.length || only.some((prefix) => item.id.startsWith(prefix)));
 
 function aiModel(env, usage) {
-  const chain = [P.WORKERS_AI_MODEL, ...P.WORKERS_AI_FALLBACKS];
+  // --model <id> fuerza un solo modelo (para comparar 8B vs 70B sin respaldo).
+  const forced = value('--model', '');
+  const chain = forced ? [forced] : [P.WORKERS_AI_MODEL, ...P.WORKERS_AI_FALLBACKS];
   return {
     id: 'workers-ai',
     model: chain[0],
@@ -30,16 +33,12 @@ function aiModel(env, usage) {
       const failures = [];
       for (const model of chain) {
         try {
-          const result = await env.AI.run(model, {
-            messages: [{ role: 'system', content: P.AI_SYSTEM_PROMPT }, { role: 'user', content: P.buildModelUserPrompt(input) }],
-            response_format: { type: 'json_schema', json_schema: P.AI_JSON_SCHEMA },
-            max_tokens: 3500,
-            temperature: 0,
-          });
+          const result = await env.AI.run(model, P.buildWorkersAiRequest(model, input));
           usage.push(model);
-          return { usedModel: model, output: P.modelOutputToJson(result) };
+          return { usedModel: model, output: P.validateModelOutput(P.modelOutputToJson(result)) };
         } catch (cause) {
           failures.push(`${model}: ${String(cause?.message ?? cause).slice(0, 160)}`);
+          if (P.isQuotaError(String(cause?.message ?? cause))) break;
         }
       }
       throw new Error(failures.join('; '));

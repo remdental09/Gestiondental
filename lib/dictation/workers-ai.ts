@@ -1,13 +1,13 @@
 import {
-  AI_JSON_SCHEMA,
-  AI_SYSTEM_PROMPT,
-  buildModelUserPrompt,
+  buildWorkersAiRequest,
+  isQuotaError,
+  validateModelOutput,
   modelOutputToJson,
   WORKERS_AI_FALLBACKS,
   WORKERS_AI_MODEL,
   type ClinicalModel,
   type ModelAnswer,
-} from "@/lib/dictation/proposal";
+} from "./proposal.ts";
 
 type AiRunner = {
   run(model: string, input: Record<string, unknown>): Promise<unknown>;
@@ -38,20 +38,14 @@ export function createWorkersAiModel(ai: AiRunner, options: { perModelMs?: numbe
         const left = totalMs - (Date.now() - started);
         if (left < 5_000) break;
         try {
-          const result = await timeout(ai.run(model, {
-            messages: [
-              { role: "system", content: AI_SYSTEM_PROMPT },
-              { role: "user", content: buildModelUserPrompt(input) },
-            ],
-            response_format: { type: "json_schema", json_schema: AI_JSON_SCHEMA },
-            max_tokens: 3500,
-            temperature: 0,
-          }), Math.min(perModelMs, left), model);
-          // Si no se puede leer como JSON, se prueba el siguiente modelo.
-          const output = modelOutputToJson(result);
+          const result = await timeout(ai.run(model, buildWorkersAiRequest(model, input)), Math.min(perModelMs, left), model);
+          // Si no se puede leer como JSON o la forma no sirve, se prueba el siguiente modelo.
+          const output = validateModelOutput(modelOutputToJson(result));
           return { usedModel: model, output };
         } catch (cause) {
-          failures.push(`${model.split("/").pop()}: ${cause instanceof Error ? cause.message.slice(0, 80) : "error"}`);
+          const message = cause instanceof Error ? cause.message : String(cause);
+          failures.push(`${model.split("/").pop()}: ${message.slice(0, 80)}`);
+          if (isQuotaError(message)) break;
         }
       }
       throw new Error(failures.join("; ") || "sin tiempo para la IA");
