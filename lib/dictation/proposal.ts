@@ -6,7 +6,7 @@
  */
 
 /**
- * Llama 3.3 70B (fp8-fast) redacta la nota y extrae los hallazgos con JSON schema.
+ * Llama 3.1 8B (fp8) redacta la nota y extrae los hallazgos; si falla, Llama 3.3 70B y luego Mistral Small.
  * Un dictado típico gasta ~110-130 Neurons (cuota gratuita: 10 000 al día) y tarda 12-20 s.
  * Si falla o no responde a tiempo se prueba el respaldo; si ambos fallan, quedan las reglas locales.
  */
@@ -42,9 +42,17 @@ import { ICD11, ICD11_CATALOG, cariesIcd11, diagnosisMatches, icd11Label, type S
 export { CARIES_DEPTHS, CARIES_DEPTH_LABEL, CARIES_DEPTH_SHORT, cariesDetail } from "../caries.ts";
 export { cariesIcd11, icd11Label } from "../icd11.ts";
 
-export const WORKERS_AI_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
-/** Si el primero falla o no responde a tiempo, se prueba el siguiente. */
-export const WORKERS_AI_FALLBACKS = ["@cf/mistralai/mistral-small-3.1-24b-instruct"] as const;
+/**
+ * Primario: Llama 3.1 8B (fp8), ~8 veces más barato por token de salida que el 70B en neuronas de Workers AI.
+ * Es el único Llama 3.1/3.2 8B instruct que lista hoy la API de modelos (los «-fast» ya no existen).
+ */
+export const WORKERS_AI_MODEL = "@cf/meta/llama-3.1-8b-instruct-fp8";
+/** Si el primero falla, no responde a tiempo o devuelve JSON inválido, se prueba el siguiente. */
+export const WORKERS_AI_FALLBACKS = ["@cf/meta/llama-3.3-70b-instruct-fp8-fast", "@cf/mistralai/mistral-small-3.1-24b-instruct"] as const;
+/** El cupo diario es de la cuenta: si se agotó con un modelo, los demás también fallan. */
+export function isQuotaError(message: string): boolean {
+  return /\b4006\b|daily free allocation/i.test(message);
+}
 
 export const TOOTH_STATUSES = [
   "Sin hallazgos",
@@ -1635,13 +1643,88 @@ export function validateProposal(input: unknown): DictationProposal {
   return { evolution, odontogram: kept.map((item, index) => ({ ...item, id: `odo-${index + 1}` })), budget, perio, clarifications: [...new Set(clarifications)] };
 }
 
+/**
+ * Arreglos mínimos y seguros para JSON de modelos chicos: comillas tipográficas, comas finales,
+ * saltos de línea dentro de cadenas y salida cortada (cierra cadenas y llaves abiertas).
+ * No inventa contenido: si no queda un JSON válido, falla y se usa el siguiente modelo.
+ */
+export function repairModelJson(raw: string): string {
+  let text = raw.replace(/[\u201C\u201D]/g, '"').replace(/^\uFEFF/, "");
+  let out = "";
+  const stack: string[] = [];
+  let inString = false;
+  let escaped = false;
+  for (const char of text) {
+    if (inString) {
+      if (escaped) { escaped = false; out += char; continue; }
+      if (char === "\\") { escaped = true; out += char; continue; }
+      if (char === '"') { inString = false; out += char; continue; }
+      if (char === "\n") { out += "\\n"; continue; }
+      if (char === "\r" || char === "\t") { out += " "; continue; }
+      out += char;
+      continue;
+    }
+    if (char === '"') inString = true;
+    else if (char === "{" || char === "[") stack.push(char === "{" ? "}" : "]");
+    else if (char === "}" || char === "]") stack.pop();
+    out += char;
+  }
+  if (escaped) out = out.slice(0, -1);
+  if (inString) out += '"';
+  // Salida cortada: quita un par clave/valor a medias y cierra lo abierto.
+  if (stack.length) out = out.replace(/,\s*"[^"]*"\s*:?\s*$/, "").replace(/[,:]\s*$/, "");
+  out += stack.reverse().join("");
+  text = out.replace(/,(\s*[}\]])/g, "$1");
+  return text;
+}
+
 export function parseModelJson(text: string): unknown {
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)(?:```|$)/i);
   const raw = (fenced?.[1] ?? text).trim();
   const start = raw.indexOf("{");
+  if (start < 0) throw new Error("El modelo no devolvió JSON.");
   const end = raw.lastIndexOf("}");
-  if (start < 0 || end <= start) throw new Error("El modelo no devolvió JSON.");
-  return JSON.parse(raw.slice(start, end + 1)) as unknown;
+  if (end > start) {
+    try { return JSON.parse(raw.slice(start, end + 1)) as unknown; } catch { /* se intenta reparar abajo */ }
+  }
+  try {
+    return JSON.parse(repairModelJson(raw.slice(start))) as unknown;
+  } catch {
+    throw new Error("El modelo devolvió JSON inválido.");
+  }
+}
+
+const MODEL_ARRAY_FIELDS = ["hallazgos", "procedimientos", "presupuesto", "ficha", "periodonto", "pagos", "citas", "diagnosticos", "dudas"] as const;
+
+/**
+ * Valida la forma de la respuesta (los modelos chicos a veces devuelven otra cosa).
+ * Completa con vacío lo que falte; si la forma no sirve, lanza error para pasar al siguiente modelo.
+ */
+export function validateModelOutput(output: unknown): Record<string, unknown> {
+  if (!output || typeof output !== "object" || Array.isArray(output)) throw new Error("JSON del modelo sin objeto principal.");
+  const record = { ...(output as Record<string, unknown>) };
+  const nota = record.nota;
+  if (!nota || typeof nota !== "object" || Array.isArray(nota)) throw new Error("JSON del modelo sin «nota».");
+  const sections: Record<string, string> = {};
+  let filled = 0;
+  for (const [key] of NOTE_SECTIONS) {
+    const value = (nota as Record<string, unknown>)[key];
+    if (value != null && typeof value !== "string") throw new Error(`JSON del modelo: «nota.${key}» no es texto.`);
+    sections[key] = typeof value === "string" ? value : "";
+    if (sections[key].trim()) filled += 1;
+  }
+  const corrected = record.texto_corregido;
+  if (corrected != null && typeof corrected !== "string") throw new Error("JSON del modelo: «texto_corregido» no es texto.");
+  if (!filled && !(typeof corrected === "string" && corrected.trim())) throw new Error("JSON del modelo vacío.");
+  record.nota = sections;
+  record.texto_corregido = typeof corrected === "string" ? corrected : "";
+  for (const field of MODEL_ARRAY_FIELDS) {
+    const value = record[field];
+    if (value == null) { record[field] = []; continue; }
+    if (!Array.isArray(value)) throw new Error(`JSON del modelo: «${field}» no es lista.`);
+    record[field] = value.filter((item) => item !== null && (typeof item === "object" || typeof item === "string"));
+  }
+  return record;
 }
 
 export function modelOutputToJson(result: unknown): unknown {
@@ -1797,6 +1880,32 @@ export const AI_JSON_SCHEMA = {
     dudas: { type: "array", items: STRING },
   },
 } as const;
+
+/** Modelos que rechazan response_format json_schema (Workers AI 5025): el esquema va en el texto. */
+export const NO_JSON_SCHEMA_MODELS: readonly string[] = ["@cf/meta/llama-3.1-8b-instruct-fp8"];
+
+/** Cuerpo de env.AI.run para un modelo de la cadena (lo usan el deploy y el eval). */
+export function buildWorkersAiRequest(model: string, input: Parameters<typeof buildModelUserPrompt>[0]): Record<string, unknown> {
+  const user = buildModelUserPrompt(input);
+  const base = { max_tokens: 3500, temperature: 0 };
+  if (NO_JSON_SCHEMA_MODELS.includes(model)) {
+    return {
+      ...base,
+      messages: [
+        { role: "system", content: AI_SYSTEM_PROMPT },
+        { role: "user", content: `${user}\n\nResponde SOLO con un objeto JSON válido (sin texto antes ni después, sin \`\`\`), con TODAS estas claves y este esquema JSON: ${JSON.stringify(AI_JSON_SCHEMA)}` },
+      ],
+    };
+  }
+  return {
+    ...base,
+    messages: [
+      { role: "system", content: AI_SYSTEM_PROMPT },
+      { role: "user", content: user },
+    ],
+    response_format: { type: "json_schema", json_schema: AI_JSON_SCHEMA },
+  };
+}
 
 export function buildModelUserPrompt(input: StructureInput): string {
   const chart = input.chart.length
