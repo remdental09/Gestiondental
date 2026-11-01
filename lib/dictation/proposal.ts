@@ -438,15 +438,22 @@ function interpretTooth(raw: string, system: string | undefined): Mention {
     if (!tooth) return { ok: false, reason: `«${raw}» está fuera de la numeración Universal (1 a 32).` };
     return { ok: true, tooth, numbering: "universal", numberingLabel: `Universal ${compact} · FDI ${formatFdi(tooth)}` };
   }
-  // Sin etiqueta, la ficha usa solo FDI (Luis no dicta en numeración nacional chilena: «pieza 30» fue un error de dictado).
-  // Un número fuera de FDI (11–48, 51–85) no se asume: se pregunta, sin valor por defecto.
+  // Sin etiqueta: «pieza 1» a «pieza 32» es numeración nacional chilena (30 = FDI 3.6), como dicta Luis.
+  // Del 33 al 48 y del 51 al 85 solo existen en FDI. Con punto («2.6», «dos punto seis») siempre es FDI (arriba).
+  const chile = chileToFdi(compact);
+  if (chile) return { ok: true, tooth: chile, numbering: "chilena", numberingLabel: `nacional chilena ${compact} · FDI ${formatFdi(chile)}` };
   if (isValidFdi(compact)) return { ok: true, tooth: compact, numbering: "FDI", numberingLabel: `FDI ${formatFdi(compact)}` };
-  return { ok: false, reason: notFdiQuestion(raw) };
+  return { ok: false, reason: invalidToothQuestion(raw) };
 }
 
-/** Pregunta para una pieza dictada que no existe en FDI («pieza 30»). Sin valor por defecto. */
-function notFdiQuestion(raw: string, suggestion?: string): string {
-  return `«pieza ${raw}» no es una pieza FDI (11–48, 51–85). ¿Qué pieza? (FDI)${suggestion ? ` Primera opción: ${suggestion}.` : ""}`;
+/** Pieza sin etiqueta que no existe en ningún sistema (p. ej. «pieza 39», «pieza 50»): se pregunta, sin valor por defecto. */
+function invalidToothQuestion(raw: string, suggestion?: string): string {
+  return `«pieza ${raw}» no es una pieza válida ni en numeración chilena (1–32) ni en FDI (33–48, 51–85). ¿Qué pieza?${suggestion ? ` Primera opción: ${suggestion}.` : ""}`;
+}
+
+/** Pieza que nombra «pieza N» sin etiqueta: chilena del 1 al 32, FDI del 33 al 48 y del 51 al 85. */
+function bareToothNumber(value: number): number | null {
+  return chileToFdi(value) ?? (isValidFdi(value) ? value : null);
 }
 
 const SPOKEN_DIGIT = "(?:un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho)";
@@ -1812,7 +1819,7 @@ export const AI_SYSTEM_PROMPT = `Eres asistente de un odontólogo chileno. Recib
 
 2) "hallazgos": un elemento por cada pieza y hallazgo de odontograma OBSERVADO HOY en el examen o realizado hoy. No incluyas lo que el paciente relata, lo planificado, presupuestado o negado.
 - "pieza": el número tal como se dictó ("30", "3.6", "cuarenta y seis").
-- "sistema": "chilena" SOLO si dijo chilena/nacional; un número sin etiqueta es "sin_etiqueta" (la ficha usa FDI); "FDI" si dijo FDI/ISO o con punto (3.6) o dos dígitos separados (tres seis); "universal" si lo dijo; "sin_etiqueta" si es otro número sin sistema.
+- "sistema": "chilena" si dijo pieza 1 a 32 sin etiqueta (p. ej. «pieza 30» = FDI 3.6) o dijo chilena/nacional; "FDI" si dijo FDI/ISO, con punto (2.6, «dos punto seis»), dos dígitos separados (tres seis) o un número sin etiqueta del 33 al 48 o del 51 al 85; "universal" si lo dijo; "sin_etiqueta" si es otro número sin sistema.
 - "tipo": "superficie" para caries, obturación, sellante, otra restauración o cara sana; "estado" para Ausente, Implante, Corona, Indicación de exodoncia o Resto radicular con endodoncia.
 - "condicion" (solo superficie): caries | obturacion | sellante | otra_restauracion | sana. "estado" (solo estado): Ausente | Implante | Corona | Indicación de exodoncia | Resto radicular con endodoncia. Deja "" lo que no aplique.
 - "caras": letras M, O, D, V, P (O también es incisal; P es palatina o lingual) SOLO si se dictaron para ese hallazgo. MOD = M,O,D.
@@ -1832,7 +1839,7 @@ export const AI_SYSTEM_PROMPT = `Eres asistente de un odontólogo chileno. Recib
 8) "pagos": dinero que el paciente pagó o abonó HOY (no lo presupuestado ni lo que debe), con "monto" en pesos, "medio" (efectivo | debito | credito | transferencia | otro | "" si no se dijo), "concepto" ("" si no se dijo) y "evidencia" literal.
 9) "citas": la próxima cita o control que se dictó, con "motivo" ("" si no se dijo) y "evidencia" literal que contenga la fecha u hora tal como se dijo. No calcules la fecha.
 10) "diagnosticos": cada diagnóstico que el PROFESIONAL dictó hoy (no lo que el paciente relata, ni lo sospechado, probable, a descartar, negado o planificado), con "termino" (el diagnóstico tal como se dijo, p. ej. «pulpitis irreversible sintomática», «absceso apical crónico», «gingivitis inducida por placa», «periodontitis estadio III grado B»), "pieza" ("" si no se dijo) y "evidencia" literal que contenga el término. No pongas códigos: el sistema los asigna desde el catálogo CIE-11. Las caries ya van en hallazgos: no las repitas aquí.
-11) "dudas": solo dudas reales que el odontólogo deba resolver (un número que no es pieza válida, una autocorrección confusa, una cara que no corresponde). Un número de pieza sin etiqueta que no es FDI válido (p. ej. «pieza 30») es una duda: pregunta «¿Qué pieza? (FDI)» sin suponer ninguna. No preguntes por lo que ya falta en pagos, citas o sondajes (medio de pago, hora, sitio): eso se pregunta aparte.
+11) "dudas": solo dudas reales que el odontólogo deba resolver (un número que no es pieza válida, una autocorrección confusa, una cara que no corresponde). Pregunta por la pieza solo si el número no es válido en ningún sistema (sin etiqueta: 1 a 32 es chilena, 33 a 48 y 51 a 85 es FDI; p. ej. «pieza 39» o «pieza 50»): pregunta «¿Qué pieza?» sin suponer ninguna. «pieza 30» es chilena (FDI 3.6): no es una duda. No preguntes por lo que ya falta en pagos, citas o sondajes (medio de pago, hora, sitio): eso se pregunta aparte.
 
 Las líneas que empiezan con «Aclaración:» son respuestas del profesional a preguntas anteriores; completan o corrigen lo dictado antes y tienen prioridad.
 
@@ -2053,9 +2060,7 @@ function resolveAiTooth(pieza: string, sistema: string, evidence: string): Menti
   const raw = pieza.trim().replace(/^(?:pieza|diente)\s+/i, "");
   let intended: Mention | null = null;
   if (/^\d{1,2}(?:\.\d)?$/.test(raw)) {
-    // «chilena» solo si se dijo en la cita: sin etiqueta, la ficha usa FDI.
-    const saidChile = /\b(?:chilena|nacional)\b/i.test(evidence);
-    intended = interpretTooth(raw, sistema === "FDI" ? "fdi" : sistema === "universal" ? "universal" : sistema === "chilena" && saidChile ? "chilena" : undefined);
+    intended = interpretTooth(raw, sistema === "FDI" ? "fdi" : sistema === "universal" ? "universal" : sistema === "chilena" ? "chilena" : undefined);
   } else if (raw) {
     intended = toothMentions(`pieza ${raw}`)[0] ?? null;
   }
@@ -2505,7 +2510,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 
 /** Tema y destino de una pregunta: así IA y reglas no preguntan lo mismo dos veces. */
 function clarificationKey(note: string): string {
-  const notFdi = note.match(/«pieza (\d{1,2})» no es una pieza FDI/);
+  const notFdi = note.match(/«pieza (\d{1,2})» no es una pieza válida/);
   if (notFdi) return `pieza-no-fdi:${notFdi[1]}`;
   const plain = normalizeEvidence(note.replace(/^IA:\s*/i, ""));
   const tooth = note.match(/FDI (\d\.\d)/)?.[1];
@@ -2567,23 +2572,24 @@ function mentionContext(text: string, mention: { index: number; length: number }
   return earlier ? [] : contextsIn(text.slice(sentenceStart, mention.index));
 }
 
-/** Piezas FDI válidas dictadas en el texto, con su posición (3.6, «pieza 26», «dos seis» ya corregido a 2.6). */
+/** Piezas válidas dictadas en el texto, con su posición (3.6, «pieza 30» chilena = 3.6, «pieza 36» FDI, «dos seis» ya corregido a 2.6). */
 function fdiMentionsWithIndex(text: string): Array<{ tooth: number; index: number; length: number }> {
   const out: Array<{ tooth: number; index: number; length: number }> = [];
   for (const match of text.matchAll(/(?<![\d.,])([1-8])[.,]([1-8])(?![\d.,]?\d)(?!\s*(?:mm|mil[ií]metros?|cm|%|[x×]))/gu)) {
     const tooth = Number(`${match[1]}${match[2]}`);
     if (isValidFdi(tooth)) out.push({ tooth, index: match.index ?? 0, length: match[0].length });
   }
-  for (const match of text.matchAll(/(?<!\p{L})(?:pieza|diente)\s+(?:fdi\s+)?(\d{2})(?![\d.,]\d)(?!\p{L})/giu)) {
-    const tooth = Number(match[1]);
-    if (isValidFdi(tooth)) out.push({ tooth, index: match.index ?? 0, length: match[0].length });
+  for (const match of text.matchAll(/(?<!\p{L})(?:pieza|diente)(?:\s+(fdi))?:?\s+(\d{1,2})(?![\d.,]\d)(?!\p{L})/giu)) {
+    const value = Number(match[2]);
+    const tooth = match[1] ? (isValidFdi(value) ? value : null) : bareToothNumber(value);
+    if (tooth) out.push({ tooth, index: match.index ?? 0, length: match[0].length });
   }
   return out.sort((a, b) => a.index - b.index);
 }
 
 /**
- * «pieza 30» sin sistema: no es FDI y no se asume ninguna pieza (antes se leía como numeración chilena).
- * Si el dictado nombra otra pieza FDI válida en el mismo contexto (p. ej. «implante 2.6» antes), se sugiere
+ * «pieza N» sin sistema que no existe ni en numeración chilena (1–32) ni en FDI (33–48, 51–85): no se asume.
+ * Si el dictado nombra otra pieza válida en el mismo contexto (p. ej. «implante 2.6» antes), se sugiere
  * como primera opción, sin marcarla.
  */
 export function numberingDoubts(text: string, chart: StructureInput["chart"] = []): string[] {
@@ -2596,7 +2602,7 @@ export function numberingDoubts(text: string, chart: StructureInput["chart"] = [
     const before = text.slice(Math.max(0, (match.index ?? 0) - 12), match.index ?? 0);
     if (/(?:fdi|iso|chilena|nacional|universal)\s*$/i.test(before)) continue;
     const value = Number(match[1]);
-    if (isValidFdi(value)) continue;
+    if (bareToothNumber(value)) continue;
     invalid.push({ value, index: match.index ?? 0, length: match[0].length });
   }
   const all = [...valid, ...invalid];
@@ -2614,7 +2620,7 @@ export function numberingDoubts(text: string, chart: StructureInput["chart"] = [
     const suggestion = candidate
       ? `FDI ${formatFdi(candidate.tooth)} (${candidate.shared} dicho en este mismo dictado)`
       : fromChart ? `FDI ${formatFdi(fromChart)} (único implante en el odontograma)` : undefined;
-    out.push(notFdiQuestion(String(mention.value), suggestion));
+    out.push(invalidToothQuestion(String(mention.value), suggestion));
   }
   return out;
 }

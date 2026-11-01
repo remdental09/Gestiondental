@@ -63,6 +63,10 @@ export function compare(expect, actual) {
     diffs.push({ field: 'clarificationCount', missing: [String(expect.clarificationCount)], extra: actual.clarifications });
   }
   if ('type' in expect && expect.type !== actual.type) diffs.push({ field: 'type', missing: [expect.type], extra: [actual.type] });
+  for (const pattern of expect.clarifyExcludes ?? []) {
+    const hit = actual.clarifications.find((q) => new RegExp(pattern, 'iu').test(q));
+    if (hit) diffs.push({ field: 'clarifyExcludes', missing: [], extra: [hit] });
+  }
   if ('titleIncludes' in expect && !actual.title.toLowerCase().includes(expect.titleIncludes.toLowerCase())) diffs.push({ field: 'titleIncludes', missing: [expect.titleIncludes], extra: [actual.title] });
   for (const text of expect.noteIncludes ?? []) if (!actual.note.includes(text)) diffs.push({ field: 'noteIncludes', missing: [text], extra: [] });
   for (const text of expect.noteExcludes ?? []) if (actual.note.includes(text)) diffs.push({ field: 'noteExcludes', missing: [], extra: [text] });

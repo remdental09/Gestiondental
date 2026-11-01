@@ -12,8 +12,8 @@ import { createWebSpeechTranscription } from '../lib/dictation/transcription.ts'
 
 const pick = (proposal) => proposal.odontogram.map((item) => [item.tooth, item.kind === 'surface' ? `${item.surface}:${item.finding.condition}` : item.status]);
 
-test('pieza 3.6 con obturación oclusal pieza 4.6 ausente se separa sin puntuación', () => {
-  const proposal = structureTranscript('pieza 3.6 con obturación oclusal pieza 4.6 ausente');
+test('pieza 30 con obturación oclusal pieza 19 ausente se separa sin puntuación', () => {
+  const proposal = structureTranscript('pieza 30 con obturación oclusal pieza 19 ausente');
   assert.deepEqual(pick(proposal), [[36, 'O:restored'], [46, 'Ausente']]);
   assert.equal(proposal.odontogram[0].sourceText.includes('19'), false);
   assert.equal(proposal.odontogram[1].sourceText.includes('30'), false);
@@ -21,31 +21,31 @@ test('pieza 3.6 con obturación oclusal pieza 4.6 ausente se separa sin puntuaci
 });
 
 test('«punto» dictado separa frases y no rompe «punto de contacto» ni FDI 3 punto 6', () => {
-  const proposal = structureTranscript('pieza 2.4 obturación mesial punto pieza 3.6 sellante oclusal punto aparte FDI 1 punto 6 ausente');
+  const proposal = structureTranscript('pieza 12 obturación mesial punto pieza 30 sellante oclusal punto aparte FDI 1 punto 6 ausente');
   assert.deepEqual(pick(proposal), [[24, 'M:restored'], [36, 'O:sealant'], [16, 'Ausente']]);
 });
 
 test('la fractura de cúspide no genera caries ni presta sus caras a la obturación', () => {
-  const proposal = structureTranscript('Pieza 1.6 con fractura de la cúspide mesiopalatina y obturación oclusal de amalgama.');
+  const proposal = structureTranscript('Pieza 3 con fractura de la cúspide mesiopalatina y obturación oclusal de amalgama.');
   assert.deepEqual(pick(proposal), [[16, 'O:restored']]);
   assert.equal(proposal.odontogram.some((item) => item.finding?.condition === 'caries'), false);
-  assert.match(proposal.evolution.body, /Otros hallazgos del examen\nPieza 1\.6 con fractura de la cúspide mesiopalatina/);
+  assert.match(proposal.evolution.body, /Otros hallazgos del examen\nPieza 3 con fractura de la cúspide mesiopalatina/);
 });
 
 test('una caries sin profundidad entra al odontograma y la profundidad se pregunta como opcional', () => {
-  const proposal = structureTranscript('pieza 3.6 caries distal pieza 2.4 caries oclusal de esmalte');
+  const proposal = structureTranscript('pieza 30 caries distal pieza 12 caries oclusal de esmalte');
   assert.deepEqual(pick(proposal), [[36, 'D:caries'], [24, 'O:caries']]);
   assert.deepEqual(proposal.odontogram.map((item) => item.finding.depth), [null, 'esmalte']);
   assert.equal(proposal.incomplete.length, 0);
   const asks = proposal.clarifications.join('\n');
-  assert.match(asks, /FDI 3\.6: ¿profundidad de la caries .*\? Opcional: «pieza 3\.6 caries distal»/);
+  assert.match(asks, /FDI 3\.6: ¿profundidad de la caries .*\? Opcional: «pieza 30 caries distal»/);
   assert.equal(/FDI 2\.4/.test(asks), false);
   // La pregunta opcional no queda como «Pendiente de aclarar» en la nota.
   assert.equal(/Pendiente de aclarar/.test(proposal.evolution.body), false);
 });
 
 test('alergias, antecedentes y medicamentos van a la ficha y no al odontograma', () => {
-  const proposal = structureTranscript('Alérgico a la penicilina. Hipertenso en tratamiento. Toma losartán 50 mg. Pieza 1.1 obturación palatina.');
+  const proposal = structureTranscript('Alérgico a la penicilina. Hipertenso en tratamiento. Toma losartán 50 mg. Pieza 8 obturación palatina.');
   assert.deepEqual(proposal.ficha.map((item) => item.field), ['allergies', 'history', 'medications']);
   assert.deepEqual(pick(proposal), [[11, 'P:restored']]);
   const update = planFichaUpdate({ allergies: 'Sin registrar', history: 'Asma.' }, proposal.ficha);
@@ -55,7 +55,7 @@ test('alergias, antecedentes y medicamentos van a la ficha y no al odontograma',
 });
 
 test('al guardar, el registro del odontograma se rehace con lo aceptado y se agrega la transcripción', () => {
-  const transcript = 'pieza 3.6 con obturación oclusal pieza 4.6 ausente';
+  const transcript = 'pieza 30 con obturación oclusal pieza 19 ausente';
   const proposal = structureTranscript(transcript);
   const edited = `Motivo de consulta\nControl.\n\n${EXAM_REGISTRY_HEADER}\nFDI 9.9: texto viejo.\n\nIndicaciones\nControl en 6 meses.`;
   const body = finalizeEvolution(edited, proposal.odontogram.slice(0, 1), transcript);
@@ -70,22 +70,22 @@ test('al guardar, el registro del odontograma se rehace con lo aceptado y se agr
 });
 
 test('la cita de la IA tiene que estar en el dictado, incluso sin puntuación', () => {
-  const transcript = 'paciente niega alergias pieza 1.1 caries palatina ICDAS 5 activa con compromiso pulpar punto plan endodoncia';
-  const nota = { motivo: '', anamnesis: '', alergias: 'Niega alergias.', medicamentos: '', examen: 'Pieza 1.1 con caries palatina ICDAS 5 activa.', diagnostico: '', procedimientos: '', plan: 'Endodoncia de pieza 1.1.', indicaciones: '', presupuesto: '' };
+  const transcript = 'paciente niega alergias pieza 8 caries palatina ICDAS 5 activa con compromiso pulpar punto plan endodoncia';
+  const nota = { motivo: '', anamnesis: '', alergias: 'Niega alergias.', medicamentos: '', examen: 'Pieza 8 con caries palatina ICDAS 5 activa.', diagnostico: '', procedimientos: '', plan: 'Endodoncia de pieza 8.', indicaciones: '', presupuesto: '' };
   const ai = validateAiExtraction({
     nota,
     hallazgos: [
-      { pieza: '1.1', sistema: 'chilena', tipo: 'superficie', condicion: 'caries', estado: '', caras: ['P'], icdas: 5, actividad: 'activa', material: '', color: '', evidencia: 'Pieza 1.1, caries palatina, ICDAS 5 activa' },
-      { pieza: '2.1', sistema: 'chilena', tipo: 'estado', estado: 'Ausente', condicion: '', caras: [], icdas: 0, actividad: '', material: '', color: '', evidencia: 'pieza 2.1 ausente' },
+      { pieza: '8', sistema: 'chilena', tipo: 'superficie', condicion: 'caries', estado: '', caras: ['P'], icdas: 5, actividad: 'activa', material: '', color: '', evidencia: 'Pieza 8, caries palatina, ICDAS 5 activa' },
+      { pieza: '9', sistema: 'chilena', tipo: 'estado', estado: 'Ausente', condicion: '', caras: [], icdas: 0, actividad: '', material: '', color: '', evidencia: 'pieza 9 ausente' },
     ],
-    procedimientos: [{ texto: 'Endodoncia pieza 1.1', evidencia: 'se realizó endodoncia' }],
+    procedimientos: [{ texto: 'Endodoncia pieza 8', evidencia: 'se realizó endodoncia' }],
     presupuesto: [],
     ficha: [{ campo: 'alergias', texto: 'Niega alergias', evidencia: 'niega alergias' }],
-    dudas: ['pieza 1.1 sin sistema de numeración'],
+    dudas: ['pieza 8 sin sistema de numeración'],
   }, transcript);
   assert.deepEqual(ai.odontogram.map((item) => [item.tooth, item.surface, item.finding.icdas, item.finding.activity]), [[11, 'P', 5, 'active']]);
   assert.equal(ai.rejected >= 1, true);
-  assert.match(ai.clarifications.join(' '), /pieza 2.1|cita/i);
+  assert.match(ai.clarifications.join(' '), /pieza 9|cita/i);
   assert.equal(ai.procedures[0].verified, false);
   assert.equal(ai.ficha[0].field, 'allergies');
   assert.equal(ai.clarifications.some((note) => /sistema de numeración/.test(note)), false);
@@ -106,13 +106,13 @@ test('en iPhone el reconocimiento se reabre tras un silencio hasta que se detien
     const seen = [];
     let ended = 0;
     engine.start('', { onTranscript: (text) => seen.push(text), onError: () => {}, onEnd: () => { ended += 1; } });
-    created[0].onresult({ resultIndex: 0, results: [{ isFinal: true, 0: { transcript: 'pieza 3.6' } }] });
+    created[0].onresult({ resultIndex: 0, results: [{ isFinal: true, 0: { transcript: 'pieza 30' } }] });
     created[0].onerror({ error: 'no-speech' });
     created[0].onend();
     assert.equal(created.length, 2, 'se reabre tras el corte');
     assert.equal(ended, 0);
     created[1].onresult({ resultIndex: 0, results: [{ isFinal: true, 0: { transcript: 'obturación oclusal' } }] });
-    assert.equal(seen.at(-1), 'pieza 3.6 obturación oclusal');
+    assert.equal(seen.at(-1), 'pieza 30 obturación oclusal');
     engine.stop();
     assert.equal(created.length, 2, 'Detener no reabre');
     assert.equal(ended, 1);
