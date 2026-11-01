@@ -13,11 +13,11 @@ function odontogramLine(item) {
   return `${item.tooth} ${item.status}`;
 }
 
-/** Resumen comparable. Los ítems en conflicto parten rechazados en la revisión, así que no cuentan. */
+/** Resumen comparable. Los ítems en conflicto o solo de aviso parten rechazados en la revisión, así que no cuentan. */
 export function summarize(proposal, transcript, patient) {
   const check = checkPatientMentions(transcript, patient);
   return {
-    odontogram: sorted(proposal.odontogram.filter((item) => !item.conflict).map(odontogramLine)),
+    odontogram: sorted(proposal.odontogram.filter((item) => !item.conflict && !item.advisory).map(odontogramLine)),
     incomplete: sorted((proposal.incomplete ?? []).map(odontogramLine)),
     perio: sorted(proposal.perio.map((item) => `${item.tooth} ${item.site} ${item.depth}${item.bleeding ? ' sangrado' : ''}${item.suppuration ? ' supuración' : ''}`)),
     perioPending: (proposal.perioPending ?? []).length,
@@ -30,6 +30,8 @@ export function summarize(proposal, transcript, patient) {
     patientWarning: check.mismatches.length > 0,
     clarifications: proposal.clarifications,
     note: proposal.evolution?.body ?? '',
+    type: proposal.evolutionKind?.type ?? '',
+    title: proposal.evolution?.title ?? '',
   };
 }
 
@@ -59,6 +61,8 @@ export function compare(expect, actual) {
   if ('clarificationCount' in expect && expect.clarificationCount !== actual.clarifications.length) {
     diffs.push({ field: 'clarificationCount', missing: [String(expect.clarificationCount)], extra: actual.clarifications });
   }
+  if ('type' in expect && expect.type !== actual.type) diffs.push({ field: 'type', missing: [expect.type], extra: [actual.type] });
+  if ('titleIncludes' in expect && !actual.title.toLowerCase().includes(expect.titleIncludes.toLowerCase())) diffs.push({ field: 'titleIncludes', missing: [expect.titleIncludes], extra: [actual.title] });
   for (const text of expect.noteIncludes ?? []) if (!actual.note.includes(text)) diffs.push({ field: 'noteIncludes', missing: [text], extra: [] });
   for (const text of expect.noteExcludes ?? []) if (actual.note.includes(text)) diffs.push({ field: 'noteExcludes', missing: [], extra: [text] });
   return diffs;

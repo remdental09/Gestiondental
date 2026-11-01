@@ -5,8 +5,11 @@
  * «doctor/doctora» ni a las piezas.
  */
 
+import { stripDictationFrame } from "./spoken.ts";
+
 export type PatientMention = { kind: "name" | "rut"; mentioned: string; quote: string };
-export type PatientCheck = { mismatches: PatientMention[]; matches: PatientMention[] };
+/** variants: nombre del saludo que no es idéntico pero es una variante plausible del reconocimiento de voz (no alerta). */
+export type PatientCheck = { mismatches: PatientMention[]; matches: PatientMention[]; variants?: PatientMention[] };
 
 export const fold = (text: string) => text.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
 
@@ -63,6 +66,44 @@ function matchesPatient(tokens: string[], patientName: string): boolean {
   return tokens.every((token) => own.some((part) => part === token || (token.length >= 4 && part.startsWith(token)) || (part.length >= 4 && token.startsWith(part))));
 }
 
+const CONNECTOR = new Set(["de", "del", "la", "las", "los", "y", "e", "san", "santa"]);
+
+function distance(a: string, b: string): number {
+  const row = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= a.length; i += 1) {
+    let previous = row[0];
+    row[0] = i;
+    for (let j = 1; j <= b.length; j += 1) {
+      const current = row[j];
+      row[j] = Math.min(row[j] + 1, row[j - 1] + 1, previous + (a[i - 1] === b[j - 1] ? 0 : 1));
+      previous = current;
+    }
+  }
+  return row[b.length];
+}
+
+/** Parecido 0..1 entre dos palabras ya sin acentos (1 = iguales). */
+function similarity(a: string, b: string): number {
+  if (a === b) return 1;
+  if ((a.length >= 4 && b.startsWith(a)) || (b.length >= 4 && a.startsWith(b))) return 0.9;
+  return 1 - distance(a, b) / Math.max(a.length, b.length);
+}
+
+/**
+ * ¿El nombre oído en el saludo es la ficha abierta mal reconocida? («Marcela del Pilar de seguidor Pizaña» por
+ * «Marcela del Pilar Acevedo Cisterna»). Exige el primer nombre (o uno muy parecido) y la mitad de las palabras.
+ */
+export function nameVariantOf(spoken: string, patientName: string): "same" | "variant" | "different" {
+  const said = fold(spoken).split(/[^a-z']+/).filter((token) => token.length >= 2 && !CONNECTOR.has(token));
+  const own = fold(patientName).split(/[^a-z']+/).filter((token) => token.length >= 2 && !CONNECTOR.has(token));
+  if (!said.length || !own.length) return "different";
+  const best = said.map((token) => Math.max(...own.map((part) => similarity(token, part))));
+  if (best.every((score) => score >= 0.9)) return "same";
+  const close = best.filter((score) => score >= 0.7).length;
+  const first = Math.max(...own.slice(0, 2).map((part) => similarity(said[0], part)));
+  return first >= 0.75 && close >= Math.max(Math.min(2, said.length), Math.ceil(said.length / 2)) ? "variant" : "different";
+}
+
 export const normalizeRut = (rut: string) => rut.replace(/[^0-9kK]/g, "").toUpperCase();
 
 /** RUT con dígito verificador válido (módulo 11). */
@@ -96,9 +137,18 @@ function clip(text: string, index: number, length: number): string {
 export function checkPatientMentions(text: string, patient: { name: string; rut?: string | null }): PatientCheck {
   const mismatches: PatientMention[] = [];
   const matches: PatientMention[] = [];
+  const variants: PatientMention[] = [];
   const seen = new Set<string>();
+  // «Quiero evolucionar la ficha de <nombre>»: el nombre del saludo se compara con tolerancia a errores de voz.
+  const frame = stripDictationFrame(text);
+  if (frame.spokenName && patient.name) {
+    const mention: PatientMention = { kind: "name", mentioned: frame.spokenName, quote: clip(text, 0, frame.nameEnd) };
+    const verdict = nameVariantOf(frame.spokenName, patient.name);
+    (verdict === "same" ? matches : verdict === "variant" ? variants : mismatches).push(mention);
+  }
   for (const match of text.matchAll(TRIGGER)) {
     const index = match.index ?? 0;
+    if (index < frame.nameEnd) continue;
     if (BLOCK_BEFORE.test(text.slice(Math.max(0, index - 25), index))) continue;
     const { tokens, raw } = nameTokensAfter(text, index + match[0].length);
     if (!tokens.length) continue;
@@ -121,7 +171,12 @@ export function checkPatientMentions(text: string, patient: { name: string; rut?
     const same = own && (own === clean || (match[2] && own.slice(0, -1) === clean));
     (same ? matches : mismatches).push(mention);
   }
-  return { mismatches, matches };
+  return { mismatches, matches, ...(variants.length ? { variants } : {}) };
+}
+
+/** Nota informativa (no alerta) cuando el nombre del saludo se tomó como variante de la ficha abierta. */
+export function patientVariantNote(check: PatientCheck, patientName: string): string[] {
+  return (check.variants ?? []).map((item) => `Se oyó «${item.mentioned}»; se tomó como ${patientName} (parece un error del reconocimiento de voz).`);
 }
 
 /** Texto del aviso para la revisión. */

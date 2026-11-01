@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { formatFdi, type ClinicalImage, type OdontogramData, type PerioExam } from "@/app/clinical-data";
 import { createWebSpeechTranscription, IOS_DICTATION_HINT, MIC_DENIED, micAllowed } from "@/lib/dictation/transcription";
-import { checkPatientMentions, patientWarning } from "@/lib/dictation/patient-check";
+import { checkPatientMentions, patientVariantNote, patientWarning } from "@/lib/dictation/patient-check";
 import { WordDiffView } from "@/components/text-correction";
 import { VoiceCommandCard, type AnnulHandler } from "@/components/evolution-annul";
 import { chileTodayIso, parseVoiceCommand, type CommandNote } from "@/lib/dictation/voice-command";
@@ -157,7 +157,7 @@ export function ClinicalDictation({
   budgetOptions?: { id: number; title: string }[];
   onApplied: (data: Reload) => void;
   /** Abre el dictado desde otro lugar (p. ej. «Nueva evolución») con un texto ya escrito o dictado, y lo corrige con IA. */
-  request?: { nonce: number; text: string; ignoreCommand?: boolean } | null;
+  request?: { nonce: number; text: string; ignoreCommand?: boolean; incorporate?: boolean } | null;
   /** Evoluciones del paciente, para resolver órdenes dictadas («elimina el último dictado…»). */
   notes?: CommandNote[];
   onAnnul?: AnnulHandler;
@@ -213,6 +213,11 @@ export function ClinicalDictation({
   const patientCheck = outcome ? checkPatientMentions([transcript, workingText].filter(Boolean).join("\n"), { name: patientName, rut: patient?.rut }) : null;
   const patientWarnings = patientCheck ? patientWarning(patientCheck, patientName, patient?.rut) : [];
   const patientBlocked = patientWarnings.length > 0 && !patientConfirmed;
+  const patientVariants = patientCheck ? patientVariantNote(patientCheck, patientName) : [];
+  // «Incorporar a la ficha»: resumen corto de lo que se guardará, con casillas, antes de confirmar.
+  const [planOpen, setPlanOpen] = useState(false);
+  const planAfterStructure = useRef(false);
+  const planRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const transcription = engine.current;
@@ -240,6 +245,7 @@ export function ClinicalDictation({
     setAnswers({});
     setResult(null);
     setFormError("");
+    setPlanOpen(false);
   };
 
   const close = () => {
@@ -321,6 +327,7 @@ export function ClinicalDictation({
     setLastStructured(text);
     setStructuring(true);
     setPatientConfirmed(false);
+    setPlanOpen(false);
     try {
       const response = await fetch("/api/dictation/structure", {
         method: "POST",
@@ -338,7 +345,8 @@ export function ClinicalDictation({
       setEvolutionDecision(data.proposal.evolution ? "accepted" : "rejected");
       // Lo que IA y reglas no comparten, o un hallazgo incompleto, parte rechazado. La caries sin profundidad sí se propone.
       setTeeth([
-        ...data.proposal.odontogram.map((item) => ({ ...item, decision: item.conflict ? "rejected" as const : "accepted" as const, toothText: formatFdi(item.tooth) })),
+        // Un cambio con advertencia (p. ej. volver a marcar un implante en un control) también parte sin aceptar.
+        ...data.proposal.odontogram.map((item) => ({ ...item, decision: item.conflict || item.advisory ? "rejected" as const : "accepted" as const, toothText: formatFdi(item.tooth) })),
         ...(data.proposal.incomplete ?? []).map((item) => ({ ...item, decision: "rejected" as const, toothText: formatFdi(item.tooth), incompleteCaries: true })),
       ]);
       setBudgets(data.proposal.budget.map((item) => ({ ...item, decision: "accepted", amountText: item.amount > 0 ? String(item.amount) : "" })));
@@ -360,7 +368,13 @@ export function ClinicalDictation({
       setDxItems((data.proposal.diagnoses ?? []).filter((item) => !item.code.startsWith("DA08.0")).map((item) => ({ ...item, decision: item.suggested ? "rejected" as const : "accepted" as const, toothText: item.tooth ? formatFdi(item.tooth) : "", findingsText: item.findings ?? "", codeSearch: "" })));
       setDxSearch("");
       setAppointmentItems((data.proposal.appointments ?? []).map((item) => ({ ...item, decision: item.day && item.time && !item.timeDoubt ? "accepted" : "rejected", dayValue: item.day ?? "", timeValue: item.time ?? "" })));
+      if (planAfterStructure.current) {
+        planAfterStructure.current = false;
+        setPlanOpen(true);
+        setTimeout(() => planRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+      }
     } catch (cause) {
+      planAfterStructure.current = false;
       setOutcome(null);
       setFormError(`No se pudo corregir con IA: ${cause instanceof Error && !/failed to fetch|load failed|network/i.test(cause.message) ? cause.message : "sin conexión con el servidor"}. Nada se guardó.`);
     } finally {
@@ -411,6 +425,7 @@ export function ClinicalDictation({
         setInterim("");
         resetReview();
         setCommandIgnored(!!request.ignoreCommand);
+        planAfterStructure.current = !!request.incorporate;
         if (request.ignoreCommand || !isCommand(text)) void structure(text);
       }
     }, 0);
@@ -438,8 +453,22 @@ export function ClinicalDictation({
     return data;
   };
 
+  /** Abre el resumen «Incorporar a la ficha». Si el texto corregido cambió, se vuelve a proponer primero. */
+  const incorporate = () => {
+    if (!outcome) return;
+    const proposed = (outcome.proposal.corrected?.text ?? "").trim();
+    if (workingText.trim().length >= 3 && proposed && workingText.trim() !== proposed) {
+      planAfterStructure.current = true;
+      void structure(workingText);
+      return;
+    }
+    setPlanOpen(true);
+    setTimeout(() => planRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  };
+
   const confirm = async () => {
-    if (!outcome || saving) return;
+    // Ya guardado y releído: no se vuelve a guardar el mismo dictado (evita duplicados).
+    if (!outcome || saving || result?.ok) return;
     if (patientBlocked) {
       setFormError(`El dictado nombra a otra persona o a otro RUT. Confirma que corresponde a ${patientName} antes de guardar.`);
       return;
@@ -689,6 +718,7 @@ export function ClinicalDictation({
           </div>}
           {outcome && !outcome.aiError && <p className="rounded-lg bg-[#f4f7f8] p-3 leading-6 text-[#31575b]" role="status">{outcome.notice ?? "La evolución y las piezas salen de lo resuelto en el dictado. Sigue sujeta a tu revisión."}</p>}
           {proposal && <div className="space-y-4" data-testid="dictation-review">
+            {patientVariants.length > 0 && patientWarnings.length === 0 && <p className="rounded-lg bg-[#f4f7f8] p-3 text-xs text-[#31575b]" role="status" data-testid="dictation-patient-variant">{patientVariants.join(" ")}</p>}
             {patientWarnings.length > 0 && <section role="alert" className="rounded-xl border-2 border-rose-400 bg-rose-50 p-4 text-rose-950" data-testid="dictation-patient-warning">
               <h3 className="text-base font-semibold">¿Es el paciente correcto?</h3>
               <p className="mt-1 text-sm">La ficha abierta es de <strong>{patientName}</strong>{patient?.rut ? ` (RUT ${patient.rut})` : ""}.</p>
@@ -703,7 +733,7 @@ export function ClinicalDictation({
               <p className="mt-1 text-xs leading-5 text-[#60757a]">Diccionario clínico e IA corrigen lo mal oído sin agregar datos. Cada cambio queda marcado; lo que la IA quiso cambiar sin respaldo se descarta. Puedes editarlo y volver a proponer.</p>
               {corrections.length > 0 ? <ul className="mt-2 flex flex-wrap gap-2 text-xs" aria-label="Correcciones">
                 {corrections.map((item, index) => <li key={`${item.original}-${index}`} className={`rounded-lg px-2 py-1 ${item.applied ? "bg-white" : "bg-amber-50 text-amber-950"}`} title={item.reason}>
-                  <span className="text-rose-800 line-through">{item.original}</span> → <span className={item.applied ? "font-medium text-emerald-900" : "text-amber-900"}>{item.corrected}</span>
+                  <span className="text-rose-800 line-through">{item.original}</span> → {item.corrected ? <span className={item.applied ? "font-medium text-emerald-900" : "text-amber-900"}>{item.corrected}</span> : <span className="italic text-[#60757a]">omitido</span>}
                   <span className="ml-1 text-[10px] uppercase text-[#71858b]">{item.origin === "ia" ? "IA" : "diccionario"}{item.applied ? "" : " · no aplicado"}</span>
                   {!item.applied && item.reason && <span className="block text-[11px]">{item.reason}</span>}
                 </li>)}
@@ -712,7 +742,38 @@ export function ClinicalDictation({
               <Textarea className="mt-2 bg-white text-base sm:text-sm" aria-label="Texto corregido (editable)" rows={4} value={workingText} onChange={(event) => setWorkingText(event.target.value)} data-testid="dictation-corrected-text" />
               <Button type="button" variant="outline" size="sm" className="mt-2" disabled={structuring || workingText.trim().length < 3} onClick={() => void structure(workingText)}>Volver a proponer con este texto</Button>
               <p className="mt-1 text-[11px] text-[#71858b]">Volver a proponer rehace la propuesta y descarta los ajustes hechos abajo.</p>
+              <Button type="button" size="lg" className="mt-3 h-auto min-h-12 w-full whitespace-normal bg-[#087f83] text-base hover:bg-[#07676b]" disabled={structuring || saving} onClick={incorporate} data-testid="dictation-incorporate">{structuring ? "Preparando…" : "Incorporar a la ficha"}</Button>
             </section>
+            {planOpen && <div ref={planRef} className="scroll-mt-4"><IncorporatePlan
+              kindLabel={proposal.evolutionKind?.label}
+              control={!!proposal.evolutionKind?.control}
+              evolution={proposal.evolution ? { title: evolutionTitle, accepted: evolutionDecision === "accepted", toggle: (on) => setEvolutionDecision(on ? "accepted" : "rejected") } : null}
+              teeth={teeth.map((item, index) => ({ key: item.id, label: `${item.numberingLabel}${item.surface ? ` · ${surfaceLabel[item.surface]}` : ""}: ${item.kind === "surface" ? findingText(item.finding) : item.kind === "crown" ? "Corona" : item.status}`, note: item.advisory ?? (item.conflict ? "IA y reglas no coinciden." : item.incompleteCaries ? "Hallazgo incompleto: complétalo en la revisión detallada." : undefined), checked: item.decision === "accepted", toggle: (on: boolean) => setTeeth((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, decision: on ? "accepted" : "rejected" } : entry)) }))}
+              policyNotes={proposal.policyNotes ?? []}
+              perio={[
+                ...perioItems.map((item, index) => ({ key: item.id, label: `Sondaje FDI ${item.toothText}${item.site ? ` ${item.site}` : ""}${item.depthText ? ` ${item.depthText} mm` : ""}${item.bleeding ? " · sangrado" : ""}`, note: item.pending ? "Incompleto: complétalo en la revisión detallada." : undefined, checked: item.decision === "accepted", toggle: (on: boolean) => setPerioItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, decision: on ? "accepted" : "rejected" } : entry)) })),
+                ...mobilityItems.map((item, index) => ({ key: item.id, label: `Movilidad FDI ${item.toothText}: grado ${item.grade}`, checked: item.decision === "accepted", toggle: (on: boolean) => setMobilityItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, decision: on ? "accepted" : "rejected" } : entry)) })),
+              ]}
+              appointments={appointmentItems.map((item, index) => ({ key: item.id, label: `${item.reason || "Control"}${item.said ? ` ${item.said.replace(/^(?:control|pr[oó]ximo control|se controla)\s*/i, "")}` : ""} (${item.dayValue ? new Intl.DateTimeFormat("es-CL", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(`${item.dayValue}T12:00:00Z`)) : "fecha pendiente"})`, time: item.timeValue, note: item.timeDoubt ?? item.note, checked: item.decision === "accepted", toggle: (on: boolean) => setAppointmentItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, decision: on ? "accepted" : "rejected" } : entry)), setTime: (time: string) => setAppointmentItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, timeValue: time, decision: time ? "accepted" : entry.decision } : entry)) }))}
+              others={[
+                ...paymentItems.map((item, index) => ({ key: item.id, group: "Pago", label: `$${Number(item.amountText || 0).toLocaleString("es-CL")} · ${item.methodValue ? PAYMENT_METHOD_LABEL[item.methodValue] : "medio sin indicar"}`, checked: item.decision === "accepted", toggle: (on: boolean) => setPaymentItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, decision: on ? "accepted" : "rejected" } : entry)) })),
+                ...budgets.map((item, index) => ({ key: item.id, group: "Presupuesto", label: `${item.label} · ${Number(item.amountText) > 0 ? `$${Number(item.amountText).toLocaleString("es-CL")}` : "monto pendiente"}`, checked: item.decision === "accepted", toggle: (on: boolean) => setBudgets((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, decision: on ? "accepted" : "rejected" } : entry)) })),
+                ...fichaItems.map((item, index) => ({ key: item.id, group: "Ficha", label: `${fichaLabel[item.field]}: ${item.text}`, checked: item.decision === "accepted", disabled: !patient, toggle: (on: boolean) => setFichaItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, decision: on ? "accepted" : "rejected" } : entry)) })),
+                ...cariesDiagnoses(teeth.filter((item) => item.decision === "accepted")).filter((item) => item.code.startsWith("DA08.0")).map((item) => ({ key: item.id, group: "Diagnóstico", label: `${item.label} (desde el odontograma)`, checked: true, disabled: true, toggle: () => {} })),
+                ...dxItems.map((item) => ({ key: item.id, group: "Diagnóstico", label: `${item.code ? `${item.code} · ` : ""}${item.title}${item.toothText ? ` (FDI ${item.toothText})` : ""}`, note: item.suggested ? "Sugerido: confírmalo solo si corresponde." : undefined, checked: item.decision === "accepted", toggle: (on: boolean) => updateDx(item.id, { decision: on ? "accepted" : "rejected" }) })),
+              ]}
+              clarifications={proposal.clarifications.length}
+              variants={patientVariants}
+              patientWarnings={patientWarnings}
+              patientName={patientName}
+              patientConfirmed={patientConfirmed}
+              onPatientConfirmed={setPatientConfirmed}
+              saving={saving}
+              result={result}
+              error={formError}
+              onConfirm={() => void confirm()}
+              onDetails={() => { setPlanOpen(false); setTimeout(() => document.querySelector("[data-testid=dictation-evolution]")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50); }}
+            /></div>}
             {missing.length > 0 && <section className="rounded-xl border border-[#dbe7e8] bg-white p-3 text-sm text-[#31575b]" data-testid="dictation-missing">
               <p><strong>Falta (opcional):</strong> {missing.join(" · ")}</p>
               <p className="mt-1 text-xs text-[#60757a]">No es obligatorio: puedes guardar igual. Si lo sabes, agrégalo al texto corregido y vuelve a proponer.</p>
@@ -729,9 +790,9 @@ export function ClinicalDictation({
               </li>)}</ul>
               <Button type="button" className="mt-3 bg-[#087f83] hover:bg-[#07676b]" disabled={structuring || !Object.values(answers).some((value) => value.trim())} onClick={applyAnswers} data-testid="dictation-apply-answers">{structuring ? "Aplicando…" : "Aplicar respuestas"}</Button>
             </section>}
-            <section className="rounded-xl border border-[#dce5e7] p-4">
+            <section className="rounded-xl border border-[#dce5e7] p-4" data-testid="dictation-evolution">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <h3 className="font-semibold">Evolución</h3>
+                <h3 className="font-semibold">Evolución{proposal.evolutionKind ? <span className="ml-2 rounded-full bg-sky-100 px-2 py-0.5 text-xs font-medium text-sky-900">{proposal.evolutionKind.label}</span> : null}</h3>
                 <Decision value={proposal.evolution ? evolutionDecision : "rejected"} disabled={!proposal.evolution} onChange={setEvolutionDecision} />
               </div>
               <p className="mt-2 text-xs text-[#71858b]">Última evolución guardada, no se reemplaza</p>
@@ -753,6 +814,7 @@ export function ClinicalDictation({
             <section className="space-y-3">
               <h3 className="font-semibold">Odontograma</h3>
               {teeth.length === 0 && <p className="rounded-lg border border-dashed border-[#dce5e7] p-3 text-[#71858b]">Sin cambios de odontograma.</p>}
+              {(proposal.policyNotes ?? []).map((note) => <p key={note} className="rounded-lg bg-sky-50 p-3 text-xs text-sky-950">{note}</p>)}
               {teeth.map((item, index) => {
                 const currentStatus = odontogram.teeth[item.tooth] || "Sin hallazgos";
                 const nextStatus = item.kind === "crown" ? "Corona" : item.status || currentStatus;
@@ -762,6 +824,7 @@ export function ClinicalDictation({
                       <p className="font-semibold">{item.numberingLabel}<OriginBadge origin={item.origin} conflict={item.conflict} /></p>
                       <Evidence text={item.evidence ?? item.sourceText} />
                       {item.incompleteCaries && <p className="mt-1 text-xs font-medium text-amber-800">Hallazgo incompleto: complétalo para aceptarlo.</p>}
+                      {item.advisory && <p className="mt-1 text-xs font-medium text-amber-800">{item.advisory}</p>}
                     </div>
                     <Decision value={item.decision} onChange={(decision) => setTeeth((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, decision } : entry))} />
                   </div>
@@ -947,7 +1010,7 @@ export function ClinicalDictation({
         </div>
         <DialogFooter className="sticky bottom-0 -mx-6 -mb-6 border-t border-[#e4ebed] bg-white px-6 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
           <Button type="button" variant="outline" onClick={close}>Cerrar</Button>
-          <Button type="button" className="bg-[#087f83] hover:bg-[#07676b]" disabled={!outcome || saving || patientBlocked} title={patientBlocked ? "Confirma el paciente antes de guardar" : undefined} onClick={() => void confirm()} data-testid="dictation-confirm">{saving ? "Guardando y releyendo…" : "Guardar lo aceptado"}</Button>
+          <Button type="button" className="bg-[#087f83] hover:bg-[#07676b]" disabled={!outcome || saving || patientBlocked || !!result?.ok} title={patientBlocked ? "Confirma el paciente antes de guardar" : undefined} onClick={() => void confirm()} data-testid="dictation-confirm">{saving ? "Guardando y releyendo…" : "Guardar lo aceptado"}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -959,6 +1022,90 @@ export function ClinicalDictation({
  * Pide el micrófono antes de dictar. En iPhone/iPad se omite: Safari lo pide al iniciar el
  * reconocimiento y abrir y cerrar antes el micrófono puede dejarlo ocupado («audio-capture»).
  */
+
+type PlanRow = { key: string; label: string; note?: string; checked: boolean; disabled?: boolean; toggle: (on: boolean) => void };
+
+function PlanCheck({ row }: { row: PlanRow }) {
+  return <label className={`flex items-start gap-3 rounded-lg px-2 py-2 ${row.checked ? "bg-white" : "bg-transparent text-[#60757a]"}`} data-testid="dictation-plan-item">
+    <input type="checkbox" className="mt-0.5 size-5 shrink-0 accent-[#087f83]" checked={row.checked} disabled={row.disabled} onChange={(event) => row.toggle(event.target.checked)} />
+    <span className="min-w-0">
+      <span className={row.checked ? "font-medium text-[#163238]" : "line-through decoration-1"}>{row.label}</span>
+      {row.note && <span className="mt-0.5 block text-xs font-medium text-amber-800">{row.note}</span>}
+    </span>
+  </label>;
+}
+
+function PlanGroup({ title, empty, children }: { title: string; empty?: string; children?: React.ReactNode }) {
+  return <div className="border-t border-sky-100 pt-2 first:border-t-0 first:pt-0">
+    <h4 className="text-xs font-semibold uppercase tracking-wide text-[#31575b]">{title}</h4>
+    {empty ? <p className="px-2 py-1.5 text-sm text-[#60757a]">{empty}</p> : <div className="mt-1 space-y-0.5">{children}</div>}
+  </div>;
+}
+
+/** Resumen corto de «Incorporar a la ficha»: cada cambio con su casilla (marcada por defecto si es seguro). */
+function IncorporatePlan(props: {
+  kindLabel?: string;
+  control: boolean;
+  evolution: { title: string; accepted: boolean; toggle: (on: boolean) => void } | null;
+  teeth: PlanRow[];
+  policyNotes: string[];
+  perio: PlanRow[];
+  appointments: (PlanRow & { time: string; setTime: (time: string) => void })[];
+  others: (PlanRow & { group: string })[];
+  clarifications: number;
+  variants: string[];
+  patientWarnings: string[];
+  patientName: string;
+  patientConfirmed: boolean;
+  onPatientConfirmed: (value: boolean) => void;
+  saving: boolean;
+  result: { ok: boolean; messages: string[] } | null;
+  error: string;
+  onConfirm: () => void;
+  onDetails: () => void;
+}) {
+  const groups = [...new Set(props.others.map((row) => row.group))];
+  const blocked = props.patientWarnings.length > 0 && !props.patientConfirmed;
+  const nothing = !props.evolution?.accepted && ![...props.teeth, ...props.perio, ...props.appointments, ...props.others].some((row) => row.checked && !row.disabled);
+  return <section className="rounded-xl border-2 border-[#087f83] bg-sky-50/60 p-4" data-testid="dictation-plan" aria-label="Qué se incorporará a la ficha">
+    <h3 className="text-base font-semibold">Se incorporará a la ficha</h3>
+    <p className="mt-0.5 text-xs text-[#60757a]">Desmarca lo que no corresponda. Lo dudoso parte sin marcar.</p>
+    {props.variants.length > 0 && props.patientWarnings.length === 0 && <p className="mt-2 rounded-lg bg-white p-2 text-xs text-[#31575b]">{props.variants.join(" ")}</p>}
+    {props.patientWarnings.length > 0 && <label className="mt-2 flex items-start gap-2 rounded-lg border border-rose-300 bg-rose-50 p-2 text-sm font-medium text-rose-950">
+      <input type="checkbox" className="mt-0.5 size-5 shrink-0" checked={props.patientConfirmed} onChange={(event) => props.onPatientConfirmed(event.target.checked)} data-testid="dictation-plan-patient-confirm" />
+      <span>{props.patientWarnings[0]} Confirmo que es de {props.patientName}.</span>
+    </label>}
+    <div className="mt-3 space-y-2">
+      <PlanGroup title="Evolución" empty={props.evolution ? undefined : "El dictado no produjo una evolución."}>
+        {props.evolution && <PlanCheck row={{ key: "evo", label: props.evolution.title || "Evolución dictada", note: props.kindLabel ? `Tipo: ${props.kindLabel}` : undefined, checked: props.evolution.accepted, toggle: props.evolution.toggle }} />}
+      </PlanGroup>
+      <PlanGroup title="Odontograma" empty={props.teeth.length ? undefined : props.control ? "Sin cambios (control)." : "Sin cambios."}>
+        {props.teeth.map((row) => <PlanCheck key={row.key} row={row} />)}
+      </PlanGroup>
+      {props.policyNotes.length > 0 && <ul className="space-y-1 px-2 text-xs text-sky-950" data-testid="dictation-plan-policy">{props.policyNotes.map((note) => <li key={note}>· {note}</li>)}</ul>}
+      <PlanGroup title="Periodontograma" empty={props.perio.length ? undefined : "Sin cambios."}>
+        {props.perio.map((row) => <PlanCheck key={row.key} row={row} />)}
+      </PlanGroup>
+      <PlanGroup title="Cita" empty={props.appointments.length ? undefined : "Sin próxima cita en el dictado."}>
+        {props.appointments.map((row) => <div key={row.key}>
+          <PlanCheck row={row} />
+          <label className="ml-10 flex items-center gap-2 text-xs text-[#31575b]">Hora
+            <input type="time" step={300} className="h-10 rounded-md border bg-white px-2 text-base" value={row.time} onChange={(event) => row.setTime(event.target.value)} data-testid="dictation-plan-time" />
+            {!row.time && <span className="font-medium text-amber-800">falta la hora</span>}
+          </label>
+        </div>)}
+      </PlanGroup>
+      {groups.map((group) => <PlanGroup key={group} title={group === "Diagnóstico" ? "Diagnósticos" : group}>
+        {props.others.filter((row) => row.group === group).map((row) => <PlanCheck key={row.key} row={row} />)}
+      </PlanGroup>)}
+    </div>
+    {props.clarifications > 0 && <p className="mt-3 rounded-lg bg-amber-50 p-2 text-xs text-amber-950">{props.clarifications} aclaración(es) pendiente(s) más arriba. No bloquean: lo dudoso queda solo en la nota.</p>}
+    {props.error && !props.result && <p role="alert" className="mt-3 rounded-lg bg-rose-50 p-2 text-sm text-rose-950">{props.error}</p>}
+    {props.result && <p role="status" className={`mt-3 rounded-lg p-2 text-sm font-medium ${props.result.ok ? "bg-emerald-50 text-emerald-950" : "bg-rose-50 text-rose-950"}`} data-testid="dictation-plan-result">{props.result.ok ? "Incorporado a la ficha y releído." : "La relectura encontró diferencias: revisa abajo."}</p>}
+    <Button type="button" size="lg" className="mt-3 h-auto min-h-12 w-full whitespace-normal bg-[#087f83] text-base hover:bg-[#07676b]" disabled={props.saving || blocked || nothing || !!props.result?.ok} title={blocked ? "Confirma el paciente antes de guardar" : undefined} onClick={props.onConfirm} data-testid="dictation-plan-confirm">{props.saving ? "Incorporando y releyendo…" : props.result?.ok ? "Incorporado" : "Confirmar e incorporar"}</Button>
+    <button type="button" className="mt-2 w-full text-center text-xs font-medium text-[#087f83] underline" onClick={props.onDetails}>Revisar en detalle</button>
+  </section>;
+}
 
 function Decision({ value, onChange, disabled = false }: { value: "accepted" | "rejected"; onChange: (value: "accepted" | "rejected") => void; disabled?: boolean }) {
   return <div className="flex gap-2">

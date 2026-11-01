@@ -23,7 +23,7 @@ test("el corpus tiene forma válida y solo datos ficticios", () => {
 
 for (const item of corpus.cases) {
   test(`corpus (reglas locales): ${item.id}`, async () => {
-    const outcome = await proposeFromTranscript({ transcript: item.text, chart: [] }, null, () => {}, { today: corpus.today });
+    const outcome = await proposeFromTranscript({ transcript: item.text, chart: item.chart ?? [] }, null, () => {}, { today: corpus.today });
     assert.equal(outcome.engine, "reglas-locales");
     const diffs = compare(item.expect, summarize(outcome.proposal, item.text, corpus.patient));
     assert.deepEqual(diffs, [], JSON.stringify(diffs));
