@@ -37,9 +37,12 @@ export async function getDriveSnapshot(ownerId: string, patientId: number) {
       allergies: patient.allergies, history: patient.history,
       createdAt: patient.createdAt,
     },
+    // Las anuladas se respaldan igual (Ley 20.584), marcadas con motivo, fecha y autor.
     evolutions: notes.map(n => ({
       id: n.id, clinicalDate: n.clinicalDate, recordedAt: n.recordedAt,
-      title: n.title, body: n.body,
+      title: n.status === "anulada" ? `[ANULADA] ${n.title}` : n.title, body: n.body,
+      ...(n.status === "anulada" ? { status: "anulada", annulledAt: n.annulledAt, annulledBy: n.annulledBy, annulReason: n.annulReason } : {}),
+      ...(n.replacesId ? { replacesId: n.replacesId } : {}),
     })),
     budgets: plans.map(b => ({
       id: b.id, title: b.title, items: JSON.parse(b.items),

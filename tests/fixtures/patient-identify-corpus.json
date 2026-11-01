@@ -4,7 +4,9 @@
     { "id": 1, "name": "Juan Andrés Pérez Soto", "rut": "123456785" },
     { "id": 2, "name": "María José González Rojas", "rut": null },
     { "id": 3, "name": "María Isabel González Vera", "rut": "111111111" },
-    { "id": 4, "name": "Camila Fernanda Rojas Muñoz", "rut": "167778887" }
+    { "id": 4, "name": "Camila Fernanda Rojas Muñoz", "rut": "167778887" },
+    { "id": 5, "name": "Marcela del Pilar Acevedo Cisterna", "rut": null },
+    { "id": 6, "name": "Marcela Ignacia Soto Lagos", "rut": null }
   ],
   "cases": [
     { "id": "p01-nuevo-con-rut", "text": "Tengo un paciente nuevo, Pedro Pablo Muñoz Tapia, RUT 9.876.543-3, nacido el 3 de mayo de 1980. Viene por dolor en la 3.6, tiene la pieza fracturada. Presupuesto de corona 450.000, abona 100.000.", "expect": { "decision": "new", "name": "Pedro Pablo Muñoz Tapia", "rut": "9.876.543-3", "birthDate": "1980-05-03", "newPatientHint": true } },
@@ -18,6 +20,14 @@
     { "id": "p09-rut-nuevo-nombre-parecido", "text": "paciente Juan Pérez Soto RUT 7.654.321-6 primera vez", "expect": { "decision": "ambiguous", "candidates": [1], "patientId": null } },
     { "id": "p10-doctor-no-es-paciente", "text": "derivado por el doctor Ignacio Fuentes, paciente nuevo Tomás Ignacio Vidal Ríos con dolor", "expect": { "decision": "new", "name": "Tomás Ignacio Vidal Ríos" } },
     { "id": "p11-datos-contacto", "text": "paciente nueva Valentina Sofía Castro Díaz, teléfono +56 9 8765 4321, correo vale.castro arroba gmail punto com, abono 30.000", "expect": { "decision": "new", "phone": "+56987654321", "email": "vale.castro@gmail.com" } },
-    { "id": "p12-nombre-exacto-dos-fichas", "text": "paciente María González abono 20.000", "expect": { "decision": "ambiguous", "candidates": [2, 3] } }
+    { "id": "p12-nombre-exacto-dos-fichas", "text": "paciente María González abono 20.000", "expect": { "decision": "ambiguous", "candidates": [2, 3] } },
+    { "id": "p13-oye-nombre-a-mitad-de-frase", "text": "Oye elimina el último dictado de Marcela del Pilar Acevedo Cisterna elimina el dictado de la evolución del 1 de noviembre y pon solamente que controlamos el implante 2,6 y que está todo bien", "expect": { "decision": "existing", "patientId": 5 } },
+    { "id": "p14-para-sin-segundo-nombre", "text": "para Marcela Acevedo control del implante, sin sangrado", "expect": { "decision": "existing", "patientId": 5 } },
+    { "id": "p15-minusculas-mal-oido", "text": "oye marcela del pilar asevedo cisterna viene a control", "expect": { "decision": "existing", "patientId": 5 } },
+    { "id": "p16-anota-a", "text": "anota a Marcela Acevedo Sisterna que se le hizo destartraje", "expect": { "decision": "existing", "patientId": 5 } },
+    { "id": "p17-de-solo-apellidos", "text": "el control de Acevedo Cisterna salió bien", "expect": { "decision": "existing", "patientId": 5 } },
+    { "id": "p18-doctora-no-es-paciente", "text": "la doctora Marcela Acevedo revisó la radiografía de la 2.6", "expect": { "decision": "unknown", "patientId": null } },
+    { "id": "p19-solo-nombre-de-pila-no-basta", "text": "control de Marcela, todo bien", "expect": { "decision": "unknown", "patientId": null } },
+    { "id": "p20-otra-marcela", "text": "a Marcela Soto se le cementó la corona", "expect": { "decision": "existing", "patientId": 6 } }
   ]
 }

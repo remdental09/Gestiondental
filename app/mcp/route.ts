@@ -231,7 +231,7 @@ async function findPatient(ownerId: string, queryInput: unknown) {
   }
   if (!matches.length) return { foundInApp: false, matchCount: 0, matches: [], nextStep: "Busca el nombre o RUT en Google Drive antes de crear una ficha nueva." };
   const ids = matches.map(patient => patient.id);
-  const history = await db.select({ patientId: evolutions.patientId, clinicalDate: evolutions.clinicalDate }).from(evolutions).where(and(eq(evolutions.ownerId, ownerId), inArray(evolutions.patientId, ids))).orderBy(desc(evolutions.clinicalDate));
+  const history = await db.select({ patientId: evolutions.patientId, clinicalDate: evolutions.clinicalDate }).from(evolutions).where(and(eq(evolutions.ownerId, ownerId), inArray(evolutions.patientId, ids), ne(evolutions.status, "anulada"))).orderBy(desc(evolutions.clinicalDate));
   const historyByPatient = new Map<number, { count: number; latestDate: string | null }>();
   for (const entry of history) {
     const current = historyByPatient.get(entry.patientId) ?? { count: 0, latestDate: null };
@@ -253,7 +253,7 @@ async function getPatientRecord(ownerId: string, patientIdInput: unknown) {
   const db = getDb();
   const [patient] = await db.select(patientFields).from(patients).where(and(eq(patients.id, patientId), eq(patients.ownerId, ownerId))).limit(1);
   if (!patient) return { found: false, error: "No encontré esa ficha en Gestión Dental." };
-  const history = await db.select({ id: evolutions.id, clinicalDate: evolutions.clinicalDate, recordedAt: evolutions.recordedAt, title: evolutions.title, body: evolutions.body, sourceDocumentId: evolutions.sourceDocumentId, backupStatus: evolutions.backupStatus }).from(evolutions).where(and(eq(evolutions.ownerId, ownerId), eq(evolutions.patientId, patientId))).orderBy(desc(evolutions.clinicalDate), desc(evolutions.recordedAt)).limit(10);
+  const history = await db.select({ id: evolutions.id, clinicalDate: evolutions.clinicalDate, recordedAt: evolutions.recordedAt, title: evolutions.title, body: evolutions.body, sourceDocumentId: evolutions.sourceDocumentId, backupStatus: evolutions.backupStatus }).from(evolutions).where(and(eq(evolutions.ownerId, ownerId), eq(evolutions.patientId, patientId), ne(evolutions.status, "anulada"))).orderBy(desc(evolutions.clinicalDate), desc(evolutions.recordedAt)).limit(10);
   return { found: true, patient: { ...patient, rut: patient.rut || "" }, evolutions: history };
 }
 

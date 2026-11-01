@@ -28,6 +28,16 @@ export const evolutions = sqliteTable("evolutions", {
   sourceDocumentId: text("source_document_id"),
   backupStatus: text("backup_status").notNull().default("not_configured"),
   requestId: text("request_id"),
+  /**
+   * «vigente» o «anulada». Por la Ley 20.584 la ficha clínica se conserva: una evolución no se borra,
+   * se anula con motivo, fecha y autor, y queda visible tachada al pedir «Ver anuladas».
+   */
+  status: text("status").notNull().default("vigente"),
+  annulledAt: text("annulled_at"),
+  annulledBy: text("annulled_by"),
+  annulReason: text("annul_reason"),
+  /** Si esta evolución reemplaza a otra (anular + nueva), el id de la anulada. */
+  replacesId: integer("replaces_id"),
 }, table => [index("evolutions_patient_date_idx").on(table.patientId, table.clinicalDate), uniqueIndex("evolutions_owner_request_unique").on(table.ownerId, table.requestId)]);
 
 /**

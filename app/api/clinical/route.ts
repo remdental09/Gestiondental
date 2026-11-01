@@ -108,6 +108,15 @@ function paymentView(p: typeof payments.$inferSelect) {
   return { id: p.id, patientId: p.patientId, budgetId: p.budgetId, amount: p.amount, method: p.method, concept: p.concept, paidOn: p.paidOn, date: displayDate(p.paidOn) };
 }
 
+/** Datos de anulación de una evolución (solo si está anulada o reemplaza a otra). */
+function annulView(n: typeof evolutions.$inferSelect) {
+  return {
+    status: n.status === "anulada" ? "anulada" as const : "vigente" as const,
+    ...(n.status === "anulada" ? { annulledAt: n.annulledAt, annulledBy: n.annulledBy, annulReason: n.annulReason } : {}),
+    ...(n.replacesId ? { replacesId: n.replacesId } : {}),
+  };
+}
+
 export async function GET() {
   const viewer = await getChatGPTUser();
   const ownerId = viewer?.userId;
@@ -148,6 +157,7 @@ export async function GET() {
       const saved = toothStatusByPatient.get(p.id);
       const chart = normalizeOdontogram(saved ? JSON.parse(saved.data) : {});
       for (const note of notesByPatient.get(p.id) ?? []) {
+        if (note.status === "anulada") continue;
         const crown = cementedCrownFromEvolution(note.body);
         const status = chart.teeth[crown?.tooth ?? -1];
         if (crown?.material && !chart.crowns?.[crown.tooth] && ((crown.onImplant && status === "Implante") || (!crown.onImplant && status === "Corona"))) {
@@ -158,7 +168,7 @@ export async function GET() {
     }));
     return Response.json({
       patients: ps.map(p => ({ ...p, rut: p.rut || "" })),
-      notes: ns.map(n => ({ id: n.id, patientId: n.patientId, date: displayDate(n.clinicalDate), clinicalDate: n.clinicalDate, recordedAt: n.recordedAt, title: n.title, body: n.body, sourceDocumentId: n.sourceDocumentId, backupStatus: n.backupStatus, diagnoses: diagnosesByNote.get(n.id) ?? [] })),
+      notes: ns.map(n => ({ id: n.id, patientId: n.patientId, date: displayDate(n.clinicalDate), clinicalDate: n.clinicalDate, recordedAt: n.recordedAt, title: n.title, body: n.body, sourceDocumentId: n.sourceDocumentId, backupStatus: n.backupStatus, diagnoses: diagnosesByNote.get(n.id) ?? [], ...annulView(n) })),
       budgets: bs.map(b => ({ id: b.id, patientId: b.patientId, date: displayDate(b.createdAt.slice(0, 10)), title: b.title, status: b.status, items: JSON.parse(b.items) })),
       appointments: as.map(a => ({ id: a.id, patientId: a.patientId, day: a.day.split("-").reverse().join("-"), time: a.time, reason: a.reason })),
       payments: pays.map(paymentView),
@@ -272,6 +282,64 @@ export async function POST(request: Request) {
       try { chart = await syncInstalledImplants(ownerId, patientId, body, t); }
       catch { chart = { updatedTeeth: [], odontogram: null, warning: "Evolución guardada; revisa el odontograma, cuya actualización no pudo verificarse." }; }
       return Response.json({ note: { id: n.id, patientId, date: displayDate(clinicalDate), clinicalDate, recordedAt: t, title, body, backupStatus: n.backupStatus }, chart }, { status: 201 });
+    }
+    if (action === "annulEvolution") {
+      // Ley 20.584: no se borra. Se marca anulada con motivo, fecha y autor; opcionalmente se guarda la que la reemplaza.
+      const evolutionId = Number(input.evolutionId);
+      if (!Number.isSafeInteger(evolutionId) || evolutionId <= 0) return error("Evolución inválida.");
+      const reason = string(input.reason, 500);
+      if (reason.length < 3) return error("Escribe el motivo de la anulación.");
+      const replacementBody = string(input.replacementBody, 30000);
+      const replacementTitle = string(input.replacementTitle, 180) || "Evolución clínica";
+      const [note] = await db.select().from(evolutions).where(and(eq(evolutions.id, evolutionId), eq(evolutions.patientId, patientId), eq(evolutions.ownerId, ownerId))).limit(1);
+      if (!note) return error("Evolución no encontrada en esta ficha.", 404);
+      if (note.status === "anulada") return error("Esta evolución ya estaba anulada.", 409);
+      const viewer = await getChatGPTUser();
+      const t = now(), annulledBy = viewer?.email || ownerId;
+      const annul = db.update(evolutions).set({ status: "anulada", annulledAt: t, annulledBy, annulReason: reason }).where(and(eq(evolutions.id, evolutionId), eq(evolutions.ownerId, ownerId), eq(evolutions.status, "vigente")));
+      let replacement: typeof evolutions.$inferSelect | undefined;
+      if (replacementBody) {
+        const clinicalDate = dateInChile();
+        const [, inserted] = await db.batch([annul, db.insert(evolutions).values({ ownerId, patientId, clinicalDate, recordedAt: t, title: replacementTitle, body: replacementBody, replacesId: evolutionId, backupStatus: "not_configured" }).returning()]);
+        replacement = inserted[0];
+      } else await annul;
+      let chart;
+      if (replacement) {
+        try { chart = await syncInstalledImplants(ownerId, patientId, replacementBody, t); }
+        catch { chart = { updatedTeeth: [], odontogram: null, warning: "Evolución guardada; revisa el odontograma, cuya actualización no pudo verificarse." }; }
+      }
+      return Response.json({
+        annulled: { id: evolutionId, status: "anulada", annulledAt: t, annulledBy, annulReason: reason },
+        ...(replacement ? { note: { id: replacement.id, patientId, date: displayDate(replacement.clinicalDate), clinicalDate: replacement.clinicalDate, recordedAt: t, title: replacement.title, body: replacement.body, backupStatus: replacement.backupStatus, status: "vigente", replacesId: evolutionId }, chart } : {}),
+      });
+    }
+    if (action === "deleteEvolution") {
+      // «Error del sistema»: el dentista elige borrar definitivamente. Se eliminan la evolución y sus etiquetas de
+      // diagnóstico; odontograma, pagos, citas y presupuestos no se tocan (no están ligados a la evolución).
+      const evolutionId = Number(input.evolutionId);
+      if (!Number.isSafeInteger(evolutionId) || evolutionId <= 0) return error("Evolución inválida.");
+      if (input.confirm !== "eliminar") return error("Falta confirmar la eliminación.");
+      const replacementBody = string(input.replacementBody, 30000);
+      const replacementTitle = string(input.replacementTitle, 180) || "Evolución clínica";
+      const [note] = await db.select({ id: evolutions.id }).from(evolutions).where(and(eq(evolutions.id, evolutionId), eq(evolutions.patientId, patientId), eq(evolutions.ownerId, ownerId))).limit(1);
+      if (!note) return error("Evolución no encontrada en esta ficha.", 404);
+      const t = now();
+      const removeTags = db.delete(evolutionDiagnoses).where(and(eq(evolutionDiagnoses.evolutionId, evolutionId), eq(evolutionDiagnoses.ownerId, ownerId)));
+      const removeNote = db.delete(evolutions).where(and(eq(evolutions.id, evolutionId), eq(evolutions.patientId, patientId), eq(evolutions.ownerId, ownerId)));
+      let replacement: typeof evolutions.$inferSelect | undefined;
+      if (replacementBody) {
+        const [, , inserted] = await db.batch([removeTags, removeNote, db.insert(evolutions).values({ ownerId, patientId, clinicalDate: dateInChile(), recordedAt: t, title: replacementTitle, body: replacementBody, backupStatus: "not_configured" }).returning()]);
+        replacement = inserted[0];
+      } else await db.batch([removeTags, removeNote]);
+      let chart;
+      if (replacement) {
+        try { chart = await syncInstalledImplants(ownerId, patientId, replacementBody, t); }
+        catch { chart = { updatedTeeth: [], odontogram: null, warning: "Evolución guardada; revisa el odontograma, cuya actualización no pudo verificarse." }; }
+      }
+      return Response.json({
+        deleted: { id: evolutionId },
+        ...(replacement ? { note: { id: replacement.id, patientId, date: displayDate(replacement.clinicalDate), clinicalDate: replacement.clinicalDate, recordedAt: t, title: replacement.title, body: replacement.body, backupStatus: replacement.backupStatus, status: "vigente" }, chart } : {}),
+      });
     }
     if (action === "setEvolutionDiagnoses") {
       // Reemplaza las etiquetas confirmadas de una evolución (idempotente: reenviar deja lo mismo).

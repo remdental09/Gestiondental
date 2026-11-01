@@ -41,5 +41,5 @@ test('migración nueva 0005 sin reescribir las aplicadas', () => {
   assert.match(sql, /CREATE TABLE `evolution_diagnoses`/);
   for (const col of ['code', 'title', 'tooth', 'findings', 'evidence', 'origin', 'suggested_from', 'evolution_id']) assert.match(sql, new RegExp('`' + col + '`'));
   const journal = JSON.parse(readFileSync(new URL('../drizzle/meta/_journal.json', import.meta.url), 'utf8'));
-  assert.deepEqual(journal.entries.map((e) => e.tag).slice(-2), ['0004_payments', '0005_evolution_diagnoses']);
+  assert.deepEqual(journal.entries.map((e) => e.tag).slice(4, 6), ['0004_payments', '0005_evolution_diagnoses']);
 });
