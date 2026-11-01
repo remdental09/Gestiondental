@@ -83,7 +83,7 @@ export function Tooth3DModal({
       role="dialog"
       aria-modal="true"
       aria-labelledby="tooth-3d-title"
-      className="fixed top-1/2 left-1/2 z-10 flex max-h-[92vh] w-[min(48rem,calc(100%-1.5rem))] flex-col overflow-hidden rounded-2xl border border-[#d5e4e2] bg-white shadow-xl"
+      className="fixed top-1/2 left-1/2 z-10 flex max-h-[92vh] supports-[height:1dvh]:max-h-[92dvh] w-[min(48rem,calc(100%-1.5rem))] flex-col overflow-hidden rounded-2xl border border-[#d5e4e2] bg-white shadow-xl"
       style={{ transform: placed ? "translate(-50%, -50%) scale(1)" : `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) scale(0.18)`, transition: reducedMotion ? "none" : "transform 480ms ease" }}
     >
       <div className="flex items-start justify-between gap-3 border-b border-[#e4eeed] px-4 py-3 sm:px-5">

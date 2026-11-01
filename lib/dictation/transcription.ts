@@ -33,11 +33,13 @@ type SpeechRecognizer = {
   abort: () => void;
 };
 
-const UNSUPPORTED = "Este navegador no ofrece dictado por voz. En Chrome de escritorio se puede dictar en español de Chile. Escribe o pega el texto para preparar la propuesta. Este prototipo no envía el audio a un servicio de transcripción de pago.";
+const UNSUPPORTED = "Este navegador no ofrece dictado por voz. Se puede dictar en Chrome (computador o Android) y en Safari de iPhone o iPad con Siri y Dictado activados. También puedes usar el micrófono del teclado del teléfono o pegar el texto para preparar la propuesta. Este prototipo no envía el audio a un servicio de transcripción de pago.";
 
 /** Reaperturas seguidas sin voz antes de detenerse solo (unos minutos de silencio). */
 const MAX_RESTARTS = 20;
-const IOS = typeof navigator !== "undefined" && /iPhone|iPad|iPod/.test(navigator.userAgent);
+// iPadOS se presenta como Mac: se reconoce por la pantalla táctil.
+export const IS_IOS = typeof navigator !== "undefined" && (/iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
+const IOS = IS_IOS;
 const IOS_BLOCKED = "iPhone bloqueó el reconocimiento. Activa Siri y Dictado en Ajustes > General > Teclado y permite el micrófono para Safari en Ajustes > Safari > Micrófono. También puedes usar el micrófono del teclado y pegar el texto.";
 
 /** Aviso que se muestra antes de dictar en iPhone. */
@@ -105,7 +107,9 @@ export function createWebSpeechTranscription(lang = "es-CL"): TranscriptionEngin
           active = null;
           stopped = true;
           handlers.onError(event.error === "not-allowed" || event.error === "service-not-allowed"
-            ? IOS ? IOS_BLOCKED : "El navegador bloqueó el micrófono o el reconocimiento. Revisa el permiso en Chrome o escribe el texto."
+            ? IOS ? IOS_BLOCKED : "El navegador bloqueó el micrófono o el reconocimiento. Revisa el permiso del micrófono para este sitio o escribe el texto."
+            : event.error === "audio-capture"
+              ? "No se pudo usar el micrófono: puede estar ocupado por otra app o llamada. Ciérrala e intenta de nuevo, o escribe el texto."
             : event.error === "no-speech"
               ? "No se detectó voz. Puedes intentar de nuevo o escribir el texto."
               : "No se pudo continuar el dictado. Revisa el micrófono o escribe el texto.");
@@ -131,7 +135,7 @@ export function createWebSpeechTranscription(lang = "es-CL"): TranscriptionEngin
         launch();
       } catch {
         active = null;
-        handlers.onError(IOS ? IOS_BLOCKED : "No se pudo iniciar el dictado. Revisa el permiso del micrófono en Chrome o escribe el texto.");
+        handlers.onError(IOS ? IOS_BLOCKED : "No se pudo iniciar el dictado. Revisa el permiso del micrófono para este sitio o escribe el texto.");
         handlers.onEnd();
       }
     },

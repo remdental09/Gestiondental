@@ -10,6 +10,31 @@
  * Un dictado típico gasta ~110-130 Neurons (cuota gratuita: 10 000 al día) y tarda 12-20 s.
  * Si falla o no responde a tiempo se prueba el respaldo; si ambos fallan, quedan las reglas locales.
  */
+import {
+  applyLexicon,
+  depthFrom,
+  describeDate,
+  fold,
+  isAppointmentText,
+  isNumberWord,
+  numberSignature,
+  isFuturePayment,
+  isPaymentText,
+  PAYMENT_METHOD_LABEL,
+  PAYMENT_METHODS,
+  paymentAmount,
+  paymentMethodFrom,
+  reconcileCorrection,
+  resolveSpokenDate,
+  resolveSpokenTime,
+  santiagoToday,
+  type PaymentMethod,
+  type TranscriptCorrection,
+} from "./spoken.ts";
+
+export type { PaymentMethod, TranscriptCorrection } from "./spoken.ts";
+export { PAYMENT_METHOD_LABEL, PAYMENT_METHODS } from "./spoken.ts";
+
 export const WORKERS_AI_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 /** Si el primero falla o no responde a tiempo, se prueba el siguiente. */
 export const WORKERS_AI_FALLBACKS = ["@cf/mistralai/mistral-small-3.1-24b-instruct"] as const;
@@ -84,6 +109,49 @@ export type PerioStub = {
   depth: number;
   sourceText: string;
   persisted: false;
+  bleeding?: boolean;
+  suppuration?: boolean;
+  evidence?: string;
+  origin?: ItemOrigin;
+};
+
+/** Sondaje dictado al que le falta el sitio o los milímetros: se completa en la revisión o con una aclaración. */
+export type PerioPending = {
+  id: string;
+  tooth: number;
+  numberingLabel: string;
+  site: PerioSite | null;
+  depth: number | null;
+  bleeding: boolean;
+  suppuration: boolean;
+  evidence: string;
+  origin: ItemOrigin;
+};
+
+export type MobilityChange = { id: string; tooth: number; numberingLabel: string; grade: "0" | "I" | "II" | "III"; evidence: string; origin: ItemOrigin };
+
+/** Pago o abono recibido hoy, según el dictado. */
+export type PaymentChange = {
+  id: string;
+  amount: number;
+  method: PaymentMethod | null;
+  concept: string;
+  evidence: string;
+  origin: ItemOrigin;
+};
+
+/** Próxima cita dictada. day en YYYY-MM-DD y time en HH:MM, ambos en hora de Chile. */
+export type AppointmentChange = {
+  id: string;
+  day: string | null;
+  time: string | null;
+  reason: string;
+  /** Cómo se dijo la fecha («el jueves»), para revisarla. */
+  said: string;
+  evidence: string;
+  origin: ItemOrigin;
+  note?: string;
+  timeDoubt?: string;
 };
 
 export type DictationProposal = {
@@ -100,6 +168,12 @@ export type DictationProposal = {
   procedures?: ProcedureItem[];
   /** Transcripción literal; se guarda completa al final de la evolución. */
   transcript?: string;
+  /** Texto corregido (diccionario + IA validada) y cada cambio hecho sobre lo dictado. */
+  corrected?: { text: string; corrections: TranscriptCorrection[] };
+  perioPending?: PerioPending[];
+  mobility?: MobilityChange[];
+  payments?: PaymentChange[];
+  appointments?: AppointmentChange[];
 };
 
 export type ChartSurface = {
@@ -181,7 +255,7 @@ const PRIMARY_LETTER: Record<string, number> = {
   K: 75, L: 74, M: 73, N: 72, O: 71, P: 81, Q: 82, R: 83, S: 84, T: 85,
 };
 
-const SITE_LABEL: Record<PerioSite, string> = {
+export const SITE_LABEL: Record<PerioSite, string> = {
   MV: "Mesial vestibular",
   V: "Vestibular",
   DV: "Distal vestibular",
@@ -199,7 +273,7 @@ function clip(value: string, max = 180): string {
 const OTHER_FINDING = /(?<!\p{L})(?:fractur\p{L}*|fisur\p{L}*|c[uú]spides?|desgaste|abfracci\p{L}*|abrasi[oó]n|erosi[oó]n|atrici[oó]n|movilidad|tinci[oó]n|manchas?|absceso|f[ií]stula|dolor|sensibilidad)(?!\p{L})/iu;
 const FINDING_CUE = /(?<!\p{L})(?:caries|obtura\p{L}*|restaura\p{L}*|resina|amalgama|sellante|san[oa]|ausente|implante|corona|exodoncia|extra[ií]d\p{L}*|resto\s+radicular|endodoncia|fractur\p{L}*|fisur\p{L}*|c[uú]spides?|icdas|lesi[oó]n|movilidad|sondaje|dolor|sensibilidad|absceso|f[ií]stula|desgaste|abfracci\p{L}*|activ[ao]|inactiv[ao]|oclusal|mesial|distal|vestibular|palatin[ao]|lingual|incisal|mod)(?!\p{L})/iu;
 const TOOTH_START = /(?:^|\s)((?:(?:la|el)\s+)?(?:(?:pieza|diente)s?\s+(?:(?:fdi|iso|chilena|nacional|universal)\s+)?(?:\d|un[oa]?\b|dos\b|tres\b|cuatro\b|cinco\b|seis\b|siete\b|ocho\b|nueve\b|diez\b|once\b|doce\b|trece\b|catorce\b|quince\b|diec|veint|treinta|cuarenta|temporal|decidu|de\s+leche)|(?:fdi|iso)\s+\d))/giu;
-const CLAUSE_START = /(?:^|\s)((?:(?:el|la)\s+)?(?:paciente\s+)?(?:refiere|relata|comenta|niega)(?!\p{L})|se\s+(?:indica|planifica|realiz[oó]|instal[oó]|cement[oó]|observa)(?!\p{L}))/giu;
+const CLAUSE_START = /(?:^|\s)((?:(?:el|la)\s+)?(?:paciente\s+)?(?:refiere|relata|comenta|niega)(?!\p{L})|se\s+(?:indica|planifica|realiz[oó]|instal[oó]|cement[oó]|observa)(?!\p{L})|(?:sondaje|sondeo|movilidad)(?!\p{L})|(?:el\s+paciente\s+|la\s+paciente\s+)?(?:abon[oó]|pag[oó]|cancel[oó])(?!\p{L})|pr[oó]xim[oa]\s+(?:cita|control|sesi[oó]n|hora)(?!\p{L})|se\s+(?:cita|agenda|reagenda)(?!\p{L})|aclaraci[oó]n:)/giu;
 const OPEN_ENDING = /(?:^|\s)(?:en|de|del|la|el|los|las|a|al|para|entre|sobre|por|un|una|que|o|con|desde|hasta|observa|observan|presenta|presentan|indica|planifica|realiza|realiz[oó]|instal[oó]|cement[oó]|tiene|hay|evidencia|paciente)$/iu;
 const TRAILING_CONNECTOR = /(?:[\s,;:]+(?:y|e|con|adem[aá]s|tambi[eé]n))+[\s,;:]*$|[\s,;:]+$/iu;
 
@@ -339,6 +413,12 @@ function toothMentions(sentence: string): Mention[] {
   const numbered = /\b(?:pieza|diente)\s+(?:(fdi|iso|chilena|nacional|universal|estadounidense|ee\.?\s*uu\.?|ada)\s+)?(\d{1,2}(?:\.\d)?)\b|\b(fdi|iso|chilena|nacional|universal|estadounidense|ee\.?\s*uu\.?|ada)\s+(\d{1,2}(?:\.\d)?)\b/gi;
   for (const match of sentence.matchAll(numbered)) {
     mentions.push(interpretTooth(match[2] || match[4], match[1] || match[3]));
+  }
+  // «en la 3.6» sin etiqueta: la forma con punto es FDI (la corrección convierte «tres seis» en 3.6).
+  // No se lee como pieza si es una medida («4.5 mm») o parte de otro número («50.000», «10.30»).
+  const unlabeled = sentence.replace(numbered, (whole) => " ".repeat(whole.length));
+  for (const match of unlabeled.matchAll(/(?<![\d.,])([1-8])\.([1-8])(?![\d.,]?\d)(?!\s*(?:mm|mil[ií]metros?|cm|%|hrs?|horas?|h\b))/giu)) {
+    mentions.push(interpretTooth(`${match[1]}.${match[2]}`, "fdi"));
   }
   const spoken = speechText(sentence);
   const consumed: Array<[number, number]> = [];
@@ -602,10 +682,12 @@ function findingFrom(sentence: string): FindingResult {
 }
 
 function perioSite(sentence: string): PerioSite | null {
-  const mesial = /\bmesial\b/i.test(sentence);
-  const distal = /\bdistal\b/i.test(sentence);
-  const vestibular = /\b(?:vestibular|bucal)\b/i.test(sentence);
-  const lingual = /\b(?:lingual|palatin[oa])\b/i.test(sentence);
+  // Acepta «mesial vestibular», «mesio vestibular», «mesiovestibular», «disto-lingual», «palatal»…
+  const text = sentence.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const mesial = /\bmesi(?:al\b|o\s*-?\s*(?=vestibul|buca|lingu|palat))/.test(text);
+  const distal = /\bdist(?:al\b|o\s*-?\s*(?=vestibul|buca|lingu|palat))/.test(text);
+  const vestibular = /(?:\b|mesio|disto)(?:vestibular|bucal)\b/.test(text);
+  const lingual = /(?:\b|mesio|disto)(?:lingual|palatin[oa]|palatal)\b/.test(text);
   if (mesial && distal) return null;
   if (mesial && vestibular) return "MV";
   if (distal && vestibular) return "DV";
@@ -715,23 +797,35 @@ function composeEvolution(transcript: string, odontogram: OdontogramChange[] = [
   const plan: string[] = [];
   const presupuesto: string[] = [];
   const sondaje: string[] = [];
+  const pagos: string[] = [];
+  const citas: string[] = [];
+  const aclaraciones: string[] = [];
   const resto: string[] = [];
   const unresolved: string[] = [];
+  // Frases ya respondidas con «Aclaración: <frase>: <respuesta>» no quedan como pendientes.
+  const answered = new Set(sentences(clean)
+    .map((sentence) => sentence.match(/^aclaraci[oó]n:\s*(.+):[^:]*$/iu)?.[1])
+    .filter((quote): quote is string => Boolean(quote))
+    .map((quote) => normalizeEvidence(quote)));
   for (const sentence of sentences(clean)) {
     const line = ensurePeriod(capitalize(sentence));
     const key = clip(sentence, 400);
+    if (answered.has(normalizeEvidence(sentence)) && sources.size && toothMentions(sentence).length > 0 && !OTHER_FINDING.test(sentence) && !/^aclaraci/iu.test(sentence)) continue;
     if (sources.has(key)) {
       if (OTHER_FINDING.test(sentence)) otrosExamen.push(line);
       continue;
     }
     const field = fichaBySource.get(key);
-    if (field) fichaLines[field].push(line);
+    if (/^aclaraci[oó]n:/iu.test(sentence)) aclaraciones.push(line);
+    else if (field) fichaLines[field].push(line);
+    else if (isPaymentText(sentence) && !isFuturePayment(sentence)) pagos.push(line);
+    else if (isAppointmentText(sentence)) citas.push(line);
     else if (isPatient(sentence)) relato.push(line);
     else if (/\b(?:presupuesto|cotizaci[oó]n)\b/i.test(sentence)) presupuesto.push(line);
     else if (/\bse\s+indica\b/i.test(sentence)) indicaciones.push(line);
     else if (isPerformed(sentence)) procedimientos.push(line);
     else if (isPlan(sentence)) plan.push(line);
-    else if (/\bsondaje\b/i.test(sentence)) sondaje.push(line);
+    else if (/(?<!\p{L})(?:sondaje|sondeo|movilidad)(?!\p{L})/iu.test(sentence)) sondaje.push(line);
     else if (toothMentions(sentence).length > 0 && OTHER_FINDING.test(sentence)) otrosExamen.push(line);
     else if (toothMentions(sentence).length > 0) unresolved.push(line);
     else resto.push(line);
@@ -749,8 +843,11 @@ function composeEvolution(transcript: string, odontogram: OdontogramChange[] = [
   if (plan.length) lines.push("Plan de tratamiento", ...plan, "");
   if (presupuesto.length) lines.push("Presupuesto", ...presupuesto, "");
   if (sondaje.length) lines.push("Sondaje", ...sondaje, "");
+  if (pagos.length) lines.push("Pagos", ...pagos, "");
+  if (citas.length) lines.push("Próxima cita", ...citas, "");
   if (resto.length) lines.push("Otros dichos", ...resto, "");
-  const pending = [...new Set([...unresolved, ...clarifications.map((item) => item.trim()).filter(Boolean)])];
+  if (aclaraciones.length) lines.push("Aclaraciones del profesional", ...aclaraciones, "");
+  const pending = [...new Set([...unresolved, ...clarifications.filter((item) => !ROUTING_QUESTION.test(item)).map((item) => item.trim()).filter(Boolean)])];
   if (pending.length) lines.push("Pendiente de aclarar", ...pending.map((item) => ensurePeriod(item)));
   const body = lines.join("\n").trim();
   return body ? { title: "Evolución dictada", body } : null;
@@ -808,11 +905,16 @@ function dedupeKey(item: OdontogramChange): string {
   return [item.tooth, item.kind, item.surface ?? "", item.status ?? "", item.foundation ?? "", item.finding?.condition ?? "", item.finding?.icdas ?? "", item.material ?? ""].join(":");
 }
 
-export function structureTranscript(transcript: string): DictationProposal {
+export function structureTranscript(transcript: string, options: { today?: string } = {}): DictationProposal {
+  const today = options.today ?? santiagoToday();
   const clarifications: string[] = [];
   const odontogram: OdontogramChange[] = [];
   const budget: BudgetChange[] = [];
   const perio: PerioStub[] = [];
+  const perioPending: PerioPending[] = [];
+  const mobility: MobilityChange[] = [];
+  const payments: PaymentChange[] = [];
+  const appointments: AppointmentChange[] = [];
   const incomplete: OdontogramChange[] = [];
   const ficha: FichaChange[] = [];
   const seen = new Set<string>();
@@ -831,30 +933,48 @@ export function structureTranscript(transcript: string): DictationProposal {
     if (/\bdiagn[oó]stico\b/i.test(sentence)) {
       clarifications.push("No se creó un diagnóstico confirmado a partir del dictado.");
     }
-    if (/\bsondaje\b/i.test(sentence)) {
-      const depthMatch = sentence.match(/\bsondaje(?:\s+de)?\s+(\d{1,2})([.,]\d+)?\s*(?:mm|mil[ií]metros)\b/i);
-      const mentions = toothMentions(sentence).filter((item) => item.ok);
-      const site = perioSite(sentence);
-      if (!depthMatch) clarifications.push(`Sondaje sin milímetros enteros: «${clip(sentence)}». No se anota.`);
-      else if (depthMatch[2]) clarifications.push("El sondaje con decimal no se anota. Usa milímetros enteros.");
-      else if (!mentions.length) clarifications.push(`Sondaje sin una pieza identificada: «${clip(sentence)}».`);
-      else if (!site) clarifications.push(`Sondaje sin un sitio reconocible: «${clip(sentence)}».`);
-      else {
-        const depth = Number(depthMatch[1]);
-        const mention = mentions.find((item) => item.ok);
-        if (mention && mention.ok && depth >= 0 && depth <= 15) {
-          perio.push({
-            id: nextId("per"),
-            tooth: mention.tooth,
-            numberingLabel: mention.numberingLabel,
-            site,
-            siteLabel: SITE_LABEL[site],
-            depth,
-            sourceText: clip(sentence),
-            persisted: false,
-          });
-        } else clarifications.push(`Sondaje fuera de 0 a 15 mm: «${clip(sentence)}».`);
+    const grade = mobilityGrade(sentence);
+    if (grade) {
+      for (const mention of toothMentions(sentence)) {
+        if (mention.ok) mobility.push({ id: nextId("mov"), tooth: mention.tooth, numberingLabel: mention.numberingLabel, grade, evidence: clip(sentence, 400), origin: "reglas" });
       }
+    }
+    if (/(?<!\p{L})(?:sondaje|sondeo)(?!\p{L})/iu.test(sentence)) {
+      const reading = perioReading(sentence);
+      if (/(?<!\p{L})(?:sondaje|sondeo)(?:\s+de)?\s+\d{1,2}[.,]\d+\s*(?:mm|mil[ií]metros)/iu.test(sentence)) clarifications.push("El sondaje con decimal no se anota. Usa milímetros enteros.");
+      else if (!reading.mention) clarifications.push(`Sondaje sin una pieza identificada: «${clip(sentence)}». ¿En qué pieza?`);
+      else if (reading.depth !== null && reading.depth > 15) clarifications.push(`Sondaje fuera de 0 a 15 mm: «${clip(sentence)}».`);
+      else if (reading.depth === null && !reading.bleeding && !reading.suppuration) clarifications.push(`Sondaje sin milímetros enteros: «${clip(sentence)}». No se anota.`);
+      else if (reading.depth === null || !reading.site) {
+        perioPending.push({ id: nextId("pen"), tooth: reading.mention.tooth, numberingLabel: reading.mention.numberingLabel, site: reading.site, depth: reading.depth, bleeding: reading.bleeding, suppuration: reading.suppuration, evidence: clip(sentence, 400), origin: "reglas" });
+      } else {
+        perio.push({
+          id: nextId("per"),
+          tooth: reading.mention.tooth,
+          numberingLabel: reading.mention.numberingLabel,
+          site: reading.site,
+          siteLabel: SITE_LABEL[reading.site],
+          depth: reading.depth,
+          sourceText: clip(sentence),
+          persisted: false,
+          bleeding: reading.bleeding,
+          suppuration: reading.suppuration,
+          evidence: clip(sentence, 400),
+          origin: "reglas",
+        });
+      }
+      continue;
+    }
+
+    if (isPaymentText(sentence) && !isFuturePayment(sentence)) {
+      const value = paymentAmount(sentence);
+      if (value) payments.push({ id: nextId("pag"), amount: value, method: paymentMethodFrom(sentence), concept: paymentConcept(sentence), evidence: clip(sentence, 400), origin: "reglas" });
+      else clarifications.push(`Pago sin monto claro: «${clip(sentence)}». ¿Cuánto pagó?`);
+      continue;
+    }
+    if (isAppointmentText(sentence)) {
+      const appointment = appointmentFrom(sentence, today, nextId("cit"), "reglas");
+      appointments.push(appointment);
       continue;
     }
 
@@ -981,14 +1101,150 @@ export function structureTranscript(transcript: string): DictationProposal {
     }
   }
 
-  const validated = validateProposal({ evolution: null, odontogram, budget, perio, clarifications });
-  return {
+  // Una caries completada después con «Aclaración:» deja de estar incompleta y deja de preguntarse.
+  const completed = (item: OdontogramChange) => odontogram.some((done) => done.kind === "surface" && done.tooth === item.tooth && done.surface === item.surface);
+  const solved = new Set(incomplete.filter(completed).map((item) => normalizeEvidence(item.sourceText)));
+  const openIncomplete = incomplete.filter((item) => !completed(item));
+  const openClarifications = clarifications.filter((note) => {
+    const quoted = note.match(/«([^»]+)»/)?.[1];
+    return !(quoted && /caries/i.test(note) && solved.has(normalizeEvidence(quoted.replace(/…$/, ""))));
+  });
+  const validated = validateProposal({ evolution: null, odontogram, budget, perio, clarifications: openClarifications });
+  const routed = finishRouting({
     ...validated,
-    evolution: composeEvolution(transcript, validated.odontogram, validated.clarifications, ficha),
-    incomplete,
+    incomplete: openIncomplete,
     ficha,
     procedures: [],
     transcript: transcript.trim(),
+    perioPending,
+    mobility,
+    payments,
+    appointments,
+  });
+  return { ...routed, evolution: composeEvolution(transcript, routed.odontogram, routed.clarifications, ficha) };
+}
+
+// ---------------------------------------------------------------------------
+// Rutas nuevas: periodontograma, pagos y próxima cita.
+// ---------------------------------------------------------------------------
+
+function mobilityGrade(sentence: string): MobilityChange["grade"] | null {
+  const match = fold(sentence).match(/\bmovilidad\s+(?:dentaria\s+)?(?:(?:de\s+)?grado\s+)?(0|1|2|3|i{1,3}|cero|uno|dos|tres)\b/);
+  if (!match) return null;
+  const map: Record<string, MobilityChange["grade"]> = { "0": "0", cero: "0", "1": "I", i: "I", uno: "I", "2": "II", ii: "II", dos: "II", "3": "III", iii: "III", tres: "III" };
+  return map[match[1]] ?? null;
+}
+
+function perioReading(sentence: string) {
+  const folded = fold(sentence);
+  const mention = toothMentions(sentence).find((item): item is Extract<Mention, { ok: true }> => item.ok) ?? null;
+  return {
+    mention,
+    depth: depthFrom(sentence),
+    site: perioSite(folded),
+    bleeding: /\b(?:sangra\w*|sangrado|hemorragia)\b/.test(folded) && !/\b(?:sin|no)\s+(?:hay\s+)?(?:sangra\w*|sangrado)\b/.test(folded),
+    suppuration: /\b(?:supura\w*|pus)\b/.test(folded) && !/\b(?:sin|no)\s+(?:hay\s+)?(?:supura\w*|pus)\b/.test(folded),
+  };
+}
+
+function paymentConcept(sentence: string): string {
+  const match = sentence.match(/(?<!\p{L})(?:por|para|de\s+la|del|al|a\s+la)\s+((?:la\s+|el\s+)?(?:corona|endodoncia|obturaci\p{L}*|resina|implante|limpieza|destartraje|exodoncia|tratamiento|presupuesto|pr[oó]tesis|blanqueamiento|ortodoncia|consulta|control|urgencia|carilla|perno)[^,.;]*)/iu);
+  return match ? clip(match[1].trim(), 120) : "";
+}
+
+function appointmentFrom(sentence: string, today: string, id: string, origin: ItemOrigin): AppointmentChange {
+  const date = resolveSpokenDate(sentence, today);
+  const time = resolveSpokenTime(sentence);
+  const reasonMatch = sentence.match(/(?<!\p{L})(?:para|a)\s+((?:control|evaluaci\p{L}*|endodoncia|obturaci\p{L}*|resina|corona|limpieza|destartraje|exodoncia|implante|cementaci\p{L}*|retiro|sesi[oó]n|continuar|terminar|pr[oó]tesis|blanqueamiento|ajuste|tratamiento|radiograf\p{L}*|toma)[^,.;]*)/iu);
+  const reason = reasonMatch ? capitalize(clip(reasonMatch[1].trim(), 120)) : "Control";
+  return {
+    id,
+    day: date?.date ?? null,
+    time: time?.time ?? null,
+    reason,
+    said: [date?.said, time?.said].filter(Boolean).join(" ") || "",
+    evidence: clip(sentence, 400),
+    origin,
+    ...(date?.note ? { note: date.note } : date?.doubt ? { note: date.doubt } : {}),
+    ...(time?.doubt ? { timeDoubt: time.doubt } : {}),
+  };
+}
+
+/** Preguntas que salen de lo que falta. Se recalculan cada vez, por eso llevan un prefijo propio. */
+const ROUTING_QUESTION = /^(?:¿Con qué medio se pagaron|¿Qué día es la próxima cita|¿A qué hora es la cita|¿En qué sitio se midió|¿Cuántos mm midió|Confirma la hora de la cita)/;
+
+const money = (amount: number) => `$${amount.toLocaleString("es-CL").replace(/,/g, ".")}`;
+
+function originUnion(a: ItemOrigin, b: ItemOrigin): ItemOrigin {
+  return a === b ? a : "ia+reglas";
+}
+
+/** Une repetidos (lo dictado + la aclaración, o IA + reglas) y genera las preguntas de lo que falta. */
+export function finishRouting(proposal: DictationProposal): DictationProposal {
+  const payments: PaymentChange[] = [];
+  for (const item of proposal.payments ?? []) {
+    const same = payments.find((done) => done.amount === item.amount);
+    if (!same) { payments.push({ ...item }); continue; }
+    same.origin = originUnion(same.origin, item.origin);
+    if (!same.method && item.method) same.method = item.method;
+    if (!same.concept && item.concept) same.concept = item.concept;
+  }
+  let appointments: AppointmentChange[] = [];
+  for (const item of proposal.appointments ?? []) {
+    const same = appointments.find((done) => (item.day && done.day === item.day) || (!item.day && !done.day));
+    if (!same) { appointments.push({ ...item }); continue; }
+    same.origin = originUnion(same.origin, item.origin);
+    // Una hora dicha sin dudas gana a una hora supuesta.
+    if (item.time && (!same.time || (same.timeDoubt && !item.timeDoubt))) { same.time = item.time; same.timeDoubt = item.timeDoubt; }
+    if (same.reason === "Control" && item.reason !== "Control") same.reason = item.reason;
+  }
+  if (appointments.some((item) => item.day)) appointments = appointments.filter((item) => item.day);
+  // Una cita para el mismo día dicha dos veces (dictado + aclaración) queda una sola.
+  const perio: PerioStub[] = [];
+  for (const item of proposal.perio) {
+    const same = perio.find((done) => done.tooth === item.tooth && done.site === item.site);
+    if (!same) { perio.push({ ...item }); continue; }
+    if (same.depth !== item.depth && item.origin === "reglas" && same.origin !== "reglas") continue;
+    same.bleeding = same.bleeding || item.bleeding;
+    same.suppuration = same.suppuration || item.suppuration;
+    if (same.origin && item.origin) same.origin = originUnion(same.origin, item.origin);
+  }
+  const pending: PerioPending[] = [];
+  for (const item of proposal.perioPending ?? []) {
+    const done = perio.some((reading) => reading.tooth === item.tooth && (item.depth === null || reading.depth === item.depth) && (!item.site || reading.site === item.site));
+    if (done || pending.some((other) => other.tooth === item.tooth && other.depth === item.depth && other.site === item.site)) continue;
+    pending.push({ ...item });
+  }
+  const mobility: MobilityChange[] = [];
+  for (const item of proposal.mobility ?? []) {
+    const same = mobility.find((done) => done.tooth === item.tooth);
+    if (same) { if (same.grade === item.grade) same.origin = originUnion(same.origin, item.origin); continue; }
+    mobility.push({ ...item });
+  }
+
+  const questions: string[] = [];
+  for (const item of payments) {
+    if (!item.method) questions.push(`¿Con qué medio se pagaron ${money(item.amount)} (efectivo, débito, crédito o transferencia)? «${clip(item.evidence)}»`);
+  }
+  for (const item of appointments) {
+    if (!item.day) questions.push(`¿Qué día es la próxima cita? «${clip(item.evidence)}»`);
+    else if (!item.time) questions.push(`¿A qué hora es la cita del ${describeDate(item.day)}? «${clip(item.evidence)}»`);
+    else if (item.timeDoubt) questions.push(`Confirma la hora de la cita: ${item.timeDoubt} «${clip(item.evidence)}»`);
+  }
+  for (const item of pending) {
+    const label = `FDI ${formatFdi(item.tooth)}`;
+    if (item.depth === null) questions.push(`¿Cuántos mm midió el sondaje en ${label}? «${clip(item.evidence)}»`);
+    else questions.push(`¿En qué sitio se midió el sondaje de ${item.depth} mm en ${label} (mesial, distal o central; vestibular o palatino/lingual)? «${clip(item.evidence)}»`);
+  }
+  const kept = proposal.clarifications.filter((note) => !ROUTING_QUESTION.test(note));
+  return {
+    ...proposal,
+    perio,
+    perioPending: pending,
+    mobility,
+    payments,
+    appointments,
+    clarifications: [...new Set([...kept, ...questions])],
   };
 }
 
@@ -1141,6 +1397,10 @@ export function validateProposal(input: unknown): DictationProposal {
         depth,
         sourceText: text(source.sourceText, 180),
         persisted: false,
+        ...(typeof source.bleeding === "boolean" ? { bleeding: source.bleeding } : {}),
+        ...(typeof source.suppuration === "boolean" ? { suppuration: source.suppuration } : {}),
+        ...(typeof source.evidence === "string" && source.evidence.trim() ? { evidence: clip(source.evidence, 400) } : {}),
+        ...(source.origin === "ia" || source.origin === "reglas" || source.origin === "ia+reglas" ? { origin: source.origin as ItemOrigin } : {}),
       });
     }
   }
@@ -1207,7 +1467,13 @@ export const AI_SYSTEM_PROMPT = `Eres asistente de un odontólogo chileno. Recib
 3) "procedimientos": lo realizado hoy, cada uno con "texto" y "evidencia" literal.
 4) "presupuesto": prestaciones presupuestadas con "prestacion", "monto" en pesos (0 si no se dijo) y "evidencia" literal.
 5) "ficha": alergias, antecedentes médicos y medicamentos que toma el paciente, con "campo" (alergias | antecedentes | medicamentos), "texto" breve y "evidencia" literal. «Niega alergias» también se registra.
-6) "dudas": solo dudas reales que el odontólogo deba resolver (un número que no es pieza válida, una autocorrección confusa, una cara que no corresponde). Las piezas 1 a 32 sin etiqueta son numeración chilena: no generan duda.
+6) "texto_corregido": la misma transcripción con SOLO errores de reconocimiento de voz corregidos (palabras mal oídas: «mecial» → «mesial», «caris» → «caries», «periodo de autograma» → «periodontograma») y números dictados en palabras pasados a cifras («dos cuatro» → «2.4», «cuatro milímetros» → «4 mm», «cincuenta mil» → «50.000»). Mantén el orden y las demás palabras; no resumas, no agregues datos, no cambies piezas, caras, cifras, negaciones ni términos clínicos correctos. Si no hay nada que corregir, repite el texto.
+7) "periodonto": cada sondaje, sangrado o supuración dictado, con "pieza", "sistema", "sitio" (MV, V, DV, ML, L, DL o "" si no se dijo), "profundidad" en mm (-1 si no se dijo), "sangrado", "supuracion" (true solo si se dijo) y "evidencia" literal.
+8) "pagos": dinero que el paciente pagó o abonó HOY (no lo presupuestado ni lo que debe), con "monto" en pesos, "medio" (efectivo | debito | credito | transferencia | otro | "" si no se dijo), "concepto" ("" si no se dijo) y "evidencia" literal.
+9) "citas": la próxima cita o control que se dictó, con "motivo" ("" si no se dijo) y "evidencia" literal que contenga la fecha u hora tal como se dijo. No calcules la fecha.
+10) "dudas": solo dudas reales que el odontólogo deba resolver (un número que no es pieza válida, una autocorrección confusa, una cara que no corresponde). Las piezas 1 a 32 sin etiqueta son numeración chilena: no generan duda. No preguntes por lo que ya falta en pagos, citas o sondajes (medio de pago, hora, sitio): eso se pregunta aparte.
+
+Las líneas que empiezan con «Aclaración:» son respuestas del profesional a preguntas anteriores; completan o corrigen lo dictado antes y tienen prioridad.
 
 Si el profesional se corrige («no, perdón», «mejor dicho»), usa solo lo corregido. Los antecedentes médicos (diabetes, hipertensión, etc.) van en anamnesis, no en indicaciones. "indicaciones" es solo lo que se le indica al paciente.`;
 
@@ -1216,7 +1482,7 @@ const STRING = { type: "string" } as const;
 export const AI_JSON_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["nota", "hallazgos", "procedimientos", "presupuesto", "ficha", "dudas"],
+  required: ["nota", "hallazgos", "procedimientos", "presupuesto", "ficha", "texto_corregido", "periodonto", "pagos", "citas", "dudas"],
   properties: {
     nota: {
       type: "object",
@@ -1261,6 +1527,37 @@ export const AI_JSON_SCHEMA = {
         required: ["campo", "texto", "evidencia"],
         properties: { campo: { type: "string", enum: ["alergias", "antecedentes", "medicamentos"] }, texto: STRING, evidencia: STRING },
       },
+    },
+    texto_corregido: STRING,
+    periodonto: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["pieza", "sistema", "sitio", "profundidad", "sangrado", "supuracion", "evidencia"],
+        properties: {
+          pieza: STRING,
+          sistema: { type: "string", enum: ["chilena", "FDI", "universal", "sin_etiqueta"] },
+          sitio: { type: "string", enum: ["", "MV", "V", "DV", "ML", "L", "DL"] },
+          profundidad: { type: "integer" },
+          sangrado: { type: "boolean" },
+          supuracion: { type: "boolean" },
+          evidencia: STRING,
+        },
+      },
+    },
+    pagos: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["monto", "medio", "concepto", "evidencia"],
+        properties: { monto: { type: "integer" }, medio: { type: "string", enum: ["", "efectivo", "debito", "credito", "transferencia", "otro"] }, concepto: STRING, evidencia: STRING },
+      },
+    },
+    citas: {
+      type: "array",
+      items: { type: "object", additionalProperties: false, required: ["motivo", "evidencia"], properties: { motivo: STRING, evidencia: STRING } },
     },
     dudas: { type: "array", items: STRING },
   },
@@ -1352,6 +1649,11 @@ type AiExtraction = {
   procedures: ProcedureItem[];
   clarifications: string[];
   rejected: number;
+  correctedText?: string;
+  perio?: PerioStub[];
+  perioPending?: PerioPending[];
+  payments?: PaymentChange[];
+  appointments?: AppointmentChange[];
 };
 
 function resolveAiTooth(pieza: string, sistema: string, evidence: string): Mention {
@@ -1381,7 +1683,29 @@ function segmentFor(evidence: string, tooth: number): string {
   return parts.find((part) => toothMentions(part).some((item) => item.ok && item.tooth === tooth)) ?? evidence;
 }
 
-export function validateAiExtraction(input: unknown, transcript: string): AiExtraction {
+/**
+ * Una respuesta «Aclaración: <frase>: <respuesta>» completa la cita de la IA que se refiere a esa frase,
+ * aunque una esté en palabras («dos cuatro») y la otra en cifras («2.4»): mismas cifras y casi las mismas palabras.
+ */
+function answerContext(evidence: string, transcript: string): string {
+  const words = (text: string) => new Set(fold(applyLexicon(text).text).split(/[^a-z]+/).filter((w) => w.length > 2 && !isNumberWord(w) && !/^(?:mm|milimetros?|con|las?|los?|del?|en)$/.test(w)));
+  const same = (a: string, b: string) => {
+    if (JSON.stringify(numberSignature(a)) !== JSON.stringify(numberSignature(b))) return false;
+    const wa = words(a), wb = words(b);
+    const small = wa.size <= wb.size ? wa : wb, big = small === wa ? wb : wa;
+    if (!small.size) return false;
+    return [...small].filter((w) => big.has(w)).length / small.size >= 0.75;
+  };
+  const answers: string[] = [];
+  for (const line of transcript.split(/\n/)) {
+    const match = /^\s*Aclaraci[oó]n:\s*(.+?):\s*(.+?)\.?\s*$/iu.exec(line);
+    if (match && same(match[1], evidence) && !answers.includes(match[2])) answers.push(match[2]);
+  }
+  return answers.length ? `${evidence.replace(/[.;\s]+$/, "")}, ${answers.map((answer) => answer.replace(/[.;]+/g, ",")).join(", ")}` : evidence;
+}
+
+export function validateAiExtraction(input: unknown, transcript: string, options: { today?: string } = {}): AiExtraction {
+  const today = options.today ?? santiagoToday();
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("La IA no devolvió un objeto JSON.");
   const record = input as Record<string, unknown>;
   if (!record.nota || typeof record.nota !== "object") throw new Error("La IA no devolvió la nota.");
@@ -1411,13 +1735,14 @@ export function validateAiExtraction(input: unknown, transcript: string): AiExtr
   for (const raw of list(record.hallazgos, 64)) {
     if (!raw || typeof raw !== "object") continue;
     const item = raw as Record<string, unknown>;
-    const evidence = str(item.evidencia, 400);
+    let evidence = str(item.evidencia, 400);
     const pieza = str(item.pieza, 40);
     const what = str(item.tipo) === "estado" ? str(item.estado) : str(item.condicion);
     if (!evidence || !evidenceInTranscript(evidence, transcript)) {
       reject(`La IA propuso «${what || "hallazgo"}» en pieza ${pieza || "?"} sin una cita literal del dictado. No se aplicó.`);
       continue;
     }
+    evidence = answerContext(evidence, transcript);
     const mention = resolveAiTooth(pieza, str(item.sistema), evidence);
     if (!mention.ok) { reject(mention.reason); continue; }
     const segment = segmentFor(evidence, mention.tooth);
@@ -1508,6 +1833,7 @@ export function validateAiExtraction(input: unknown, transcript: string): AiExtr
     if (labelWords.length && !labelWords.some((word) => quoted.includes(word.slice(0, Math.max(4, word.length - 2))))) { reject(`Presupuesto «${label}»: la prestación no está en la cita. No se propuso.`); continue; }
     const said = amountsIn(evidence);
     const aiAmount = Number(item.monto);
+    if (isPaymentText(evidence) && !isFuturePayment(evidence) && aiAmount && aiAmount === paymentAmount(evidence)) { clarifications.push(`«${clip(evidence)}» es un pago, no una prestación del presupuesto. Va en pagos.`); continue; }
     let amount = 0;
     if (Number.isSafeInteger(aiAmount) && aiAmount > 0 && said.includes(aiAmount)) amount = aiAmount;
     else if (said.length === 1) amount = said[0];
@@ -1533,12 +1859,78 @@ export function validateAiExtraction(input: unknown, transcript: string): AiExtr
     ficha.push({ id: nextId("fic"), field, text: ensurePeriod(capitalize(textValue)), evidence: clip(evidence, 400), origin: "ia" });
   }
 
+  // Periodonto: la profundidad, el sitio y el sangrado tienen que estar en la cita.
+  const perio: PerioStub[] = [];
+  const perioPending: PerioPending[] = [];
+  for (const raw of list(record.periodonto, 64)) {
+    if (!raw || typeof raw !== "object") continue;
+    const item = raw as Record<string, unknown>;
+    let evidence = str(item.evidencia, 400);
+    if (!evidence || !evidenceInTranscript(evidence, transcript)) { reject(`Sondaje propuesto sin cita literal del dictado. No se anotó.`); continue; }
+    evidence = answerContext(evidence, transcript);
+    const mention = resolveAiTooth(str(item.pieza, 40), str(item.sistema), evidence);
+    if (!mention.ok) { reject(mention.reason); continue; }
+    const segment = segmentFor(evidence, mention.tooth);
+    const reading = perioReading(segment);
+    const aiDepth = Number(item.profundidad);
+    const depth = reading.depth;
+    if (Number.isInteger(aiDepth) && aiDepth >= 0 && aiDepth !== depth) clarifications.push(`FDI ${formatFdi(mention.tooth)}: la IA indicó ${aiDepth} mm, pero la cita ${depth === null ? "no dice los mm" : `dice ${depth} mm`}. Se usó lo dictado.`);
+    if (depth !== null && depth > 15) { reject(`Sondaje fuera de 0 a 15 mm: «${clip(segment)}».`); continue; }
+    const aiSite = str(item.sitio) as PerioSite | "";
+    const site = reading.site;
+    if (aiSite && aiSite !== site) clarifications.push(`FDI ${formatFdi(mention.tooth)}: la IA indicó el sitio ${aiSite}, que no está en la cita. ${site ? `Se usó ${site}.` : "Queda sin sitio."}`);
+    const bleeding = item.sangrado === true && reading.bleeding;
+    const suppuration = item.supuracion === true && reading.suppuration;
+    if (depth === null && !bleeding && !suppuration) continue;
+    if (depth === null || !site) {
+      perioPending.push({ id: nextId("pen"), tooth: mention.tooth, numberingLabel: mention.numberingLabel, site, depth, bleeding, suppuration, evidence: clip(evidence, 400), origin: "ia" });
+      continue;
+    }
+    perio.push({ id: nextId("per"), tooth: mention.tooth, numberingLabel: mention.numberingLabel, site, siteLabel: SITE_LABEL[site], depth, sourceText: clip(segment), persisted: false, bleeding, suppuration, evidence: clip(evidence, 400), origin: "ia" });
+  }
+
+  // Pagos: el monto tiene que estar dicho y ser un pago hecho hoy.
+  const payments: PaymentChange[] = [];
+  for (const raw of list(record.pagos, 8)) {
+    if (!raw || typeof raw !== "object") continue;
+    const item = raw as Record<string, unknown>;
+    let evidence = str(item.evidencia, 400);
+    if (!evidence || !evidenceInTranscript(evidence, transcript)) { reject("Pago propuesto sin cita literal del dictado. No se anotó."); continue; }
+    evidence = answerContext(evidence, transcript);
+    if (!isPaymentText(evidence) || isFuturePayment(evidence)) { reject(`La cita no dice que pagó hoy: «${clip(evidence)}». No se anotó como pago.`); continue; }
+    const said = paymentAmount(evidence);
+    const aiAmount = Number(item.monto);
+    if (!said) { reject(`Pago sin monto claro: «${clip(evidence)}». ¿Cuánto pagó?`); continue; }
+    if (aiAmount && aiAmount !== said) clarifications.push(`Pago: la IA indicó ${money(aiAmount)} y el dictado dice ${money(said)}. Se usó lo dictado.`);
+    const aiMethod = str(item.medio) as PaymentMethod | "";
+    const method = paymentMethodFrom(evidence);
+    if (aiMethod && aiMethod !== method) clarifications.push(`Pago de ${money(said)}: la IA indicó «${aiMethod}», que no está en la cita.`);
+    const concept = str(item.concepto, 120);
+    const conceptOk = concept && normalizeEvidence(concept).split(" ").filter((word) => word.length > 3).every((word) => normalizeEvidence(evidence).includes(word.slice(0, Math.max(4, word.length - 2))));
+    payments.push({ id: nextId("pag"), amount: said, method, concept: conceptOk ? capitalize(concept) : paymentConcept(evidence), evidence: clip(evidence, 400), origin: "ia" });
+  }
+
+  // Citas: la fecha y la hora se calculan desde la cita literal, no desde la IA.
+  const appointments: AppointmentChange[] = [];
+  for (const raw of list(record.citas, 4)) {
+    if (!raw || typeof raw !== "object") continue;
+    const item = raw as Record<string, unknown>;
+    let evidence = str(item.evidencia, 400);
+    if (!evidence || !evidenceInTranscript(evidence, transcript)) { reject("Cita propuesta sin cita literal del dictado. No se agendó."); continue; }
+    evidence = answerContext(evidence, transcript);
+    const appointment = appointmentFrom(evidence, today, nextId("cit"), "ia");
+    const motivo = str(item.motivo, 120);
+    if (appointment.reason === "Control" && motivo && normalizeEvidence(evidence).includes(normalizeEvidence(motivo).split(" ")[0] ?? "")) appointment.reason = capitalize(motivo);
+    appointments.push(appointment);
+  }
+
   for (const doubt of list(record.dudas, 12)) {
     const value = str(doubt, 300);
-    // Sistema de numeración, ICDAS y actividad ya los revisan las reglas con mensajes propios.
-    if (value && !/sistema|numeraci|etiqueta|icdas|actividad/i.test(value)) clarifications.push(`IA: ${value}`);
+    // Sistema de numeración, ICDAS, actividad, medio de pago, hora y sitio ya los preguntan las reglas.
+    if (value && !/sistema|numeraci|etiqueta|icdas|actividad|medio de pago|forma de pago|hora|sitio/i.test(value)) clarifications.push(`IA: ${value}`);
   }
-  return { noteBody, odontogram, incomplete, budget, ficha, procedures, clarifications, rejected };
+  const correctedText = typeof record.texto_corregido === "string" ? record.texto_corregido.slice(0, 10000) : undefined;
+  return { noteBody, odontogram, incomplete, budget, ficha, procedures, clarifications, rejected, correctedText, perio, perioPending, payments, appointments };
 }
 
 function sameFinding(a: OdontogramChange, b: OdontogramChange): boolean {
@@ -1628,16 +2020,29 @@ export function mergeProposals(ai: AiExtraction, local: DictationProposal, trans
     ai.noteBody,
     exam.length ? `\n${EXAM_REGISTRY_HEADER}\n${exam.join("\n")}` : "",
   ].join("\n").trim();
-  return {
+  const routed = finishRouting({
     evolution: body ? { title: "Evolución dictada", body } : local.evolution,
     odontogram: renumber(odontogram, "odo"),
-    budget: renumber(budget, "pre"),
-    perio: local.perio,
+    budget,
+    perio: [...(ai.perio ?? []), ...local.perio.map((item) => ({ ...item, origin: item.origin ?? ("reglas" as const) }))],
     clarifications: [...new Set(clarifications)],
     incomplete: renumber(incomplete, "inc"),
     ficha: renumber(ficha, "fic"),
     procedures: ai.procedures,
     transcript: transcript.trim(),
+    perioPending: [...(ai.perioPending ?? []), ...(local.perioPending ?? [])],
+    mobility: local.mobility ?? [],
+    payments: [...(ai.payments ?? []), ...(local.payments ?? [])],
+    appointments: [...(ai.appointments ?? []), ...(local.appointments ?? [])],
+  });
+  return {
+    ...routed,
+    budget: renumber(routed.budget, "pre"),
+    perio: renumber(routed.perio, "per"),
+    perioPending: renumber(routed.perioPending ?? [], "pen"),
+    payments: renumber(routed.payments ?? [], "pag"),
+    appointments: renumber(routed.appointments ?? [], "cit"),
+    mobility: renumber(routed.mobility ?? [], "mov"),
   };
 }
 
@@ -1679,27 +2084,44 @@ export async function proposeFromTranscript(
   input: StructureInput,
   model: ClinicalModel | null,
   log: DictationLog = defaultDictationLog,
-  options: { timeoutMs?: number } = {},
+  options: { timeoutMs?: number; today?: string } = {},
 ): Promise<StructureOutcome> {
   const transcript = input.transcript.trim();
   if (transcript.length < 3) throw new Error("El dictado está vacío.");
   if (transcript.length > 8000) throw new Error("El dictado es demasiado largo para este prototipo.");
-  const local = structureTranscript(transcript);
-  if (!model) return { engine: "reglas-locales", model: null, notice: LOCAL_NOTICE, proposal: local };
+  const today = options.today ?? santiagoToday();
+  // 1) Diccionario de errores típicos del reconocimiento de voz (mecial → mesial…).
+  const lexicon = applyLexicon(transcript);
+  const fixed = lexicon.text;
+  const localOnly = structureTranscript(fixed, { today });
+  const withText = (proposal: DictationProposal, text: string, corrections: TranscriptCorrection[]): DictationProposal => ({
+    ...proposal,
+    transcript,
+    corrected: { text, corrections },
+  });
+  if (!model) return { engine: "reglas-locales", model: null, notice: LOCAL_NOTICE, proposal: withText(localOnly, fixed, lexicon.corrections) };
   const started = Date.now();
   try {
-    const raw = await withTimeout(Promise.resolve(model.complete({ transcript, chart: input.chart })), options.timeoutMs ?? 50_000);
+    const raw = await withTimeout(Promise.resolve(model.complete({ transcript: fixed, chart: input.chart })), options.timeoutMs ?? 50_000);
     const usedModel = isModelAnswer(raw) ? raw.usedModel : model.model;
-    const ai = validateAiExtraction(modelOutputToJson(isModelAnswer(raw) ? raw.output : raw), transcript);
-    const proposal = mergeProposals(ai, local, transcript);
+    const json = modelOutputToJson(isModelAnswer(raw) ? raw.output : raw);
+    const aiText = json && typeof json === "object" && typeof (json as Record<string, unknown>).texto_corregido === "string" ? (json as Record<string, string>).texto_corregido : "";
+    // 2) La corrección de la IA se acepta palabra por palabra solo si no cambia cifras ni términos clínicos.
+    const reconciled = aiText.trim() ? reconcileCorrection(fixed, aiText) : { text: fixed, corrections: [] };
+    const corrected = reconciled.text;
+    const local = corrected === fixed ? localOnly : structureTranscript(corrected, { today });
+    // Las citas de la IA pueden venir del texto corregido o de lo dictado.
+    const haystack = [...new Set([corrected, fixed, transcript])].join("\n");
+    const ai = validateAiExtraction(json, haystack, { today });
+    const proposal = mergeProposals(ai, local, corrected);
     const aiMs = Date.now() - started;
-    log("dictation.ai_ok", { model: usedModel, ms: aiMs, items: ai.odontogram.length, rejected: ai.rejected });
-    return { engine: "ia+reglas", model: usedModel, notice: AI_NOTICE, proposal, aiMs };
+    log("dictation.ai_ok", { model: usedModel, ms: aiMs, items: ai.odontogram.length, rejected: ai.rejected, corrections: reconciled.corrections.filter((item) => item.applied).length });
+    return { engine: "ia+reglas", model: usedModel, notice: AI_NOTICE, proposal: withText(proposal, corrected, [...lexicon.corrections, ...reconciled.corrections]), aiMs };
   } catch (cause) {
     const aiMs = Date.now() - started;
     const reason = cause instanceof Error ? cause.message.replace(/\s+/g, " ").slice(0, 120) : "error";
     log("dictation.ai_failed", { model: model.model, ms: aiMs, reason: reason.replace(/[«»"].*$/, "") });
-    return { engine: "reglas-locales", model: null, notice: `${AI_FAILED_NOTICE} (${reason.replace(/[«»"].*$/, "").trim() || "error"}).`, proposal: local, aiMs };
+    return { engine: "reglas-locales", model: null, notice: `${AI_FAILED_NOTICE} (${reason.replace(/[«»"].*$/, "").trim() || "error"}).`, proposal: withText(localOnly, fixed, lexicon.corrections), aiMs };
   }
 }
 
@@ -1806,7 +2228,17 @@ export function verifyDictationSave(input: {
   accepted: OdontogramChange[];
   budgets: BudgetChange[];
   savedBudgetIds?: number[];
-}, snapshot: { notes: SavedNote[]; budgets: SavedBudget[]; toothStatuses: Record<number, ChartSnapshot | undefined> }): { ok: boolean; messages: string[] } {
+  payments?: { amount: number; method: string; savedId?: number }[];
+  appointments?: { day: string; time: string; reason: string; savedId?: number }[];
+  perio?: { examId?: number; readings: { tooth: number; site: PerioSite; depth: number; bleeding: boolean; suppuration: boolean }[]; mobility: { tooth: number; grade: string }[] } | null;
+}, snapshot: {
+  notes: SavedNote[];
+  budgets: SavedBudget[];
+  toothStatuses: Record<number, ChartSnapshot | undefined>;
+  payments?: { id: number; patientId: number; amount: number; method: string }[];
+  appointments?: { id: number; patientId: number; day: string; time: string; reason: string }[];
+  periodontalExams?: Record<number, { id: number; teeth: Record<number, { sites?: Partial<Record<PerioSite, { depth: number | null; bleeding: boolean; suppuration: boolean }>>; mobility?: string }> }[] | undefined>;
+}): { ok: boolean; messages: string[] } {
   const messages: string[] = [];
   const errors: string[] = [];
   if (input.note) {
@@ -1851,6 +2283,69 @@ export function verifyDictationSave(input: {
     if (!found || !line) errors.push(`El presupuesto «${item.label}» no aparece al releer.`);
     else messages.push(`Presupuesto «${item.label}» releído.`);
   });
+  for (const item of input.payments ?? []) {
+    const label = `$${item.amount.toLocaleString("es-CL")}`;
+    const found = (snapshot.payments ?? []).find((pay) => pay.patientId === input.patientId && (item.savedId ? pay.id === item.savedId : pay.amount === item.amount && pay.method === item.method));
+    if (!found || found.amount !== item.amount || found.method !== item.method) errors.push(`El pago de ${label} no aparece al releer.`);
+    else messages.push(`Pago de ${label} releído.`);
+  }
+  for (const item of input.appointments ?? []) {
+    const shown = item.day.split("-").reverse().join("-");
+    const found = (snapshot.appointments ?? []).find((visit) => visit.patientId === input.patientId && (item.savedId ? visit.id === item.savedId : visit.day === shown && visit.time === item.time));
+    if (!found || found.day !== shown || found.time !== item.time || found.reason !== item.reason) errors.push(`La cita del ${shown} ${item.time} no aparece al releer.`);
+    else messages.push(`Cita del ${shown} a las ${item.time} releída.`);
+  }
+  if (input.perio && (input.perio.readings.length || input.perio.mobility.length)) {
+    const exams = snapshot.periodontalExams?.[input.patientId] ?? [];
+    const exam = input.perio.examId ? exams.find((entry) => entry.id === input.perio?.examId) : exams[0];
+    const okReadings = exam && input.perio.readings.every((reading) => {
+      const site = exam.teeth[reading.tooth]?.sites?.[reading.site];
+      return site && site.depth === reading.depth && site.bleeding === reading.bleeding && site.suppuration === reading.suppuration;
+    });
+    const okMobility = exam && input.perio.mobility.every((item) => (exam.teeth[item.tooth]?.mobility ?? "") === item.grade);
+    if (!okReadings || !okMobility) errors.push("El sondaje dictado no coincide al releer el periodontograma.");
+    else messages.push(`Periodontograma releído: ${input.perio.readings.length} sitio(s)${input.perio.mobility.length ? ` y ${input.perio.mobility.length} movilidad(es)` : ""}.`);
+  }
   if (!errors.length && !messages.length) messages.push("No había cambios aceptados para guardar.");
   return { ok: errors.length === 0, messages: [...messages, ...errors] };
+}
+
+/** Frase citada entre «…» en una aclaración, sin el recorte final. */
+export function clarificationQuote(question: string): string {
+  const match = question.match(/«([^»]+)»/);
+  return match ? match[1].replace(/…$/, "").trim() : "";
+}
+
+/**
+ * Convierte las respuestas del profesional en líneas «Aclaración: <frase>: <respuesta>.»
+ * que se agregan al texto y se vuelven a interpretar. Las respuestas vacías se omiten.
+ */
+export function answerLines(answers: { question: string; answer: string }[]): string[] {
+  const lines: string[] = [];
+  for (const { question, answer } of answers) {
+    const clean = answer.replace(/\s+/g, " ").trim().replace(/[.。]+$/, "");
+    if (!clean) continue;
+    const quote = clarificationQuote(question).replace(/[:.]+$/, "");
+    lines.push(quote ? `Aclaración: ${quote}: ${clean}.` : `Aclaración: ${clean}.`);
+  }
+  return lines;
+}
+
+/** Agrega las líneas de aclaración al texto revisado (sin repetir las ya presentes). */
+export function withAnswers(text: string, lines: string[]): string {
+  const base = text.trim();
+  const fresh = lines.filter((line) => !base.includes(line));
+  return fresh.length ? `${base}\n${fresh.join("\n")}` : base;
+}
+
+/** Examen periodontal nuevo con solo los sitios y movilidades dictados y aceptados. */
+export function buildDictatedPerio(
+  readings: { tooth: number; site: PerioSite; depth: number; bleeding: boolean; suppuration: boolean }[],
+  mobility: { tooth: number; grade: string }[],
+): Record<number, { sites: Partial<Record<PerioSite, { depth: number; margin: null; bleeding: boolean; suppuration: boolean }>>; mobility: string; furcation: string }> {
+  const teeth: Record<number, { sites: Partial<Record<PerioSite, { depth: number; margin: null; bleeding: boolean; suppuration: boolean }>>; mobility: string; furcation: string }> = {};
+  const entry = (tooth: number) => (teeth[tooth] ??= { sites: {}, mobility: "", furcation: "" });
+  for (const reading of readings) entry(reading.tooth).sites[reading.site] = { depth: reading.depth, margin: null, bleeding: reading.bleeding, suppuration: reading.suppuration };
+  for (const item of mobility) entry(item.tooth).mobility = item.grade;
+  return teeth;
 }

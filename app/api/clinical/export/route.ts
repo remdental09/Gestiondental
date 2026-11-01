@@ -2,7 +2,7 @@ import { env } from "cloudflare:workers";
 import { desc, eq } from "drizzle-orm";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { getDb } from "@/db";
-import { appointments, budgets, clinicalImages, driveBackups, evolutions, patients, periodontalExams, toothStatuses } from "@/db/schema";
+import { appointments, budgets, clinicalImages, driveBackups, evolutions, patients, payments, periodontalExams, toothStatuses } from "@/db/schema";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -24,7 +24,7 @@ export async function GET() {
 
   try {
     const db = getDb();
-    const [patientRows, evolutionRows, budgetRows, appointmentRows, perioRows, toothRows, imageRows, backupRows] = await Promise.all([
+    const [patientRows, evolutionRows, budgetRows, appointmentRows, perioRows, toothRows, imageRows, backupRows, paymentRows] = await Promise.all([
       db.select().from(patients).where(eq(patients.ownerId, ownerId)).orderBy(patients.name),
       db.select().from(evolutions).where(eq(evolutions.ownerId, ownerId)).orderBy(desc(evolutions.clinicalDate), desc(evolutions.recordedAt)),
       db.select().from(budgets).where(eq(budgets.ownerId, ownerId)).orderBy(desc(budgets.id)),
@@ -33,6 +33,7 @@ export async function GET() {
       db.select().from(toothStatuses).where(eq(toothStatuses.ownerId, ownerId)),
       db.select().from(clinicalImages).where(eq(clinicalImages.ownerId, ownerId)).orderBy(desc(clinicalImages.id)),
       db.select().from(driveBackups).where(eq(driveBackups.ownerId, ownerId)),
+      db.select().from(payments).where(eq(payments.ownerId, ownerId)).orderBy(desc(payments.paidOn)),
     ]);
 
     const images = await Promise.all(imageRows.map(async (image) => {
@@ -54,6 +55,7 @@ export async function GET() {
         evolutions: evolutionRows,
         budgets: budgetRows,
         appointments: appointmentRows,
+        payments: paymentRows,
         periodontalExams: perioRows,
         toothStatuses: toothRows,
         clinicalImages: images,
@@ -64,6 +66,7 @@ export async function GET() {
         evolutions: evolutionRows.length,
         budgets: budgetRows.length,
         appointments: appointmentRows.length,
+        payments: paymentRows.length,
         periodontalExams: perioRows.length,
         toothStatuses: toothRows.length,
         clinicalImages: images.length,
