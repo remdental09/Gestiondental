@@ -75,8 +75,15 @@ export function createWebSpeechTranscription(lang = "es-CL"): TranscriptionEngin
       stopped = false;
       let committed = baseText.trim();
       let restarts = 0;
+      // Safari en iPhone a veces termina sin marcar como final la última frase: se conserva lo último oído.
+      let pending = "";
+      const keepPending = () => {
+        if (pending) committed = [committed, pending].filter(Boolean).join(" ");
+        pending = "";
+      };
       const finish = () => {
         active = null;
+        keepPending();
         handlers.onTranscript(committed, "");
         handlers.onEnd();
       };
@@ -99,13 +106,16 @@ export function createWebSpeechTranscription(lang = "es-CL"): TranscriptionEngin
             else interim += piece;
           }
           if (finalText.trim()) committed = [committed, finalText.trim()].filter(Boolean).join(" ");
-          handlers.onTranscript(committed, interim.trim());
+          pending = interim.trim();
+          handlers.onTranscript(committed, pending);
         };
         recognizer.onerror = (event) => {
           if (active !== recognizer) return;
           if (!stopped && (event.error === "no-speech" || event.error === "aborted" || event.error === "network") && restarts < MAX_RESTARTS) return; // onend reabre
           active = null;
           stopped = true;
+          keepPending();
+          if (committed) handlers.onTranscript(committed, "");
           handlers.onError(event.error === "not-allowed" || event.error === "service-not-allowed"
             ? IOS ? IOS_BLOCKED : "El navegador bloqueó el micrófono o el reconocimiento. Revisa el permiso del micrófono para este sitio o escribe el texto."
             : event.error === "audio-capture"
@@ -119,6 +129,7 @@ export function createWebSpeechTranscription(lang = "es-CL"): TranscriptionEngin
           if (active !== recognizer) return;
           if (!stopped && restarts < MAX_RESTARTS) {
             restarts += 1;
+            keepPending();
             handlers.onTranscript(committed, "");
             try {
               launch();
@@ -152,4 +163,18 @@ export function createWebSpeechTranscription(lang = "es-CL"): TranscriptionEngin
       recognizer?.abort();
     },
   };
+}
+
+export const MIC_DENIED = "El navegador no autorizó el micrófono. En iPhone: Ajustes > Safari > Micrófono (o Ajustes > Chrome). En computador: el ícono del candado junto a la dirección. Puedes escribir o pegar el texto igual.";
+
+/** Pide el micrófono antes de dictar (en iPhone lo pide Safari al empezar el reconocimiento). */
+export async function micAllowed(): Promise<boolean> {
+  if (IS_IOS || !navigator.mediaDevices?.getUserMedia) return true;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream.getTracks().forEach((track) => track.stop());
+    return true;
+  } catch {
+    return false;
+  }
 }

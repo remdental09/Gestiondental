@@ -409,6 +409,25 @@
         ],
         "patientWarning": false
       }
+    },
+    {
+      "id": "c36-control-implante-sin-puntuacion",
+      "text": "Paciente el motivo de consulta la paciente viene a control por un implante integral la pieza 2,6 marca Arcis dos la pieza de 33 × 8 está todo bien cerró bien fue una técnica Flappers se encuentra todo bien sin hemorragia sin sangrado está en buen estado y está conectado con un pilar de 2 mm todo indicado si está bien se le indica a la paciente y nos que nos vemos en tres semanas más",
+      "expect": {
+        "appointments": [
+          "2026-11-22 -"
+        ],
+        "clarify": [
+          "Arcsys",
+          "oseointegrado"
+        ],
+        "noteExcludes": [
+          "Flappers",
+          "33 ×",
+          "Pendiente de preguntar"
+        ],
+        "patientWarning": false
+      }
     }
   ]
 }

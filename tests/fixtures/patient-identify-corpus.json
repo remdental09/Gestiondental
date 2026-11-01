@@ -1,0 +1,23 @@
+{
+  "note": "Datos ficticios. Identificación del paciente en dictados hechos desde Inicio: se decide en código, sin enviar la lista de pacientes a la IA.",
+  "patients": [
+    { "id": 1, "name": "Juan Andrés Pérez Soto", "rut": "123456785" },
+    { "id": 2, "name": "María José González Rojas", "rut": null },
+    { "id": 3, "name": "María Isabel González Vera", "rut": "111111111" },
+    { "id": 4, "name": "Camila Fernanda Rojas Muñoz", "rut": "167778887" }
+  ],
+  "cases": [
+    { "id": "p01-nuevo-con-rut", "text": "Tengo un paciente nuevo, Pedro Pablo Muñoz Tapia, RUT 9.876.543-3, nacido el 3 de mayo de 1980. Viene por dolor en la 3.6, tiene la pieza fracturada. Presupuesto de corona 450.000, abona 100.000.", "expect": { "decision": "new", "name": "Pedro Pablo Muñoz Tapia", "rut": "9.876.543-3", "birthDate": "1980-05-03", "newPatientHint": true } },
+    { "id": "p02-nuevo-solo-nombre", "text": "paciente nueva Rosa Elena Paredes Lagos primera consulta, caries profunda en la 4.6", "expect": { "decision": "new", "name": "Rosa Elena Paredes Lagos", "rut": null } },
+    { "id": "p03-existente-por-rut", "text": "RUT 16.777.888 guion 7, control de la endodoncia de la 2.5, sin dolor", "expect": { "decision": "existing", "patientId": 4 } },
+    { "id": "p04-existente-por-nombre", "text": "Paciente Camila Rojas viene a control, todo bien, nos vemos en seis meses", "expect": { "decision": "existing", "patientId": 4 } },
+    { "id": "p05-nombre-mal-oido", "text": "la paciente Camila Rojas Muños se le hizo destartraje", "expect": { "decision": "existing", "patientId": 4 } },
+    { "id": "p06-nuevo-pero-rut-existe", "text": "tengo un paciente nuevo Juan Pérez RUT 12.345.678-5 viene por dolor", "expect": { "decision": "existing", "patientId": 1 } },
+    { "id": "p07-solo-apellido-ambiguo", "text": "control de la señora González, sin sangrado", "expect": { "decision": "ambiguous", "candidates": [2, 3], "patientId": null } },
+    { "id": "p08-sin-nombre", "text": "la paciente viene a control por un implante en la 2.6, todo bien", "expect": { "decision": "unknown", "patientId": null } },
+    { "id": "p09-rut-nuevo-nombre-parecido", "text": "paciente Juan Pérez Soto RUT 7.654.321-6 primera vez", "expect": { "decision": "ambiguous", "candidates": [1], "patientId": null } },
+    { "id": "p10-doctor-no-es-paciente", "text": "derivado por el doctor Ignacio Fuentes, paciente nuevo Tomás Ignacio Vidal Ríos con dolor", "expect": { "decision": "new", "name": "Tomás Ignacio Vidal Ríos" } },
+    { "id": "p11-datos-contacto", "text": "paciente nueva Valentina Sofía Castro Díaz, teléfono +56 9 8765 4321, correo vale.castro arroba gmail punto com, abono 30.000", "expect": { "decision": "new", "phone": "+56987654321", "email": "vale.castro@gmail.com" } },
+    { "id": "p12-nombre-exacto-dos-fichas", "text": "paciente María González abono 20.000", "expect": { "decision": "ambiguous", "candidates": [2, 3] } }
+  ]
+}
