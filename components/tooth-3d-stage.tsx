@@ -146,20 +146,15 @@ function mountTooth(THREE: ThreeModule, canvas: HTMLCanvasElement, props: StageP
     }
   }
 
+  let releaseImplant = () => {};
   if (status === "Implante") {
-    const metal = track(new THREE.MeshStandardMaterial({ color: 0xb7c3c6, metalness: 0.86, roughness: 0.28 }));
-    for (let step = 0; step < 7; step += 1) {
-      const radius = step % 2 === 0 ? 0.22 : 0.16;
-      const disk = track(new THREE.CylinderGeometry(radius, radius, 0.12, 8));
-      const mesh = new THREE.Mesh(disk, metal);
-      mesh.position.y = -0.12 - step * 0.13;
-      toothGroup.add(mesh);
-    }
-    const tip = track(new THREE.ConeGeometry(0.12, 0.28, 8));
-    const tipMesh = new THREE.Mesh(tip, metal);
-    tipMesh.position.y = -1.16;
-    tipMesh.rotation.x = Math.PI;
-    toothGroup.add(tipMesh);
+    releaseImplant = buildImplant(THREE, renderer, toothGroup, track);
+    // Extra light only for the titanium implant so metal never renders black.
+    const hemi = new THREE.HemisphereLight(0xffffff, 0x8a9499, 0.9);
+    scene.add(hemi);
+    const rim = new THREE.DirectionalLight(0xffffff, 0.7);
+    rim.position.set(-3, 2.5, -3.5);
+    scene.add(rim);
   }
 
   if (missing) {
@@ -242,6 +237,156 @@ function mountTooth(THREE: ThreeModule, canvas: HTMLCanvasElement, props: StageP
     canvas.removeEventListener("wheel", onWheel);
     geometries.forEach((geometry) => geometry.dispose());
     materials.forEach((material) => material.dispose());
+    releaseImplant();
     renderer.dispose();
   };
+}
+
+type Track = <T extends InstanceType<ThreeModule["BufferGeometry"]> | InstanceType<ThreeModule["Material"]>>(item: T) => T;
+
+/**
+ * Procedural tapered screw implant (FGM Arcsys-like): polished collar with an internal
+ * hex connection, conical core, one continuous helical thread with real depth that
+ * tightens toward a rounded apex, and self-tapping flutes near the tip.
+ * Collar top sits at y = 0 so a crown/cap above keeps its current position.
+ */
+function buildImplant(
+  THREE: ThreeModule,
+  renderer: InstanceType<ThreeModule["WebGLRenderer"]>,
+  group: InstanceType<ThreeModule["Group"]>,
+  track: Track,
+): () => void {
+  const collarHeight = 0.12;
+  const bodyTop = -collarHeight;
+  const apexY = -1.12;
+  const topRadius = 0.32;
+  const apexRadius = 0.16;
+  const bodyLength = bodyTop - apexY;
+  // Core radius along the body: gentle taper, faster in the apical third.
+  const coreRadius = (y: number) => {
+    const t = Math.min(1, Math.max(0, (bodyTop - y) / bodyLength));
+    return topRadius - (topRadius - apexRadius) * Math.pow(t, 1.6) - 0.06 * t;
+  };
+
+  // Small procedural studio environment so the titanium reflects light instead of going black.
+  const envScene = new THREE.Scene();
+  const roomGeo = new THREE.BoxGeometry(10, 10, 10);
+  const roomMat = new THREE.MeshBasicMaterial({ color: 0x9aa4aa, side: THREE.BackSide });
+  envScene.add(new THREE.Mesh(roomGeo, roomMat));
+  const panelGeo = new THREE.PlaneGeometry(4, 2);
+  const panelMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
+  const panels: [number, number, number][] = [[0, 4.5, 0], [4.5, 1, 2], [-4.5, 0, -1], [0, 1, 4.5]];
+  for (const [x, y, z] of panels) {
+    const panel = new THREE.Mesh(panelGeo, panelMat);
+    panel.position.set(x, y, z);
+    panel.lookAt(0, 0, 0);
+    envScene.add(panel);
+  }
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const envTarget = pmrem.fromScene(envScene, 0.04);
+  pmrem.dispose();
+  roomGeo.dispose();
+  roomMat.dispose();
+  panelGeo.dispose();
+  panelMat.dispose();
+
+  const titanium = track(new THREE.MeshStandardMaterial({ color: 0xb8bcc2, metalness: 0.9, roughness: 0.3, envMap: envTarget.texture, envMapIntensity: 1.1 }));
+  const polished = track(new THREE.MeshStandardMaterial({ color: 0xd2d6db, metalness: 0.95, roughness: 0.14, envMap: envTarget.texture, envMapIntensity: 1.25 }));
+  const flutesMat = track(new THREE.MeshStandardMaterial({ color: 0x4a5056, metalness: 0.7, roughness: 0.5, envMap: envTarget.texture, envMapIntensity: 0.6 }));
+  const dark = track(new THREE.MeshStandardMaterial({ color: 0x2f3438, metalness: 0.6, roughness: 0.55, envMap: envTarget.texture, envMapIntensity: 0.4 }));
+
+  // Polished collar with a small bevel on the platform edge.
+  const collarProfile = [
+    new THREE.Vector2(0.0, 0),
+    new THREE.Vector2(0.27, 0),
+    new THREE.Vector2(0.3, -0.015),
+    new THREE.Vector2(0.31, -0.04),
+    new THREE.Vector2(topRadius, -collarHeight),
+  ].reverse();
+  const collar = new THREE.Mesh(track(new THREE.LatheGeometry(collarProfile, 48)), polished);
+  group.add(collar);
+
+  // Internal hex connection: dark hexagonal recess plus the screw channel.
+  const hex = new THREE.Mesh(track(new THREE.CylinderGeometry(0.135, 0.135, 0.02, 6)), dark);
+  hex.position.y = -0.006;
+  group.add(hex);
+  const channel = new THREE.Mesh(track(new THREE.CylinderGeometry(0.06, 0.06, 0.022, 20)), track(new THREE.MeshBasicMaterial({ color: 0x15181a })));
+  channel.position.y = -0.003;
+  group.add(channel);
+
+  // Tapered core with a rounded apex (lathe profile from collar down to the tip).
+  const coreProfile: InstanceType<ThreeModule["Vector2"]>[] = [];
+  const steps = 40;
+  const tipStart = apexY + 0.1;
+  for (let i = 0; i <= steps; i += 1) {
+    const y = bodyTop - ((bodyTop - tipStart) * i) / steps;
+    coreProfile.push(new THREE.Vector2(coreRadius(y), y));
+  }
+  const tipR = coreRadius(tipStart);
+  for (let i = 1; i <= 8; i += 1) {
+    const a = (i / 8) * (Math.PI / 2);
+    coreProfile.push(new THREE.Vector2(Math.max(0.0001, tipR * Math.cos(a)), tipStart - 0.1 * Math.sin(a)));
+  }
+  coreProfile.reverse();
+  group.add(new THREE.Mesh(track(new THREE.LatheGeometry(coreProfile, 48)), titanium));
+
+  // One continuous helical thread swept with a triangular profile (real 3D depth).
+  const turns = 8;
+  const threadTop = bodyTop - 0.03;
+  const threadBottom = apexY + 0.12;
+  const segmentsPerTurn = 48;
+  const samples = turns * segmentsPerTurn;
+  // Normalized height progression that tightens the pitch toward the apex.
+  const heightAt = (u: number) => threadTop - (threadTop - threadBottom) * (1.18 * u - 0.18 * u * u);
+  const profile: [number, number][] = [[-0.012, -0.05], [0.065, -0.008], [0.065, 0.008], [-0.012, 0.05]];
+  const vertices: number[] = [];
+  const indices: number[] = [];
+  for (let i = 0; i <= samples; i += 1) {
+    const u = i / samples;
+    const angle = u * turns * Math.PI * 2;
+    const y = heightAt(u);
+    // Fade thread in/out over half a turn at each end so it blends into the core.
+    const fade = Math.min(1, (u * turns) / 0.5, ((1 - u) * turns) / 0.5);
+    // Finer thread toward the apex.
+    const scale = 1 - 0.35 * u;
+    const base = coreRadius(y);
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    for (const [radial, axial] of profile) {
+      const r = base + (radial > 0 ? radial * fade * scale : radial);
+      vertices.push(r * cos, y + axial * scale * Math.max(fade, 0.2), r * sin);
+    }
+  }
+  const ring = profile.length;
+  for (let i = 0; i < samples; i += 1) {
+    for (let k = 0; k < ring - 1; k += 1) {
+      const a = i * ring + k;
+      const b = (i + 1) * ring + k;
+      indices.push(a, b, a + 1, a + 1, b, b + 1);
+    }
+  }
+  const threadGeo = track(new THREE.BufferGeometry());
+  threadGeo.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
+  threadGeo.setIndex(indices);
+  threadGeo.computeVertexNormals();
+  const threadMat = track(titanium.clone());
+  threadMat.side = THREE.DoubleSide;
+  group.add(new THREE.Mesh(threadGeo, threadMat));
+
+  // Self-tapping flutes: three dark grooves cut along the apical third.
+  const fluteLength = 0.3;
+  const fluteCenter = apexY + 0.1 + fluteLength / 2;
+  const fluteGeo = track(new THREE.BoxGeometry(0.04, fluteLength, 0.07));
+  for (let f = 0; f < 3; f += 1) {
+    const angle = (f / 3) * Math.PI * 2 + 0.4;
+    const r = coreRadius(fluteCenter) + 0.012;
+    const flute = new THREE.Mesh(fluteGeo, flutesMat);
+    flute.position.set(r * Math.cos(angle), fluteCenter, r * Math.sin(angle));
+    flute.rotation.y = -angle;
+    // Follow the taper so the groove hugs the body.
+    flute.rotateZ(-Math.atan2(coreRadius(fluteCenter + 0.2) - coreRadius(fluteCenter - 0.2), 0.4));
+    group.add(flute);
+  }
+
+  return () => envTarget.dispose();
 }
