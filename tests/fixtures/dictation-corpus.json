@@ -1,0 +1,328 @@
+{
+  "_about": "Set de regresión del dictado clínico. Todos los nombres y RUT son ficticios; no agregar datos de pacientes reales. Solo se comparan los campos presentes en expect. Formatos: odontogram 'pieza cara condición[:profundidad]' o 'pieza Estado'; perio 'pieza sitio mm [sangrado]'; payments 'monto medio'; appointments 'AAAA-MM-DD HH:MM'; diagnoses 'pieza código'; clarify/noClarify son regex sobre las preguntas.",
+  "today": "2026-11-01",
+  "patient": {
+    "name": "Camila Fuentes Araya",
+    "rut": "11.111.111-1"
+  },
+  "cases": [
+    {
+      "id": "c01-fdi-hablado-mecial",
+      "text": "pieza dos cuatro caries mecial oclusal de dentina profunda",
+      "expect": {
+        "odontogram": [
+          "24 M caries:dentina_profunda",
+          "24 O caries:dentina_profunda"
+        ],
+        "diagnoses": [
+          "24 DA08.0&XA6FX3"
+        ],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c02-numeracion-chilena",
+      "text": "pieza 30 obturacion oclusal de resina pieza 19 ausente",
+      "expect": {
+        "odontogram": [
+          "36 O restored",
+          "46 Ausente"
+        ],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c03-fdi-sin-pieza-varias",
+      "text": "fdi tres seis caries distal de esmalte fdi cuatro seis sellante oclusal",
+      "expect": {
+        "odontogram": [
+          "36 D caries:esmalte",
+          "46 O sealant"
+        ],
+        "diagnoses": [
+          "36 DA08.0&XA5R09"
+        ],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c04-diagnostico-y-plan",
+      "text": "pieza 2.6 con pulpitis irreversible se indica endodoncia",
+      "expect": {
+        "odontogram": [],
+        "diagnoses": [
+          "26 DA09.0"
+        ],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c05-negacion-sin-caries",
+      "text": "se examina la pieza 1.6 sin caries",
+      "expect": {
+        "odontogram": [],
+        "noClarify": [
+          "superficie"
+        ],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c06-correccion-pieza",
+      "text": "pieza 2.4 caries mesial de esmalte no perdón la 2.5",
+      "expect": {
+        "odontogram": [
+          "25 M caries:esmalte"
+        ],
+        "diagnoses": [
+          "25 DA08.0&XA5R09"
+        ],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c07-sondaje-hablado",
+      "text": "sondaje cuatro milímetros en la tres seis mesiovestibular con sangrado",
+      "expect": {
+        "perio": [
+          "36 MV 4 sangrado"
+        ],
+        "odontogram": [],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c08-abono-efectivo",
+      "text": "abonó cincuenta mil en efectivo",
+      "expect": {
+        "payments": [
+          "50000 efectivo"
+        ],
+        "budget": [],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c09-cita-dia-semana",
+      "text": "próxima cita el jueves a las diez y media",
+      "expect": {
+        "appointments": [
+          "2026-11-05 10:30"
+        ],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c10-alergia-y-medicamento",
+      "text": "alérgica a la penicilina toma losartán cincuenta miligramos",
+      "expect": {
+        "ficha": [
+          "allergies",
+          "medications"
+        ],
+        "odontogram": [],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c11-otro-paciente",
+      "text": "paciente Juan Pérez refiere dolor en la pieza 3.6",
+      "expect": {
+        "patientWarning": true,
+        "odontogram": [],
+        "diagnoses": []
+      }
+    },
+    {
+      "id": "c12-paciente-correcta-resina",
+      "text": "la paciente camila fuentes acude a control pieza 1.1 resina vestibular",
+      "expect": {
+        "patientWarning": false,
+        "odontogram": [
+          "11 V restored"
+        ]
+      }
+    },
+    {
+      "id": "c13-fractura-no-es-caries",
+      "text": "pieza 3 con fractura de la cúspide mesiopalatina y obturación oclusal de amalgama",
+      "expect": {
+        "odontogram": [
+          "16 O restored"
+        ],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c14-penetrante",
+      "text": "caries oclusal penetrante en la cuatro seis",
+      "expect": {
+        "odontogram": [
+          "46 O caries:pulpar"
+        ],
+        "diagnoses": [
+          "46 DA08.0&XA5B71"
+        ],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c15-dentina-sin-profundidad",
+      "text": "pieza 12 caries oclusal de dentina",
+      "expect": {
+        "odontogram": [
+          "24 O caries:-"
+        ],
+        "clarify": [
+          "profundidad"
+        ],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c16-corona-sobre-implante",
+      "text": "pieza 2.1 corona sobre implante",
+      "expect": {
+        "odontogram": [
+          "21 Implante",
+          "21 corona:implante"
+        ],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c17-otro-rut",
+      "text": "rut 12.345.678-5 pieza 3.6 obturación oclusal",
+      "expect": {
+        "patientWarning": true,
+        "odontogram": [
+          "36 O restored"
+        ]
+      }
+    },
+    {
+      "id": "c18-pago-y-presupuesto",
+      "text": "pagó ciento veinte mil con débito presupuesto corona pieza 3.6 trescientos mil pesos",
+      "expect": {
+        "payments": [
+          "120000 debito"
+        ],
+        "budget": [
+          "300000"
+        ],
+        "odontogram": [],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c19-periodontitis-apical",
+      "text": "pieza 4.6 con periodontitis apical crónica",
+      "expect": {
+        "diagnoses": [
+          "46 DA09.71"
+        ],
+        "odontogram": [],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c20-negaciones",
+      "text": "sin signos de periodontitis apical en la 3.6 no hay caries",
+      "expect": {
+        "odontogram": [],
+        "diagnoses": [],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c21-dos-piezas-habladas",
+      "text": "pieza dos cinco caries distal oclusal de dentina superficial pieza dos seis caries mesial de esmalte",
+      "expect": {
+        "odontogram": [
+          "25 D caries:dentina_superficial",
+          "25 O caries:dentina_superficial",
+          "26 M caries:esmalte"
+        ],
+        "diagnoses": [
+          "25 DA08.0&XA6FX3",
+          "26 DA08.0&XA5R09"
+        ],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c22-temporal",
+      "text": "pieza temporal 5.5 caries oclusal de esmalte",
+      "expect": {
+        "odontogram": [
+          "55 O caries:esmalte"
+        ],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c23-doctora-no-es-paciente",
+      "text": "la doctora Rojas indica exodoncia de la 4.8",
+      "expect": {
+        "patientWarning": false,
+        "odontogram": [
+          "48 Indicación de exodoncia"
+        ]
+      }
+    },
+    {
+      "id": "c24-movilidad",
+      "text": "movilidad grado dos en la 3.1",
+      "expect": {
+        "mobility": [
+          "31 II"
+        ],
+        "odontogram": [],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c25-otra-senora-y-cita",
+      "text": "la señora González viene a control cita el martes diez de noviembre a las quince horas",
+      "expect": {
+        "patientWarning": true,
+        "appointments": [
+          "2026-11-10 15:00"
+        ]
+      }
+    },
+    {
+      "id": "c26-errores-de-voz",
+      "text": "pieza 1.6 obturación oclusar de amalgama punto pieza 1.7 caries mecial de esmalte",
+      "expect": {
+        "odontogram": [
+          "16 O restored",
+          "17 M caries:esmalte"
+        ],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c27-caries-y-sondaje-sin-pausa",
+      "text": "pieza 3.6 caries oclusal profunda sangrado al sondaje en la 3.6 distolingual cinco milímetros",
+      "expect": {
+        "odontogram": [
+          "36 O caries:dentina_profunda"
+        ],
+        "perio": [
+          "36 DL 5 sangrado"
+        ],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c28-relato-no-diagnostico",
+      "text": "la paciente refiere que en otra consulta le dijeron que tiene caries en la 3.6",
+      "expect": {
+        "odontogram": [],
+        "diagnoses": [],
+        "patientWarning": false
+      }
+    }
+  ]
+}

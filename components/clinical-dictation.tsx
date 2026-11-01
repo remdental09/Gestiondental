@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { formatFdi, type ClinicalImage, type OdontogramData, type PerioExam } from "@/app/clinical-data";
 import { createWebSpeechTranscription, IOS_DICTATION_HINT, IS_IOS } from "@/lib/dictation/transcription";
+import { checkPatientMentions, patientWarning } from "@/lib/dictation/patient-check";
 import {
   answerLines,
   buildDictatedPerio,
@@ -174,6 +175,11 @@ export function ClinicalDictation({
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
   const [result, setResult] = useState<{ ok: boolean; messages: string[] } | null>(null);
+  const [patientConfirmed, setPatientConfirmed] = useState(false);
+  // Chequeo de paciente en el navegador: el nombre y el RUT de la ficha no viajan a la IA.
+  const patientCheck = outcome ? checkPatientMentions([transcript, workingText].filter(Boolean).join("\n"), { name: patientName, rut: patient?.rut }) : null;
+  const patientWarnings = patientCheck ? patientWarning(patientCheck, patientName, patient?.rut) : [];
+  const patientBlocked = patientWarnings.length > 0 && !patientConfirmed;
 
   useEffect(() => {
     const transcription = engine.current;
@@ -185,6 +191,7 @@ export function ClinicalDictation({
 
   const resetReview = () => {
     setOutcome(null);
+    setPatientConfirmed(false);
     setTeeth([]);
     setBudgets([]);
     setFichaItems([]);
@@ -277,6 +284,7 @@ export function ClinicalDictation({
     setResult(null);
     if (answering) { answerEngine.current.stop(); setAnswering(null); }
     setStructuring(true);
+    setPatientConfirmed(false);
     try {
       const response = await fetch("/api/dictation/structure", {
         method: "POST",
@@ -341,6 +349,10 @@ export function ClinicalDictation({
 
   const confirm = async () => {
     if (!outcome || saving) return;
+    if (patientBlocked) {
+      setFormError(`El dictado nombra a otra persona o a otro RUT. Confirma que corresponde a ${patientName} antes de guardar.`);
+      return;
+    }
     const acceptedTeeth: OdontogramChange[] = [];
     for (const item of teeth) {
       if (item.decision !== "accepted") continue;
@@ -535,6 +547,15 @@ export function ClinicalDictation({
           {formError && <p role="alert" className="rounded-lg bg-rose-50 p-3 text-rose-950">{formError}</p>}
           {outcome && <p className="rounded-lg bg-[#f4f7f8] p-3 leading-6 text-[#31575b]" role="status">{outcome.notice ?? "La evolución y las piezas salen de lo resuelto en el dictado. Sigue sujeta a tu revisión."}</p>}
           {proposal && <div className="space-y-4" data-testid="dictation-review">
+            {patientWarnings.length > 0 && <section role="alert" className="rounded-xl border-2 border-rose-400 bg-rose-50 p-4 text-rose-950" data-testid="dictation-patient-warning">
+              <h3 className="text-base font-semibold">¿Es el paciente correcto?</h3>
+              <p className="mt-1 text-sm">La ficha abierta es de <strong>{patientName}</strong>{patient?.rut ? ` (RUT ${patient.rut})` : ""}.</p>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">{patientWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
+              <label className="mt-3 flex items-start gap-2 text-sm font-medium">
+                <input type="checkbox" className="mt-0.5 size-5 shrink-0" checked={patientConfirmed} onChange={(event) => setPatientConfirmed(event.target.checked)} data-testid="dictation-patient-confirm" />
+                <span>Confirmo que este dictado corresponde a {patientName}. Si no, cierra y abre la ficha correcta.</span>
+              </label>
+            </section>}
             <section className="rounded-xl border border-sky-200 bg-sky-50/40 p-4" data-testid="dictation-corrected">
               <h3 className="font-semibold">Texto corregido</h3>
               <p className="mt-1 text-xs leading-5 text-[#60757a]">Diccionario clínico e IA corrigen lo mal oído sin agregar datos. Cada cambio queda marcado; lo que la IA quiso cambiar sin respaldo se descarta. Puedes editarlo y volver a proponer.</p>
@@ -748,7 +769,7 @@ export function ClinicalDictation({
         </div>
         <DialogFooter className="sticky bottom-0 -mx-6 -mb-6 border-t border-[#e4ebed] bg-white px-6 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
           <Button type="button" variant="outline" onClick={close}>Cerrar</Button>
-          <Button type="button" className="bg-[#087f83] hover:bg-[#07676b]" disabled={!outcome || saving} onClick={() => void confirm()} data-testid="dictation-confirm">{saving ? "Guardando y releyendo…" : "Guardar lo aceptado"}</Button>
+          <Button type="button" className="bg-[#087f83] hover:bg-[#07676b]" disabled={!outcome || saving || patientBlocked} title={patientBlocked ? "Confirma el paciente antes de guardar" : undefined} onClick={() => void confirm()} data-testid="dictation-confirm">{saving ? "Guardando y releyendo…" : "Guardar lo aceptado"}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
