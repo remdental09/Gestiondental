@@ -34,6 +34,10 @@ import {
 
 export type { PaymentMethod, TranscriptCorrection } from "./spoken.ts";
 export { PAYMENT_METHOD_LABEL, PAYMENT_METHODS } from "./spoken.ts";
+import { CARIES_DEPTH_LABEL, CARIES_DEPTH_QUESTION, cariesDepthFrom, isCariesDepth, type CariesDepth } from "../caries.ts";
+import { cariesIcd11, icd11FromText, icd11Label } from "../icd11.ts";
+export { CARIES_DEPTHS, CARIES_DEPTH_LABEL, CARIES_DEPTH_SHORT, cariesDetail } from "../caries.ts";
+export { cariesIcd11, icd11Label } from "../icd11.ts";
 
 export const WORKERS_AI_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 /** Si el primero falla o no responde a tiempo, se prueba el siguiente. */
@@ -59,9 +63,15 @@ export type PerioSite = (typeof PERIO_SITES)[number];
 export type ToothNumbering = "FDI" | "chilena" | "universal";
 export type SurfaceFinding = {
   condition: "not_examined" | "sound" | "caries" | "restored" | "sealant" | "other_restoration";
-  icdas: 1 | 2 | 3 | 4 | 5 | 6 | null;
-  activity: "active" | "inactive" | "uncertain" | null;
+  /** Profundidad de la caries (opcional): esmalte, dentina superficial, dentina profunda o compromiso pulpar. */
+  depth?: CariesDepth | null;
+  /** Registros anteriores con ICDAS; ya no se pide. */
+  icdas?: 1 | 2 | 3 | 4 | 5 | 6 | null;
+  activity?: "active" | "inactive" | "uncertain" | null;
 };
+
+/** Diagnóstico con código CIE-11 verificado (OMS, MMS 2026-01). */
+export type DiagnosisItem = { id: string; tooth?: number; code: string; title: string; label: string; evidence: string };
 
 export type OdontogramChange = {
   id: string;
@@ -160,8 +170,10 @@ export type DictationProposal = {
   budget: BudgetChange[];
   perio: PerioStub[];
   clarifications: string[];
-  /** Caries dictadas sin ICDAS o sin actividad: no se aplican hasta completarlas en la revisión. */
+  /** Hallazgos que no se aplican hasta completarlos en la revisión (las caries ya no quedan aquí: la profundidad es opcional). */
   incomplete?: OdontogramChange[];
+  /** Diagnósticos con código CIE-11 (caries por profundidad y diagnósticos dictados con código verificado). */
+  diagnoses?: DiagnosisItem[];
   /** Alergias, antecedentes y medicamentos propuestos para la ficha. */
   ficha?: FichaChange[];
   /** Procedimientos realizados según el dictado, con su cita. */
@@ -178,6 +190,7 @@ export type DictationProposal = {
 
 export type ChartSurface = {
   condition: SurfaceFinding["condition"];
+  depth?: SurfaceFinding["depth"];
   icdas?: SurfaceFinding["icdas"];
   activity?: SurfaceFinding["activity"];
 };
@@ -216,7 +229,7 @@ export type ChartAction =
   | { action: "setToothSurface"; patientId: number; tooth: number; surface: OdontogramSurface; finding: SurfaceFinding };
 
 const LOCAL_NOTICE = "Workers AI no está enlazado en este entorno. La propuesta salió del estructurador local, sin costo por dictado, y no se guarda sola.";
-const AI_NOTICE = "La IA redactó la nota y propuso los cambios. Cada pieza, cara, ICDAS y monto se contrastó con una cita literal del dictado y con las reglas locales; revisa y acepta antes de guardar.";
+const AI_NOTICE = "La IA redactó la nota y propuso los cambios. Cada pieza, cara, profundidad de caries y monto se contrastó con una cita literal del dictado y con las reglas locales; revisa y acepta antes de guardar.";
 const AI_FAILED_NOTICE = "La IA no respondió y la propuesta salió solo de las reglas locales. Revisa con más cuidado";
 
 export function formatFdi(tooth: number): string {
@@ -271,7 +284,7 @@ function clip(value: string, max = 180): string {
 
 /** Hallazgos clínicos que no son estados del odontograma: no aportan caras ni caries. */
 const OTHER_FINDING = /(?<!\p{L})(?:fractur\p{L}*|fisur\p{L}*|c[uú]spides?|desgaste|abfracci\p{L}*|abrasi[oó]n|erosi[oó]n|atrici[oó]n|movilidad|tinci[oó]n|manchas?|absceso|f[ií]stula|dolor|sensibilidad)(?!\p{L})/iu;
-const FINDING_CUE = /(?<!\p{L})(?:caries|obtura\p{L}*|restaura\p{L}*|resina|amalgama|sellante|san[oa]|ausente|implante|corona|exodoncia|extra[ií]d\p{L}*|resto\s+radicular|endodoncia|fractur\p{L}*|fisur\p{L}*|c[uú]spides?|icdas|lesi[oó]n|movilidad|sondaje|dolor|sensibilidad|absceso|f[ií]stula|desgaste|abfracci\p{L}*|activ[ao]|inactiv[ao]|oclusal|mesial|distal|vestibular|palatin[ao]|lingual|incisal|mod)(?!\p{L})/iu;
+const FINDING_CUE = /(?<!\p{L})(?:caries|obtura\p{L}*|restaura\p{L}*|resina|amalgama|sellante|san[oa]|ausente|implante|corona|exodoncia|extra[ií]d\p{L}*|resto\s+radicular|endodoncia|fractur\p{L}*|fisur\p{L}*|c[uú]spides?|icdas|esmalte|dentina|pulpar|penetrante|lesi[oó]n|movilidad|sondaje|dolor|sensibilidad|absceso|f[ií]stula|desgaste|abfracci\p{L}*|activ[ao]|inactiv[ao]|oclusal|mesial|distal|vestibular|palatin[ao]|lingual|incisal|mod)(?!\p{L})/iu;
 const TOOTH_START = /(?:^|\s)((?:(?:la|el)\s+)?(?:(?:pieza|diente)s?\s+(?:(?:fdi|iso|chilena|nacional|universal)\s+)?(?:\d|un[oa]?\b|dos\b|tres\b|cuatro\b|cinco\b|seis\b|siete\b|ocho\b|nueve\b|diez\b|once\b|doce\b|trece\b|catorce\b|quince\b|diec|veint|treinta|cuarenta|temporal|decidu|de\s+leche)|(?:fdi|iso)\s+\d))/giu;
 const CLAUSE_START = /(?:^|\s)((?:(?:el|la)\s+)?(?:paciente\s+)?(?:refiere|relata|comenta|niega)(?!\p{L})|se\s+(?:indica|planifica|realiz[oó]|instal[oó]|cement[oó]|observa)(?!\p{L})|(?:sondaje|sondeo|movilidad)(?!\p{L})|(?:el\s+paciente\s+|la\s+paciente\s+)?(?:abon[oó]|pag[oó]|cancel[oó])(?!\p{L})|pr[oó]xim[oa]\s+(?:cita|control|sesi[oó]n|hora)(?!\p{L})|se\s+(?:cita|agenda|reagenda)(?!\p{L})|aclaraci[oó]n:)/giu;
 const OPEN_ENDING = /(?:^|\s)(?:en|de|del|la|el|los|las|a|al|para|entre|sobre|por|un|una|que|o|con|desde|hasta|observa|observan|presenta|presentan|indica|planifica|realiza|realiz[oó]|instal[oó]|cement[oó]|tiene|hay|evidencia|paciente)$/iu;
@@ -652,7 +665,12 @@ function statusFrom(sentence: string): ToothStatus | null {
   return null;
 }
 
-type FindingResult = { finding: SurfaceFinding } | { error: string; partial?: SurfaceFinding } | null;
+type FindingResult = { finding: SurfaceFinding; depthNote?: string } | { error: string; partial?: SurfaceFinding } | null;
+
+/** Pregunta opcional (no bloquea) cuando la caries se dictó sin profundidad. Mismo formato para reglas e IA, así se deduplica. */
+export function depthQuestion(heading: string, ambiguous: string | undefined, quote: string): string {
+  return `${heading}: ${ambiguous ? `${ambiguous}; ` : ""}¿profundidad de la caries (${CARIES_DEPTH_QUESTION})? Opcional: «${clip(quote.trim().replace(/[.;,]+$/, ""))}».`;
+}
 
 function findingFrom(sentence: string): FindingResult {
   const deniesCaries = /\b(?:sin|no)\s+(?:se\s+observa\s+)?caries\b/i.test(sentence);
@@ -664,20 +682,15 @@ function findingFrom(sentence: string): FindingResult {
   const kinds = [hasCaries, restored, sealant, other, sound].filter(Boolean).length;
   if (kinds > 1) return { error: `La frase mezcla hallazgos de superficie y no se eligió uno: «${clip(sentence)}».` };
   if (hasCaries) {
-    const icdas = icdasFrom(sentence);
-    const activity = activityFrom(sentence);
-    if (!icdas || !activity) {
-      return {
-        error: `Caries sin ICDAS y actividad completos, sin cambio de superficie: «${clip(sentence)}». Complétala en la revisión o díctala de nuevo.`,
-        partial: { condition: "caries", icdas: (icdas ?? null) as SurfaceFinding["icdas"], activity },
-      };
-    }
-    return { finding: { condition: "caries", icdas: icdas as SurfaceFinding["icdas"], activity } };
+    // La caries se registra igual; la profundidad es opcional y, si falta, solo se pregunta.
+    const reading = cariesDepthFrom(sentence);
+    const finding: SurfaceFinding = { condition: "caries", depth: reading.depth, icdas: (icdasFrom(sentence) ?? null) as SurfaceFinding["icdas"], activity: activityFrom(sentence) };
+    return reading.depth ? { finding } : { finding, depthNote: reading.ambiguous ?? "" };
   }
-  if (restored) return { finding: { condition: "restored", icdas: null, activity: null } };
-  if (sealant) return { finding: { condition: "sealant", icdas: null, activity: null } };
-  if (other) return { finding: { condition: "other_restoration", icdas: null, activity: null } };
-  if (sound) return { finding: { condition: "sound", icdas: null, activity: null } };
+  if (restored) return { finding: { condition: "restored", depth: null, icdas: null, activity: null } };
+  if (sealant) return { finding: { condition: "sealant", depth: null, icdas: null, activity: null } };
+  if (other) return { finding: { condition: "other_restoration", depth: null, icdas: null, activity: null } };
+  if (sound) return { finding: { condition: "sound", depth: null, icdas: null, activity: null } };
   return null;
 }
 
@@ -723,8 +736,10 @@ function facesLabel(tooth: number, surfaces: OdontogramSurface[]): string {
 function describeFinding(tooth: number, finding: SurfaceFinding, surfaces: OdontogramSurface[]): string {
   const faces = facesLabel(tooth, surfaces);
   if (finding.condition === "caries") {
-    const activity = finding.activity === "active" ? "activa" : finding.activity === "inactive" ? "inactiva" : "actividad incierta";
-    return `caries ${faces}, ICDAS ${finding.icdas}, ${activity}`;
+    const name = finding.depth && isCariesDepth(finding.depth) ? CARIES_DEPTH_LABEL[finding.depth].toLowerCase() : "caries (profundidad no consignada)";
+    const legacy = !finding.depth && finding.icdas ? `, ICDAS ${finding.icdas}` : "";
+    const activity = finding.activity === "active" ? ", activa" : finding.activity === "inactive" ? ", inactiva" : "";
+    return `${name} ${faces}${legacy}${activity} (${icd11Label(cariesIcd11(finding.depth))})`;
   }
   if (finding.condition === "restored") return `obturación ${faces}`;
   if (finding.condition === "sealant") return `sellante ${faces}`;
@@ -761,7 +776,7 @@ function examLines(items: OdontogramChange[]): string[] {
     const buckets = new Map<string, { finding: SurfaceFinding; surfaces: OdontogramSurface[] }>();
     for (const item of group) {
       if (item.kind !== "surface" || !item.surface || !item.finding) continue;
-      const key = `${item.finding.condition}:${item.finding.icdas ?? ""}:${item.finding.activity ?? ""}`;
+      const key = `${item.finding.condition}:${item.finding.depth ?? ""}:${item.finding.icdas ?? ""}:${item.finding.activity ?? ""}`;
       const bucket = buckets.get(key) ?? { finding: item.finding, surfaces: [] };
       bucket.surfaces.push(item.surface);
       buckets.set(key, bucket);
@@ -792,6 +807,7 @@ function composeEvolution(transcript: string, odontogram: OdontogramChange[] = [
   const relato: string[] = [];
   const fichaLines: Record<FichaField, string[]> = { allergies: [], history: [], medications: [] };
   const otrosExamen: string[] = [];
+  const diagnostico: string[] = [];
   const procedimientos: string[] = [];
   const indicaciones: string[] = [];
   const plan: string[] = [];
@@ -826,6 +842,7 @@ function composeEvolution(transcript: string, odontogram: OdontogramChange[] = [
     else if (isPerformed(sentence)) procedimientos.push(line);
     else if (isPlan(sentence)) plan.push(line);
     else if (/(?<!\p{L})(?:sondaje|sondeo|movilidad)(?!\p{L})/iu.test(sentence)) sondaje.push(line);
+    else if (isDiagnosisSentence(sentence)) diagnostico.push(line);
     else if (toothMentions(sentence).length > 0 && OTHER_FINDING.test(sentence)) otrosExamen.push(line);
     else if (toothMentions(sentence).length > 0) unresolved.push(line);
     else resto.push(line);
@@ -838,6 +855,7 @@ function composeEvolution(transcript: string, odontogram: OdontogramChange[] = [
   const exam = examLines(odontogram);
   if (exam.length) lines.push(EXAM_REGISTRY_HEADER, ...exam, "");
   if (otrosExamen.length) lines.push("Otros hallazgos del examen", ...otrosExamen, "");
+  if (diagnostico.length) lines.push("Diagnóstico", ...diagnostico, "");
   if (procedimientos.length) lines.push("Procedimientos realizados", ...procedimientos, "");
   if (indicaciones.length) lines.push("Indicaciones", ...indicaciones, "");
   if (plan.length) lines.push("Plan de tratamiento", ...plan, "");
@@ -847,7 +865,7 @@ function composeEvolution(transcript: string, odontogram: OdontogramChange[] = [
   if (citas.length) lines.push("Próxima cita", ...citas, "");
   if (resto.length) lines.push("Otros dichos", ...resto, "");
   if (aclaraciones.length) lines.push("Aclaraciones del profesional", ...aclaraciones, "");
-  const pending = [...new Set([...unresolved, ...clarifications.filter((item) => !ROUTING_QUESTION.test(item)).map((item) => item.trim()).filter(Boolean)])];
+  const pending = [...new Set([...unresolved, ...clarifications.filter((item) => !ROUTING_QUESTION.test(item) && !DEPTH_QUESTION.test(item)).map((item) => item.trim()).filter(Boolean)])];
   if (pending.length) lines.push("Pendiente de aclarar", ...pending.map((item) => ensurePeriod(item)));
   const body = lines.join("\n").trim();
   return body ? { title: "Evolución dictada", body } : null;
@@ -875,9 +893,77 @@ export function planFichaUpdate(patient: { allergies?: string | null; history?: 
   return { allergies: allergies || "Sin registrar", history };
 }
 
+export const DIAGNOSES_HEADER = "Diagnósticos (CIE-11)";
+
+const DIAGNOSIS_STEM = "(?:pulp|necros|absces|periodont|fractur|fisur|quiste|retracc|recesi|agrand|hiperplas|atrici|desgast|abras|erosi|abfracc|infracc|pericoron|rest|raiz)";
+const DIAGNOSIS_DOUBT = new RegExp(`\\b(?:descart\\p{L}*|sospecha|probable|posible|diagnostico diferencial|d\\/d|no\\s+se\\s+confirma|sin\\s+confirmar|por\\s+confirmar|a\\s+descartar|sin\\s+(?:signos?\\s+de\\s+|evidencia\\s+de\\s+)?(?:\\p{L}+\\s+)?${DIAGNOSIS_STEM})`, "iu");
+
+function isDiagnosisSentence(sentence: string): boolean {
+  if (isPatient(sentence) || isPlan(sentence) || isNegatedFinding(sentence)) return false;
+  const plain = sentence.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+  return !DIAGNOSIS_DOUBT.test(plain) && icd11FromText(sentence).length > 0;
+}
+
+/**
+ * Diagnósticos dictados por el profesional con código CIE-11 verificado (no relatos del paciente,
+ * ni negaciones, ni sospechas, ni planes). Las caries van aparte, con su profundidad, en el odontograma.
+ */
+export function textDiagnoses(text: string): DiagnosisItem[] {
+  const out: DiagnosisItem[] = [];
+  for (const sentence of sentences(text)) {
+    if (!isDiagnosisSentence(sentence)) continue;
+    const mention = toothMentions(sentence).find((item) => item.ok);
+    const tooth = mention && mention.ok ? mention.tooth : undefined;
+    for (const entry of icd11FromText(sentence)) {
+      if (out.some((done) => done.code === entry.code && done.tooth === tooth)) continue;
+      const where = tooth ? `FDI ${formatFdi(tooth)}: ` : "";
+      out.push({ id: `dx-${out.length + 1}`, tooth, code: entry.code, title: entry.title, label: `${where}${entry.title} (CIE-11 ${entry.code})`, evidence: clip(sentence, 400) });
+    }
+  }
+  return out;
+}
+
+/** Diagnóstico CIE-11 de cada caries propuesta, por pieza y profundidad. */
+export function cariesDiagnoses(items: OdontogramChange[]): DiagnosisItem[] {
+  const groups = new Map<string, OdontogramChange[]>();
+  for (const item of items) {
+    if (item.kind !== "surface" || item.finding?.condition !== "caries") continue;
+    const key = `${item.tooth}:${item.finding.depth ?? ""}`;
+    groups.set(key, [...(groups.get(key) ?? []), item]);
+  }
+  return [...groups.values()].map((group, index) => {
+    const first = group[0];
+    const depth = first.finding?.depth ?? null;
+    const icd = cariesIcd11(depth);
+    const name = depth ? CARIES_DEPTH_LABEL[depth] : "Caries, profundidad no consignada";
+    const faces = facesLabel(first.tooth, group.map((item) => item.surface).filter((face): face is OdontogramSurface => Boolean(face)));
+    return { id: `dxc-${index + 1}`, tooth: first.tooth, code: icd.code, title: icd.title, label: `FDI ${formatFdi(first.tooth)} ${faces}: ${name} (${icd11Label(icd)})`, evidence: clip(first.sourceText, 400) };
+  });
+}
+
+function withoutSection(lines: string[], header: string): string[] {
+  const at = lines.findIndex((line) => line.trim() === header);
+  if (at < 0) return lines;
+  let stop = at + 1;
+  while (stop < lines.length && lines[stop].trim() !== "") stop += 1;
+  return [...lines.slice(0, at), ...lines.slice(stop + 1)];
+}
+
+/** Agrega (o reemplaza) la sección de diagnósticos CIE-11 dictados, antes de la transcripción literal. */
+export function withDiagnosesSection(body: string, diagnoses: DiagnosisItem[]): string {
+  const lines = withoutSection(body.replace(/\r\n/g, "\n").split("\n"), DIAGNOSES_HEADER);
+  const textOnly = diagnoses.filter((item) => !item.code.startsWith("DA08.0"));
+  if (!textOnly.length) return lines.join("\n").trim();
+  const cut = lines.findIndex((line) => line.trim() === TRANSCRIPT_HEADER);
+  const at = cut >= 0 ? cut : lines.length;
+  lines.splice(at, 0, ...(at > 0 && lines[at - 1].trim() !== "" ? [""] : []), DIAGNOSES_HEADER, ...textOnly.map((item) => item.label), "");
+  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 /** Arma el texto que se guarda: la nota revisada, el registro de odontograma con lo aceptado y la transcripción literal. */
-export function finalizeEvolution(body: string, accepted: OdontogramChange[], transcript: string): string {
-  const lines = body.replace(/\r\n/g, "\n").split("\n");
+export function finalizeEvolution(body: string, accepted: OdontogramChange[], transcript: string, diagnoses: DiagnosisItem[] = []): string {
+  // Sin lista explícita se respeta la nota tal como quedó editada (incluida su sección CIE-11).
+  const lines = (diagnoses.length ? withDiagnosesSection(body, diagnoses) : body.replace(/\r\n/g, "\n")).split("\n");
   const cut = lines.findIndex((line) => line.trim() === TRANSCRIPT_HEADER);
   const kept = cut >= 0 ? lines.slice(0, cut) : lines;
   let at = kept.findIndex((line) => line.trim() === EXAM_REGISTRY_HEADER);
@@ -902,7 +988,7 @@ export function finalizeEvolution(body: string, accepted: OdontogramChange[], tr
 }
 
 function dedupeKey(item: OdontogramChange): string {
-  return [item.tooth, item.kind, item.surface ?? "", item.status ?? "", item.foundation ?? "", item.finding?.condition ?? "", item.finding?.icdas ?? "", item.material ?? ""].join(":");
+  return [item.tooth, item.kind, item.surface ?? "", item.status ?? "", item.foundation ?? "", item.finding?.condition ?? "", item.finding?.depth ?? "", item.finding?.icdas ?? "", item.material ?? ""].join(":");
 }
 
 export function structureTranscript(transcript: string, options: { today?: string } = {}): DictationProposal {
@@ -1079,7 +1165,17 @@ export function structureTranscript(transcript: string, options: { today?: strin
         if (!resolved.notes.length) clarifications.push(`Falta la superficie del hallazgo: «${clip(sentence)}».`);
         continue;
       }
+      if (surfaceResult.depthNote !== undefined && !/^aclaraci[oó]n:/iu.test(sentence)) clarifications.push(depthQuestion(`FDI ${formatFdi(mention.tooth)}`, surfaceResult.depthNote || undefined, sentence));
       for (const surface of resolved.surfaces) {
+        // Una «Aclaración:» con la profundidad completa la caries ya propuesta en vez de duplicarla.
+        const earlier = surfaceResult.finding.condition === "caries"
+          ? odontogram.find((done) => done.kind === "surface" && done.tooth === mention.tooth && done.surface === surface && done.finding?.condition === "caries")
+          : undefined;
+        if (earlier?.finding) {
+          const next = surfaceResult.finding;
+          earlier.finding = { ...earlier.finding, depth: next.depth ?? earlier.finding.depth ?? null, activity: next.activity ?? earlier.finding.activity ?? null, icdas: next.icdas ?? earlier.finding.icdas ?? null };
+          continue;
+        }
         const item: OdontogramChange = {
           id: nextId("odo"),
           tooth: mention.tooth,
@@ -1109,7 +1205,7 @@ export function structureTranscript(transcript: string, options: { today?: strin
     const quoted = note.match(/«([^»]+)»/)?.[1];
     return !(quoted && /caries/i.test(note) && solved.has(normalizeEvidence(quoted.replace(/…$/, ""))));
   });
-  const validated = validateProposal({ evolution: null, odontogram, budget, perio, clarifications: openClarifications });
+  const validated = validateProposal({ evolution: null, odontogram, budget, perio, clarifications: tidyClarifications(openClarifications, odontogram) });
   const routed = finishRouting({
     ...validated,
     incomplete: openIncomplete,
@@ -1171,6 +1267,8 @@ function appointmentFrom(sentence: string, today: string, id: string, origin: It
 }
 
 /** Preguntas que salen de lo que falta. Se recalculan cada vez, por eso llevan un prefijo propio. */
+/** La profundidad de caries es opcional: se pregunta en la revisión, pero no queda como pendiente en la nota. */
+const DEPTH_QUESTION = /^(?:IA:\s*)?FDI \d\.\d: [^«]*¿profundidad de la caries/;
 const ROUTING_QUESTION = /^(?:¿Con qué medio se pagaron|¿Qué día es la próxima cita|¿A qué hora es la cita|¿En qué sitio se midió|¿Cuántos mm midió|Confirma la hora de la cita)/;
 
 const money = (amount: number) => `$${amount.toLocaleString("es-CL").replace(/,/g, ".")}`;
@@ -1259,13 +1357,17 @@ function coerceFinding(value: unknown): SurfaceFinding | { error: string } {
   if (!["not_examined", "sound", "caries", "restored", "sealant", "other_restoration"].includes(condition)) {
     return { error: "Estado de superficie no reconocido." };
   }
-  if (condition !== "caries") return { condition: condition as SurfaceFinding["condition"], icdas: null, activity: null };
+  if (condition !== "caries") return { condition: condition as SurfaceFinding["condition"], depth: null, icdas: null, activity: null };
+  // Profundidad opcional; ICDAS y actividad solo si venían de un registro anterior válido.
+  const depth = isCariesDepth(record.depth) ? record.depth : null;
   const icdas = Number(record.icdas);
   const activity = text(record.activity, 16);
-  if (!Number.isInteger(icdas) || icdas < 1 || icdas > 6 || !["active", "inactive", "uncertain"].includes(activity)) {
-    return { error: "La caries necesita ICDAS de 1 a 6 y actividad. No se propuso la superficie." };
-  }
-  return { condition: "caries", icdas: icdas as SurfaceFinding["icdas"], activity: activity as SurfaceFinding["activity"] };
+  return {
+    condition: "caries",
+    depth,
+    icdas: (Number.isInteger(icdas) && icdas >= 1 && icdas <= 6 ? icdas : null) as SurfaceFinding["icdas"],
+    activity: (["active", "inactive", "uncertain"].includes(activity) ? activity : null) as SurfaceFinding["activity"],
+  };
 }
 
 function coerceOdontogram(value: unknown): OdontogramChange | { error: string } {
@@ -1451,7 +1553,7 @@ export const NOTE_SECTIONS = [
 
 export const AI_SYSTEM_PROMPT = `Eres asistente de un odontólogo chileno. Recibes la transcripción literal de un dictado por voz (puede venir sin puntuación y con errores de reconocimiento). Devuelves SOLO JSON con el esquema pedido.
 
-1) "nota": redacta una ficha clínica clara en español de Chile, en tercera persona y estilo clínico, repartida en las secciones motivo, anamnesis, alergias, medicamentos, examen, diagnostico, procedimientos, plan, indicaciones y presupuesto. Corrige puntuación y redacción, pero NO agregues nada que no se haya dicho: ni diagnósticos, ni piezas, ni caras, ni ICDAS, ni montos, ni medicamentos, ni negaciones. Si algo no se dijo, deja la sección como cadena vacía "". Conserva los números de pieza tal como se dictaron (si dijo «pieza 30», escribe «pieza 30»). Lo que el paciente cuenta (refiere, relata) va en motivo o anamnesis, nunca en examen. Si el profesional dicta un diagnóstico, va en diagnostico; si no, déjalo vacío.
+1) "nota": redacta una ficha clínica clara en español de Chile, en tercera persona y estilo clínico, repartida en las secciones motivo, anamnesis, alergias, medicamentos, examen, diagnostico, procedimientos, plan, indicaciones y presupuesto. Corrige puntuación y redacción, pero NO agregues nada que no se haya dicho: ni diagnósticos, ni piezas, ni caras, ni profundidades de caries, ni montos, ni medicamentos, ni negaciones. Si algo no se dijo, deja la sección como cadena vacía "". Conserva los números de pieza tal como se dictaron (si dijo «pieza 30», escribe «pieza 30»). Lo que el paciente cuenta (refiere, relata) va en motivo o anamnesis, nunca en examen. Si el profesional dicta un diagnóstico, va en diagnostico; si no, déjalo vacío.
 
 2) "hallazgos": un elemento por cada pieza y hallazgo de odontograma OBSERVADO HOY en el examen o realizado hoy. No incluyas lo que el paciente relata, lo planificado, presupuestado o negado.
 - "pieza": el número tal como se dictó ("30", "3.6", "cuarenta y seis").
@@ -1459,7 +1561,7 @@ export const AI_SYSTEM_PROMPT = `Eres asistente de un odontólogo chileno. Recib
 - "tipo": "superficie" para caries, obturación, sellante, otra restauración o cara sana; "estado" para Ausente, Implante, Corona, Indicación de exodoncia o Resto radicular con endodoncia.
 - "condicion" (solo superficie): caries | obturacion | sellante | otra_restauracion | sana. "estado" (solo estado): Ausente | Implante | Corona | Indicación de exodoncia | Resto radicular con endodoncia. Deja "" lo que no aplique.
 - "caras": letras M, O, D, V, P (O también es incisal; P es palatina o lingual) SOLO si se dictaron para ese hallazgo. MOD = M,O,D.
-- "icdas": 1 a 6 solo si se dijo; si no, 0. "actividad": "activa", "inactiva" o "" si no se dijo.
+- "profundidad" (solo caries): "esmalte" (caries de esmalte, mancha blanca), "dentina_superficial" (dentina superficial o media), "dentina_profunda" (dentina profunda, caries profunda) o "pulpar" (compromiso pulpar, penetrante); "" si no se dijo. No uses ICDAS.
 - Una fractura, fisura o cúspide fracturada NO es caries ni obturación: no la pongas en hallazgos; va en la nota (examen).
 - "material" y "color" solo para corona, si se dijeron.
 - "evidencia": copia EXACTA y continua de la transcripción (mismas palabras, sin corregir) que contenga el número de la pieza y el hallazgo. Si no puedes citar, no incluyas el hallazgo.
@@ -1495,7 +1597,7 @@ export const AI_JSON_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["pieza", "sistema", "tipo", "condicion", "estado", "caras", "icdas", "actividad", "material", "color", "evidencia"],
+        required: ["pieza", "sistema", "tipo", "condicion", "estado", "caras", "profundidad", "material", "color", "evidencia"],
         properties: {
           pieza: STRING,
           sistema: { type: "string", enum: ["chilena", "FDI", "universal", "sin_etiqueta"] },
@@ -1503,8 +1605,7 @@ export const AI_JSON_SCHEMA = {
           condicion: { type: "string", enum: ["", "caries", "obturacion", "sellante", "otra_restauracion", "sana"] },
           estado: { type: "string", enum: ["", "Ausente", "Implante", "Corona", "Indicación de exodoncia", "Resto radicular con endodoncia"] },
           caras: { type: "array", items: { type: "string", enum: ["M", "O", "D", "V", "P"] } },
-          icdas: { type: "integer" },
-          actividad: { type: "string", enum: ["", "activa", "inactiva", "incierta"] },
+          profundidad: { type: "string", enum: ["", "esmalte", "dentina_superficial", "dentina_profunda", "pulpar"] },
           material: STRING,
           color: STRING,
           evidencia: STRING,
@@ -1788,22 +1889,22 @@ export function validateAiExtraction(input: unknown, transcript: string, options
     const dropped = aiFaces.filter((face) => !resolved.surfaces.includes(face));
     if (dropped.length) clarifications.push(`${heading}: la IA marcó la cara ${dropped.join(", ")}, que no está en la cita. No se marcó.`);
     if (!faces.length) { reject(`Falta la cara del hallazgo en ${heading}: «${clip(segment)}».`); continue; }
-    let finding: SurfaceFinding = { condition, icdas: null, activity: null };
-    let partial = false;
+    let finding: SurfaceFinding = { condition, depth: null, icdas: null, activity: null };
     if (condition === "caries") {
-      const icdas = icdasFrom(scope);
-      const activity = activityFrom(scope);
-      const aiIcdas = Number(item.icdas);
-      if (aiIcdas && aiIcdas !== icdas) clarifications.push(`${heading}: la IA indicó ICDAS ${aiIcdas}, pero el dictado ${icdas ? `dice ICDAS ${icdas}` : "no lo dice"}. Se usó lo dictado.`);
-      finding = { condition: "caries", icdas: (icdas ?? null) as SurfaceFinding["icdas"], activity };
-      if (!icdas || !activity) {
-        partial = true;
-        clarifications.push(`${heading}: caries (sin ICDAS${!activity ? " o sin actividad" : ""}). Complétala en la revisión o no se aplica: «${clip(segment)}».`);
-      }
+      // La profundidad sale de lo dictado (y de su «Aclaración:»); la de la IA solo se compara.
+      const reading = cariesDepthFrom(scope);
+      const aiDepth = isCariesDepth(item.profundidad) ? item.profundidad : null;
+      if (aiDepth && aiDepth !== reading.depth) clarifications.push(`${heading}: la IA indicó ${CARIES_DEPTH_LABEL[aiDepth].toLowerCase()}, pero el dictado ${reading.depth ? `dice ${CARIES_DEPTH_LABEL[reading.depth].toLowerCase()}` : "no dice la profundidad"}. Se usó lo dictado.`);
+      finding = { condition: "caries", depth: reading.depth, icdas: (icdasFrom(scope) ?? null) as SurfaceFinding["icdas"], activity: activityFrom(scope) };
+      if (!reading.depth) clarifications.push(depthQuestion(heading, reading.ambiguous, segment));
     }
     for (const surface of faces) {
-      const change: OdontogramChange = { ...base, id: nextId(partial ? "inc" : "odo"), kind: "surface", surface, finding };
-      (partial ? incomplete : odontogram).push(change);
+      const earlier = condition === "caries" ? odontogram.find((done) => done.kind === "surface" && done.tooth === mention.tooth && done.surface === surface && done.finding?.condition === "caries") : undefined;
+      if (earlier?.finding) {
+        earlier.finding = { ...earlier.finding, depth: finding.depth ?? earlier.finding.depth ?? null, activity: finding.activity ?? earlier.finding.activity ?? null };
+        continue;
+      }
+      odontogram.push({ ...base, id: nextId("odo"), kind: "surface", surface, finding });
     }
   }
 
@@ -1926,15 +2027,15 @@ export function validateAiExtraction(input: unknown, transcript: string, options
 
   for (const doubt of list(record.dudas, 12)) {
     const value = str(doubt, 300);
-    // Sistema de numeración, ICDAS, actividad, medio de pago, hora y sitio ya los preguntan las reglas.
-    if (value && !/sistema|numeraci|etiqueta|icdas|actividad|medio de pago|forma de pago|hora|sitio/i.test(value)) clarifications.push(`IA: ${value}`);
+    // Sistema de numeración, profundidad de caries, medio de pago, hora y sitio ya los preguntan las reglas.
+    if (value && !/sistema|numeraci|etiqueta|icdas|actividad|profundidad|esmalte|dentina|medio de pago|forma de pago|hora|sitio/i.test(value)) clarifications.push(`IA: ${value}`);
   }
   const correctedText = typeof record.texto_corregido === "string" ? record.texto_corregido.slice(0, 10000) : undefined;
   return { noteBody, odontogram, incomplete, budget, ficha, procedures, clarifications, rejected, correctedText, perio, perioPending, payments, appointments };
 }
 
 function sameFinding(a: OdontogramChange, b: OdontogramChange): boolean {
-  return dedupeKey({ ...a, material: undefined }) === dedupeKey({ ...b, material: undefined }) && (a.kind !== "surface" || a.finding?.activity === b.finding?.activity);
+  return dedupeKey({ ...a, material: undefined }) === dedupeKey({ ...b, material: undefined }) && (a.kind !== "surface" || (a.finding?.activity ?? null) === (b.finding?.activity ?? null));
 }
 
 function collides(a: OdontogramChange, b: OdontogramChange): boolean {
@@ -2005,7 +2106,7 @@ export function mergeProposals(ai: AiExtraction, local: DictationProposal, trans
     const quoted = note.match(/«([^»]+)»/)?.[1];
     if (skipNotes.has(note)) continue;
     if (quoted && /caries/i.test(note) && aiQuotes.includes(normalizeEvidence(quoted.replace(/…$/, "")))) continue;
-    if (quoted && /ICDAS|superficie|mezcla/i.test(note) && odontogram.some((item) => item.origin !== "reglas" && normalizeEvidence(item.evidence ?? "").includes(normalizeEvidence(quoted.replace(/…$/, ""))))) continue;
+    if (quoted && /ICDAS|profundidad de la caries|superficie|mezcla/i.test(note) && odontogram.some((item) => item.origin !== "reglas" && normalizeEvidence(item.evidence ?? "").includes(normalizeEvidence(quoted.replace(/…$/, ""))))) continue;
     clarifications.push(note);
   }
   const ids = new Map<string, number>();
@@ -2080,6 +2181,34 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   });
 }
 
+/** Tema y destino de una pregunta: así IA y reglas no preguntan lo mismo dos veces. */
+function clarificationKey(note: string): string {
+  const plain = normalizeEvidence(note.replace(/^IA:\s*/i, ""));
+  const tooth = note.match(/FDI (\d\.\d)/)?.[1];
+  if (tooth && /profundidad de la caries/i.test(note)) return `profundidad:${tooth}`;
+  if (/medio (?:de pago|se pagaron)|forma de pago/i.test(note)) return `pago:${note.match(/\$\s?[\d.]+/)?.[0] ?? plain}`;
+  return plain;
+}
+
+/** Quita preguntas repetidas y las de profundidad ya respondidas (la caries de esa pieza ya tiene profundidad). */
+export function tidyClarifications(notes: string[], odontogram: OdontogramChange[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const note of notes) {
+    const tooth = note.match(/^(?:IA:\s*)?FDI (\d)\.(\d)/);
+    if (tooth && /profundidad de la caries/i.test(note)) {
+      const fdi = Number(`${tooth[1]}${tooth[2]}`);
+      const caries = odontogram.filter((item) => item.tooth === fdi && item.finding?.condition === "caries");
+      if (caries.length && caries.every((item) => item.finding?.depth)) continue;
+    }
+    const key = clarificationKey(note);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(note);
+  }
+  return out;
+}
+
 export async function proposeFromTranscript(
   input: StructureInput,
   model: ClinicalModel | null,
@@ -2094,11 +2223,12 @@ export async function proposeFromTranscript(
   const lexicon = applyLexicon(transcript);
   const fixed = lexicon.text;
   const localOnly = structureTranscript(fixed, { today });
-  const withText = (proposal: DictationProposal, text: string, corrections: TranscriptCorrection[]): DictationProposal => ({
-    ...proposal,
-    transcript,
-    corrected: { text, corrections },
-  });
+  const withText = (proposal: DictationProposal, text: string, corrections: TranscriptCorrection[]): DictationProposal => {
+    const diagnoses = [...cariesDiagnoses(proposal.odontogram), ...textDiagnoses(text)];
+    const clarifications = tidyClarifications(proposal.clarifications, proposal.odontogram);
+    const evolution = proposal.evolution ? { ...proposal.evolution, body: withDiagnosesSection(proposal.evolution.body, diagnoses) } : null;
+    return { ...proposal, evolution, clarifications, diagnoses, transcript, corrected: { text, corrections } };
+  };
   if (!model) return { engine: "reglas-locales", model: null, notice: LOCAL_NOTICE, proposal: withText(localOnly, fixed, lexicon.corrections) };
   const started = Date.now();
   try {
@@ -2202,9 +2332,10 @@ export function planChartWrites(patientId: number, before: ChartSnapshot, after:
       const prior = previous[surface];
       const next = current[surface];
       if (prior && JSON.stringify(prior) !== JSON.stringify(next ?? null)) {
-        const finding = prior.condition === "caries" && prior.icdas && prior.activity
-          ? { condition: "caries" as const, icdas: prior.icdas, activity: prior.activity }
-          : { condition: prior.condition === "caries" ? "sound" as const : prior.condition, icdas: null, activity: null };
+        // Se restaura tal cual, incluida una caries antigua con ICDAS.
+        const finding: SurfaceFinding = prior.condition === "caries"
+          ? { condition: "caries", depth: prior.depth ?? null, icdas: prior.icdas ?? null, activity: prior.activity ?? null }
+          : { condition: prior.condition, depth: null, icdas: null, activity: null };
         actions.push({ action: "setToothSurface", patientId, tooth, surface, finding });
       }
     }
@@ -2268,7 +2399,7 @@ export function verifyDictationSave(input: {
     }
     if (item.kind === "surface" && item.surface && item.finding) {
       const actual = chart.surfaces?.[item.tooth]?.[item.surface];
-      if (!actual || actual.condition !== item.finding.condition || (actual.icdas ?? null) !== item.finding.icdas || (actual.activity ?? null) !== item.finding.activity) {
+      if (!actual || actual.condition !== item.finding.condition || (actual.depth ?? null) !== (item.finding.depth ?? null) || (actual.icdas ?? null) !== (item.finding.icdas ?? null) || (actual.activity ?? null) !== (item.finding.activity ?? null)) {
         errors.push(`La superficie ${item.surface} de FDI ${formatFdi(item.tooth)} no coincide al releer.`);
       } else messages.push(`Superficie ${item.surface} de FDI ${formatFdi(item.tooth)} confirmada.`);
     }

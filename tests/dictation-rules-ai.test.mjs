@@ -32,11 +32,16 @@ test('la fractura de cúspide no genera caries ni presta sus caras a la obturaci
   assert.match(proposal.evolution.body, /Otros hallazgos del examen\nPieza 3 con fractura de la cúspide mesiopalatina/);
 });
 
-test('una caries sin ICDAS queda como incompleta para la revisión y no en el odontograma', () => {
-  const proposal = structureTranscript('pieza 30 caries distal pieza 12 caries oclusal ICDAS 2 inactiva');
-  assert.deepEqual(pick(proposal), [[24, 'O:caries']]);
-  assert.deepEqual(proposal.incomplete.map((item) => [item.tooth, item.surface, item.finding.icdas]), [[36, 'D', null]]);
-  assert.match(proposal.clarifications.join(' '), /ICDAS/);
+test('una caries sin profundidad entra al odontograma y la profundidad se pregunta como opcional', () => {
+  const proposal = structureTranscript('pieza 30 caries distal pieza 12 caries oclusal de esmalte');
+  assert.deepEqual(pick(proposal), [[36, 'D:caries'], [24, 'O:caries']]);
+  assert.deepEqual(proposal.odontogram.map((item) => item.finding.depth), [null, 'esmalte']);
+  assert.equal(proposal.incomplete.length, 0);
+  const asks = proposal.clarifications.join('\n');
+  assert.match(asks, /FDI 3\.6: ¿profundidad de la caries .*\? Opcional: «pieza 30 caries distal»/);
+  assert.equal(/FDI 2\.4/.test(asks), false);
+  // La pregunta opcional no queda como «Pendiente de aclarar» en la nota.
+  assert.equal(/Pendiente de aclarar/.test(proposal.evolution.body), false);
 });
 
 test('alergias, antecedentes y medicamentos van a la ficha y no al odontograma', () => {

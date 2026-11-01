@@ -26,16 +26,17 @@ test('FDI con punto y equivalencias chilena y universal no se cruzan', () => {
   assert.equal(formatFdi(chileToFdi(19)), '4.6');
 });
 
-test('separa caries con ICDAS del estado general y conserva el relato', () => {
-  const proposal = structureTranscript('El paciente refiere dolor al frío. Se observa caries en la cara oclusal de la pieza FDI 3.6, ICDAS 3, lesión activa. No se confirma diagnóstico de pulpitis.');
+test('separa caries por profundidad del estado general y conserva el relato', () => {
+  const proposal = structureTranscript('El paciente refiere dolor al frío. Se observa caries en la cara oclusal de la pieza FDI 3.6, de dentina profunda. No se confirma diagnóstico de pulpitis.');
   assert.equal(proposal.odontogram.length, 1);
   assert.equal(proposal.odontogram[0].tooth, 36);
   assert.equal(proposal.odontogram[0].kind, 'surface');
   assert.equal(proposal.odontogram[0].surface, 'O');
-  assert.deepEqual(proposal.odontogram[0].finding, { condition: 'caries', icdas: 3, activity: 'active' });
+  assert.deepEqual(proposal.odontogram[0].finding, { condition: 'caries', depth: 'dentina_profunda', icdas: null, activity: null });
   assert.equal(proposal.odontogram.some((item) => item.kind !== 'surface'), false);
   assert.match(proposal.evolution.body, /refiere dolor al frío/i);
-  assert.match(proposal.evolution.body, /FDI 3\.6 \(Chile 30\): caries oclusal, ICDAS 3, activa/);
+  assert.match(proposal.evolution.body, /FDI 3\.6 \(Chile 30\): caries de dentina profunda oclusal \(CIE-11 DA08\.0&XA6FX3 Caries dental · Dentina\)\./);
+  assert.equal(/profundidad de la caries/.test(proposal.clarifications.join(' ')), false, 'con profundidad dictada no se pregunta');
   assert.match(proposal.clarifications.join(' '), /diagnóstico confirmado/i);
   assert.equal(JSON.stringify(proposal).includes('"diagnosis"'), false);
 });
@@ -124,7 +125,7 @@ test('la dentición temporal FDI 5.5 acepta sellante oclusal', () => {
   assert.equal(proposal.odontogram[0].finding.condition, 'sealant');
 });
 
-test('el JSON del modelo se valida y descarta pieza inválida, caries incompleta y sondaje persistido', () => {
+test('el JSON del modelo se valida: descarta pieza inválida y sondaje persistido; la caries sin profundidad se acepta', () => {
   const raw = '```json\n' + JSON.stringify({
     evolution: { title: 'Nota', body: 'Texto de prueba.' },
     odontogram: [
@@ -136,11 +137,11 @@ test('el JSON del modelo se valida y descarta pieza inválida, caries incompleta
     clarifications: [],
   }) + '\n```';
   const proposal = validateProposal(parseModelJson(raw));
-  assert.equal(proposal.odontogram.length, 0);
+  assert.equal(proposal.odontogram.length, 1);
+  assert.deepEqual(proposal.odontogram[0].finding, { condition: 'caries', depth: null, icdas: null, activity: null });
   assert.equal(proposal.perio.length, 1);
   assert.equal(proposal.perio[0].persisted, false);
   assert.match(proposal.clarifications.join(' '), /no es un FDI válido/i);
-  assert.match(proposal.clarifications.join(' '), /ICDAS/i);
   assert.match(proposal.clarifications.join(' '), /no se guarda/i);
 });
 
@@ -194,15 +195,15 @@ test('una IA que no responde a tiempo cae a las reglas', async () => {
 });
 
 test('la IA redacta la nota y sus hallazgos con cita válida se cruzan con las reglas', async () => {
-  const transcript = 'paciente refiere sensibilidad al frío niega alergias pieza 30 con obturación oclusal pieza 19 ausente pieza 14 caries mesial ICDAS 3 activa punto se indica control en 6 meses';
+  const transcript = 'paciente refiere sensibilidad al frío niega alergias pieza 30 con obturación oclusal pieza 19 ausente pieza 14 caries mesial de esmalte punto se indica control en 6 meses';
   let seen = null;
   const events = [];
   const outcome = await proposeFromTranscript({ transcript, chart: [] }, mockModel({ usedModel: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', output: aiOutput({
-    nota: { motivo: 'Refiere sensibilidad al frío.', alergias: 'Niega alergias.', examen: 'Pieza 30 con obturación oclusal. Pieza 19 ausente. Pieza 14 con caries mesial ICDAS 3 activa.', indicaciones: 'Control en 6 meses.' },
+    nota: { motivo: 'Refiere sensibilidad al frío.', alergias: 'Niega alergias.', examen: 'Pieza 30 con obturación oclusal. Pieza 19 ausente. Pieza 14 con caries mesial de esmalte.', indicaciones: 'Control en 6 meses.' },
     hallazgos: [
       hallazgo({ pieza: '30', condicion: 'obturacion', caras: ['O'], evidencia: 'pieza 30 con obturación oclusal' }),
       hallazgo({ pieza: '19', tipo: 'estado', estado: 'Ausente', evidencia: 'pieza 19 ausente' }),
-      hallazgo({ pieza: '14', condicion: 'caries', caras: ['M'], icdas: 3, actividad: 'activa', evidencia: 'pieza 14 caries mesial ICDAS 3 activa' }),
+      hallazgo({ pieza: '14', condicion: 'caries', caras: ['M'], profundidad: 'esmalte', evidencia: 'pieza 14 caries mesial de esmalte' }),
     ],
     ficha: [{ campo: 'alergias', texto: 'Niega alergias', evidencia: 'niega alergias' }],
   }) }, (input) => { seen = input; }), (event, detail) => events.push({ event, detail }));
@@ -213,7 +214,9 @@ test('la IA redacta la nota y sus hallazgos con cita válida se cruzan con las r
   const items = outcome.proposal.odontogram;
   assert.deepEqual(items.map((item) => [item.tooth, item.surface ?? item.status, item.origin]).sort(), [[24 + 2, 'M', 'ia+reglas'], [36, 'O', 'ia+reglas'], [46, 'Ausente', 'ia+reglas']].sort());
   assert.equal(items.every((item) => item.evidence && transcript.includes(item.evidence)), true);
-  assert.deepEqual(items.find((item) => item.tooth === 26).finding, { condition: 'caries', icdas: 3, activity: 'active' });
+  assert.deepEqual(items.find((item) => item.tooth === 26).finding, { condition: 'caries', depth: 'esmalte', icdas: null, activity: null });
+  assert.match(outcome.proposal.evolution.body, /FDI 2\.6 \(Chile 14\): caries de esmalte mesial \(CIE-11 DA08\.0&XA5R09 Caries dental · Esmalte\)\./);
+  assert.deepEqual(outcome.proposal.diagnoses.map((item) => [item.tooth, item.code]), [[26, 'DA08.0&XA5R09']]);
   const body = outcome.proposal.evolution.body;
   assert.match(body, /^Motivo de consulta\nRefiere sensibilidad al frío\./);
   assert.match(body, /Examen \(odontograma\)\nFDI 3\.6 \(Chile 30\): obturación oclusal\.\nFDI 4\.6 \(Chile 19\): ausente\./);
@@ -225,13 +228,13 @@ test('la IA redacta la nota y sus hallazgos con cita válida se cruzan con las r
   assert.equal(JSON.stringify(events).includes('obturación'), false);
 });
 
-test('la IA no cuela piezas, caras, ICDAS ni montos sin cita literal', async () => {
+test('la IA no cuela piezas, caras, profundidades ni montos sin cita literal', async () => {
   const transcript = 'Pieza 30 caries distal. Pieza 3 con fractura de la cúspide mesiopalatina y obturación oclusal de amalgama. Presupuesto corona pieza 3 350 mil pesos.';
   const outcome = await proposeFromTranscript({ transcript, chart: [] }, mockModel(aiOutput({
-    nota: { examen: 'Pieza 30 con caries distal ICDAS 4 activa. Pieza 3 fracturada.' },
+    nota: { examen: 'Pieza 30 con caries distal de dentina profunda, ICDAS 4. Pieza 3 fracturada.' },
     hallazgos: [
-      // ICDAS y actividad inventados: la cita no los tiene.
-      hallazgo({ pieza: '30', condicion: 'caries', caras: ['D'], icdas: 4, actividad: 'activa', evidencia: 'Pieza 30 caries distal' }),
+      // Profundidad inventada: la cita no la tiene.
+      hallazgo({ pieza: '30', condicion: 'caries', caras: ['D'], profundidad: 'dentina_profunda', evidencia: 'Pieza 30 caries distal' }),
       // Caras de la fractura atribuidas a la obturación.
       hallazgo({ pieza: '3', condicion: 'obturacion', caras: ['M', 'P', 'O'], evidencia: 'Pieza 3 con fractura de la cúspide mesiopalatina y obturación oclusal de amalgama' }),
       // Cita que no está en el dictado.
@@ -247,16 +250,18 @@ test('la IA no cuela piezas, caras, ICDAS ni montos sin cita literal', async () 
   assert.equal(outcome.engine, 'ia+reglas');
   const items = outcome.proposal.odontogram;
   assert.equal(items.some((item) => item.tooth === 24 || item.tooth === 15 || item.kind === 'crown'), false);
-  assert.equal(items.some((item) => item.tooth === 36), false, 'caries sin ICDAS no entra al odontograma');
-  assert.deepEqual(outcome.proposal.incomplete.map((item) => [item.tooth, item.surface]), [[36, 'D']]);
-  assert.equal(outcome.proposal.incomplete[0].finding.icdas, null);
+  // La caries entra con lo dictado (sin profundidad); la profundidad inventada no se usa y se pregunta, opcional.
+  assert.deepEqual(items.filter((item) => item.tooth === 36).map((item) => [item.surface, item.finding.condition, item.finding.depth]), [['D', 'caries', null]]);
+  assert.equal(outcome.proposal.incomplete.length, 0);
+  const asks = outcome.proposal.clarifications;
+  assert.ok(asks.some((q) => /FDI 3\.6: la IA indicó caries de dentina profunda, pero el dictado no dice la profundidad/.test(q)), asks.join('\n'));
+  assert.equal(asks.filter((q) => /FDI 3\.6: .*¿profundidad de la caries/.test(q)).length, 1, 'IA y reglas no preguntan dos veces lo mismo');
   const molar = items.filter((item) => item.tooth === 16);
   assert.deepEqual(molar.map((item) => item.surface), ['O']);
   assert.equal(molar[0].finding.condition, 'restored');
   assert.equal(outcome.proposal.budget.length, 1);
   assert.equal(outcome.proposal.budget[0].amount, 350000);
   assert.equal(/Falta el monto/.test(outcome.proposal.clarifications.join(' ')), false);
-  assert.match(outcome.proposal.clarifications.join(' '), /ICDAS/);
   // La nota se queda, pero el ICDAS que no se dictó queda marcado para revisar.
   assert.match(outcome.proposal.clarifications.join(' '), /«4», que no aparece en el dictado/);
 });
@@ -283,7 +288,7 @@ test('dictados chilenos de caries, sellado, sondaje, presupuesto y corona cement
   const vestibular = structureTranscript('Se observa caries vestibular en FDI 1.6, ICDAS 2, inactiva.');
   assert.equal(vestibular.odontogram[0].tooth, 16);
   assert.equal(vestibular.odontogram[0].surface, 'V');
-  assert.deepEqual(vestibular.odontogram[0].finding, { condition: 'caries', icdas: 2, activity: 'inactive' });
+  assert.deepEqual(vestibular.odontogram[0].finding, { condition: 'caries', depth: null, icdas: 2, activity: 'inactive' });
 
   const probing = structureTranscript('Sondaje de 5 mm en distal lingual de la pieza chilena 19.');
   assert.equal(probing.perio[0].tooth, 46);
@@ -326,13 +331,13 @@ test('dos dictados chilenos reales no mezclan piezas ni contradicen las aclaraci
   assert.equal(lesion.sourceText.includes('Pieza 30'), true);
   assert.equal(lesion.sourceText.includes('Pieza 12'), false);
   assert.equal(lesion.surface, 'O');
-  assert.deepEqual(lesion.finding, { condition: 'caries', icdas: 3, activity: 'active' });
+  assert.deepEqual(lesion.finding, { condition: 'caries', depth: null, icdas: 3, activity: 'active' });
   assert.equal(filling.numberingLabel.includes('2.4'), true);
   assert.equal(filling.sourceText.includes('Pieza 12'), true);
   assert.equal(filling.sourceText.includes('Pieza 30'), false);
   assert.equal(filling.finding.condition, 'restored');
   assert.equal(/refiere|relata/i.test(first.proposal.evolution.body), false);
-  assert.match(first.proposal.evolution.body, /FDI 3\.6 \(Chile 30\): caries oclusal, ICDAS 3, activa/);
+  assert.match(first.proposal.evolution.body, /FDI 3\.6 \(Chile 30\): caries \(profundidad no consignada\) oclusal, ICDAS 3, activa \(CIE-11 DA08\.0 Caries dental\)/);
   assert.match(first.proposal.evolution.body, /control en 6 meses/);
   assert.equal(/ICDAS y actividad|no es un FDI válido|lectura local|se dejó fuera/i.test(first.proposal.clarifications.join(' ')), false);
 
@@ -389,20 +394,21 @@ test('el dictado en vivo no mezcla ICDAS con actividad ni incorpora la pieza sin
   assert.equal(proposal.odontogram.some((item) => item.tooth === 24), false);
   const byTooth = (tooth) => proposal.odontogram.filter((item) => item.tooth === tooth);
   assert.deepEqual(byTooth(36).map((item) => item.surface).sort(), ['D', 'M', 'O']);
-  assert.deepEqual(byTooth(36)[0].finding, { condition: 'caries', icdas: 4, activity: 'active' });
+  assert.deepEqual(byTooth(36)[0].finding, { condition: 'caries', depth: null, icdas: 4, activity: 'active' });
   assert.equal(byTooth(11)[0].surface, 'P');
-  assert.deepEqual(byTooth(11)[0].finding, { condition: 'caries', icdas: 2, activity: 'inactive' });
+  assert.deepEqual(byTooth(11)[0].finding, { condition: 'caries', depth: null, icdas: 2, activity: 'inactive' });
   assert.equal(byTooth(41)[0].finding.condition, 'restored');
   assert.equal(byTooth(41)[0].surface, 'V');
   assert.equal(byTooth(46)[0].surface, 'P');
-  assert.deepEqual(byTooth(46)[0].finding, { condition: 'caries', icdas: 3, activity: 'active' });
+  assert.deepEqual(byTooth(46)[0].finding, { condition: 'caries', depth: null, icdas: 3, activity: 'active' });
 
   const body = proposal.evolution.body;
   const exam = body.split('Pendiente de aclarar')[0];
-  assert.match(exam, /Examen \(odontograma\)\nFDI 3\.6 \(Chile 30\): caries M-O-D, ICDAS 4, activa\./);
-  assert.match(exam, /FDI 1\.1 \(Chile 8\): caries palatina, ICDAS 2, inactiva\./);
+  // Un ICDAS dictado (registro anterior) se conserva en la nota junto al código CIE-11 sin profundidad.
+  assert.match(exam, /Examen \(odontograma\)\nFDI 3\.6 \(Chile 30\): caries \(profundidad no consignada\) M-O-D, ICDAS 4, activa \(CIE-11 DA08\.0 Caries dental\)\./);
+  assert.match(exam, /FDI 1\.1 \(Chile 8\): caries \(profundidad no consignada\) palatina, ICDAS 2, inactiva \(CIE-11 DA08\.0 Caries dental\)\./);
   assert.match(exam, /FDI 4\.1 \(Chile 24\): obturación vestibular\./);
-  assert.match(exam, /FDI 4\.6 \(Chile 19\): caries lingual, ICDAS 3, activa\./);
+  assert.match(exam, /FDI 4\.6 \(Chile 19\): caries \(profundidad no consignada\) lingual, ICDAS 3, activa \(CIE-11 DA08\.0 Caries dental\)\./);
   assert.equal(/incisal|grado de actividad|extracción previa|se contempla|tratamiento/i.test(exam), false);
   assert.match(body, /Pendiente de aclarar/);
   assert.match(body, /Pieza 12 incisal caries ICDAS 2 activa/);

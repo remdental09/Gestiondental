@@ -1,4 +1,5 @@
 import { and, desc, eq, ne } from "drizzle-orm";
+import { isCariesDepth } from "@/lib/caries";
 import { env } from "cloudflare:workers";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { ClinicalImportError, runDriveRecordImport } from "@/app/clinical-import";
@@ -382,10 +383,13 @@ export async function POST(request: Request) {
       if (!["not_examined","sound","caries","restored","sealant","other_restoration"].includes(condition)) return error("Estado de superficie inválido.");
       let normalized:SurfaceFinding;
       if (condition === "caries") {
-        const icdas = Number(finding.icdas), activity = string(finding.activity,16);
-        if (!Number.isInteger(icdas) || icdas < 1 || icdas > 6 || !["active","inactive","uncertain"].includes(activity)) return error("Completa el código ICDAS y la actividad de la lesión.");
-        normalized = { condition:"caries", icdas:icdas as 1|2|3|4|5|6, activity:activity as "active"|"inactive"|"uncertain" };
-      } else normalized = { condition:condition as SurfaceFinding["condition"], icdas:null, activity:null };
+        // Profundidad opcional (esmalte, dentina superficial/profunda, pulpar). ICDAS y actividad solo se conservan si ya venían.
+        const depthRaw = finding.depth, icdas = finding.icdas == null || finding.icdas === "" ? null : Number(finding.icdas), activity = finding.activity == null || finding.activity === "" ? null : string(finding.activity,16);
+        if (depthRaw != null && depthRaw !== "" && !isCariesDepth(depthRaw)) return error("Profundidad de caries inválida.");
+        if (icdas !== null && (!Number.isInteger(icdas) || icdas < 1 || icdas > 6)) return error("ICDAS inválido.");
+        if (activity !== null && !["active","inactive","uncertain"].includes(activity)) return error("Actividad de la lesión inválida.");
+        normalized = { condition:"caries", depth: isCariesDepth(depthRaw) ? depthRaw : null, icdas:icdas as SurfaceFinding["icdas"], activity:activity as SurfaceFinding["activity"] };
+      } else normalized = { condition:condition as SurfaceFinding["condition"], depth:null, icdas:null, activity:null };
       const [old] = await db.select().from(toothStatuses).where(and(eq(toothStatuses.ownerId, ownerId), eq(toothStatuses.patientId, patientId)));
       const data = normalizeOdontogram(old ? JSON.parse(old.data) : {});
       if (["Ausente","Implante"].includes(data.teeth[tooth]??"")) return error("No se registran superficies dentarias en dientes ausentes o implantes.");

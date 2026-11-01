@@ -11,6 +11,12 @@ import { createWebSpeechTranscription, IOS_DICTATION_HINT, IS_IOS } from "@/lib/
 import {
   answerLines,
   buildDictatedPerio,
+  CARIES_DEPTHS,
+  CARIES_DEPTH_SHORT,
+  cariesDetail,
+  cariesDiagnoses,
+  cariesIcd11,
+  icd11Label,
   finalizeEvolution,
   withAnswers,
   SITE_LABEL,
@@ -81,7 +87,7 @@ function Evidence({ text }: { text?: string }) {
 }
 type ReviewBudget = BudgetChange & { decision: "accepted" | "rejected"; amountText: string };
 
-const EXAMPLE = "El paciente refiere dolor al frío. Se observa caries en la cara oclusal de la pieza FDI 3.6, ICDAS 3, lesión activa. Pieza 12 con obturación oclusal. Niega alergia a penicilina. Presupuesto de corona de zirconio, 350000 pesos. Sondaje de 4 mm en mesial vestibular de FDI 1.6.";
+const EXAMPLE = "El paciente refiere dolor al frío. Se observa caries en la cara oclusal de la pieza FDI 3.6, de dentina profunda. Pieza 2.6 con pulpitis. Pieza 12 con obturación oclusal. Niega alergia a penicilina. Presupuesto de corona de zirconio, 350000 pesos. Sondaje de 4 mm en mesial vestibular de FDI 1.6.";
 
 const surfaceLabel: Record<OdontogramSurface, string> = {
   V: "Vestibular",
@@ -98,12 +104,13 @@ const conditionLabel: Record<SurfaceFinding["condition"], string> = {
   sealant: "Sellante",
   other_restoration: "Otra restauración",
 };
-const activityLabel = { active: "Activa", inactive: "Inactiva", uncertain: "Incierta" };
+const DEPTH_QUESTION = /¿profundidad de la caries/i;
 
-function findingText(finding?: { condition: SurfaceFinding["condition"]; icdas?: SurfaceFinding["icdas"]; activity?: SurfaceFinding["activity"] }): string {
+function findingText(finding?: { condition: SurfaceFinding["condition"]; depth?: SurfaceFinding["depth"]; icdas?: SurfaceFinding["icdas"]; activity?: SurfaceFinding["activity"] }): string {
   if (!finding) return "Sin registrar";
   if (finding.condition !== "caries") return conditionLabel[finding.condition];
-  return `${conditionLabel.caries} · ICDAS ${finding.icdas ?? "sin registrar"} · ${finding.activity ? activityLabel[finding.activity] : "actividad sin registrar"}`;
+  // Profundidad (o el ICDAS de un registro anterior) y su código CIE-11.
+  return `${conditionLabel.caries} · ${cariesDetail(finding)} · CIE-11 ${cariesIcd11(finding.depth).code}`;
 }
 
 function ChangeHighlight({ current, next }: { current: string; next: string }) {
@@ -285,7 +292,7 @@ export function ClinicalDictation({
       setEvolutionTitle(data.proposal.evolution?.title ?? "");
       setEvolutionBody(data.proposal.evolution?.body ?? "");
       setEvolutionDecision(data.proposal.evolution ? "accepted" : "rejected");
-      // Lo que IA y reglas no comparten, o la caries sin ICDAS/actividad, parte rechazado.
+      // Lo que IA y reglas no comparten, o un hallazgo incompleto, parte rechazado. La caries sin profundidad sí se propone.
       setTeeth([
         ...data.proposal.odontogram.map((item) => ({ ...item, decision: item.conflict ? "rejected" as const : "accepted" as const, toothText: formatFdi(item.tooth) })),
         ...(data.proposal.incomplete ?? []).map((item) => ({ ...item, decision: "rejected" as const, toothText: formatFdi(item.tooth), incompleteCaries: true })),
@@ -472,13 +479,13 @@ export function ClinicalDictation({
       onApplied(finalRead);
       setResult(check);
       setNotRecorded([
-        ...teeth.filter((item) => item.decision !== "accepted").map((item) => `${item.numberingLabel}${item.surface ? ` · ${surfaceLabel[item.surface]}` : ""}: ${item.kind === "surface" ? findingText(item.finding) : item.kind === "crown" ? "Corona" : item.status} — ${item.incompleteCaries ? "caries sin ICDAS o actividad" : "rechazado"}.`),
+        ...teeth.filter((item) => item.decision !== "accepted").map((item) => `${item.numberingLabel}${item.surface ? ` · ${surfaceLabel[item.surface]}` : ""}: ${item.kind === "surface" ? findingText(item.finding) : item.kind === "crown" ? "Corona" : item.status} — ${item.incompleteCaries ? "incompleto" : "rechazado"}.`),
         ...budgets.filter((item) => item.decision !== "accepted").map((item) => `Presupuesto: ${item.label} — rechazado.`),
         ...fichaItems.filter((item) => item.decision !== "accepted" || !patient).map((item) => `${fichaLabel[item.field]}: ${item.text} — no se pasó a la ficha.`),
         ...perioItems.filter((item) => item.decision !== "accepted").map((item) => `Sondaje FDI ${item.toothText}${item.site ? ` ${item.site}` : ""}${item.depthText ? ` ${item.depthText} mm` : ""} — ${item.pending ? "incompleto, no se guardó" : "rechazado"}.`),
         ...paymentItems.filter((item) => item.decision !== "accepted").map((item) => `Pago $${Number(item.amountText || 0).toLocaleString("es-CL")} — no se registró.`),
         ...appointmentItems.filter((item) => item.decision !== "accepted").map((item) => `Cita «${item.said || item.evidence}» — no se agendó.`),
-        ...outcome.proposal.clarifications,
+        ...outcome.proposal.clarifications.filter((question) => !DEPTH_QUESTION.test(question)),
         ...(!saveEvolution ? ["La evolución no se guardó."] : []),
       ]);
       if (!check.ok) setFormError("La relectura no confirmó todo lo aceptado. Revisa la ficha antes de dictar de nuevo.");
@@ -582,7 +589,7 @@ export function ClinicalDictation({
                     <div>
                       <p className="font-semibold">{item.numberingLabel}<OriginBadge origin={item.origin} conflict={item.conflict} /></p>
                       <Evidence text={item.evidence ?? item.sourceText} />
-                      {item.incompleteCaries && <p className="mt-1 text-xs font-medium text-amber-800">Caries sin ICDAS o actividad dictados: complétalos para aceptarla.</p>}
+                      {item.incompleteCaries && <p className="mt-1 text-xs font-medium text-amber-800">Hallazgo incompleto: complétalo para aceptarlo.</p>}
                     </div>
                     <Decision value={item.decision} onChange={(decision) => setTeeth((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, decision } : entry))} />
                   </div>
@@ -596,13 +603,13 @@ export function ClinicalDictation({
                       <label className="space-y-1">Hallazgo<select className="h-9 w-full rounded-md border px-2" value={item.finding?.condition ?? "sound"} onChange={(event) => {
                         const condition = event.target.value as SurfaceFinding["condition"];
                         const finding: SurfaceFinding = condition === "caries"
-                          ? { condition: "caries", icdas: item.finding?.icdas ?? 1, activity: item.finding?.activity ?? "uncertain" }
-                          : { condition, icdas: null, activity: null };
+                          ? { condition: "caries", depth: item.finding?.depth ?? null, icdas: item.finding?.icdas ?? null, activity: item.finding?.activity ?? null }
+                          : { condition, depth: null, icdas: null, activity: null };
                         setTeeth((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, finding } : entry));
                       }}>{Object.entries(conditionLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
                       {item.finding?.condition === "caries" && <>
-                        <label className="space-y-1">ICDAS<select className="h-9 w-full rounded-md border px-2" value={item.finding.icdas ?? ""} onChange={(event) => setTeeth((current) => current.map((entry, entryIndex) => entryIndex === index && entry.finding?.condition === "caries" ? { ...entry, finding: { condition: "caries", icdas: event.target.value ? Number(event.target.value) as 1 | 2 | 3 | 4 | 5 | 6 : null, activity: entry.finding.activity ?? null } } : entry))}><option value="">Sin dictar</option>{[1, 2, 3, 4, 5, 6].map((code) => <option key={code} value={code}>{code}</option>)}</select></label>
-                        <label className="space-y-1">Actividad<select className="h-9 w-full rounded-md border px-2" value={item.finding.activity ?? ""} onChange={(event) => setTeeth((current) => current.map((entry, entryIndex) => entryIndex === index && entry.finding?.condition === "caries" ? { ...entry, finding: { condition: "caries", icdas: entry.finding.icdas ?? null, activity: (event.target.value || null) as "active" | "inactive" | "uncertain" | null } } : entry))}><option value="">Sin dictar</option>{Object.entries(activityLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+                        <label className="space-y-1">Profundidad (opcional)<select className="h-9 w-full rounded-md border px-2" value={item.finding.depth ?? ""} onChange={(event) => setTeeth((current) => current.map((entry, entryIndex) => entryIndex === index && entry.finding?.condition === "caries" ? { ...entry, finding: { ...entry.finding, depth: (event.target.value || null) as SurfaceFinding["depth"] } } : entry))}><option value="">Sin dictar</option>{CARIES_DEPTHS.map((depth) => <option key={depth} value={depth}>{CARIES_DEPTH_SHORT[depth]}</option>)}</select></label>
+                        <p className="self-end pb-2 text-xs text-[#60757a]" data-testid="dictation-caries-icd11">{icd11Label(cariesIcd11(item.finding.depth))}</p>
                       </>}
                     </> : <>
                       <label className="space-y-1">Estado<select className="h-9 w-full rounded-md border px-2" value={item.kind === "crown" ? "Corona" : item.status} onChange={(event) => {
@@ -618,6 +625,15 @@ export function ClinicalDictation({
                 </article>;
               })}
             </section>
+            {(() => {
+              // Caries según lo aceptado arriba (con su profundidad) y diagnósticos dictados con código CIE-11 verificado.
+              const list = [...cariesDiagnoses(teeth.filter((item) => item.decision === "accepted")), ...(proposal.diagnoses ?? []).filter((item) => !item.code.startsWith("DA08.0"))];
+              return list.length > 0 && <section className="rounded-xl border border-[#dce5e7] p-4" data-testid="dictation-diagnoses">
+                <h3 className="font-semibold">Diagnósticos (CIE-11 OMS)</h3>
+                <p className="mt-1 text-xs text-[#60757a]">Código y título oficial de la CIE-11 (MMS 2026-01). Los dictados van en la nota, en «Diagnósticos (CIE-11)»; edítalos ahí si no corresponden.</p>
+                <ul className="mt-2 space-y-2">{list.map((item) => <li key={item.id} className="rounded-lg bg-[#f4f7f8] p-3">{item.label}<Evidence text={item.evidence} /></li>)}</ul>
+              </section>;
+            })()}
             {(proposal.procedures ?? []).length > 0 && <section className="rounded-xl border border-[#dce5e7] p-4">
               <h3 className="font-semibold">Procedimientos realizados (según la IA)</h3>
               <p className="mt-1 text-xs text-[#60757a]">Van en la nota; revísalos ahí.</p>

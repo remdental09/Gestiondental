@@ -13,6 +13,7 @@ const Odontogram = lazy(() => import("@/components/odontogram").then(module => (
 const PatientImages = lazy(() => import("@/components/patient-images").then(module => ({ default: module.PatientImages })));
 import { emptyOdontogram, formatFdi, summarizePerio, type ClinicalImage, type OdontogramData, type OdontogramSurface, type PerioExam, type SurfaceFinding } from "@/app/clinical-data";
 import { installedImplantTeeth } from "@/app/implant-evidence";
+import { cariesDetail } from "@/lib/caries";
 import { cementedCrownFromEvolution } from "@/app/crown-evidence";
 import { bestStoredNameMatches, hasFourNameParts, normalizePatientName } from "@/app/patient-identity";
 import { agendaWeekDays, agendaWeekRangeLabel, mondayOfAgendaWeek, santiagoDateISO, shiftAgendaWeek } from "@/app/agenda-week";
@@ -254,7 +255,7 @@ export default function Home(){
     setToothStatuses(previous=>({...previous,[selectedId]:data.odontogram}));
   };
   const updateSurface=async(tooth:number,surface:OdontogramSurface,finding:SurfaceFinding)=>{
-    if(!await reviewChange({patientId:selectedId,heading:"Hallazgo por superficie",details:[`Pieza FDI ${formatFdi(tooth)}, cara ${surface}: ${finding.condition}${finding.condition==="caries"?` · ICDAS ${finding.icdas} · actividad ${finding.activity}`:""}.`]}))throw new Error("Cambio cancelado; no se guardó.");
+    if(!await reviewChange({patientId:selectedId,heading:"Hallazgo por superficie",details:[`Pieza FDI ${formatFdi(tooth)}, cara ${surface}: ${finding.condition}${finding.condition==="caries"?` · ${cariesDetail(finding)}`:""}.`]}))throw new Error("Cambio cancelado; no se guardó.");
     const data=await persist({action:"setToothSurface",patientId:selectedId,tooth,surface,finding});
     setToothStatuses(previous=>({...previous,[selectedId]:data.odontogram}));
   };
