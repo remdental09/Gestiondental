@@ -34,6 +34,8 @@ export function projectEvolutionChart(source: OdontogramData, implants: number[]
     const placingCrown = crownOnThisImplant(tooth);
     const existing = data.crowns?.[tooth];
     const keepCrown = placingCrown || existing?.foundation === "implant";
+    // Un implante con pilar ya registrado no vuelve a «Implante» salvo que se coloque la corona.
+    if (data.teeth[tooth] === "Implante con pilar" && !placingCrown) continue;
     if (data.teeth[tooth] !== "Implante") {
       data.teeth[tooth] = "Implante";
       delete data.surfaces[tooth];
@@ -74,7 +76,7 @@ export function projectEvolutionChart(source: OdontogramData, implants: number[]
 
   if (crown && !crown.onImplant) {
     const tooth = crown.tooth;
-    const blocked = data.teeth[tooth] === "Implante" || data.teeth[tooth] === "Ausente";
+    const blocked = data.teeth[tooth] === "Implante" || data.teeth[tooth] === "Implante con pilar" || data.teeth[tooth] === "Ausente";
     const canApply = !blocked && (!chartIsNewer || data.teeth[tooth] === "Corona");
     if (canApply) {
       const existing = data.crowns?.[tooth];

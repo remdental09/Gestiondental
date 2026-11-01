@@ -427,7 +427,7 @@ export async function POST(request: Request) {
     }
     if (action === "setToothStatus") {
       const tooth = Number(input.tooth), status = string(input.status, 48);
-      if (!Number.isSafeInteger(tooth) || !allowedTeeth.has(tooth) || !["Sin hallazgos", "Implante", "Corona", "Ausente", "Indicación de exodoncia", "Resto radicular con endodoncia"].includes(status)) return error("Estado dental inválido.");
+      if (!Number.isSafeInteger(tooth) || !allowedTeeth.has(tooth) || !["Sin hallazgos", "Implante", "Implante con pilar", "Corona", "Ausente", "Indicación de exodoncia", "Resto radicular con endodoncia"].includes(status)) return error("Estado dental inválido.");
       const [old] = await db.select().from(toothStatuses).where(and(eq(toothStatuses.ownerId, ownerId), eq(toothStatuses.patientId, patientId)));
       const data = normalizeOdontogram(old ? JSON.parse(old.data) : {});
       if (status === "Sin hallazgos") delete data.teeth[tooth];
@@ -443,7 +443,9 @@ export async function POST(request: Request) {
       if (!Number.isSafeInteger(tooth) || !allowedTeeth.has(tooth) || (material && !["Zirconio","Disilicato","Metal cerámica","Resina","Otro"].includes(material)) || (shade && !/^[A-D][1-4](?:\.5)?$/i.test(shade))) return error("Revisa la pieza y el material de la corona.");
       const [old] = await db.select().from(toothStatuses).where(and(eq(toothStatuses.ownerId, ownerId), eq(toothStatuses.patientId, patientId))).limit(1);
       const data = normalizeOdontogram(old ? JSON.parse(old.data) : {});
-      const foundation = requested ?? (data.teeth[tooth] === "Implante" ? "implant" : "tooth");
+      const foundation = requested ?? (data.teeth[tooth] === "Implante" || data.teeth[tooth] === "Implante con pilar" ? "implant" : "tooth");
+      // Una corona sobre un implante con pilar lo deja como implante con corona (Implante + corona sobre implante).
+      if (foundation === "implant" && data.teeth[tooth] === "Implante con pilar") data.teeth[tooth] = "Implante";
       if (foundation === "implant" && data.teeth[tooth] !== "Implante") return error("Primero registra el implante en la pieza indicada.");
       if (foundation === "tooth" && data.teeth[tooth] !== "Corona") return error("Primero registra una corona en la pieza indicada.");
       if (!material && foundation !== "implant") return error("Revisa la pieza y el material de la corona.");
@@ -481,7 +483,7 @@ export async function POST(request: Request) {
       } else normalized = { condition:condition as SurfaceFinding["condition"], depth:null, icdas:null, activity:null };
       const [old] = await db.select().from(toothStatuses).where(and(eq(toothStatuses.ownerId, ownerId), eq(toothStatuses.patientId, patientId)));
       const data = normalizeOdontogram(old ? JSON.parse(old.data) : {});
-      if (["Ausente","Implante"].includes(data.teeth[tooth]??"")) return error("No se registran superficies dentarias en dientes ausentes o implantes.");
+      if (["Ausente","Implante","Implante con pilar"].includes(data.teeth[tooth]??"")) return error("No se registran superficies dentarias en dientes ausentes o implantes.");
       data.surfaces[tooth] = { ...(data.surfaces[tooth]??{}), [surface as OdontogramSurface]: normalized };
       await db.insert(toothStatuses).values({ ownerId, patientId, data: JSON.stringify(data), updatedAt: now() }).onConflictDoUpdate({ target: toothStatuses.patientId, set: { data: JSON.stringify(data), updatedAt: now() } });
       return Response.json({ odontogram: data });

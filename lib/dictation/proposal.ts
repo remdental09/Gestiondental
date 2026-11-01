@@ -59,6 +59,7 @@ export function isQuotaError(message: string): boolean {
 export const TOOTH_STATUSES = [
   "Sin hallazgos",
   "Implante",
+  "Implante con pilar",
   "Corona",
   "Ausente",
   "Indicación de exodoncia",
@@ -437,10 +438,15 @@ function interpretTooth(raw: string, system: string | undefined): Mention {
     if (!tooth) return { ok: false, reason: `«${raw}» está fuera de la numeración Universal (1 a 32).` };
     return { ok: true, tooth, numbering: "universal", numberingLabel: `Universal ${compact} · FDI ${formatFdi(tooth)}` };
   }
-  const chile = chileToFdi(compact);
-  if (chile) return { ok: true, tooth: chile, numbering: "chilena", numberingLabel: `nacional chilena ${compact} · FDI ${formatFdi(chile)}` };
-  const hint = isValidFdi(compact) ? ` Podría leerse como FDI ${formatFdi(compact)}, pero no se asumió.` : "";
-  return { ok: false, reason: `«pieza ${raw}» no indica el sistema.${hint} Del 1 al 32, sin etiqueta, esta ficha usa numeración nacional chilena.` };
+  // Sin etiqueta, la ficha usa solo FDI (Luis no dicta en numeración nacional chilena: «pieza 30» fue un error de dictado).
+  // Un número fuera de FDI (11–48, 51–85) no se asume: se pregunta, sin valor por defecto.
+  if (isValidFdi(compact)) return { ok: true, tooth: compact, numbering: "FDI", numberingLabel: `FDI ${formatFdi(compact)}` };
+  return { ok: false, reason: notFdiQuestion(raw) };
+}
+
+/** Pregunta para una pieza dictada que no existe en FDI («pieza 30»). Sin valor por defecto. */
+function notFdiQuestion(raw: string, suggestion?: string): string {
+  return `«pieza ${raw}» no es una pieza FDI (11–48, 51–85). ¿Qué pieza? (FDI)${suggestion ? ` Primera opción: ${suggestion}.` : ""}`;
 }
 
 const SPOKEN_DIGIT = "(?:un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho)";
@@ -805,6 +811,7 @@ function describeStatus(item: OdontogramChange): string {
   if (item.status === "Ausente" && item.missingReason === "caries") return "ausente por caries";
   if (item.status === "Ausente") return "ausente";
   if (item.status === "Implante") return "implante";
+  if (item.status === "Implante con pilar") return "implante con pilar";
   if (item.status === "Indicación de exodoncia") return "indicación de exodoncia";
   if (item.status === "Resto radicular con endodoncia") return "resto radicular con endodoncia";
   return item.status ?? "estado registrado";
@@ -1378,7 +1385,7 @@ export function structureTranscript(transcript: string, options: { today?: strin
     const quoted = note.match(/«([^»]+)»/)?.[1];
     return !(quoted && /caries/i.test(note) && solved.has(normalizeEvidence(quoted.replace(/…$/, ""))));
   });
-  const validated = validateProposal({ evolution: null, odontogram, budget, perio, clarifications: tidyClarifications(openClarifications, odontogram) });
+  const validated = validateProposal({ evolution: null, odontogram, budget, perio, clarifications: tidyClarifications([...openClarifications, ...numberingDoubts(transcript)], odontogram) });
   const routed = finishRouting({
     ...validated,
     incomplete: openIncomplete,
@@ -1620,7 +1627,7 @@ export function validateProposal(input: unknown): DictationProposal {
       else odontogram.push({ ...item, id: `odo-${odontogram.length + 1}` });
     }
   }
-  const blocked = new Set(odontogram.filter((item) => item.kind !== "surface" && (item.status === "Implante" || item.status === "Ausente")).map((item) => item.tooth));
+  const blocked = new Set(odontogram.filter((item) => item.kind !== "surface" && (item.status === "Implante" || item.status === "Implante con pilar" || item.status === "Ausente")).map((item) => item.tooth));
   const kept = odontogram.filter((item) => {
     if (item.kind === "surface" && blocked.has(item.tooth)) {
       clarifications.push(`No se propone superficie en FDI ${formatFdi(item.tooth)} porque el estado general es ${odontogram.find((status) => status.tooth === item.tooth && status.kind !== "surface")?.status}.`);
@@ -1805,7 +1812,7 @@ export const AI_SYSTEM_PROMPT = `Eres asistente de un odontólogo chileno. Recib
 
 2) "hallazgos": un elemento por cada pieza y hallazgo de odontograma OBSERVADO HOY en el examen o realizado hoy. No incluyas lo que el paciente relata, lo planificado, presupuestado o negado.
 - "pieza": el número tal como se dictó ("30", "3.6", "cuarenta y seis").
-- "sistema": "chilena" si dijo pieza 1 a 32 sin etiqueta o dijo chilena/nacional; "FDI" si dijo FDI/ISO o con punto (3.6) o dos dígitos separados (tres seis); "universal" si lo dijo; "sin_etiqueta" si es otro número sin sistema.
+- "sistema": "chilena" SOLO si dijo chilena/nacional; un número sin etiqueta es "sin_etiqueta" (la ficha usa FDI); "FDI" si dijo FDI/ISO o con punto (3.6) o dos dígitos separados (tres seis); "universal" si lo dijo; "sin_etiqueta" si es otro número sin sistema.
 - "tipo": "superficie" para caries, obturación, sellante, otra restauración o cara sana; "estado" para Ausente, Implante, Corona, Indicación de exodoncia o Resto radicular con endodoncia.
 - "condicion" (solo superficie): caries | obturacion | sellante | otra_restauracion | sana. "estado" (solo estado): Ausente | Implante | Corona | Indicación de exodoncia | Resto radicular con endodoncia. Deja "" lo que no aplique.
 - "caras": letras M, O, D, V, P (O también es incisal; P es palatina o lingual) SOLO si se dictaron para ese hallazgo. MOD = M,O,D.
@@ -1825,7 +1832,7 @@ export const AI_SYSTEM_PROMPT = `Eres asistente de un odontólogo chileno. Recib
 8) "pagos": dinero que el paciente pagó o abonó HOY (no lo presupuestado ni lo que debe), con "monto" en pesos, "medio" (efectivo | debito | credito | transferencia | otro | "" si no se dijo), "concepto" ("" si no se dijo) y "evidencia" literal.
 9) "citas": la próxima cita o control que se dictó, con "motivo" ("" si no se dijo) y "evidencia" literal que contenga la fecha u hora tal como se dijo. No calcules la fecha.
 10) "diagnosticos": cada diagnóstico que el PROFESIONAL dictó hoy (no lo que el paciente relata, ni lo sospechado, probable, a descartar, negado o planificado), con "termino" (el diagnóstico tal como se dijo, p. ej. «pulpitis irreversible sintomática», «absceso apical crónico», «gingivitis inducida por placa», «periodontitis estadio III grado B»), "pieza" ("" si no se dijo) y "evidencia" literal que contenga el término. No pongas códigos: el sistema los asigna desde el catálogo CIE-11. Las caries ya van en hallazgos: no las repitas aquí.
-11) "dudas": solo dudas reales que el odontólogo deba resolver (un número que no es pieza válida, una autocorrección confusa, una cara que no corresponde). Las piezas 1 a 32 sin etiqueta son numeración chilena: no generan duda. No preguntes por lo que ya falta en pagos, citas o sondajes (medio de pago, hora, sitio): eso se pregunta aparte.
+11) "dudas": solo dudas reales que el odontólogo deba resolver (un número que no es pieza válida, una autocorrección confusa, una cara que no corresponde). Un número de pieza sin etiqueta que no es FDI válido (p. ej. «pieza 30») es una duda: pregunta «¿Qué pieza? (FDI)» sin suponer ninguna. No preguntes por lo que ya falta en pagos, citas o sondajes (medio de pago, hora, sitio): eso se pregunta aparte.
 
 Las líneas que empiezan con «Aclaración:» son respuestas del profesional a preguntas anteriores; completan o corrigen lo dictado antes y tienen prioridad.
 
@@ -2046,7 +2053,9 @@ function resolveAiTooth(pieza: string, sistema: string, evidence: string): Menti
   const raw = pieza.trim().replace(/^(?:pieza|diente)\s+/i, "");
   let intended: Mention | null = null;
   if (/^\d{1,2}(?:\.\d)?$/.test(raw)) {
-    intended = interpretTooth(raw, sistema === "FDI" ? "fdi" : sistema === "universal" ? "universal" : sistema === "chilena" ? "chilena" : undefined);
+    // «chilena» solo si se dijo en la cita: sin etiqueta, la ficha usa FDI.
+    const saidChile = /\b(?:chilena|nacional)\b/i.test(evidence);
+    intended = interpretTooth(raw, sistema === "FDI" ? "fdi" : sistema === "universal" ? "universal" : sistema === "chilena" && saidChile ? "chilena" : undefined);
   } else if (raw) {
     intended = toothMentions(`pieza ${raw}`)[0] ?? null;
   }
@@ -2496,6 +2505,8 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 
 /** Tema y destino de una pregunta: así IA y reglas no preguntan lo mismo dos veces. */
 function clarificationKey(note: string): string {
+  const notFdi = note.match(/«pieza (\d{1,2})» no es una pieza FDI/);
+  if (notFdi) return `pieza-no-fdi:${notFdi[1]}`;
   const plain = normalizeEvidence(note.replace(/^IA:\s*/i, ""));
   const tooth = note.match(/FDI (\d\.\d)/)?.[1];
   if (tooth && /profundidad de la caries/i.test(note)) return `profundidad:${tooth}`;
@@ -2515,30 +2526,95 @@ export function tidyClarifications(notes: string[], odontogram: OdontogramChange
       if (caries.length && caries.every((item) => item.finding?.depth)) continue;
     }
     const key = clarificationKey(note);
-    if (seen.has(key)) continue;
+    if (seen.has(key)) {
+      // La versión con «Primera opción» reemplaza a la pregunta simple de la misma pieza.
+      if (key.startsWith("pieza-no-fdi:") && /Primera opción/.test(note)) {
+        const at = out.findIndex((item) => clarificationKey(item) === key);
+        if (at >= 0 && !/Primera opción/.test(out[at])) out[at] = note;
+      }
+      continue;
+    }
     seen.add(key);
     out.push(note);
   }
   return out;
 }
 
+/** Contexto de procedimiento que comparten dos menciones de pieza (implante, corona, caries…). */
+const PROCEDURE_CONTEXT: Array<[string, RegExp]> = [
+  ["implante", /\bimplantes?\b|\bpilar(?:es)?\b/iu],
+  ["corona", /\bcoronas?\b/iu],
+  ["endodoncia", /\bendodoncia|\bconductos?\b/iu],
+  ["obturación", /\bobturaci|\bresina|\bamalgama/iu],
+  ["caries", /\bcaries\b/iu],
+  ["exodoncia", /\bexodoncia|\bextracci/iu],
+];
+
+function contextsIn(slice: string): string[] {
+  return PROCEDURE_CONTEXT.filter(([, re]) => re.test(slice)).map(([name]) => name);
+}
+
 /**
- * «pieza 30» sin sistema: esta ficha la lee como numeración nacional chilena, pero se pide confirmarlo.
- * Si el número también es una pieza FDI válida («pieza 26»), la duda es mayor y se dice cuál sería cada lectura.
+ * Contexto de una mención: lo que se dice desde la pieza hasta la siguiente pieza. Si ahí no hay procedimiento,
+ * lo que se dijo antes en la misma frase, siempre que no haya otra pieza entremedio («implante en pieza 2.6»).
  */
-export function numberingDoubts(text: string): string[] {
+function mentionContext(text: string, mention: { index: number; length: number }, all: Array<{ index: number; length: number }>): string[] {
+  const next = all.filter((item) => item.index > mention.index).map((item) => item.index).sort((a, b) => a - b)[0] ?? text.length;
+  const after = contextsIn(text.slice(mention.index, next));
+  if (after.length) return after;
+  const sentenceStart = Math.max(text.lastIndexOf(".", mention.index - 1), text.lastIndexOf("\n", mention.index - 1)) + 1;
+  const earlier = all.some((item) => item.index < mention.index && item.index >= sentenceStart);
+  return earlier ? [] : contextsIn(text.slice(sentenceStart, mention.index));
+}
+
+/** Piezas FDI válidas dictadas en el texto, con su posición (3.6, «pieza 26», «dos seis» ya corregido a 2.6). */
+function fdiMentionsWithIndex(text: string): Array<{ tooth: number; index: number; length: number }> {
+  const out: Array<{ tooth: number; index: number; length: number }> = [];
+  for (const match of text.matchAll(/(?<![\d.,])([1-8])[.,]([1-8])(?![\d.,]?\d)(?!\s*(?:mm|mil[ií]metros?|cm|%|[x×]))/gu)) {
+    const tooth = Number(`${match[1]}${match[2]}`);
+    if (isValidFdi(tooth)) out.push({ tooth, index: match.index ?? 0, length: match[0].length });
+  }
+  for (const match of text.matchAll(/(?<!\p{L})(?:pieza|diente)\s+(?:fdi\s+)?(\d{2})(?![\d.,]\d)(?!\p{L})/giu)) {
+    const tooth = Number(match[1]);
+    if (isValidFdi(tooth)) out.push({ tooth, index: match.index ?? 0, length: match[0].length });
+  }
+  return out.sort((a, b) => a.index - b.index);
+}
+
+/**
+ * «pieza 30» sin sistema: no es FDI y no se asume ninguna pieza (antes se leía como numeración chilena).
+ * Si el dictado nombra otra pieza FDI válida en el mismo contexto (p. ej. «implante 2.6» antes), se sugiere
+ * como primera opción, sin marcarla.
+ */
+export function numberingDoubts(text: string, chart: StructureInput["chart"] = []): string[] {
   const out: string[] = [];
   const seen = new Set<number>();
-  for (const match of text.matchAll(/(?<!\p{L})(?:pieza|diente)\s+(\d{1,2})(?![\d.,]\d|\s*(?:mm|mil[ií]metros?))(?!\p{L})/giu)) {
+  const valid = fdiMentionsWithIndex(text);
+  const implantsInChart = [...new Set(chart.filter((item) => /^Implante/.test(item.status)).map((item) => item.tooth))];
+  const invalid: Array<{ value: number; index: number; length: number }> = [];
+  for (const match of text.matchAll(/(?<!\p{L})(?:pieza|diente):?\s+(\d{1,2})(?![\d.,]\d|\s*(?:mm|mil[ií]metros?))(?!\p{L})/giu)) {
     const before = text.slice(Math.max(0, (match.index ?? 0) - 12), match.index ?? 0);
     if (/(?:fdi|iso|chilena|nacional|universal)\s*$/i.test(before)) continue;
     const value = Number(match[1]);
-    if (seen.has(value)) continue;
-    seen.add(value);
-    const chile = chileToFdi(value);
-    if (!chile) continue;
-    if (isValidFdi(value)) out.push(`«pieza ${value}»: ¿nacional chilena ${value} (FDI ${formatFdi(chile)}) o FDI ${formatFdi(value)}? Se leyó como nacional chilena; si era FDI, díctalo «${formatFdi(value)}» o corrígelo.`);
-    else out.push(`«pieza ${value}» se leyó en numeración nacional chilena = FDI ${formatFdi(chile)}. Confírmalo (en FDI se dice «${formatFdi(chile)}»).`);
+    if (isValidFdi(value)) continue;
+    invalid.push({ value, index: match.index ?? 0, length: match[0].length });
+  }
+  const all = [...valid, ...invalid];
+  for (const mention of invalid) {
+    if (seen.has(mention.value)) continue;
+    seen.add(mention.value);
+    const context = mentionContext(text, mention, all);
+    let candidate: { tooth: number; shared: string } | undefined;
+    for (const item of [...valid].sort((x, y) => Math.abs(x.index - mention.index) - Math.abs(y.index - mention.index))) {
+      const shared = mentionContext(text, item, all).find((name) => context.includes(name));
+      if (shared) { candidate = { tooth: item.tooth, shared }; break; }
+    }
+    // Sin otra pieza en el dictado: si se habla de un implante y el odontograma tiene uno solo, se sugiere ese.
+    const fromChart = !candidate && context.includes("implante") && implantsInChart.length === 1 ? implantsInChart[0] : null;
+    const suggestion = candidate
+      ? `FDI ${formatFdi(candidate.tooth)} (${candidate.shared} dicho en este mismo dictado)`
+      : fromChart ? `FDI ${formatFdi(fromChart)} (único implante en el odontograma)` : undefined;
+    out.push(notFdiQuestion(String(mention.value), suggestion));
   }
   return out;
 }
@@ -2558,29 +2634,71 @@ function mainToothLabel(text: string, odontogram: OdontogramChange[]): string | 
  */
 export function applyEvolutionPolicy(proposal: DictationProposal, chart: StructureInput["chart"], text: string): DictationProposal {
   const current = new Map(chart.map((item) => [item.tooth, item.status] as const));
+  const isImplant = (status: string | undefined) => status === "Implante" || status === "Implante con pilar";
   const notes: string[] = [];
-  const kind = classifyEvolution(text, null);
+  const mentioned = [...new Set(toothMentions(text).flatMap((item) => (item.ok ? [item.tooth] : [])))];
+  const implantInChart = mentioned.some((tooth) => isImplant(current.get(tooth)));
+  const kind = classifyEvolution(text, null, implantInChart);
+  // Pilar protésico instalado o conectado hoy (el de cicatrización es transitorio y queda solo en la evolución).
+  const pilarToday = kind.type === "implante-rehabilitacion" && kind.detail === "pilar";
+  const pilarTeeth = pilarToday
+    ? (mentioned.filter((tooth) => isImplant(current.get(tooth))).length ? mentioned.filter((tooth) => isImplant(current.get(tooth))) : mentioned.slice(0, 1))
+    : [];
   const odontogram: OdontogramChange[] = [];
   for (const item of proposal.odontogram) {
+    if (pilarTeeth.includes(item.tooth) && item.kind === "status" && item.status === "Implante") continue;
     if (item.kind === "status" && item.status && current.get(item.tooth) === item.status) {
       notes.push(`FDI ${formatFdi(item.tooth)} ya figura como ${item.status.toLowerCase()} en el odontograma: no se vuelve a marcar.`);
+      continue;
+    }
+    if (item.kind === "status" && item.status === "Implante" && current.get(item.tooth) === "Implante con pilar") {
+      const crownToo = proposal.odontogram.some((other) => other.tooth === item.tooth && other.kind === "crown" && other.foundation === "implant");
+      notes.push(crownToo
+        ? `FDI ${formatFdi(item.tooth)} figura como implante con pilar: al guardar la corona queda como implante con corona.`
+        : `FDI ${formatFdi(item.tooth)} ya figura como implante con pilar en el odontograma: no se cambia.`);
       continue;
     }
     if (kind.type === "implante-control" && item.kind === "status" && item.status === "Implante") {
       odontogram.push({ ...item, advisory: `Es un control: el odontograma no muestra implante en FDI ${formatFdi(item.tooth)}. Márcalo solo si faltaba registrarlo.` });
       continue;
     }
-    if (kind.type === "implante-rehabilitacion" && kind.detail !== "corona" && item.kind === "status" && item.status === "Implante") {
-      odontogram.push({ ...item, advisory: `Se instaló un pilar: el odontograma no tiene estado «implante con pilar». Marca «Implante» solo si faltaba registrarlo; el pilar queda en la evolución.` });
+    if (kind.type === "implante-rehabilitacion" && kind.detail !== "corona" && !pilarToday && item.kind === "status" && item.status === "Implante") {
+      odontogram.push({ ...item, advisory: `Se instaló un pilar de cicatrización: queda en la evolución. Marca «Implante» solo si faltaba registrarlo.` });
       continue;
     }
     odontogram.push(item);
   }
-  const finalKind = classifyEvolution(text, mainToothLabel(text, odontogram.length ? odontogram : proposal.odontogram));
-  if (finalKind.type === "implante-rehabilitacion" && finalKind.detail !== "corona") {
-    notes.push("El odontograma no tiene un estado «implante con pilar»: el pilar queda registrado en la evolución.");
+  const pilarItems: OdontogramChange[] = [];
+  for (const tooth of pilarTeeth) {
+    const status = current.get(tooth);
+    if (status === "Implante con pilar") {
+      notes.push(`FDI ${formatFdi(tooth)} ya figura como implante con pilar en el odontograma: no se vuelve a marcar.`);
+      continue;
+    }
+    const mention = toothMentions(text).find((item): item is Extract<Mention, { ok: true }> => item.ok && item.tooth === tooth);
+    const sentence = sentences(text).find((line) => /pilar/i.test(line) && toothMentions(line).some((item) => item.ok && item.tooth === tooth))
+      ?? sentences(text).find((line) => /pilar/i.test(line)) ?? text;
+    const item: OdontogramChange = {
+      id: `odo-pilar-${tooth}`,
+      tooth,
+      numbering: mention?.numbering ?? "FDI",
+      numberingLabel: mention?.numberingLabel ?? `FDI ${formatFdi(tooth)}`,
+      sourceText: clip(sentence, 400),
+      evidence: clip(sentence, 400),
+      origin: "reglas",
+      kind: "status",
+      status: "Implante con pilar",
+    };
+    pilarItems.push(status === "Implante"
+      ? item
+      : { ...item, advisory: `El odontograma no muestra implante en FDI ${formatFdi(tooth)}. Márcalo como implante con pilar solo si faltaba registrar el implante.` });
   }
-  const changed = odontogram.length !== proposal.odontogram.length || odontogram.some((item) => item.advisory);
+  odontogram.unshift(...pilarItems);
+  const finalKind = classifyEvolution(text, mainToothLabel(text, odontogram.length ? odontogram : proposal.odontogram), implantInChart);
+  if (finalKind.type === "implante-rehabilitacion" && finalKind.detail === "pilar de cicatrización") {
+    notes.push("Pilar de cicatrización: queda en la evolución. El estado «Implante con pilar» es para el pilar protésico.");
+  }
+  const changed = odontogram.length !== proposal.odontogram.length || odontogram.some((item) => item.advisory) || pilarItems.length > 0;
   const evolution = proposal.evolution ? { ...proposal.evolution, title: finalKind.title, ...(changed ? { body: replaceExamSection(proposal.evolution.body, odontogram.filter((item) => !item.advisory)) } : {}) } : null;
   return { ...proposal, odontogram, evolution, evolutionKind: finalKind, policyNotes: notes };
 }
@@ -2615,7 +2733,7 @@ export async function proposeFromTranscript(
   const withText = (proposal: DictationProposal, text: string, corrections: TranscriptCorrection[], aiDiagnoses: DiagnosisItem[] = []): DictationProposal => {
     // En la nota solo entran los diagnósticos no sugeridos; las equivalencias sugeridas esperan confirmación.
     const diagnoses = mergeDiagnoses(cariesDiagnoses(proposal.odontogram), textDiagnoses(text), aiDiagnoses);
-    const doubts = [...lexiconDoubts(text), ...numberingDoubts(text)];
+    const doubts = [...lexiconDoubts(text), ...numberingDoubts(text, input.chart ?? [])];
     const clarifications = tidyClarifications([...proposal.clarifications, ...doubts.filter((item) => !proposal.clarifications.includes(item))], proposal.odontogram);
     const evolution = proposal.evolution ? { ...proposal.evolution, body: withDiagnosesSection(proposal.evolution.body, diagnoses.filter((item) => !item.suggested)) } : null;
     const typed = applyEvolutionPolicy({ ...proposal, evolution, clarifications, diagnoses }, input.chart ?? [], text);
@@ -2713,7 +2831,7 @@ export function planChartWrites(patientId: number, before: ChartSnapshot, after:
 
   const blocksSurfaces = (tooth: number) => {
     const status = acceptedGeneral.get(tooth) ?? statusOf(before, tooth);
-    return status === "Implante" || status === "Ausente";
+    return status === "Implante" || status === "Implante con pilar" || status === "Ausente";
   };
 
   for (const tooth of [...toothIds].sort((a, b) => a - b)) {

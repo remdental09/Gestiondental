@@ -76,7 +76,7 @@ export function Tooth3DModal({
       const detail = finding.condition === "caries" ? ` · ${cariesDetail(finding)}` : "";
       return `${face}: ${CONDITION_LABEL[finding.condition]}${detail}`;
     });
-  if (status && status !== "Sin hallazgos") findings.unshift(status === "Implante" && hasCrown ? "Implante con corona" : status === "Corona" ? "Corona" : status === "Ausente" ? "Ausente / extraído" : status);
+  if (status && status !== "Sin hallazgos") findings.unshift((status === "Implante" || status === "Implante con pilar") && hasCrown ? "Implante con corona" : status === "Implante con pilar" ? "Implante con pilar (sin corona)" : status === "Corona" ? "Corona" : status === "Ausente" ? "Ausente / extraído" : status);
   return <div className="fixed inset-0 z-50" role="presentation">
     <button type="button" className="absolute inset-0 bg-[#10343a]/45" aria-label="Cerrar vista 3D" onClick={onClose} />
     <div

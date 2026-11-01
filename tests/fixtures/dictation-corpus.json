@@ -21,12 +21,15 @@
       }
     },
     {
-      "id": "c02-numeracion-chilena",
-      "text": "pieza 30 obturacion oclusal de resina pieza 19 ausente",
+      "id": "c02-pieza-30-no-es-fdi",
+      "text": "pieza 30 obturacion oclusal de resina pieza 4.6 ausente",
       "expect": {
         "odontogram": [
-          "36 O restored",
           "46 Ausente"
+        ],
+        "clarify": [
+          "«pieza 30» no es una pieza FDI",
+          "¿Qué pieza\\? \\(FDI\\)$"
         ],
         "patientWarning": false
       }
@@ -145,7 +148,7 @@
     },
     {
       "id": "c13-fractura-no-es-caries",
-      "text": "pieza 3 con fractura de la cúspide mesiopalatina y obturación oclusal de amalgama",
+      "text": "pieza 1.6 con fractura de la cúspide mesiopalatina y obturación oclusal de amalgama",
       "expect": {
         "odontogram": [
           "16 O restored"
@@ -169,7 +172,7 @@
     },
     {
       "id": "c15-dentina-sin-profundidad",
-      "text": "pieza 12 caries oclusal de dentina",
+      "text": "pieza 2.4 caries oclusal de dentina",
       "expect": {
         "odontogram": [
           "24 O caries:-"
@@ -490,7 +493,7 @@
       }
     },
     {
-      "id": "c41-implante-pilar-instalado",
+      "id": "c41-pilar-cicatrizacion-solo-evolucion",
       "chart": [
         {
           "tooth": 36,
@@ -502,14 +505,17 @@
         "type": "implante-rehabilitacion",
         "odontogram": [],
         "titleIncludes": "pilar",
-        "patientWarning": false
+        "patientWarning": false,
+        "unchecked": [
+          "46 Implante"
+        ]
       }
     },
     {
       "id": "c42-sin-ia-preambulo-nombre-oido-mal",
       "chart": [
         {
-          "tooth": 36,
+          "tooth": 26,
           "status": "Implante"
         }
       ],
@@ -522,12 +528,107 @@
         ],
         "clarify": [
           "en la mesa",
-          "30"
+          "«pieza 30» no es una pieza FDI.*¿Qué pieza\\? \\(FDI\\) Primera opción: FDI 2\\.6"
         ],
         "noteExcludes": [
           "evolucionar",
           "Hola"
         ],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c43-pieza-30-sugiere-implante-dictado",
+      "chart": [],
+      "text": "Control de implante 2.6 instalado hace tres meses. Pieza 30 sin dolor a la percusión, implante estable.",
+      "expect": {
+        "type": "implante-control",
+        "odontogram": [],
+        "clarify": [
+          "«pieza 30» no es una pieza FDI.*Primera opción: FDI 2\\.6 \\(implante dicho en este mismo dictado\\)"
+        ],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c44-pilar-sobre-implante-marcado",
+      "chart": [
+        {
+          "tooth": 36,
+          "status": "Implante"
+        }
+      ],
+      "text": "Se instala pilar protésico en implante 3.6, torque 30 Ncm, sin complicaciones.",
+      "expect": {
+        "type": "implante-rehabilitacion",
+        "odontogram": [
+          "36 Implante con pilar"
+        ],
+        "unchecked": [],
+        "titleIncludes": "pilar",
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c45-pilar-conectado-sin-decir-implante",
+      "chart": [
+        {
+          "tooth": 36,
+          "status": "Implante"
+        }
+      ],
+      "text": "Se conecta pilar en la pieza 3.6, torque 30 Ncm.",
+      "expect": {
+        "type": "implante-rehabilitacion",
+        "odontogram": [
+          "36 Implante con pilar"
+        ],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c46-pilar-en-pieza-sin-implante-marcado",
+      "text": "Se instaló pilar en implante 2.6, torque 30 Ncm.",
+      "expect": {
+        "type": "implante-rehabilitacion",
+        "odontogram": [],
+        "unchecked": [
+          "26 Implante con pilar"
+        ],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c47-control-con-pilar-no-cambia",
+      "chart": [
+        {
+          "tooth": 36,
+          "status": "Implante"
+        }
+      ],
+      "text": "Control de implante 3.6 con pilar, estable, sin dolor a la percusión.",
+      "expect": {
+        "type": "implante-control",
+        "odontogram": [],
+        "unchecked": [],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c48-corona-sobre-implante-con-pilar",
+      "chart": [
+        {
+          "tooth": 36,
+          "status": "Implante con pilar"
+        }
+      ],
+      "text": "Se cementa corona de zirconio sobre implante 3.6.",
+      "expect": {
+        "type": "implante-rehabilitacion",
+        "odontogram": [
+          "36 corona:implante"
+        ],
+        "unchecked": [],
         "patientWarning": false
       }
     }

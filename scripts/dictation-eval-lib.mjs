@@ -18,6 +18,7 @@ export function summarize(proposal, transcript, patient) {
   const check = checkPatientMentions(transcript, patient);
   return {
     odontogram: sorted(proposal.odontogram.filter((item) => !item.conflict && !item.advisory).map(odontogramLine)),
+    unchecked: sorted(proposal.odontogram.filter((item) => item.conflict || item.advisory).map(odontogramLine)),
     incomplete: sorted((proposal.incomplete ?? []).map(odontogramLine)),
     perio: sorted(proposal.perio.map((item) => `${item.tooth} ${item.site} ${item.depth}${item.bleeding ? ' sangrado' : ''}${item.suppuration ? ' supuración' : ''}`)),
     perioPending: (proposal.perioPending ?? []).length,
@@ -35,7 +36,7 @@ export function summarize(proposal, transcript, patient) {
   };
 }
 
-const LIST_FIELDS = ['odontogram', 'incomplete', 'perio', 'mobility', 'payments', 'appointments', 'ficha', 'budget', 'diagnoses'];
+const LIST_FIELDS = ['odontogram', 'unchecked', 'incomplete', 'perio', 'mobility', 'payments', 'appointments', 'ficha', 'budget', 'diagnoses'];
 
 /** Diferencias por campo; solo se comparan los campos que el caso declara. */
 export function compare(expect, actual) {

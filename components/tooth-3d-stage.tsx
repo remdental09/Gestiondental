@@ -177,7 +177,9 @@ export function Tooth3DStage({ tooth, status, surfaces, hasCrown, reducedMotion,
 function mountTooth(THREE: ThreeModule, room: RoomEnvironmentModule, canvas: HTMLCanvasElement, props: StageProps): () => void {
   const { tooth, status, surfaces, hasCrown, reducedMotion, view } = props;
   const missing = status === "Ausente";
-  const implant = status === "Implante";
+  const implant = status === "Implante" || status === "Implante con pilar";
+  // Pilar protésico de titanio sobre el implante, sin corona.
+  const abutment = status === "Implante con pilar" && !hasCrown;
   const endodontic = status === "Resto radicular con endodoncia";
   const crowned = !missing && !implant && (hasCrown || status === "Corona");
   const primary = Math.floor(tooth / 10) >= 5;
@@ -335,7 +337,7 @@ function mountTooth(THREE: ThreeModule, room: RoomEnvironmentModule, canvas: HTM
 
   let releaseImplant = () => {};
   if (implant) {
-    releaseImplant = buildImplant(THREE, renderer, inner, track);
+    releaseImplant = buildImplant(THREE, renderer, inner, track, abutment);
     if (hasCrown) {
       // Prosthetic ceramic crown with the anatomy of this tooth type, seated on the implant platform.
       const crownGeo = toGeometry(buildToothAnatomy(tooth, "crown").meshes[0], ceramicColor, () => 1, noTint);
@@ -475,6 +477,7 @@ function buildImplant(
   renderer: InstanceType<ThreeModule["WebGLRenderer"]>,
   group: InstanceType<ThreeModule["Group"]>,
   track: Track,
+  abutment = false,
 ): () => void {
   const collarHeight = 0.12;
   const bodyTop = -collarHeight;
@@ -533,6 +536,41 @@ function buildImplant(
   const channel = new THREE.Mesh(track(new THREE.CylinderGeometry(0.06, 0.06, 0.022, 20)), track(new THREE.MeshBasicMaterial({ color: 0x15181a })));
   channel.position.y = -0.003;
   group.add(channel);
+
+  if (abutment) {
+    // Pilar protésico recto de titanio (sin corona): base transmucosa pulida que se ensancha desde la
+    // plataforma, hombro para la corona y muñón cónico con una cara plana antirrotacional y el acceso al tornillo.
+    const cuffTop = 0.2;
+    const postTop = 0.7;
+    const cuff = new THREE.Mesh(track(new THREE.LatheGeometry([
+      new THREE.Vector2(0.0001, 0),
+      new THREE.Vector2(0.27, 0),
+      new THREE.Vector2(0.3, cuffTop * 0.5),
+      new THREE.Vector2(0.335, cuffTop),
+      new THREE.Vector2(0.335, cuffTop + 0.02),
+      new THREE.Vector2(0.3, cuffTop + 0.04),
+      new THREE.Vector2(0.0001, cuffTop + 0.04),
+    ], 48)), polished);
+    group.add(cuff);
+    const postBottom = cuffTop + 0.04;
+    const postGeo = track(new THREE.CylinderGeometry(0.19, 0.27, postTop - postBottom, 40, 1, false));
+    // Cara plana antirrotacional: se aplanan los vértices de un lado.
+    const position = postGeo.getAttribute("position");
+    for (let i = 0; i < position.count; i += 1) {
+      if (position.getX(i) > 0.17) position.setX(i, 0.17);
+    }
+    postGeo.computeVertexNormals();
+    const post = new THREE.Mesh(postGeo, titanium);
+    post.position.y = (postTop + postBottom) / 2;
+    group.add(post);
+    const shoulderRing = new THREE.Mesh(track(new THREE.TorusGeometry(0.3, 0.012, 8, 48)), polished);
+    shoulderRing.rotation.x = Math.PI / 2;
+    shoulderRing.position.y = postBottom;
+    group.add(shoulderRing);
+    const access = new THREE.Mesh(track(new THREE.CylinderGeometry(0.075, 0.075, 0.012, 6)), dark);
+    access.position.y = postTop + 0.001;
+    group.add(access);
+  }
 
   // Tapered core with a rounded apex (lathe profile from collar down to the tip).
   const coreProfile: InstanceType<ThreeModule["Vector2"]>[] = [];
