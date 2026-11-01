@@ -289,7 +289,7 @@ export function resolveSpokenTime(text: string): SpokenTime | null {
   return { time: `${pad(hour)}:${pad(minute)}`, said };
 }
 
-const APPOINTMENT_CUE_FOLDED = /\b(?:proxim[ao]\s+(?:cita|control|sesion|atencion|hora)|(?:se\s+)?(?:cita|agenda|reagenda|cito|agendo)\s+(?:para|el|la|al|en|control)|control\s+(?:el|en|para)|vuelve\s+(?:el|en|a\s+control)|nueva\s+(?:cita|hora)|citar\s+(?:el|en|para))\b/;
+const APPOINTMENT_CUE_FOLDED = /\b(?:proxim[ao]\s+(?:cita|control|sesion|atencion|hora)|(?:se\s+)?(?:cita|agenda|reagenda|cito|agendo)\s+(?:para|el|la|al|en|control)|control\s+(?:el|en|para)|vuelve\s+(?:el|en|a\s+control)|nos\s+vemos\s+(?:el|en|la|para|al|dentro)|(?:volver|regresar|regresa)\s+en|nueva\s+(?:cita|hora)|citar\s+(?:el|en|para))\b/;
 export const isAppointmentText = (text: string) => APPOINTMENT_CUE_FOLDED.test(fold(text));
 
 // ---------- Corrección del texto mal oído ----------
@@ -325,7 +325,23 @@ const LEXICON: Array<[RegExp, string]> = [
   [/\bsupura(?:sion|zion)\b/gi, "supuración"],
   [/\ba\s+bono\b/gi, "abonó"],
   [/\bre\s?d\s?compra\b/gi, "Redcompra"],
+  // Implantes: «técnica Flappers» → flapless (sin colgajo); «pieza 2,6» → 2.6 (FDI con punto).
+  [/\bflap+(?:ers?|les+|leis|lis|ess)\b/gi, "flapless"],
+  [/\b(pieza|diente)\s+([1-8]),([1-8])(?![\d,.])/gi, "$1 $2.$3"],
 ];
+
+/** «implante de 33 × 8» → «3,3 × 8 mm»: diámetro por largo del implante, con coma decimal para no leerse como pieza 3.3. */
+const IMPLANT_SIZE = /(?<![\d.,])([3-6])([0-9])\s*(?:×|x)\s*(\d{1,2})(?:\s*(?:mm|mil[ií]metros?))?(?![\d.,])/gi;
+
+/** Dichos que el diccionario no corrige solo: quedan como pregunta para el profesional. */
+export function lexiconDoubts(text: string): string[] {
+  const out: string[] = [];
+  const brand = text.match(/\b(?:marca\s+)?(arc[iy]s+(?:\s+dos)?)\b/i);
+  if (brand) out.push(`¿La marca del implante es Arcsys (FGM)? Se oyó «${brand[1]}»: confírmala o corrígela.`);
+  const integral = text.match(/\bimplantes?\s+integral(?:es)?\b/i);
+  if (integral) out.push(`Se oyó «${integral[0]}»: ¿es un implante oseointegrado o la marca/modelo del implante?`);
+  return out;
+}
 
 export function applyLexicon(text: string): { text: string; corrections: TranscriptCorrection[] } {
   let out = text;
@@ -336,6 +352,13 @@ export function applyLexicon(text: string): { text: string; corrections: Transcr
       const keepCase = /^[A-ZÁÉÍÓÚ]/.test(match) && value === value.toLowerCase() ? value[0].toUpperCase() + value.slice(1) : value;
       if (fold(match) !== fold(keepCase) && !corrections.some(c => c.original === match && c.corrected === keepCase)) corrections.push({ original: match, corrected: keepCase, origin: "diccionario", applied: true });
       return keepCase;
+    });
+  }
+  if (/\bimplantes?\b/i.test(out)) {
+    out = out.replace(IMPLANT_SIZE, (match, whole: string, decimal: string, length: string) => {
+      const value = `${whole},${decimal} × ${length} mm`;
+      if (!corrections.some(c => c.original === match)) corrections.push({ original: match, corrected: value, origin: "diccionario", applied: true });
+      return value;
     });
   }
   return { text: out, corrections };

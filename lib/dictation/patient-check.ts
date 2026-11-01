@@ -8,7 +8,7 @@
 export type PatientMention = { kind: "name" | "rut"; mentioned: string; quote: string };
 export type PatientCheck = { mismatches: PatientMention[]; matches: PatientMention[] };
 
-const fold = (text: string) => text.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+export const fold = (text: string) => text.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
 
 // Palabras que siguen a «paciente», «señora»… y no son un nombre.
 const NOT_NAME = new Set(`
@@ -31,10 +31,10 @@ nuevo nueva antiguo antigua habitual frecuente ambulatorio ambulatoria sano sana
 // Sufijos de adjetivos o verbos en minúscula (un apellido dictado en minúscula con estas terminaciones se pierde; se prefiere no alarmar).
 const ADJECTIVE = /(?:ico|ica|icos|icas|tivo|tiva|ente|ante|oso|osa|mente|cion|sion|ado|ada|ido|ida|aba|ian)$/
 
-const TRIGGER = /(?<![\p{L}\d])(?:(?:el|la|al|del|a\s+la)\s+)?(?:paciente|sr\.?|sra\.?|srta\.?|se[nñ]or(?:ita)?|se[nñ]ora|don|do[nñ]a|nombre(?:\s+del?\s+paciente)?(?:\s+es)?|se\s+llama|llamad[oa])\s*[:,]?\s+/giu;
-const BLOCK_BEFORE = /(?:doctor|doctora|dr\.?|dra\.?|odont[oó]log[oa]|asistente|colega|derivad[oa]\s+por)\s*$/iu;
+export const TRIGGER = /(?<![\p{L}\d])(?:(?:el|la|al|del|a\s+la)\s+)?(?:paciente|sr\.?|sra\.?|srta\.?|se[nñ]or(?:ita)?|se[nñ]ora|don|do[nñ]a|nombre(?:\s+del?\s+paciente)?(?:\s+es)?|se\s+llama|llamad[oa])\s*[:,]?\s+/giu;
+export const BLOCK_BEFORE = /(?:doctor|doctora|dr\.?|dra\.?|odont[oó]log[oa]|asistente|colega|derivad[oa]\s+por)\s*$/iu;
 
-function nameTokensAfter(text: string, start: number): { tokens: string[]; raw: string } {
+export function nameTokensAfter(text: string, start: number): { tokens: string[]; raw: string } {
   const rest = text.slice(start, start + 80);
   const words = rest.split(/\s+/);
   const tokens: string[] = [];
@@ -81,7 +81,7 @@ export function validRut(rut: string): boolean {
   return dv === (expected === 11 ? "0" : expected === 10 ? "K" : String(expected));
 }
 
-const RUT_PATTERN = /(?<![\d.])(\d{1,2}[.\s]?\d{3}[.\s]?\d{3}\s?-\s?[\dkK])(?![\dkK])|(?:\brut\b|\bR\.?U\.?T\.?)\s*(?:es|n[uú]mero|:)?\s*([\d.\s]{7,12}(?:\s?-?\s?[\dkK])?)/giu;
+export const RUT_PATTERN = /(?<![\d.])(\d{1,2}[.\s]?\d{3}[.\s]?\d{3}\s?-\s?[\dkK])(?![\dkK])|(?:\brut\b|\bR\.?U\.?T\.?)\s*(?:es|n[uú]mero|:)?\s*([\d.\s]{7,12}(?:\s?-?\s?[\dkK])?)/giu;
 
 function clip(text: string, index: number, length: number): string {
   const from = Math.max(0, index - 20);

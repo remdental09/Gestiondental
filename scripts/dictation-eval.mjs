@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import * as P from '../lib/dictation/proposal.ts';
 import { santiagoToday } from '../lib/dictation/spoken.ts';
 import { summarize, compare } from './dictation-eval-lib.mjs';
+import { runPatientIdentifyEval } from './patient-identify-eval.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
@@ -95,6 +96,10 @@ if (flag('--ai')) {
   }
 }
 
+const identify = runPatientIdentifyEval();
+const identifySection = [`## Identificación de paciente (nuevo vs existente, solo código): ${identify.passed}/${identify.rows.length}`, '', '| Caso | Resultado | Decisión |', '|---|---|---|',
+  ...identify.rows.map((row) => `| ${row.item.id} | ${row.diffs.length ? `**falla** ${row.diffs.map((d) => `${d.field}: esperado ${JSON.stringify(d.expected)}, salió ${JSON.stringify(d.actual)}`).join('; ')}` : 'ok'} | ${row.result.decision}${row.result.suggestedPatientId ? ` → ${row.result.suggestedPatientId}` : ''} |`)].join('\n');
+
 const day = santiagoToday();
 const header = [
   `# Evaluación del dictado — ${day}`,
@@ -104,10 +109,11 @@ const header = [
   results.map((r) => `- ${r.label}: **${r.passed}/${r.rows.length}**`).join('\n'),
   '',
 ].join('\n');
-const report = `${header}\n${results.map(section).join('\n\n')}\n`;
+const report = `${header}\n${results.map(section).join('\n\n')}\n\n${identifySection}\n`;
 mkdirSync(outDir, { recursive: true });
 const file = join(outDir, `report-${day}.md`);
 writeFileSync(file, report);
 console.log(results.map((r) => `${r.label}: ${r.passed}/${r.rows.length}`).join('\n'));
+console.log(`Identificación de paciente: ${identify.passed}/${identify.rows.length}`);
 console.log(`Reporte: ${file}`);
-if (flag('--strict') && results.some((r) => r.passed < r.rows.length)) process.exitCode = 1;
+if (flag('--strict') && (results.some((r) => r.passed < r.rows.length) || identify.passed < identify.rows.length)) process.exitCode = 1;

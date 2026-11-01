@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { formatFdi, type ClinicalImage, type OdontogramData, type PerioExam } from "@/app/clinical-data";
-import { createWebSpeechTranscription, IOS_DICTATION_HINT, IS_IOS } from "@/lib/dictation/transcription";
+import { createWebSpeechTranscription, IOS_DICTATION_HINT, MIC_DENIED, micAllowed } from "@/lib/dictation/transcription";
 import { checkPatientMentions, patientWarning } from "@/lib/dictation/patient-check";
 import {
   answerLines,
@@ -50,6 +50,7 @@ import {
   CROWN_MATERIALS,
   ODONTOGRAM_SURFACES,
   TOOTH_STATUSES,
+  missingData,
 } from "@/lib/dictation/proposal";
 import { searchDiagnoses } from "@/lib/icd11";
 import { sameDiagnosisTags, sanitizeDiagnosisTags, type EvolutionDiagnosisTag } from "@/lib/evolution-diagnoses";
@@ -139,6 +140,7 @@ export function ClinicalDictation({
   persist,
   onApplied,
   budgetOptions = [],
+  request = null,
 }: {
   patientId: number;
   patientName: string;
@@ -148,6 +150,8 @@ export function ClinicalDictation({
   persist: (input: Record<string, unknown>) => Promise<{ note?: { id: number; title: string; body: string }; budget?: { id: number }; payment?: { id: number }; appointment?: { id: number }; exam?: { id: number } }>;
   budgetOptions?: { id: number; title: string }[];
   onApplied: (data: Reload) => void;
+  /** Abre el dictado desde otro lugar (p. ej. «Nueva evolución») con un texto ya escrito o dictado, y lo corrige con IA. */
+  request?: { nonce: number; text: string } | null;
 }) {
   const engine = useRef(createWebSpeechTranscription());
   const answerEngine = useRef(createWebSpeechTranscription());
@@ -185,6 +189,11 @@ export function ClinicalDictation({
   const [patientConfirmed, setPatientConfirmed] = useState(false);
   const [dxItems, setDxItems] = useState<ReviewDiagnosis[]>([]);
   const [dxSearch, setDxSearch] = useState("");
+  // Al terminar un dictado (Detener, corte de Safari o error) se corrige solo con IA, una vez por dictado.
+  const autoPending = useRef(false);
+  const heard = useRef({ text: "", interim: "" });
+  const [lastStructured, setLastStructured] = useState("");
+  const stopFallback = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Chequeo de paciente en el navegador: el nombre y el RUT de la ficha no viajan a la IA.
   const patientCheck = outcome ? checkPatientMentions([transcript, workingText].filter(Boolean).join("\n"), { name: patientName, rut: patient?.rut }) : null;
   const patientWarnings = patientCheck ? patientWarning(patientCheck, patientName, patient?.rut) : [];
@@ -219,6 +228,8 @@ export function ClinicalDictation({
   };
 
   const close = () => {
+    autoPending.current = false;
+    if (stopFallback.current) { clearTimeout(stopFallback.current); stopFallback.current = null; }
     engine.current.abort();
     answerEngine.current.abort();
     setAnswering(null);
@@ -240,8 +251,11 @@ export function ClinicalDictation({
       return;
     }
     setListening(true);
+    autoPending.current = true;
+    heard.current = { text: transcript, interim: "" };
     engine.current.start(transcript, {
       onTranscript: (text, spokenInterim) => {
+        heard.current = { text, interim: spokenInterim };
         setTranscript(text);
         setInterim(spokenInterim);
         resetReview();
@@ -254,17 +268,11 @@ export function ClinicalDictation({
       onEnd: () => {
         setListening(false);
         setInterim("");
+        correctAfterDictation();
       },
     });
   };
 
-  const stop = () => {
-    engine.current.stop();
-    setListening(false);
-    setInterim("");
-  };
-
-  /** Responde una aclaración por voz: el texto dictado llena su campo. */
   const dictateAnswer = async (question: string) => {
     if (answering === question) {
       answerEngine.current.stop();
@@ -273,6 +281,7 @@ export function ClinicalDictation({
     }
     answerEngine.current.abort();
     if (listening) stop();
+    autoPending.current = false;
     setSpeechError("");
     if (!answerEngine.current.isSupported()) {
       setSpeechError(answerEngine.current.unsupportedMessage());
@@ -294,6 +303,7 @@ export function ClinicalDictation({
     setFormError("");
     setResult(null);
     if (answering) { answerEngine.current.stop(); setAnswering(null); }
+    setLastStructured(text);
     setStructuring(true);
     setPatientConfirmed(false);
     try {
@@ -306,7 +316,7 @@ export function ClinicalDictation({
         }),
       });
       const data = await response.json() as StructureOutcome & { error?: string };
-      if (!response.ok) throw new Error(data.error || "No se pudo preparar la propuesta.");
+      if (!response.ok) throw new Error(data.error || "No se pudo corregir el dictado.");
       setOutcome(data);
       setEvolutionTitle(data.proposal.evolution?.title ?? "");
       setEvolutionBody(data.proposal.evolution?.body ?? "");
@@ -337,12 +347,62 @@ export function ClinicalDictation({
       setAppointmentItems((data.proposal.appointments ?? []).map((item) => ({ ...item, decision: item.day && item.time && !item.timeDoubt ? "accepted" : "rejected", dayValue: item.day ?? "", timeValue: item.time ?? "" })));
     } catch (cause) {
       setOutcome(null);
-      setFormError(cause instanceof Error ? cause.message : "No se pudo preparar la propuesta.");
+      setFormError(`No se pudo corregir con IA: ${cause instanceof Error && !/failed to fetch|load failed|network/i.test(cause.message) ? cause.message : "sin conexión con el servidor"}. Nada se guardó.`);
     } finally {
       setStructuring(false);
     }
   };
 
+  /** Corrige con IA lo dictado apenas termina el dictado, sin esperar a «Preparar propuesta». */
+  const correctAfterDictation = () => {
+    if (stopFallback.current) { clearTimeout(stopFallback.current); stopFallback.current = null; }
+    if (!autoPending.current) return;
+    autoPending.current = false;
+    const text = [heard.current.text, heard.current.interim].filter(Boolean).join(" ").trim();
+    heard.current = { text, interim: "" };
+    if (text.length < 3) return;
+    setTranscript(text);
+    void structure(text);
+  };
+
+  const stop = () => {
+    engine.current.stop();
+    setListening(false);
+    setInterim("");
+    // Si Safari no avisa el fin del dictado, se corrige igual con lo último que se oyó.
+    if (autoPending.current && !stopFallback.current) stopFallback.current = setTimeout(() => { stopFallback.current = null; correctAfterDictation(); }, 1500);
+  };
+
+  /** Escribir a mano o cargar el ejemplo detiene el dictado sin corregir solo. */
+  const stopWithoutCorrecting = () => {
+    autoPending.current = false;
+    if (stopFallback.current) { clearTimeout(stopFallback.current); stopFallback.current = null; }
+    engine.current.stop();
+    setListening(false);
+    setInterim("");
+  };
+
+  const lastRequest = useRef(0);
+  useEffect(() => {
+    if (!request || request.nonce === lastRequest.current) return;
+    // Diferido para no encadenar renders dentro del efecto (y sobrevivir al doble efecto de StrictMode).
+    const pending = setTimeout(() => {
+      lastRequest.current = request.nonce;
+      setOpen(true);
+      const text = request.text.trim();
+      if (text.length >= 3) {
+        setTranscript(text);
+        setInterim("");
+        resetReview();
+        void structure(text);
+      }
+    }, 0);
+    return () => clearTimeout(pending);
+    // structure depende del estado actual del odontograma; solo se dispara con cada pedido nuevo.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [request?.nonce]);
+
+  /** Responde una aclaración por voz: el texto dictado llena su campo. */
   const applyAnswers = () => {
     if (!outcome) return;
     const lines = answerLines(outcome.proposal.clarifications.map((question) => ({ question, answer: answers[question] ?? "" })));
@@ -536,6 +596,7 @@ export function ClinicalDictation({
   };
 
   const proposal = outcome?.proposal;
+  const missing = proposal ? missingData(proposal) : [];
 
   /** Diagnósticos aceptados: caries derivadas del odontograma aceptado + etiquetas revisadas. */
   function diagnosisPlan(acceptedTeeth: OdontogramChange[]): { items: DiagnosisItem[]; tags: EvolutionDiagnosisTag[] } | { error: string } {
@@ -586,18 +647,27 @@ export function ClinicalDictation({
               {listening ? <MicOff className="mr-2 size-4" /> : <Mic className="mr-2 size-4" />}
               {listening ? "Detener" : "Dictar"}
             </Button>
-            <Button type="button" variant="outline" onClick={() => { stop(); setTranscript(EXAMPLE); setInterim(""); resetReview(); }} data-testid="dictation-example">Cargar ejemplo</Button>
-            <Button type="button" className="bg-[#087f83] hover:bg-[#07676b]" disabled={structuring || listening || transcript.trim().length < 3} onClick={() => void structure(transcript)} data-testid="dictation-structure">{structuring ? "Preparando…" : "Preparar propuesta"}</Button>
+            <Button type="button" variant="outline" onClick={() => { stopWithoutCorrecting(); setTranscript(EXAMPLE); setInterim(""); resetReview(); }} data-testid="dictation-example">Cargar ejemplo</Button>
+            <Button type="button" className="bg-[#087f83] hover:bg-[#07676b]" disabled={structuring || listening || transcript.trim().length < 3} onClick={() => void structure(transcript)} data-testid="dictation-structure">{structuring ? "Corrigiendo con IA…" : outcome ? "Volver a corregir" : "Corregir con IA"}</Button>
           </div>
-          {listening && <p role="status" className="font-medium text-[#087f83]">Escuchando en español de Chile…</p>}
+          {listening && <p role="status" className="font-medium text-[#087f83]">Escuchando en español de Chile… Al detener, el texto se corrige solo con IA.</p>}
+          {structuring && <p role="status" aria-live="polite" className="flex items-center gap-2 rounded-lg bg-sky-50 p-3 font-medium text-sky-950" data-testid="dictation-correcting"><span className="size-4 shrink-0 animate-spin rounded-full border-2 border-sky-700 border-t-transparent" aria-hidden="true" />Corrigiendo con IA… redactando la nota por secciones.</p>}
           {speechError && <p role="alert" className="text-[#a43542]">{speechError}</p>}
-          <label className="block space-y-1.5 font-medium">Lo que se escuchó (en vivo, editable)
-            <Textarea data-testid="dictation-transcript" lang="es-CL" rows={5} className="min-h-32 field-sizing-fixed text-base sm:text-sm" autoCapitalize="sentences" autoCorrect="off" spellCheck={false} value={interim ? `${transcript} ${interim}`.trim() : transcript} onChange={(event) => { if (listening) stop(); setTranscript(event.target.value); setInterim(""); resetReview(); }} placeholder="Habla o escribe el dictado. Revisa piezas y dosis antes de proponer cambios." />
+          <label className="block space-y-1.5 font-medium">Transcripción original, sin corregir (en vivo, editable; se guarda aparte al final de la evolución)
+            <Textarea data-testid="dictation-transcript" lang="es-CL" rows={5} className="min-h-32 field-sizing-fixed text-base sm:text-sm" autoCapitalize="sentences" autoCorrect="off" spellCheck={false} value={interim ? `${transcript} ${interim}`.trim() : transcript} onChange={(event) => { if (listening) stopWithoutCorrecting(); setTranscript(event.target.value); setInterim(""); resetReview(); }} placeholder="Habla o escribe el dictado. Revisa piezas y dosis antes de proponer cambios." />
           </label>
           {IOS_DICTATION_HINT && <p className="rounded-lg bg-sky-50 p-3 text-xs leading-5 text-sky-950" role="note">{IOS_DICTATION_HINT}</p>}
           <p className="text-xs leading-5 text-[#60757a]">Dicta libre: «punto» o «punto aparte» separa frases. La IA redacta la nota y propone los cambios con la frase dicha como respaldo; nada se aplica sin tu aceptación. El reconocimiento es el del navegador (Chrome o Safari) en es-CL. El audio no se envía a una API de transcripción de pago. La propuesta pasa por revisión y la ficha manual no cambia sola.</p>
-          {formError && <p role="alert" className="rounded-lg bg-rose-50 p-3 text-rose-950">{formError}</p>}
-          {outcome && <p className="rounded-lg bg-[#f4f7f8] p-3 leading-6 text-[#31575b]" role="status">{outcome.notice ?? "La evolución y las piezas salen de lo resuelto en el dictado. Sigue sujeta a tu revisión."}</p>}
+          {formError && <div role="alert" className="rounded-lg bg-rose-50 p-3 text-rose-950" data-testid="dictation-error">
+            <p>{formError}</p>
+            {!outcome && !structuring && lastStructured.trim().length >= 3 && <Button type="button" size="sm" variant="outline" className="mt-2 bg-white" onClick={() => void structure(lastStructured)} data-testid="dictation-retry">Reintentar corrección</Button>}
+          </div>}
+          {outcome?.aiError && <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-950" data-testid="dictation-ai-failed">
+            <p className="font-medium">La IA no corrigió este dictado: {outcome.aiError}.</p>
+            <p className="mt-1 text-xs leading-5">La nota de abajo salió solo de las reglas locales (diccionario y secciones por palabras clave). Revísala con más cuidado o reintenta.</p>
+            <Button type="button" size="sm" variant="outline" className="mt-2 bg-white" disabled={structuring} onClick={() => void structure(lastStructured || transcript)} data-testid="dictation-retry-ai">{structuring ? "Corrigiendo con IA…" : "Reintentar con IA"}</Button>
+          </div>}
+          {outcome && !outcome.aiError && <p className="rounded-lg bg-[#f4f7f8] p-3 leading-6 text-[#31575b]" role="status">{outcome.notice ?? "La evolución y las piezas salen de lo resuelto en el dictado. Sigue sujeta a tu revisión."}</p>}
           {proposal && <div className="space-y-4" data-testid="dictation-review">
             {patientWarnings.length > 0 && <section role="alert" className="rounded-xl border-2 border-rose-400 bg-rose-50 p-4 text-rose-950" data-testid="dictation-patient-warning">
               <h3 className="text-base font-semibold">¿Es el paciente correcto?</h3>
@@ -622,6 +692,10 @@ export function ClinicalDictation({
               <Button type="button" variant="outline" size="sm" className="mt-2" disabled={structuring || workingText.trim().length < 3} onClick={() => void structure(workingText)}>Volver a proponer con este texto</Button>
               <p className="mt-1 text-[11px] text-[#71858b]">Volver a proponer rehace la propuesta y descarta los ajustes hechos abajo.</p>
             </section>
+            {missing.length > 0 && <section className="rounded-xl border border-[#dbe7e8] bg-white p-3 text-sm text-[#31575b]" data-testid="dictation-missing">
+              <p><strong>Falta (opcional):</strong> {missing.join(" · ")}</p>
+              <p className="mt-1 text-xs text-[#60757a]">No es obligatorio: puedes guardar igual. Si lo sabes, agrégalo al texto corregido y vuelve a proponer.</p>
+            </section>}
             {proposal.clarifications.length > 0 && <section className="rounded-xl bg-amber-50 p-4 text-amber-950" data-testid="dictation-clarifications">
               <h3 className="font-semibold">Falta aclarar ({proposal.clarifications.length})</h3>
               <p className="mt-1 text-xs leading-5">Responde escribiendo o con el micrófono y pulsa «Aplicar respuestas». Lo no respondido no se aplica.</p>
@@ -859,22 +933,11 @@ export function ClinicalDictation({
   </>;
 }
 
-const MIC_DENIED = "El navegador no autorizó el micrófono. En iPhone: Ajustes > Safari > Micrófono (o Ajustes > Chrome). En computador: el ícono del candado junto a la dirección. Puedes escribir o pegar el texto igual.";
 
 /**
  * Pide el micrófono antes de dictar. En iPhone/iPad se omite: Safari lo pide al iniciar el
  * reconocimiento y abrir y cerrar antes el micrófono puede dejarlo ocupado («audio-capture»).
  */
-async function micAllowed(): Promise<boolean> {
-  if (IS_IOS || !navigator.mediaDevices?.getUserMedia) return true;
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    stream.getTracks().forEach((track) => track.stop());
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 function Decision({ value, onChange, disabled = false }: { value: "accepted" | "rejected"; onChange: (value: "accepted" | "rejected") => void; disabled?: boolean }) {
   return <div className="flex gap-2">

@@ -17,6 +17,7 @@ import {
   describeDate,
   fold,
   isAppointmentText,
+  lexiconDoubts,
   isNumberWord,
   numberSignature,
   isFuturePayment,
@@ -236,6 +237,8 @@ export type StructureOutcome = {
   model: string | null;
   notice: string | null;
   proposal: DictationProposal;
+  /** Si la IA falló: motivo legible para mostrarlo con «Reintentar». */
+  aiError?: string;
   /** Milisegundos que tardó el paso de IA, si se llamó. */
   aiMs?: number;
 };
@@ -304,7 +307,7 @@ function clip(value: string, max = 180): string {
 const OTHER_FINDING = /(?<!\p{L})(?:fractur\p{L}*|fisur\p{L}*|c[uú]spides?|desgaste|abfracci\p{L}*|abrasi[oó]n|erosi[oó]n|atrici[oó]n|movilidad|tinci[oó]n|manchas?|absceso|f[ií]stula|dolor|sensibilidad)(?!\p{L})/iu;
 const FINDING_CUE = /(?<!\p{L})(?:caries|obtura\p{L}*|restaura\p{L}*|resina|amalgama|sellante|san[oa]|ausente|implante|corona|exodoncia|extra[ií]d\p{L}*|resto\s+radicular|endodoncia|fractur\p{L}*|fisur\p{L}*|c[uú]spides?|icdas|esmalte|dentina|pulpar|penetrante|lesi[oó]n|movilidad|sondaje|dolor|sensibilidad|absceso|f[ií]stula|desgaste|abfracci\p{L}*|pulpitis|necrosis|periodontitis|activ[ao]|inactiv[ao]|oclusal|mesial|distal|vestibular|palatin[ao]|lingual|incisal|mod)(?!\p{L})/iu;
 const TOOTH_START = /(?:^|\s)((?:(?:la|el)\s+)?(?:(?:pieza|diente)s?\s+(?:(?:fdi|iso|chilena|nacional|universal)\s+)?(?:\d|un[oa]?\b|dos\b|tres\b|cuatro\b|cinco\b|seis\b|siete\b|ocho\b|nueve\b|diez\b|once\b|doce\b|trece\b|catorce\b|quince\b|diec|veint|treinta|cuarenta|temporal|decidu|de\s+leche)|(?:fdi|iso)\s+(?:\d|un[oa]?\b|dos\b|tres\b|cuatro\b|cinco\b|seis\b|siete\b|ocho\b)))/giu;
-const CLAUSE_START = /(?:^|\s)((?:(?:el|la)\s+)?(?:paciente\s+)?(?:refiere|relata|comenta|niega)(?!\p{L})|se\s+(?:indica|planifica|realiz[oó]|instal[oó]|cement[oó]|observa)(?!\p{L})|(?:sondaje|sondeo|movilidad)(?!\p{L})|(?:con\s+)?sangrado\s+al\s+(?:sondaje|sondeo)(?!\p{L})|(?:presupuesto|se\s+presupuesta)(?!\p{L})|(?:el\s+paciente\s+|la\s+paciente\s+)?(?:abon[oó]|pag[oó]|cancel[oó])(?!\p{L})|pr[oó]xim[oa]\s+(?:cita|control|sesi[oó]n|hora)(?!\p{L})|se\s+(?:cita|agenda|reagenda)(?!\p{L})|aclaraci[oó]n:)/giu;
+const CLAUSE_START = /(?:^|\s)((?:(?:el|la)\s+)?(?:paciente\s+)?(?:refiere|relata|comenta|niega)(?!\p{L})|se\s+(?:le\s+)?(?:indica|planifica|realiz[oó]|instal[oó]|cement[oó]|observa|encuentra)(?!\p{L})|(?:el\s+)?motivo\s+de\s+(?:la\s+)?consulta(?!\p{L})|viene\s+(?:a|por|para)\s|nos\s+vemos(?!\p{L})|est[aá]\s+conectad[oa](?!\p{L})|fue\s+(?:una\s+)?t[eé]cnica(?!\p{L})|(?:sondaje|sondeo|movilidad)(?!\p{L})|(?:con\s+)?sangrado\s+al\s+(?:sondaje|sondeo)(?!\p{L})|(?:presupuesto|se\s+presupuesta)(?!\p{L})|(?:el\s+paciente\s+|la\s+paciente\s+)?(?:abon[oó]|pag[oó]|cancel[oó])(?!\p{L})|pr[oó]xim[oa]\s+(?:cita|control|sesi[oó]n|hora)(?!\p{L})|se\s+(?:cita|agenda|reagenda)(?!\p{L})|aclaraci[oó]n:)/giu;
 const OPEN_ENDING = /(?:^|\s)(?:en|de|del|la|el|los|las|a|al|para|entre|sobre|por|un|una|que|o|con|desde|hasta|observa|observan|presenta|presentan|indica|planifica|realiza|realiz[oó]|instal[oó]|cement[oó]|tiene|hay|evidencia|paciente)$/iu;
 const TRAILING_CONNECTOR = /(?:[\s,;:]+(?:y|e|con|adem[aá]s|tambi[eé]n))+[\s,;:]*$|[\s,;:]+$/iu;
 
@@ -448,7 +451,7 @@ function toothMentions(sentence: string): Mention[] {
   // «en la 3.6» sin etiqueta: la forma con punto es FDI (la corrección convierte «tres seis» en 3.6).
   // No se lee como pieza si es una medida («4.5 mm») o parte de otro número («50.000», «10.30»).
   const unlabeled = sentence.replace(numbered, (whole) => " ".repeat(whole.length));
-  for (const match of unlabeled.matchAll(/(?<![\d.,])([1-8])\.([1-8])(?![\d.,]?\d)(?!\s*(?:mm|mil[ií]metros?|cm|%|hrs?|horas?|h\b))/giu)) {
+  for (const match of unlabeled.matchAll(/(?<![\d.,])(?<![x×]\s?)([1-8])\.([1-8])(?![\d.,]?\d)(?!\s*(?:mm|mil[ií]metros?|cm|%|hrs?|horas?|h\b|[x×]\s*\d))/giu)) {
     mentions.push(interpretTooth(`${match[1]}.${match[2]}`, "fdi"));
   }
   const spoken = speechText(sentence);
@@ -839,6 +842,11 @@ function fichaParts(sentence: string): Array<{ field: FichaField; text: string }
   return out.length ? out : [{ field: fichaFrom(sentence) ?? "history", text: sentence }];
 }
 
+/** Motivo de la visita dicho por el profesional («viene a control por…», «motivo de consulta…»). */
+const VISIT_REASON = /(?<!\p{L})(?:motivo\s+de\s+(?:la\s+)?consulta|viene\s+(?:a|por|para)|acude\s+(?:a|por|para)|consulta\s+por)(?!\p{L})/iu;
+/** Estado observado sin cambio de odontograma («se encuentra en buen estado», «sin sangrado», «conectado con pilar»). */
+const EXAM_STATE = /(?<!\p{L})(?:se\s+encuentra|buen\s+estado|sin\s+(?:hemorragia|sangrado|inflamaci[oó]n|supuraci[oó]n|dolor|movilidad)|conectad[oa]|cicatriz\p{L}*|cerr[oó]\s+bien|t[eé]cnica\s+flapless|flapless)(?!\p{L})/iu;
+
 function composeEvolution(transcript: string, odontogram: OdontogramChange[] = [], clarifications: string[] = [], ficha: FichaChange[] = []): { title: string; body: string } | null {
   const clean = transcript.trim();
   if (!clean) return null;
@@ -867,6 +875,7 @@ function composeEvolution(transcript: string, odontogram: OdontogramChange[] = [
     const line = ensurePeriod(capitalize(sentence));
     const key = clip(sentence, 400);
     if (answered.has(normalizeEvidence(sentence)) && sources.size && toothMentions(sentence).length > 0 && !OTHER_FINDING.test(sentence) && !/^aclaraci/iu.test(sentence)) continue;
+    if (VISIT_REASON.test(sentence) && !isAppointmentText(sentence)) { relato.push(line); continue; }
     if (sources.has(key)) {
       if (OTHER_FINDING.test(sentence)) otrosExamen.push(line);
       continue;
@@ -878,7 +887,8 @@ function composeEvolution(transcript: string, odontogram: OdontogramChange[] = [
     else if (isAppointmentText(sentence)) citas.push(line);
     else if (isPatient(sentence)) relato.push(line);
     else if (/\b(?:presupuesto|cotizaci[oó]n)\b/i.test(sentence)) presupuesto.push(line);
-    else if (/\bse\s+indica\b/i.test(sentence)) indicaciones.push(line);
+    else if (/\bse\s+(?:le\s+)?indica\b/i.test(sentence)) indicaciones.push(line);
+    else if (EXAM_STATE.test(sentence)) otrosExamen.push(line);
     else if (isPerformed(sentence)) procedimientos.push(line);
     else if (isPlan(sentence)) plan.push(line);
     else if (/(?<!\p{L})(?:sondaje|sondeo|movilidad)(?!\p{L})/iu.test(sentence)) sondaje.push(line);
@@ -1688,7 +1698,7 @@ export const AI_SYSTEM_PROMPT = `Eres asistente de un odontólogo chileno. Recib
 3) "procedimientos": lo realizado hoy, cada uno con "texto" y "evidencia" literal.
 4) "presupuesto": prestaciones presupuestadas con "prestacion", "monto" en pesos (0 si no se dijo) y "evidencia" literal.
 5) "ficha": alergias, antecedentes médicos y medicamentos que toma el paciente, con "campo" (alergias | antecedentes | medicamentos), "texto" breve y "evidencia" literal. «Niega alergias» también se registra. Si una frase trae alergia y medicamento («alérgica a la penicilina toma losartán»), son dos elementos separados.
-6) "texto_corregido": la misma transcripción con SOLO errores de reconocimiento de voz corregidos (palabras mal oídas: «mecial» → «mesial», «caris» → «caries», «periodo de autograma» → «periodontograma») y números dictados en palabras pasados a cifras («dos cuatro» → «2.4», «cuatro milímetros» → «4 mm», «cincuenta mil» → «50.000»). Mantén el orden y las demás palabras; no resumas, no agregues datos, no cambies piezas, caras, cifras, negaciones ni términos clínicos correctos. Si no hay nada que corregir, repite el texto.
+6) "texto_corregido": la misma transcripción con SOLO errores de reconocimiento de voz corregidos (palabras mal oídas: «mecial» → «mesial», «caris» → «caries», «periodo de autograma» → «periodontograma») y números dictados en palabras pasados a cifras («dos cuatro» → «2.4», «cuatro milímetros» → «4 mm», «cincuenta mil» → «50.000»; en implantes: «Flappers» → «flapless», medida «33 × 8» → «3,3 × 8 mm» con coma decimal). Una marca de implante dudosa («Arcis», ¿Arcsys?) no la cambies: pregúntala en dudas. Mantén el orden y las demás palabras; no resumas, no agregues datos, no cambies piezas, caras, cifras, negaciones ni términos clínicos correctos. Si no hay nada que corregir, repite el texto.
 7) "periodonto": cada sondaje, sangrado o supuración dictado, con "pieza", "sistema", "sitio" (MV, V, DV, ML, L, DL o "" si no se dijo), "profundidad" en mm (-1 si no se dijo), "sangrado", "supuracion" (true solo si se dijo) y "evidencia" literal.
 8) "pagos": dinero que el paciente pagó o abonó HOY (no lo presupuestado ni lo que debe), con "monto" en pesos, "medio" (efectivo | debito | credito | transferencia | otro | "" si no se dijo), "concepto" ("" si no se dijo) y "evidencia" literal.
 9) "citas": la próxima cita o control que se dictó, con "motivo" ("" si no se dijo) y "evidencia" literal que contenga la fecha u hora tal como se dijo. No calcules la fecha.
@@ -1697,7 +1707,7 @@ export const AI_SYSTEM_PROMPT = `Eres asistente de un odontólogo chileno. Recib
 
 Las líneas que empiezan con «Aclaración:» son respuestas del profesional a preguntas anteriores; completan o corrigen lo dictado antes y tienen prioridad.
 
-Si el profesional se corrige («no, perdón», «mejor dicho»), usa solo lo corregido. Un nombre de persona o un RUT dictado (del paciente, de un doctor o de otra persona) no es un hallazgo ni un dato de ficha; no lo inventes ni lo completes. Los antecedentes médicos (diabetes, hipertensión, etc.) van en anamnesis, no en indicaciones. "indicaciones" es solo lo que se le indica al paciente.`;
+Si el profesional se corrige («no, perdón», «mejor dicho»), usa solo lo corregido. Un control de implante («viene a control por un implante», «está conectado con un pilar», «sin sangrado») no es un implante instalado hoy: el relato va en motivo y examen, y la pieza puede ir en hallazgos con estado Implante. Un nombre de persona o un RUT dictado (del paciente, de un doctor o de otra persona) no es un hallazgo ni un dato de ficha; no lo inventes ni lo completes. Los antecedentes médicos (diabetes, hipertensión, etc.) van en anamnesis, no en indicaciones. "indicaciones" es solo lo que se le indica al paciente.`;
 
 const STRING = { type: "string" } as const;
 
@@ -2364,6 +2374,14 @@ export function tidyClarifications(notes: string[], odontogram: OdontogramChange
   return out;
 }
 
+/** Motivo de la falla de la IA en palabras simples (el cupo diario gratuito de Workers AI se renueva a las 00:00 UTC). */
+export function aiFailureReason(message: string): string {
+  const text = message.replace(/\s+/g, " ");
+  if (/\b4006\b|daily free allocation|neurons/i.test(text)) return "se agotó el cupo diario gratuito de Workers AI; se renueva a las 00:00 UTC (21:00 hora de Chile en horario de verano, 20:00 en invierno)";
+  if (/tard[oó]|timeout|timed out/i.test(text)) return "la IA tardó demasiado en responder";
+  return text.replace(/[«»"].*$/, "").trim().slice(0, 160) || "error";
+}
+
 export async function proposeFromTranscript(
   input: StructureInput,
   model: ClinicalModel | null,
@@ -2384,7 +2402,7 @@ export async function proposeFromTranscript(
   const withText = (proposal: DictationProposal, text: string, corrections: TranscriptCorrection[], aiDiagnoses: DiagnosisItem[] = []): DictationProposal => {
     // En la nota solo entran los diagnósticos no sugeridos; las equivalencias sugeridas esperan confirmación.
     const diagnoses = mergeDiagnoses(cariesDiagnoses(proposal.odontogram), textDiagnoses(text), aiDiagnoses);
-    const clarifications = tidyClarifications(proposal.clarifications, proposal.odontogram);
+    const clarifications = tidyClarifications([...proposal.clarifications, ...lexiconDoubts(text).filter((item) => !proposal.clarifications.includes(item))], proposal.odontogram);
     const evolution = proposal.evolution ? { ...proposal.evolution, body: withDiagnosesSection(proposal.evolution.body, diagnoses.filter((item) => !item.suggested)) } : null;
     return { ...proposal, evolution, clarifications, diagnoses, transcript, corrected: { text, corrections } };
   };
@@ -2410,7 +2428,8 @@ export async function proposeFromTranscript(
     const aiMs = Date.now() - started;
     const reason = cause instanceof Error ? cause.message.replace(/\s+/g, " ").slice(0, 120) : "error";
     log("dictation.ai_failed", { model: model.model, ms: aiMs, reason: reason.replace(/[«»"].*$/, "") });
-    return { engine: "reglas-locales", model: null, notice: `${AI_FAILED_NOTICE} (${reason.replace(/[«»"].*$/, "").trim() || "error"}).`, proposal: withText(localOnly, fixed, lexicon.corrections), aiMs };
+    const aiError = aiFailureReason(cause instanceof Error ? cause.message : String(cause));
+    return { engine: "reglas-locales", model: null, notice: `${AI_FAILED_NOTICE} (${aiError}).`, aiError, proposal: withText(localOnly, fixed, lexicon.corrections), aiMs };
   }
 }
 
@@ -2638,4 +2657,22 @@ export function buildDictatedPerio(
   for (const reading of readings) entry(reading.tooth).sites[reading.site] = { depth: reading.depth, margin: null, bleeding: reading.bleeding, suppuration: reading.suppuration };
   for (const item of mobility) entry(item.tooth).mobility = item.grade;
   return teeth;
+}
+
+/**
+ * «Falta: …» breve y opcional para la revisión. Nunca bloquea el guardado ni pide la ficha completa:
+ * prioriza dinero (presupuesto/pagos), lo que se hará (plan) y los hallazgos; la próxima cita va al final.
+ */
+export function missingData(proposal: DictationProposal): string[] {
+  const body = proposal.evolution?.body ?? "";
+  const money = proposal.budget.length > 0 || (proposal.payments?.length ?? 0) > 0 || /^(?:Presupuesto|Pagos)$/m.test(body);
+  const plan = proposal.budget.length > 0 || (proposal.procedures?.length ?? 0) > 0 || /^(?:Plan de tratamiento|Procedimientos realizados|Indicaciones)$/m.test(body);
+  const findings = proposal.odontogram.length > 0 || (proposal.incomplete?.length ?? 0) > 0 || (proposal.diagnoses?.length ?? 0) > 0 || proposal.perio.length > 0 || /^(?:Otros hallazgos del examen|Diagnóstico|Sondaje)$/m.test(body);
+  const next = (proposal.appointments?.length ?? 0) > 0 || /^Próxima cita$/m.test(body);
+  const missing: string[] = [];
+  if (!money) missing.push("Valores: ¿hubo presupuesto o pago?");
+  if (!plan) missing.push("Plan: ¿qué se hará y en qué pieza?");
+  if (!findings) missing.push("Hallazgos: ¿alguna pieza con hallazgo (fracturada, caries y su profundidad, etc.)?");
+  if (!next) missing.push("Próxima cita: ¿cuándo vuelve?");
+  return missing;
 }
