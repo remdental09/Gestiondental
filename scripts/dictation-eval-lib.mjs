@@ -26,7 +26,7 @@ export function summarize(proposal, transcript, patient) {
     appointments: sorted((proposal.appointments ?? []).map((item) => `${item.day ?? '-'} ${item.time ?? '-'}`)),
     ficha: sorted((proposal.ficha ?? []).map((item) => item.field)),
     budget: sorted(proposal.budget.map((item) => String(item.amount))),
-    diagnoses: sorted((proposal.diagnoses ?? []).map((item) => `${item.tooth ?? '-'} ${item.code}`)),
+    diagnoses: sorted((proposal.diagnoses ?? []).map((item) => `${item.tooth ?? '-'} ${item.code || `sin código: ${item.title}`}${item.suggested ? ' (sugerido)' : ''}`)),
     patientWarning: check.mismatches.length > 0,
     clarifications: proposal.clarifications,
     note: proposal.evolution?.body ?? '',

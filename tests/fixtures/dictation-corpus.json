@@ -1,5 +1,5 @@
 {
-  "_about": "Set de regresión del dictado clínico. Todos los nombres y RUT son ficticios; no agregar datos de pacientes reales. Solo se comparan los campos presentes en expect. Formatos: odontogram 'pieza cara condición[:profundidad]' o 'pieza Estado'; perio 'pieza sitio mm [sangrado]'; payments 'monto medio'; appointments 'AAAA-MM-DD HH:MM'; diagnoses 'pieza código'; clarify/noClarify son regex sobre las preguntas.",
+  "_about": "Set de regresión del dictado clínico. Todos los nombres y RUT son ficticios; no agregar datos de pacientes reales. Solo se comparan los campos presentes en expect. Formatos: odontogram 'pieza cara condición[:profundidad]' o 'pieza Estado'; perio 'pieza sitio mm [sangrado]'; payments 'monto medio'; appointments 'AAAA-MM-DD HH:MM'; diagnoses 'pieza código' (o 'pieza sin código: título'; ' (sugerido)' si es una equivalencia a confirmar); clarify/noClarify son regex sobre las preguntas.",
   "today": "2026-11-01",
   "patient": {
     "name": "Camila Fuentes Araya",
@@ -51,7 +51,7 @@
       "expect": {
         "odontogram": [],
         "diagnoses": [
-          "26 DA09.0"
+          "26 DA09.0 (sugerido)"
         ],
         "patientWarning": false
       }
@@ -161,7 +161,8 @@
           "46 O caries:pulpar"
         ],
         "diagnoses": [
-          "46 DA08.0&XA5B71"
+          "46 DA08.0&XA5B71",
+          "46 DA09.Z (sugerido)"
         ],
         "patientWarning": false
       }
@@ -321,6 +322,91 @@
       "expect": {
         "odontogram": [],
         "diagnoses": [],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c29-aae-sugeridos",
+      "text": "pieza 3.6 periodontitis apical sintomática punto pieza 4.6 absceso apical crónico punto",
+      "expect": {
+        "odontogram": [],
+        "diagnoses": [
+          "36 DA09.70 (sugerido)",
+          "46 DA09.61 (sugerido)"
+        ],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c30-atricion-bruxismo",
+      "text": "atrición generalizada en incisivos inferiores por bruxismo nocturno",
+      "expect": {
+        "odontogram": [],
+        "diagnoses": [
+          "- 7A83",
+          "- DA08.10"
+        ],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c31-erosion-mucosa",
+      "text": "erosión en la mucosa yugal izquierda sin caries",
+      "expect": {
+        "odontogram": [],
+        "diagnoses": [],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c32-caries-radicular",
+      "text": "pieza 4.4 caries radicular vestibular de dentina superficial",
+      "expect": {
+        "odontogram": [
+          "44 V caries:dentina_superficial"
+        ],
+        "diagnoses": [
+          "44 DA08.0&XA4KC7"
+        ],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c33-gun-periodontitis-2017",
+      "text": "diagnóstico gingivitis ulcerativa necrotizante y periodontitis estadio tres grado b",
+      "expect": {
+        "odontogram": [],
+        "diagnoses": [
+          "- 1C1H.Z",
+          "- sin código: Periodontitis estadio III grado B (clasificación 2017)"
+        ],
+        "patientWarning": false,
+        "clarificationCount": 0
+      }
+    },
+    {
+      "id": "c34-trauma-dos-piezas",
+      "text": "pieza 1.1 subluxación pieza 2.1 fractura coronorradicular complicada",
+      "expect": {
+        "odontogram": [],
+        "diagnoses": [
+          "11 NA0D.11",
+          "21 NA0D.05"
+        ],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c35-pulpar-con-diagnostico",
+      "text": "pieza 2.6 caries mesial penetrante con necrosis pulpar",
+      "expect": {
+        "odontogram": [
+          "26 M caries:pulpar"
+        ],
+        "diagnoses": [
+          "26 DA08.0&XA5B71",
+          "26 DA09.1"
+        ],
         "patientWarning": false
       }
     }

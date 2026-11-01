@@ -24,7 +24,7 @@ test('códigos CIE-11 de la caries según profundidad (DA08.0 con poscoordinaci�
   assert.equal(cariesIcd11('dentina_profunda').code, 'DA08.0&XA6FX3');
   assert.equal(cariesIcd11('pulpar').code, 'DA08.0&XA5B71');
   assert.equal(icd11Label(cariesIcd11('dentina_profunda')), 'CIE-11 DA08.0&XA6FX3 Caries dental · Dentina');
-  for (const entry of Object.values(ICD11)) assert.match(entry.id, /^\d+$/, entry.code);
+  for (const entry of Object.values(ICD11)) assert.match(entry.id, /^\d+(?:\/(?:other|unspecified))?$/, entry.code);
 });
 
 test('registros anteriores con ICDAS se siguen mostrando', () => {
@@ -38,7 +38,8 @@ test('diagnósticos del texto con CIE-11: sin relatos, negaciones ni sospechas',
   assert.deepEqual(icd11FromText('absceso periapical con fístula').map((e) => e.code), ['DA09.61']);
   const dx = textDiagnoses('Pieza 2.6 con pulpitis irreversible. Sin signos de periodontitis apical. No se confirma diagnóstico de necrosis pulpar. Probable absceso periapical. El paciente dice que tiene gingivitis.');
   assert.deepEqual(dx.map((d) => [d.tooth, d.code]), [[26, 'DA09.0']]);
-  assert.equal(dx[0].label, 'FDI 2.6: Pulpitis (CIE-11 DA09.0)');
+  assert.equal(dx[0].label, 'FDI 2.6: Pulpitis (CIE-11 DA09.0, equivalencia sugerida de «pulpitis irreversible»)');
+  assert.deepEqual(dx[0].suggested, { from: 'AAE', term: 'pulpitis irreversible' });
 });
 
 test('la caries de la muestra queda con profundidad y CIE-11, sin preguntar', () => {

@@ -17,7 +17,10 @@ import {
   cariesDetail,
   cariesDiagnoses,
   cariesIcd11,
+  diagnosisLabel,
   icd11Label,
+  isRootCaries,
+  type DiagnosisItem,
   finalizeEvolution,
   withAnswers,
   SITE_LABEL,
@@ -48,10 +51,12 @@ import {
   ODONTOGRAM_SURFACES,
   TOOTH_STATUSES,
 } from "@/lib/dictation/proposal";
+import { searchDiagnoses } from "@/lib/icd11";
+import { sameDiagnosisTags, sanitizeDiagnosisTags, type EvolutionDiagnosisTag } from "@/lib/evolution-diagnoses";
 
 type Reload = {
   patients: { id: number; name: string; birthDate: string; rut: string; phone: string; email: string; reason: string; status: string; allergies: string; history: string }[];
-  notes: { id: number; patientId: number; date: string; title: string; body: string; backupStatus?: string; sourceDocumentId?: string | null; recordedAt?: string }[];
+  notes: { id: number; patientId: number; date: string; title: string; body: string; backupStatus?: string; sourceDocumentId?: string | null; recordedAt?: string; diagnoses?: (EvolutionDiagnosisTag & { id?: number })[] }[];
   budgets: { id: number; patientId: number; title: string; items: { label: string; amount: number }[]; status: string; date: string }[];
   appointments: { id: number; patientId: number; day: string; time: string; reason: string }[];
   calendarEvents: { id: number; title: string; startAt: string; endAt: string; sourceTimeZone: string; htmlLink: string | null; status: string; allDay: boolean; patientId: number | null }[];
@@ -69,6 +74,8 @@ type ReviewPerio = { id: string; toothText: string; site: PerioSite | ""; depthT
 type ReviewMobility = MobilityChange & { decision: Decided; toothText: string };
 type ReviewPayment = PaymentChange & { decision: Decided; amountText: string; methodValue: PaymentMethod | ""; budgetId: string };
 type ReviewAppointment = AppointmentChange & { decision: Decided; dayValue: string; timeValue: string };
+/** Etiqueta de diagnóstico en revisión: la sugerida (AAE o caries pulpar) parte sin aceptar. */
+type ReviewDiagnosis = DiagnosisItem & { decision: Decided; toothText: string; findingsText: string; codeSearch: string };
 type PatientFicha = { name: string; rut: string; phone: string; email: string; allergies: string; history: string };
 
 const originLabel: Record<ItemOrigin, string> = { ia: "IA", reglas: "Reglas", "ia+reglas": "IA + reglas" };
@@ -176,6 +183,8 @@ export function ClinicalDictation({
   const [formError, setFormError] = useState("");
   const [result, setResult] = useState<{ ok: boolean; messages: string[] } | null>(null);
   const [patientConfirmed, setPatientConfirmed] = useState(false);
+  const [dxItems, setDxItems] = useState<ReviewDiagnosis[]>([]);
+  const [dxSearch, setDxSearch] = useState("");
   // Chequeo de paciente en el navegador: el nombre y el RUT de la ficha no viajan a la IA.
   const patientCheck = outcome ? checkPatientMentions([transcript, workingText].filter(Boolean).join("\n"), { name: patientName, rut: patient?.rut }) : null;
   const patientWarnings = patientCheck ? patientWarning(patientCheck, patientName, patient?.rut) : [];
@@ -202,6 +211,8 @@ export function ClinicalDictation({
     setMobilityItems([]);
     setPaymentItems([]);
     setAppointmentItems([]);
+    setDxItems([]);
+    setDxSearch("");
     setAnswers({});
     setResult(null);
     setFormError("");
@@ -320,6 +331,9 @@ export function ClinicalDictation({
       ]);
       setMobilityItems((data.proposal.mobility ?? []).map((item) => ({ ...item, decision: "accepted", toothText: formatFdi(item.tooth) })));
       setPaymentItems((data.proposal.payments ?? []).map((item) => ({ ...item, decision: "accepted", amountText: String(item.amount), methodValue: item.method ?? "", budgetId: "" })));
+      // Las caries se derivan en vivo de lo aceptado en el odontograma; el resto se revisa una por una.
+      setDxItems((data.proposal.diagnoses ?? []).filter((item) => !item.code.startsWith("DA08.0")).map((item) => ({ ...item, decision: item.suggested ? "rejected" as const : "accepted" as const, toothText: item.tooth ? formatFdi(item.tooth) : "", findingsText: item.findings ?? "", codeSearch: "" })));
+      setDxSearch("");
       setAppointmentItems((data.proposal.appointments ?? []).map((item) => ({ ...item, decision: item.day && item.time && !item.timeDoubt ? "accepted" : "rejected", dayValue: item.day ?? "", timeValue: item.time ?? "" })));
     } catch (cause) {
       setOutcome(null);
@@ -409,11 +423,14 @@ export function ClinicalDictation({
       perioMobility.push({ tooth, grade: item.grade });
     }
     const savePerio = perioReadings.length > 0 || perioMobility.length > 0;
+    const dxPlan = diagnosisPlan(acceptedTeeth);
+    if ("error" in dxPlan) { setFormError(dxPlan.error); return; }
     const acceptedFicha = fichaItems.filter((item) => item.decision === "accepted");
     const fichaUpdate = patient ? planFichaUpdate(patient, acceptedFicha) : null;
     const saveEvolution = evolutionDecision === "accepted" && evolutionBody.trim().length > 0;
     // El registro del odontograma de la nota se rehace con lo aceptado y se agrega la transcripción completa.
-    const finalBody = saveEvolution ? finalizeEvolution(evolutionBody, acceptedTeeth, literalTranscript()) : "";
+    const finalBody = saveEvolution ? finalizeEvolution(evolutionBody, acceptedTeeth, literalTranscript(), dxPlan.items) : "";
+    const dxTags = saveEvolution ? dxPlan.tags : [];
     if (!saveEvolution && !acceptedTeeth.length && !acceptedBudgets.length && !fichaUpdate && !acceptedPayments.length && !acceptedAppointments.length && !savePerio) {
       setFormError("No hay nada aceptado para guardar.");
       return;
@@ -440,6 +457,8 @@ export function ClinicalDictation({
         requestId.current ||= crypto.randomUUID();
         const saved = await persist({ action: "addNote", patientId, title: evolutionTitle.trim() || "Evolución dictada", body: finalBody, requestId: requestId.current });
         savedNote = { id: saved.note?.id, title: evolutionTitle.trim() || "Evolución dictada", body: saved.note?.body ?? finalBody };
+        // Etiquetas de diagnóstico confirmadas: código, pieza y hallazgos por separado (idempotente).
+        if (saved.note?.id && dxTags.length) await persist({ action: "setEvolutionDiagnoses", patientId, evolutionId: saved.note.id, tags: dxTags });
         const readBack = await reload();
         after = readBack.toothStatuses[patientId] ?? before;
         onApplied(readBack);
@@ -483,6 +502,11 @@ export function ClinicalDictation({
         appointments: finalRead.appointments,
         periodontalExams: finalRead.periodontalExams,
       });
+      if (savedNote?.id && dxTags.length) {
+        const rereadNote = finalRead.notes.find((entry) => entry.id === savedNote?.id);
+        if (!rereadNote || !sameDiagnosisTags(dxTags, rereadNote.diagnoses ?? [])) check = { ok: false, messages: [...check.messages, "Los diagnósticos releídos de la evolución no coinciden con los aceptados."] };
+        else check = { ...check, messages: [...check.messages, `${dxTags.length} diagnóstico(s) de la evolución guardados y releídos.`] };
+      }
       if (fichaUpdate) {
         const reread = finalRead.patients.find((entry) => entry.id === patientId);
         if (!reread || reread.allergies !== fichaUpdate.allergies || reread.history !== fichaUpdate.history) check = { ok: false, messages: [...check.messages, "Alergias o antecedentes releídos no coinciden con lo aceptado."] };
@@ -497,6 +521,8 @@ export function ClinicalDictation({
         ...perioItems.filter((item) => item.decision !== "accepted").map((item) => `Sondaje FDI ${item.toothText}${item.site ? ` ${item.site}` : ""}${item.depthText ? ` ${item.depthText} mm` : ""} — ${item.pending ? "incompleto, no se guardó" : "rechazado"}.`),
         ...paymentItems.filter((item) => item.decision !== "accepted").map((item) => `Pago $${Number(item.amountText || 0).toLocaleString("es-CL")} — no se registró.`),
         ...appointmentItems.filter((item) => item.decision !== "accepted").map((item) => `Cita «${item.said || item.evidence}» — no se agendó.`),
+        ...dxItems.filter((item) => item.decision !== "accepted").map((item) => `Diagnóstico ${item.code || "sin código"} ${item.title}${item.toothText ? ` (FDI ${item.toothText})` : ""} — ${item.suggested ? "sugerencia no confirmada" : "rechazado"}.`),
+        ...(!saveEvolution && dxPlan.tags.length ? ["Los diagnósticos aceptados no se guardaron porque la evolución no se guardó."] : []),
         ...outcome.proposal.clarifications.filter((question) => !DEPTH_QUESTION.test(question)),
         ...(!saveEvolution ? ["La evolución no se guardó."] : []),
       ]);
@@ -510,6 +536,32 @@ export function ClinicalDictation({
   };
 
   const proposal = outcome?.proposal;
+
+  /** Diagnósticos aceptados: caries derivadas del odontograma aceptado + etiquetas revisadas. */
+  function diagnosisPlan(acceptedTeeth: OdontogramChange[]): { items: DiagnosisItem[]; tags: EvolutionDiagnosisTag[] } | { error: string } {
+    const caries = cariesDiagnoses(acceptedTeeth).filter((item) => item.code.startsWith("DA08.0"));
+    const pulpTeeth = new Set(acceptedTeeth.filter((item) => item.finding?.condition === "caries" && item.finding.depth === "pulpar").map((item) => item.tooth));
+    const reviewed: DiagnosisItem[] = [];
+    for (const item of dxItems) {
+      if (item.decision !== "accepted") continue;
+      const tooth = item.toothText.trim() ? parseDisplayedFdi(item.toothText) : undefined;
+      if (tooth === null || tooth === 0) return { error: `Revisa la pieza FDI del diagnóstico «${item.title}» (por ejemplo 2.6) o déjala vacía.` };
+      // La sugerencia por caries pulpar solo vale si esa caries pulpar sigue aceptada.
+      if (item.suggested?.from === "caries-pulpar" && (!tooth || !pulpTeeth.has(tooth))) continue;
+      const { decision: _d, toothText: _t, findingsText, codeSearch: _c, ...rest } = item;
+      reviewed.push({ ...rest, tooth, findings: findingsText.trim() });
+    }
+    const items = [...caries, ...reviewed].map((item) => ({ ...item, label: diagnosisLabel(item) }));
+    const parsed = sanitizeDiagnosisTags(items.map((item) => ({ code: item.code, title: item.title, tooth: item.tooth ?? null, findings: item.findings ?? "", evidence: item.evidence ?? "", origin: item.origin ?? "manual", suggestedFrom: item.suggested?.from ?? null })));
+    if ("error" in parsed) return parsed;
+    return { items, tags: parsed.tags };
+  }
+
+  const addManualDiagnosis = (code: string, title: string) => {
+    setDxItems((current) => [...current, { id: `dx-manual-${Date.now()}`, code, title, label: title, evidence: "", origin: "manual", decision: "accepted", toothText: "", findingsText: "", codeSearch: "" }]);
+    setDxSearch("");
+  };
+  const updateDx = (id: string, patch: Partial<ReviewDiagnosis>) => setDxItems((current) => current.map((entry) => entry.id === id ? { ...entry, ...patch } : entry));
 
   /** Lo dictado tal cual y, si cambió, el texto revisado: ambos quedan al final de la nota. */
   function literalTranscript() {
@@ -595,7 +647,11 @@ export function ClinicalDictation({
                 <Textarea className="mt-2 border-emerald-200 bg-emerald-50" aria-label="Cuerpo de la evolución" rows={12} value={evolutionBody} onChange={(event) => setEvolutionBody(event.target.value)} disabled={evolutionDecision !== "accepted"} />
                 <details className="mt-2">
                   <summary className="cursor-pointer text-xs font-medium text-[#087f83]">Ver el texto final que se guardará</summary>
-                  <p className="mt-2 max-h-72 overflow-y-auto whitespace-pre-wrap rounded-lg bg-[#f4f7f8] p-3 text-xs leading-5 text-[#31575b]" data-testid="dictation-final-preview">{finalizeEvolution(evolutionBody, teeth.filter((item) => item.decision === "accepted" && !reviewIssue(item)), literalTranscript())}</p>
+                  <p className="mt-2 max-h-72 overflow-y-auto whitespace-pre-wrap rounded-lg bg-[#f4f7f8] p-3 text-xs leading-5 text-[#31575b]" data-testid="dictation-final-preview">{(() => {
+                    const shown = teeth.filter((item) => item.decision === "accepted" && !reviewIssue(item));
+                    const plan = diagnosisPlan(shown);
+                    return finalizeEvolution(evolutionBody, shown, literalTranscript(), "error" in plan ? undefined : plan.items);
+                  })()}</p>
                 </details>
               </> : <p className="mt-3 text-[#71858b]">El dictado no produjo una evolución.</p>}
             </section>
@@ -630,7 +686,7 @@ export function ClinicalDictation({
                       }}>{Object.entries(conditionLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
                       {item.finding?.condition === "caries" && <>
                         <label className="space-y-1">Profundidad (opcional)<select className="h-9 w-full rounded-md border px-2" value={item.finding.depth ?? ""} onChange={(event) => setTeeth((current) => current.map((entry, entryIndex) => entryIndex === index && entry.finding?.condition === "caries" ? { ...entry, finding: { ...entry.finding, depth: (event.target.value || null) as SurfaceFinding["depth"] } } : entry))}><option value="">Sin dictar</option>{CARIES_DEPTHS.map((depth) => <option key={depth} value={depth}>{CARIES_DEPTH_SHORT[depth]}</option>)}</select></label>
-                        <p className="self-end pb-2 text-xs text-[#60757a]" data-testid="dictation-caries-icd11">{icd11Label(cariesIcd11(item.finding.depth))}</p>
+                        <p className="self-end pb-2 text-xs text-[#60757a]" data-testid="dictation-caries-icd11">{icd11Label(cariesIcd11(item.finding.depth, isRootCaries(item.sourceText)))}</p>
                       </>}
                     </> : <>
                       <label className="space-y-1">Estado<select className="h-9 w-full rounded-md border px-2" value={item.kind === "crown" ? "Corona" : item.status} onChange={(event) => {
@@ -646,15 +702,42 @@ export function ClinicalDictation({
                 </article>;
               })}
             </section>
-            {(() => {
-              // Caries según lo aceptado arriba (con su profundidad) y diagnósticos dictados con código CIE-11 verificado.
-              const list = [...cariesDiagnoses(teeth.filter((item) => item.decision === "accepted")), ...(proposal.diagnoses ?? []).filter((item) => !item.code.startsWith("DA08.0"))];
-              return list.length > 0 && <section className="rounded-xl border border-[#dce5e7] p-4" data-testid="dictation-diagnoses">
-                <h3 className="font-semibold">Diagnósticos (CIE-11 OMS)</h3>
-                <p className="mt-1 text-xs text-[#60757a]">Código y título oficial de la CIE-11 (MMS 2026-01). Los dictados van en la nota, en «Diagnósticos (CIE-11)»; edítalos ahí si no corresponden.</p>
-                <ul className="mt-2 space-y-2">{list.map((item) => <li key={item.id} className="rounded-lg bg-[#f4f7f8] p-3">{item.label}<Evidence text={item.evidence} /></li>)}</ul>
-              </section>;
-            })()}
+            <section className="rounded-xl border border-[#dce5e7] p-4" data-testid="dictation-diagnoses">
+              <h3 className="font-semibold">Diagnósticos de la evolución (CIE-11 OMS)</h3>
+              <p className="mt-1 text-xs text-[#60757a]">Etiquetas del catálogo CIE-11 verificado (MMS 2026-01). La pieza y los hallazgos se guardan aparte del código. Las equivalencias sugeridas (AAE, caries con compromiso pulpar) parten sin aceptar: confírmalas solo si corresponden. Las caries siguen lo aceptado en el odontograma.</p>
+              <ul className="mt-2 space-y-2">
+                {cariesDiagnoses(teeth.filter((item) => item.decision === "accepted")).filter((item) => item.code.startsWith("DA08.0")).map((item) => <li key={item.id} className="rounded-lg bg-[#f4f7f8] p-3" data-testid="dictation-diagnosis-caries">{item.label}<span className="ml-2 text-xs text-[#71858b]">(desde el odontograma)</span><Evidence text={item.evidence} /></li>)}
+                {dxItems.map((item) => {
+                  const results = item.codeSearch.trim().length >= 2 ? searchDiagnoses(item.codeSearch, 6) : [];
+                  return <li key={item.id} className={`rounded-lg border p-3 ${item.decision === "accepted" ? "border-emerald-200 bg-white" : "border-[#e4ebed] bg-[#f9fbfb] opacity-80"}`} data-testid="dictation-diagnosis">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <p className="font-semibold">{item.code ? <span className="mr-2 rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs">{item.code}</span> : <span className="mr-2 rounded bg-slate-100 px-1.5 py-0.5 text-xs">Sin código</span>}{item.title}
+                          {item.origin && item.origin !== "manual" && <OriginBadge origin={item.origin} />}
+                          {item.origin === "manual" && <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700">Agregado a mano</span>}
+                        </p>
+                        {item.suggested && <p className="mt-1 text-xs font-medium text-amber-800" data-testid="dictation-diagnosis-suggested">{item.suggested.from === "AAE" ? `Sugerido: equivalencia de «${item.suggested.term}» (AAE). Confírmalo si corresponde.` : "Sugerido por caries con compromiso pulpar: confirma o cambia el diagnóstico pulpar."}</p>}
+                        <Evidence text={item.evidence} />
+                      </div>
+                      <div className="flex gap-2">
+                        <Decision value={item.decision} onChange={(decision) => updateDx(item.id, { decision })} />
+                        <Button type="button" size="sm" variant="outline" onClick={() => setDxItems((current) => current.filter((entry) => entry.id !== item.id))}>Quitar</Button>
+                      </div>
+                    </div>
+                    {item.decision === "accepted" && <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                      <label className="space-y-1 text-xs">Pieza FDI (opcional)<input className="flex h-9 w-full rounded-md border px-3 text-sm" placeholder="2.6" aria-label={`Pieza del diagnóstico ${item.title}`} value={item.toothText} onChange={(event) => updateDx(item.id, { toothText: event.target.value })} /></label>
+                      <label className="space-y-1 text-xs">Hallazgos (opcional)<input className="flex h-9 w-full rounded-md border px-3 text-sm" placeholder="p. ej. dolor a la percusión" aria-label={`Hallazgos del diagnóstico ${item.title}`} value={item.findingsText} onChange={(event) => updateDx(item.id, { findingsText: event.target.value })} /></label>
+                      <label className="space-y-1 text-xs">Cambiar diagnóstico<input className="flex h-9 w-full rounded-md border px-3 text-sm" placeholder="Buscar: pulpitis, absceso…" aria-label={`Cambiar el diagnóstico ${item.title}`} value={item.codeSearch} onChange={(event) => updateDx(item.id, { codeSearch: event.target.value })} /></label>
+                    </div>}
+                    {results.length > 0 && <ul className="mt-2 space-y-1">{results.map((result) => <li key={`${result.code}|${result.title}`}><button type="button" className="w-full rounded-md border px-2 py-1 text-left text-xs hover:bg-emerald-50" onClick={() => updateDx(item.id, { code: result.code, title: result.title, label: result.title, suggested: undefined, term: undefined, origin: "manual", codeSearch: "" })}>{result.code || "Sin código"} · {result.title}{result.matched && result.matched !== result.title ? ` («${result.matched}»)` : ""}</button></li>)}</ul>}
+                  </li>;
+                })}
+              </ul>
+              <label className="mt-3 block space-y-1 text-xs">Agregar diagnóstico (sinónimos chilenos: «caries», «absceso», «muela del juicio», «bruxismo»…)
+                <input className="flex h-9 w-full rounded-md border px-3 text-sm" aria-label="Buscar diagnóstico para agregar" value={dxSearch} onChange={(event) => setDxSearch(event.target.value)} />
+              </label>
+              {dxSearch.trim().length >= 2 && <ul className="mt-2 space-y-1" data-testid="dictation-diagnosis-search">{searchDiagnoses(dxSearch, 8).map((result) => <li key={`${result.code}|${result.title}`}><button type="button" className="w-full rounded-md border px-2 py-1 text-left text-xs hover:bg-emerald-50" onClick={() => addManualDiagnosis(result.code, result.title)}>{result.code || "Sin código"} · {result.title}{result.matched && result.matched !== result.title ? ` («${result.matched}»)` : ""}</button></li>)}</ul>}
+            </section>
             {(proposal.procedures ?? []).length > 0 && <section className="rounded-xl border border-[#dce5e7] p-4">
               <h3 className="font-semibold">Procedimientos realizados (según la IA)</h3>
               <p className="mt-1 text-xs text-[#60757a]">Van en la nota; revísalos ahí.</p>

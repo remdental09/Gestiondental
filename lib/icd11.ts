@@ -1,57 +1,57 @@
 /**
  * CIE-11 (OMS, versión MMS 2026-01) para diagnósticos odontológicos.
- * Cada código y título se verificó contra la fuente oficial de la OMS:
+ * Códigos, títulos e ids vienen del catálogo verificado `lib/icd11-catalog.ts` (generado desde la tabulación
+ * oficial de la OMS; ver docs/cie11-catalogo.md). No agregar códigos a mano: regenerar el catálogo.
  *  - tabla oficial: https://icdcdn.who.int/static/releasefiles/2026-01/SimpleTabulation-ICD-11-MMS-en.zip
  *  - títulos en español: https://icd.who.int/browse/2026-01/mms/es#<id>
- * No agregar códigos sin verificarlos en esas fuentes.
+ * Los sinónimos chilenos del catálogo son propuestas clínicas, no contenido OMS.
  *
- * En CIE-11 la caries es una sola categoría (DA08.0 Caries dental); la profundidad se expresa por
- * poscoordinación con «Partes del diente» (XA1PT3): Esmalte XA5R09, Dentina XA6FX3, Pulpa XA5B71.
+ * En CIE-11 la caries es una sola categoría (DA08.0 Caries dental); el tejido se expresa por poscoordinación
+ * con «Partes del diente»: Esmalte XA5R09, Dentina XA6FX3, Pulpa XA5B71, Cemento XA4KC7 (caries radicular).
  * CIE-11 no separa dentina superficial de dentina profunda: ambas llevan DA08.0&XA6FX3.
+ * La pieza, las caras y la profundidad se guardan aparte del código.
  */
 import type { CariesDepth } from "./caries.ts";
+import { ICD11_CATALOG, ICD11_RELEASE, ICD11_TOOTH_BY_FDI, type Icd11CatalogEntry } from "./icd11-catalog.ts";
 
+export { ICD11_CATALOG, ICD11_RELEASE, ICD11_TOOTH_BY_FDI };
+export type { Icd11CatalogEntry };
 export type Icd11Entry = { code: string; title: string; titleEn: string; id: string };
 
 const BROWSER = "https://icd.who.int/browse/2026-01/mms/es#";
 export const icd11Url = (entry: Pick<Icd11Entry, "id">) => `${BROWSER}${entry.id}`;
 
-export const ICD11: Record<string, Icd11Entry> = {
-  "DA08.0": { code: "DA08.0", title: "Caries dental", titleEn: "Dental caries", id: "1983306720" },
-  XA5R09: { code: "XA5R09", title: "Esmalte", titleEn: "Enamel", id: "1839377909" },
-  XA6FX3: { code: "XA6FX3", title: "Dentina", titleEn: "Dentin", id: "1423573173" },
-  XA5B71: { code: "XA5B71", title: "Pulpa", titleEn: "Pulp", id: "1620542411" },
-  "DA08.10": { code: "DA08.10", title: "Erosión excesiva de los dientes", titleEn: "Excessive attrition of teeth", id: "421732399" },
-  "DA08.11": { code: "DA08.11", title: "Abrasión de los dientes", titleEn: "Abrasion of teeth", id: "2087251387" },
-  "DA08.12": { code: "DA08.12", title: "Erosión de los dientes", titleEn: "Erosion of teeth", id: "147176774" },
-  "DA08.13": { code: "DA08.13", title: "Abfracción", titleEn: "Abfraction", id: "805506345" },
-  "DA08.3": { code: "DA08.3", title: "Fractura no traumática de diente", titleEn: "Nontraumatic fracture of tooth", id: "1299071429" },
-  "DA09.0": { code: "DA09.0", title: "Pulpitis", titleEn: "Pulpitis", id: "576344431" },
-  "DA09.1": { code: "DA09.1", title: "Necrosis de la pulpa", titleEn: "Necrosis of pulp", id: "1192336635" },
-  "DA09.2": { code: "DA09.2", title: "Absceso de la pulpa", titleEn: "Pulp abscess", id: "1391556257" },
-  "DA09.6": { code: "DA09.6", title: "Absceso periapical", titleEn: "Periapical abscess", id: "2050987051" },
-  "DA09.61": { code: "DA09.61", title: "Absceso periapical con fístula", titleEn: "Periapical abscess with sinus", id: "889130863" },
-  "DA09.62": { code: "DA09.62", title: "Absceso periapical sin fístula", titleEn: "Periapical abscess without sinus", id: "1370800891" },
-  "DA09.7": { code: "DA09.7", title: "Periodontitis periapical", titleEn: "Periapical periodontitis", id: "1395124674" },
-  "DA09.70": { code: "DA09.70", title: "Periodontitis apical aguda originada en la pulpa", titleEn: "Acute apical periodontitis of pulpal origin", id: "622432774" },
-  "DA09.71": { code: "DA09.71", title: "Periodontitis apical crónica", titleEn: "Chronic apical periodontitis", id: "1079140240" },
-  "DA09.8": { code: "DA09.8", title: "Quiste radicular", titleEn: "Radicular cyst", id: "752736185" },
-  "DA0A.1": { code: "DA0A.1", title: "Pérdida de dientes por traumatismo, extracción o enfermedad periodontal focal", titleEn: "Loss of teeth due to accident, extraction or local periodontal disease", id: "135458681" },
-  "DA0A.3": { code: "DA0A.3", title: "Raíz dental retenida", titleEn: "Retained dental root", id: "435450388" },
-  "DA0B.6": { code: "DA0B.6", title: "Pericoronitis", titleEn: "Pericoronitis", id: "1764886525" },
-  "DA0C.0": { code: "DA0C.0", title: "Periodontitis aguda", titleEn: "Acute periodontitis", id: "792986757" },
-  "DA0C.1": { code: "DA0C.1", title: "Periodontitis agresiva", titleEn: "Aggressive periodontitis", id: "351042657" },
-  "DA0C.4": { code: "DA0C.4", title: "Absceso del periodonto", titleEn: "Abscess of periodontium", id: "946135091" },
-  "DA0D.0": { code: "DA0D.0", title: "Retracción gingival", titleEn: "Gingival recession", id: "1059404242" },
-  "DA0D.1": { code: "DA0D.1", title: "Agrandamiento gingival", titleEn: "Gingival enlargement", id: "1517220932" },
-  "NA0D.00": { code: "NA0D.00", title: "Infracción de esmalte", titleEn: "Enamel infraction", id: "1539708026" },
-  "NA0D.01": { code: "NA0D.01", title: "Fractura de esmalte", titleEn: "Enamel fracture", id: "1517691500" },
-  "NA0D.02": { code: "NA0D.02", title: "Fractura de dentina-esmalte", titleEn: "Enamel-dentin fracture", id: "551460603" },
-  "NA0D.03": { code: "NA0D.03", title: "Fractura de la corona, complicada", titleEn: "Complicated crown fracture", id: "1127661061" },
-  "NA0D.06": { code: "NA0D.06", title: "Fractura de la raíz del diente", titleEn: "Root fracture", id: "61783276" },
+/**
+ * Título clínico mostrado cuando el título OMS en español induce a error. DA08.10 es «Excessive attrition of
+ * teeth» (atrición); la versión española oficial lo traduce como «Erosión excesiva», que se confunde con DA08.12.
+ */
+const CLINICAL_TITLE: Record<string, string> = {
+  "DA08.10": "Atrición excesiva de los dientes",
 };
 
-/** Código CIE-11 para una caries según profundidad (poscoordinado cuando la profundidad se conoce). */
+const CATALOG_BY_CODE = new Map(ICD11_CATALOG.map((entry) => [entry.code, entry]));
+export const catalogEntry = (code: string) => CATALOG_BY_CODE.get(code);
+export const officialTitle = (code: string) => CATALOG_BY_CODE.get(code)?.title ?? "";
+
+export const ICD11: Record<string, Icd11Entry> = Object.fromEntries(
+  ICD11_CATALOG.map(({ code, title, titleEn, id }) => [code, { code, title: CLINICAL_TITLE[code] ?? title, titleEn, id }]),
+);
+
+/** Un código que se puede guardar como etiqueta: hoja troncal del catálogo, o caries poscoordinada con una parte del diente. */
+export function isStorableIcd11(code: string): boolean {
+  const [stem, ...extensions] = code.split("&");
+  const entry = CATALOG_BY_CODE.get(stem);
+  if (!entry || entry.kind !== "stem" || !entry.isLeaf) return false;
+  return extensions.every((ext) => CATALOG_BY_CODE.get(ext)?.kind === "extension");
+}
+
+/** Título de un código guardable (con su poscoordinación), o "" si no está en el catálogo. */
+export function icd11Title(code: string): string {
+  if (!isStorableIcd11(code)) return "";
+  return code.split("&").map((part) => ICD11[part]?.title ?? "").join(" · ");
+}
+
+/** Código CIE-11 para una caries según profundidad (poscoordinado cuando la profundidad o la raíz se conocen). */
 export type Icd11Code = { code: string; title: string };
 
 const CARIES_PART: Record<CariesDepth, string> = {
@@ -61,10 +61,12 @@ const CARIES_PART: Record<CariesDepth, string> = {
   pulpar: "XA5B71",
 };
 
-export function cariesIcd11(depth: CariesDepth | null | undefined): Icd11Code {
+/** `root`: caries radicular (cemento, XA4KC7). Con compromiso pulpar manda la pulpa. */
+export function cariesIcd11(depth: CariesDepth | null | undefined, root = false): Icd11Code {
   const base = ICD11["DA08.0"];
-  if (!depth) return { code: base.code, title: base.title };
-  const part = ICD11[CARIES_PART[depth]];
+  const partCode = depth === "pulpar" ? CARIES_PART.pulpar : root ? "XA4KC7" : depth ? CARIES_PART[depth] : null;
+  if (!partCode) return { code: base.code, title: base.title };
+  const part = ICD11[partCode];
   return { code: `${base.code}&${part.code}`, title: `${base.title} · ${part.title}` };
 }
 
@@ -73,51 +75,201 @@ export const icd11Label = (icd: Icd11Code) => `CIE-11 ${icd.code} ${icd.title}`;
 const fold = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 
 /**
- * Diagnósticos dictados por el profesional que tienen código CIE-11 verificado.
- * Solo reconoce el nombre del diagnóstico; no deduce diagnósticos a partir de síntomas.
+ * Términos de la AAE (Asociación Americana de Endodoncia) que se usan en Chile y no son títulos CIE-11.
+ * Su código es una equivalencia SUGERIDA que el profesional confirma; nunca se guarda sin su revisión.
  */
-const RULES: Array<{ re: RegExp; code: string }> = [
-  { re: /\bperiodontitis\s+apical\s+aguda\b/, code: "DA09.70" },
-  { re: /\bperiodontitis\s+apical\s+cronica\b/, code: "DA09.71" },
-  { re: /\bperiodontitis\s+(?:periapical|apical)\b/, code: "DA09.7" },
-  { re: /\babsceso\s+(?:periapical|apical)\s+con\s+fistula\b/, code: "DA09.61" },
-  { re: /\babsceso\s+(?:periapical|apical)\s+sin\s+fistula\b/, code: "DA09.62" },
-  { re: /\babsceso\s+(?:periapical|apical)\b/, code: "DA09.6" },
-  { re: /\babsceso\s+(?:periodontal|del\s+periodonto)\b/, code: "DA0C.4" },
-  { re: /\babsceso\s+pulpar\b|\babsceso\s+de\s+la\s+pulpa\b/, code: "DA09.2" },
-  { re: /\bnecrosis\s+pulpar\b|\bnecrosis\s+de\s+(?:la\s+)?pulpa\b/, code: "DA09.1" },
+export type SuggestedMapping = { from: "AAE" | "caries-pulpar"; term: string };
+
+type Rule = { re: RegExp; code: string; aae?: true; dentalOnly?: true };
+
+// Más específico primero dentro de cada familia.
+const RULES: Rule[] = [
+  // Pulpa y periápice
+  { re: /\bpulpitis\s+irreversible(?:\s+(?:sintomatica|asintomatica))?\b/, code: "DA09.0", aae: true },
   { re: /\bpulpitis\b/, code: "DA09.0" },
-  { re: /\bquiste\s+radicular\b/, code: "DA09.8" },
+  { re: /\bnecrosis\s+pulpar\b|\bnecrosis\s+de\s+(?:la\s+)?pulpa\b|\bpulpa\s+necrotica\b/, code: "DA09.1" },
+  { re: /\babsceso\s+pulpar\b|\babsceso\s+de\s+la\s+pulpa\b/, code: "DA09.2" },
+  { re: /\babsceso\s+fenix\b|\bperiodontitis\s+apical\s+cronica\s+reagudizada\b|\blesion\s+periapical\s+reagudizada\b/, code: "DA09.3" },
+  { re: /\babsceso\s+(?:periapical|apical)\s+con\s+(?:afectacion|compromiso)\s+facial\b|\babsceso\s+(?:periapical|apical)\s+con\s+aumento\s+de\s+volumen\s+facial\b/, code: "DA09.60" },
+  { re: /\babsceso\s+(?:periapical|apical)\s+con\s+(?:fistula|tracto\s+sinuoso)\b/, code: "DA09.61" },
+  { re: /\babsceso\s+(?:periapical|apical)\s+sin\s+fistula\b/, code: "DA09.62" },
+  { re: /\babsceso\s+apical\s+cronico\b/, code: "DA09.61", aae: true },
+  { re: /\babsceso\s+apical\s+agudo\b/, code: "DA09.62", aae: true },
+  { re: /\babsceso\s+(?:periapical|apical|dentoalveolar)\b/, code: "DA09.6Z" },
+  { re: /\bperiodontitis\s+(?:apical|periapical)\s+aguda\b/, code: "DA09.70" },
+  { re: /\bperiodontitis\s+(?:apical|periapical)\s+cronica\b(?!\s+reagudizad)/, code: "DA09.71" },
+  { re: /\bperiodontitis\s+(?:apical|periapical)\s+sintomatica\b/, code: "DA09.70", aae: true },
+  { re: /\bperiodontitis\s+(?:apical|periapical)\s+asintomatica\b/, code: "DA09.71", aae: true },
+  { re: /\bperiodontitis\s+(?:periapical|apical)\b/, code: "DA09.7Z" },
+  { re: /\bquiste\s+(?:radicular|periapical)\b/, code: "DA09.8" },
+  // Encía y periodonto
   { re: /\bpericoronaritis\b|\bpericoronitis\b/, code: "DA0B.6" },
+  { re: /\bgingivitis\s+(?:ulcerativa|ulcero)?\s*necro(?:tizante|sante)\b|\bgun[ao]?\b/, code: "1C1H.Z" },
   { re: /\bperiodontitis\s+agresiva\b/, code: "DA0C.1" },
   { re: /\bperiodontitis\s+aguda\b/, code: "DA0C.0" },
+  { re: /\babsceso\s+(?:periodontal|del\s+periodonto)\b/, code: "DA0C.4" },
   { re: /\b(?:retraccion|recesion)\s+gingival\b/, code: "DA0D.0" },
   { re: /\b(?:agrandamiento|hiperplasia)\s+gingival\b/, code: "DA0D.1" },
-  { re: /\batricion\b/, code: "DA08.10" },
-  { re: /\babrasion\b/, code: "DA08.11" },
-  { re: /\berosion\b/, code: "DA08.12" },
+  // Tejidos duros
+  { re: /\batricion\b|\bfacetas?\s+de\s+desgaste\b/, code: "DA08.10" },
+  { re: /\babrasion\b/, code: "DA08.11", dentalOnly: true },
+  { re: /\berosion\b|\bdesgaste\s+erosivo\b/, code: "DA08.12", dentalOnly: true },
   { re: /\babfraccion\b/, code: "DA08.13" },
   { re: /\bfractura\s+no\s+traumatica\b/, code: "DA08.3" },
+  // Traumatismo dentario
   { re: /\binfraccion\s+(?:del?\s+)?esmalte\b/, code: "NA0D.00" },
+  { re: /\bfractura\s+corono[\s-]*r?radicular\s+complicada\b|\bfractura\s+complicada\s+de\s+(?:la\s+)?corona[\s-]+raiz\b/, code: "NA0D.05" },
+  { re: /\bfractura\s+corono[\s-]*r?radicular(?:\s+(?:no\s+complicada|sin\s+complicaciones?))?\b|\bfractura\s+de\s+(?:la\s+)?corona[\s-]+raiz\b/, code: "NA0D.04" },
   { re: /\bfractura\s+(?:de\s+)?(?:esmalte\s+y\s+dentina|esmalte[\s-]+dentina|dentina[\s-]+esmalte|dentina\s+y\s+esmalte)\b/, code: "NA0D.02" },
   { re: /\bfractura\s+(?:del?\s+)?esmalte\b/, code: "NA0D.01" },
   { re: /\bfractura\s+(?:coronaria|de\s+(?:la\s+)?corona)\s+complicada\b/, code: "NA0D.03" },
   { re: /\bfractura\s+(?:radicular|de\s+(?:la\s+)?raiz)\b/, code: "NA0D.06" },
+  { re: /\b(?:concusion|conmocion)(?:\s+(?:dentaria|del\s+tejido\s+periodontal))?\b/, code: "NA0D.10" },
+  { re: /\bsubluxacion\b/, code: "NA0D.11" },
+  { re: /\bluxacion\s+extrusiva\b|\bextrusion\s+(?:dentaria\s+)?traumatica\b/, code: "NA0D.12" },
+  { re: /\bluxacion\s+lateral\b/, code: "NA0D.13" },
+  { re: /\bluxacion\s+intrusiva\b|\bintrusion\s+(?:dentaria\s+)?traumatica\b/, code: "NA0D.14" },
+  { re: /\bavulsion\b|\bavulsionad[oa]\b/, code: "NA0D.15" },
+  // Erupción, maxilares, ATM
+  { re: /\b(?:semi[\s-]?incluid[oa]|impactad[oa])\b/, code: "DA07.8" },
+  { re: /\bincluid[oa]\b|\b(?:diente|pieza|molar|canino|premolar|cordal)\s+retenid[oa]\b/, code: "DA07.7" },
+  { re: /\balveolitis\b|\balveolo\s+seco\b|\bosteitis\s+alveolar\b/, code: "DA06.1" },
+  { re: /\b(?:trastorno|disfuncion)\s+(?:de\s+(?:la\s+)?)?(?:articulacion\s+)?temporomandibular\b|\bdisfuncion\s+de\s+(?:la\s+)?atm\b|\bttm\b/, code: "DA0E.8" },
+  { re: /\bbruxismo\s+(?:del\s+sueno|nocturno)\b/, code: "7A83" },
   { re: /\bresto\s+radicular\b|\braiz\s+(?:dental\s+)?retenida\b/, code: "DA0A.3" },
 ];
 
-/** Más específico primero: si «absceso periapical con fístula» calza, no se agrega también «absceso periapical». */
-export function icd11FromText(text: string): Icd11Entry[] {
-  const t = fold(text);
-  const found: Icd11Entry[] = [];
+/** Familias donde basta el código más específico («absceso periapical con fístula» no agrega «absceso periapical»). */
+const FAMILIES = ["DA09.6", "DA09.7", "NA0D.0", "DA07."];
+// El absceso fénix (DA09.3) es una periodontitis apical crónica reagudizada: no se agrega además DA09.7x.
+const family = (code: string) => (code === "DA09.3" ? "DA09.7" : FAMILIES.find((prefix) => code.startsWith(prefix)) ?? code);
+
+/** «erosión» o «abrasión» solas son dentarias solo con contexto de pieza y sin palabras de mucosa (no lesiones orales). */
+const DENTAL_QUALIFIER = /\b(?:erosion|abrasion)\s+(?:dental|dentaria|acida|por\s+cepillado|cervical)\b|\bdesgaste\s+erosivo\b/;
+const TOOTH_CONTEXT = /\b(?:pieza|piezas|diente|dientes|incisiv\w*|canin\w*|premolar\w*|molar\w*|cervical|oclusal|incisal|esmalte|dentina)\b|\b[1-8]\.?[1-8]\b/;
+const MUCOSA_CONTEXT = /\b(?:mucosa|mucoso|labio|labial\s+inferior|lengua|lingual\s+dorso|encia|gingival|paladar|yugal|carrillo|piso\s+de\s+boca|liquen|ulcera\w*|lesion\s+blanca|placa\s+blanca|comisura)\b/;
+
+function dentalContext(t: string): boolean {
+  if (DENTAL_QUALIFIER.test(t)) return true;
+  return TOOTH_CONTEXT.test(t) && !MUCOSA_CONTEXT.test(t);
+}
+
+/** Conceptos clínicos sin código CIE-11 específico verificado: se etiquetan sin código. */
+type Uncoded = { re: RegExp; title: (match: RegExpExecArray) => string };
+const UNCODED: Uncoded[] = [
+  { re: /\bgingivitis\s+(?:inducida\s+por\s+(?:placa|biofilm|biopelicula)|asociada\s+a\s+(?:placa|biofilm|biopelicula)|por\s+(?:placa|biofilm))\b/, title: () => "Gingivitis inducida por placa (biofilm)" },
+  { re: /\bperiodontitis\s+(?:estadio|etapa)\s+(i{1,3}v?|iv|[1-4]|uno|dos|tres|cuatro)(?:[\s,]+(?:y\s+)?grado\s+([abc]))?\b/, title: (m) => `Periodontitis estadio ${roman(m[1])}${m[2] ? ` grado ${m[2].toUpperCase()}` : ""} (clasificación 2017)` },
+  { re: /\bbruxismo\b(?!\s+(?:del\s+sueno|nocturno))/, title: () => "Bruxismo (sin precisar si es del sueño o de vigilia)" },
+  { re: /\bhipomineralizacion\s+incisivo[\s-]*molar\b|\bmih\b|\bhim\b/, title: () => "Hipomineralización incisivo-molar (HIM)" },
+  { re: /\b(?:maloclusion\s+)?clase\s+(?:ii|2|dos)\s+(?:division|div\.?)\s+(?:1|uno|i)\b/, title: () => "Maloclusión clase II división 1" },
+  { re: /\b(?:maloclusion\s+)?clase\s+(?:iii|3|tres)\b(?!\s*de\s+(?:black|kennedy))/, title: () => "Maloclusión clase III" },
+];
+
+function roman(value: string): string {
+  const map: Record<string, string> = { "1": "I", "2": "II", "3": "III", "4": "IV", uno: "I", dos: "II", tres: "III", cuatro: "IV" };
+  return map[value] ?? value.toUpperCase();
+}
+
+/** Diagnóstico reconocido en un texto: con código (`code`) o etiqueta sin código (`code` = ""). */
+export type DiagnosisMatch = { code: string; title: string; term: string; suggested?: SuggestedMapping };
+
+export function diagnosisMatches(text: string): DiagnosisMatch[] {
+  const original = text.normalize("NFC");
+  const t = fold(original);
+  // El término se devuelve tal como se dijo (con tildes) cuando el texto plegado conserva las posiciones.
+  const said = (match: RegExpExecArray) => (t.length === original.length ? original.slice(match.index, match.index + match[0].length) : match[0]);
+  const found: DiagnosisMatch[] = [];
   for (const rule of RULES) {
-    if (!rule.re.test(t)) continue;
+    const match = rule.re.exec(t);
+    if (!match) continue;
+    if (rule.dentalOnly && !dentalContext(t)) continue;
+    if (found.some((done) => done.code && family(done.code) === family(rule.code))) continue;
     const entry = ICD11[rule.code];
-    if (found.some((done) => done.code.startsWith(entry.code) || (entry.code.startsWith("DA09.7") && done.code.startsWith("DA09.7")) || (entry.code.startsWith("DA09.6") && done.code.startsWith("DA09.6")) || (entry.code.startsWith("NA0D.0") && done.code.startsWith("NA0D.0")))) continue;
-    found.push(entry);
+    found.push({ code: entry.code, title: entry.title, term: said(match), ...(rule.aae ? { suggested: { from: "AAE" as const, term: said(match) } } : {}) });
+  }
+  for (const rule of UNCODED) {
+    const match = rule.re.exec(t);
+    if (match) found.push({ code: "", title: rule.title(match), term: said(match) });
   }
   return found;
 }
 
-/** Diagnósticos dictados sin un código CIE-11 verificado en esta lista: se registran sin código. */
-export const ICD11_UNMAPPED = ["gingivitis (sin tipo)", "periodontitis crónica / estadios y grados", "desdentamiento total o parcial sin causa", "fractura sin precisar si es traumática"];
+/** Diagnósticos con código CIE-11 en un texto (sin las etiquetas sin código). */
+export function icd11FromText(text: string): Icd11Entry[] {
+  return diagnosisMatches(text).filter((item) => item.code).map((item) => ICD11[item.code]);
+}
+
+/** Etiquetas sin código que se pueden elegir a mano en la búsqueda. */
+export const UNCODED_TAGS = [
+  "Gingivitis inducida por placa (biofilm)",
+  "Periodontitis (clasificación 2017, indicar estadio y grado)",
+  "Hipomineralización incisivo-molar (HIM)",
+  "Maloclusión clase II división 1",
+  "Maloclusión clase III",
+  "Bruxismo (sin precisar si es del sueño o de vigilia)",
+];
+
+/** Diagnósticos dictados sin un código CIE-11 verificado: se registran sin código. */
+export const ICD11_UNMAPPED = [...UNCODED_TAGS, "superficie palatina (se guarda como cara P del hallazgo, sin extensión CIE-11)"];
+
+/** Sinónimos adicionales para buscar (términos AAE y de uso chileno), además de los del catálogo. */
+const EXTRA_SYNONYMS: Record<string, string[]> = {
+  "DA08.10": ["atrición", "atricion"],
+  "DA09.70": ["periodontitis apical sintomática"],
+  "DA09.71": ["periodontitis apical asintomática"],
+  "DA09.62": ["absceso apical agudo"],
+  "DA09.61": ["absceso apical crónico"],
+  "DA09.6Z": ["absceso periapical", "absceso apical"],
+  "DA09.7Z": ["periodontitis apical", "periodontitis periapical"],
+  "1C1H.Z": ["gingivitis ulcerativa necrotizante", "GUN", "GUNA"],
+};
+
+export type DiagnosisSearchResult = { code: string; title: string; matched: string; group: string };
+
+/**
+ * Búsqueda por código, título o sinónimo chileno (sin tildes ni mayúsculas). Solo devuelve códigos guardables
+ * (hojas troncales) y las etiquetas sin código. Una categoría con subcódigos remite a su residual «sin especificación».
+ */
+export function searchDiagnoses(query: string, limit = 12): DiagnosisSearchResult[] {
+  const q = fold(query).trim();
+  if (q.length < 2) return [];
+  const words = q.split(/\s+/);
+  const scored: Array<DiagnosisSearchResult & { score: number }> = [];
+  const seen = new Set<string>();
+  const add = (code: string, title: string, matched: string, group: string, score: number) => {
+    const key = code || title;
+    const prior = scored.find((item) => (item.code || item.title) === key);
+    if (prior) { if (score > prior.score) Object.assign(prior, { matched, score }); return; }
+    if (seen.has(key) && !prior) return;
+    seen.add(key);
+    scored.push({ code, title, matched, group, score });
+  };
+  const score = (candidate: string): number => {
+    const c = fold(candidate);
+    if (c === q) return 100;
+    if (c.startsWith(q)) return 80;
+    if (words.every((word) => c.includes(word))) return c.includes(q) ? 60 : 40;
+    return 0;
+  };
+  for (const entry of ICD11_CATALOG) {
+    if (entry.kind !== "stem") continue;
+    // Una categoría padre remite a su «sin especificación» (p. ej. DA09.6 → DA09.6Z).
+    const target = entry.isLeaf ? entry : CATALOG_BY_CODE.get(`${entry.code}Z`) ?? CATALOG_BY_CODE.get(`${entry.code}.Z`);
+    if (!target || !target.isLeaf) continue;
+    const title = ICD11[target.code].title;
+    const names = [entry.code, title, entry.title, ...entry.synonyms, ...(EXTRA_SYNONYMS[entry.code] ?? [])];
+    let best = 0, matched = "";
+    for (const name of names) {
+      const base = score(name);
+      if (!base) continue;
+      const s = base + (name === entry.code ? 5 : 0) - (entry.isLeaf ? 0 : 3) - (target.isResidual ? 2 : 0);
+      if (s > best) { best = s; matched = name; }
+    }
+    if (best > 0) add(target.code, title, matched, entry.group, best);
+  }
+  for (const title of UNCODED_TAGS) {
+    const s = score(title);
+    if (s > 0) add("", title, title, "Sin código CIE-11", s - 1);
+  }
+  return scored.sort((a, b) => b.score - a.score || a.code.localeCompare(b.code)).slice(0, limit).map(({ score: _score, ...rest }) => rest);
+}

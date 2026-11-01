@@ -7,7 +7,8 @@ import { syncInstalledImplants } from "@/app/sync-odontogram";
 import { cementedCrownFromEvolution } from "@/app/crown-evidence";
 import { fullNameRequiredMessage, hasFourNameParts } from "@/app/patient-identity";
 import { getDb } from "@/db";
-import { appointments, budgets, calendarEvents, clinicalImages, evolutions, patients, payments, periodontalExams, toothStatuses } from "@/db/schema";
+import { appointments, budgets, calendarEvents, clinicalImages, evolutionDiagnoses, evolutions, patients, payments, periodontalExams, toothStatuses } from "@/db/schema";
+import { sanitizeDiagnosisTags } from "@/lib/evolution-diagnoses";
 import type { OdontogramData, OdontogramSurface, SurfaceFinding } from "@/app/clinical-data";
 
 export const runtime = "edge";
@@ -29,6 +30,7 @@ const displayDate = (value: string) => {
   const [y, m, d] = value.split("-").map(Number);
   return new Intl.DateTimeFormat("es-CL", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(Date.UTC(y, m - 1, d)));
 };
+const diagnosisView = (d: typeof evolutionDiagnoses.$inferSelect) => ({ id: d.id, evolutionId: d.evolutionId, code: d.code, title: d.title, tooth: d.tooth, findings: d.findings, evidence: d.evidence, origin: d.origin, suggestedFrom: d.suggestedFrom });
 const error = (message: string, status = 400) => Response.json({ error: message }, { status });
 const string = (value: unknown, max: number) => typeof value === "string" ? value.trim().slice(0, max) : "";
 const normalizePatientName = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
@@ -112,7 +114,7 @@ export async function GET() {
   if (!ownerId) return error("Inicia sesión para ver las fichas.", 401);
   try {
     const db = getDb();
-    const [ps, ns, bs, as, pe, ts, imgs, ces, pays] = await Promise.all([
+    const [ps, ns, bs, as, pe, ts, imgs, ces, pays, dxs] = await Promise.all([
       db.select().from(patients).where(eq(patients.ownerId, ownerId)).orderBy(patients.name),
       db.select().from(evolutions).where(eq(evolutions.ownerId, ownerId)).orderBy(desc(evolutions.clinicalDate), desc(evolutions.recordedAt)),
       db.select().from(budgets).where(eq(budgets.ownerId, ownerId)).orderBy(desc(budgets.id)),
@@ -123,7 +125,11 @@ export async function GET() {
       db.select().from(calendarEvents).where(eq(calendarEvents.ownerId, ownerId)).orderBy(calendarEvents.startAt),
       // Si la migración de pagos aún no se aplicó, la ficha carga igual.
       db.select().from(payments).where(eq(payments.ownerId, ownerId)).orderBy(desc(payments.paidOn), desc(payments.id)).catch(() => [] as (typeof payments.$inferSelect)[]),
+      // Igual con las etiquetas de diagnóstico (migración 0005).
+      db.select().from(evolutionDiagnoses).where(eq(evolutionDiagnoses.ownerId, ownerId)).orderBy(evolutionDiagnoses.id).catch(() => [] as (typeof evolutionDiagnoses.$inferSelect)[]),
     ]);
+    const diagnosesByNote = new Map<number, ReturnType<typeof diagnosisView>[]>();
+    for (const dx of dxs) diagnosesByNote.set(dx.evolutionId, [...(diagnosesByNote.get(dx.evolutionId) ?? []), diagnosisView(dx)]);
     const notesByPatient = new Map<number, typeof ns>();
     for (const note of ns) {
       const patientNotes = notesByPatient.get(note.patientId);
@@ -152,7 +158,7 @@ export async function GET() {
     }));
     return Response.json({
       patients: ps.map(p => ({ ...p, rut: p.rut || "" })),
-      notes: ns.map(n => ({ id: n.id, patientId: n.patientId, date: displayDate(n.clinicalDate), clinicalDate: n.clinicalDate, recordedAt: n.recordedAt, title: n.title, body: n.body, sourceDocumentId: n.sourceDocumentId, backupStatus: n.backupStatus })),
+      notes: ns.map(n => ({ id: n.id, patientId: n.patientId, date: displayDate(n.clinicalDate), clinicalDate: n.clinicalDate, recordedAt: n.recordedAt, title: n.title, body: n.body, sourceDocumentId: n.sourceDocumentId, backupStatus: n.backupStatus, diagnoses: diagnosesByNote.get(n.id) ?? [] })),
       budgets: bs.map(b => ({ id: b.id, patientId: b.patientId, date: displayDate(b.createdAt.slice(0, 10)), title: b.title, status: b.status, items: JSON.parse(b.items) })),
       appointments: as.map(a => ({ id: a.id, patientId: a.patientId, day: a.day.split("-").reverse().join("-"), time: a.time, reason: a.reason })),
       payments: pays.map(paymentView),
@@ -266,6 +272,21 @@ export async function POST(request: Request) {
       try { chart = await syncInstalledImplants(ownerId, patientId, body, t); }
       catch { chart = { updatedTeeth: [], odontogram: null, warning: "Evolución guardada; revisa el odontograma, cuya actualización no pudo verificarse." }; }
       return Response.json({ note: { id: n.id, patientId, date: displayDate(clinicalDate), clinicalDate, recordedAt: t, title, body, backupStatus: n.backupStatus }, chart }, { status: 201 });
+    }
+    if (action === "setEvolutionDiagnoses") {
+      // Reemplaza las etiquetas confirmadas de una evolución (idempotente: reenviar deja lo mismo).
+      const evolutionId = Number(input.evolutionId);
+      if (!Number.isSafeInteger(evolutionId) || evolutionId <= 0) return error("Evolución inválida.");
+      const parsed = sanitizeDiagnosisTags(input.tags);
+      if ("error" in parsed) return error(parsed.error);
+      const [note] = await db.select().from(evolutions).where(and(eq(evolutions.id, evolutionId), eq(evolutions.patientId, patientId), eq(evolutions.ownerId, ownerId))).limit(1);
+      if (!note) return error("Evolución no encontrada en esta ficha.", 404);
+      const t = now();
+      const remove = db.delete(evolutionDiagnoses).where(and(eq(evolutionDiagnoses.evolutionId, evolutionId), eq(evolutionDiagnoses.ownerId, ownerId)));
+      const inserts = parsed.tags.map(tag => db.insert(evolutionDiagnoses).values({ ownerId, patientId, evolutionId, code: tag.code, title: tag.title, tooth: tag.tooth, findings: tag.findings, evidence: tag.evidence, origin: tag.origin, suggestedFrom: tag.suggestedFrom, createdAt: t }));
+      await db.batch([remove, ...inserts]);
+      const saved = await db.select().from(evolutionDiagnoses).where(and(eq(evolutionDiagnoses.evolutionId, evolutionId), eq(evolutionDiagnoses.ownerId, ownerId))).orderBy(evolutionDiagnoses.id);
+      return Response.json({ evolutionId, diagnoses: saved.map(diagnosisView) });
     }
     if (action === "syncEvolutionOdontogram") {
       const evolutionId = Number(input.evolutionId);
