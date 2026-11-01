@@ -49,12 +49,15 @@ test('ejemplo del pedido: cada dato va a su módulo y lo que falta se pregunta',
   const { proposal: p } = await run(SAMPLE);
   assert.match(p.corrected.text, /caries mesial oclusal/);
   assert.ok(p.corrected.corrections.some((c) => c.original === 'mecial' && c.corrected === 'mesial'));
-  assert.deepEqual(p.incomplete.map((i) => [i.tooth, i.surface]).sort(), [[24, 'M'], [24, 'O']]);
+  // La caries sin profundidad se propone igual; la profundidad se pregunta como opcional.
+  assert.deepEqual(p.odontogram.filter((i) => i.kind === 'surface').map((i) => [i.tooth, i.surface, i.finding.condition, i.finding.depth]).sort(), [[24, 'M', 'caries', null], [24, 'O', 'caries', null]]);
+  assert.equal(p.incomplete.length, 0);
   assert.deepEqual(p.perioPending.map((i) => [i.tooth, i.depth, i.bleeding]), [[36, 4, true]]);
   assert.deepEqual(p.payments.map((i) => [i.amount, i.method]), [[50000, null]]);
   assert.deepEqual(p.appointments.map((i) => [i.day, i.time]), [['2026-11-05', null]]);
   const asks = p.clarifications.join('\n');
-  assert.match(asks, /ICDAS/);
+  assert.match(asks, /FDI 2\.4: ¿profundidad de la caries \(esmalte, dentina superficial, dentina profunda o compromiso pulpar\)\? Opcional/);
+  assert.equal(/ICDAS/.test(asks), false);
   assert.match(asks, /medio/);
   assert.match(asks, /hora/);
   assert.match(asks, /sitio/);
@@ -64,7 +67,7 @@ test('las respuestas a las aclaraciones completan la propuesta antes de guardar'
   const { proposal: first } = await run(SAMPLE);
   const answer = (re, text) => ({ question: first.clarifications.find((q) => re.test(q)), answer: text });
   const lines = answerLines([
-    answer(/ICDAS/, 'ICDAS 3 activa'),
+    answer(/profundidad de la caries/, 'dentina profunda'),
     answer(/medio/, 'efectivo'),
     answer(/hora/, 'a las diez y media'),
     answer(/sitio/, 'mesiovestibular'),
@@ -75,8 +78,9 @@ test('las respuestas a las aclaraciones completan la propuesta antes de guardar'
   const text = withAnswers(first.corrected.text, lines);
   assert.equal(withAnswers(text, lines), text, 'no repite aclaraciones ya agregadas');
   const { proposal: p } = await run(text);
-  assert.deepEqual(p.odontogram.filter((i) => i.kind === 'surface').map((i) => [i.tooth, i.surface, i.finding.condition, i.finding.icdas, i.finding.activity]).sort(),
-    [[24, 'M', 'caries', 3, 'active'], [24, 'O', 'caries', 3, 'active']]);
+  assert.deepEqual(p.odontogram.filter((i) => i.kind === 'surface').map((i) => [i.tooth, i.surface, i.finding.condition, i.finding.depth]).sort(),
+    [[24, 'M', 'caries', 'dentina_profunda'], [24, 'O', 'caries', 'dentina_profunda']]);
+  assert.match(p.evolution.body, /FDI 2\.4 \(Chile 12\): caries de dentina profunda M-O \(CIE-11 DA08\.0&XA6FX3 Caries dental · Dentina\)\./);
   assert.equal(p.incomplete.length, 0);
   assert.deepEqual(p.payments.map((i) => [i.amount, i.method]), [[50000, 'efectivo']]);
   assert.deepEqual(p.appointments.map((i) => [i.day, i.time]), [['2026-11-05', '10:30']]);

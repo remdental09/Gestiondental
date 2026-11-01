@@ -3,6 +3,7 @@
 import { lazy, Suspense, useLayoutEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { formatFdi, type OdontogramSurface, type SurfaceFinding } from "@/app/clinical-data";
+import { cariesDetail } from "@/lib/caries";
 import { bitingFaceName, chileLabel, innerFaceName, surfaceMarkColor, toothKind, toothKindLabel } from "@/app/tooth-3d-map";
 
 const Tooth3DStage = lazy(() => import("@/components/tooth-3d-stage").then((module) => ({ default: module.Tooth3DStage })));
@@ -72,7 +73,7 @@ export function Tooth3DModal({
     .map((surface) => {
       const finding = surfaces[surface]!;
       const face = surface === "O" ? bitingFaceName(tooth) : surface === "P" ? innerFaceName(tooth) : surface === "V" ? "Vestibular" : surface === "M" ? "Mesial" : "Distal";
-      const detail = finding.condition === "caries" ? ` · ICDAS ${finding.icdas ?? "sin registrar"} · ${finding.activity === "active" ? "activa" : finding.activity === "inactive" ? "inactiva" : "actividad sin registrar"}` : "";
+      const detail = finding.condition === "caries" ? ` · ${cariesDetail(finding)}` : "";
       return `${face}: ${CONDITION_LABEL[finding.condition]}${detail}`;
     });
   if (status && status !== "Sin hallazgos") findings.unshift(status === "Implante" && hasCrown ? "Implante con corona" : status === "Corona" ? "Corona" : status === "Ausente" ? "Ausente / extraído" : status);

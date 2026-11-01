@@ -1,3 +1,4 @@
+import type { CariesDepth } from "@/lib/caries";
 export const PERIO_SITES = [
   { key: "MV", label: "Mesial" },
   { key: "V", label: "Central" },
@@ -43,6 +44,9 @@ export type PerioExam = {
 export type OdontogramSurface = "V" | "P" | "M" | "D" | "O";
 export type SurfaceFinding = {
   condition: "not_examined" | "sound" | "caries" | "restored" | "sealant" | "other_restoration";
+  /** Profundidad de la caries (esmalte, dentina superficial, dentina profunda, compromiso pulpar). Opcional. */
+  depth?: CariesDepth | null;
+  /** Registros anteriores: ICDAS 1–6. Se conservan y se muestran como registro anterior; ya no se piden. */
   icdas?: 1 | 2 | 3 | 4 | 5 | 6 | null;
   activity?: "active" | "inactive" | "uncertain" | null;
 };
