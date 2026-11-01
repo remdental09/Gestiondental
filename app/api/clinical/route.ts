@@ -6,7 +6,7 @@ import { syncInstalledImplants } from "@/app/sync-odontogram";
 import { cementedCrownFromEvolution } from "@/app/crown-evidence";
 import { fullNameRequiredMessage, hasFourNameParts } from "@/app/patient-identity";
 import { getDb } from "@/db";
-import { appointments, budgets, calendarEvents, clinicalImages, evolutions, patients, periodontalExams, toothStatuses } from "@/db/schema";
+import { appointments, budgets, calendarEvents, clinicalImages, evolutions, patients, payments, periodontalExams, toothStatuses } from "@/db/schema";
 import type { OdontogramData, OdontogramSurface, SurfaceFinding } from "@/app/clinical-data";
 
 export const runtime = "edge";
@@ -99,13 +99,19 @@ const normalizePerio = (raw: unknown) => {
     : { teeth:source };
 };
 
+const PAYMENT_METHODS = new Set(["efectivo", "debito", "credito", "transferencia", "otro"]);
+
+function paymentView(p: typeof payments.$inferSelect) {
+  return { id: p.id, patientId: p.patientId, budgetId: p.budgetId, amount: p.amount, method: p.method, concept: p.concept, paidOn: p.paidOn, date: displayDate(p.paidOn) };
+}
+
 export async function GET() {
   const viewer = await getChatGPTUser();
   const ownerId = viewer?.userId;
   if (!ownerId) return error("Inicia sesión para ver las fichas.", 401);
   try {
     const db = getDb();
-    const [ps, ns, bs, as, pe, ts, imgs, ces] = await Promise.all([
+    const [ps, ns, bs, as, pe, ts, imgs, ces, pays] = await Promise.all([
       db.select().from(patients).where(eq(patients.ownerId, ownerId)).orderBy(patients.name),
       db.select().from(evolutions).where(eq(evolutions.ownerId, ownerId)).orderBy(desc(evolutions.clinicalDate), desc(evolutions.recordedAt)),
       db.select().from(budgets).where(eq(budgets.ownerId, ownerId)).orderBy(desc(budgets.id)),
@@ -114,6 +120,8 @@ export async function GET() {
       db.select().from(toothStatuses).where(eq(toothStatuses.ownerId, ownerId)),
       db.select().from(clinicalImages).where(eq(clinicalImages.ownerId, ownerId)).orderBy(desc(clinicalImages.id)),
       db.select().from(calendarEvents).where(eq(calendarEvents.ownerId, ownerId)).orderBy(calendarEvents.startAt),
+      // Si la migración de pagos aún no se aplicó, la ficha carga igual.
+      db.select().from(payments).where(eq(payments.ownerId, ownerId)).orderBy(desc(payments.paidOn), desc(payments.id)).catch(() => [] as (typeof payments.$inferSelect)[]),
     ]);
     const notesByPatient = new Map<number, typeof ns>();
     for (const note of ns) {
@@ -146,6 +154,7 @@ export async function GET() {
       notes: ns.map(n => ({ id: n.id, patientId: n.patientId, date: displayDate(n.clinicalDate), clinicalDate: n.clinicalDate, recordedAt: n.recordedAt, title: n.title, body: n.body, sourceDocumentId: n.sourceDocumentId, backupStatus: n.backupStatus })),
       budgets: bs.map(b => ({ id: b.id, patientId: b.patientId, date: displayDate(b.createdAt.slice(0, 10)), title: b.title, status: b.status, items: JSON.parse(b.items) })),
       appointments: as.map(a => ({ id: a.id, patientId: a.patientId, day: a.day.split("-").reverse().join("-"), time: a.time, reason: a.reason })),
+      payments: pays.map(paymentView),
       calendarEvents: [...ces.filter(e => e.status !== "cancelled").map(e => ({ id: e.id, title: e.title, startAt: e.startAt, endAt: e.endAt, sourceTimeZone: e.sourceTimeZone, htmlLink: e.htmlLink, status: e.status, allDay: e.allDay, patientId: e.patientId })), ...snapshot.events],
       calendarSnapshotAt: snapshot.events.length ? snapshot.capturedAt : null,
       periodontalExams: Object.fromEntries(ps.map(p => [p.id, (examsByPatient.get(p.id) ?? []).map(x => ({ id: x.id, recordedAt: x.recordedAt, ...normalizePerio(JSON.parse(x.teeth)) }))])),
@@ -286,6 +295,25 @@ export async function POST(request: Request) {
       if (!validDate(day) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time) || !reason) return error("Revisa fecha, hora y motivo.");
       const [a] = await db.insert(appointments).values({ ownerId, patientId, day, time, reason, createdAt: now() }).returning();
       return Response.json({ appointment: { id: a.id, patientId, day: day.split("-").reverse().join("-"), time, reason } }, { status: 201 });
+    }
+    if (action === "addPayment") {
+      const amount = Number(input.amount), method = string(input.method, 20), concept = string(input.concept, 240);
+      const paidOn = string(input.paidOn, 10) || dateInChile();
+      const budgetId = input.budgetId === undefined || input.budgetId === null || input.budgetId === "" ? null : Number(input.budgetId);
+      if (!Number.isSafeInteger(amount) || amount < 1 || amount > 1000000000 || !PAYMENT_METHODS.has(method) || !validDate(paidOn) || paidOn > dateInChile()) return error("Revisa el monto, el medio de pago y la fecha.");
+      if (budgetId !== null) {
+        if (!Number.isSafeInteger(budgetId) || budgetId < 1) return error("Presupuesto inválido.");
+        const [budget] = await db.select({ id: budgets.id }).from(budgets).where(and(eq(budgets.id, budgetId), eq(budgets.patientId, patientId), eq(budgets.ownerId, ownerId)));
+        if (!budget) return error("Presupuesto no encontrado en esta ficha.", 404);
+      }
+      const requestId = string(input.requestId, 80) || null;
+      if (requestId) {
+        const [existing] = await db.select().from(payments).where(and(eq(payments.ownerId, ownerId), eq(payments.requestId, requestId)));
+        if (existing && existing.patientId !== patientId) return error("Esta solicitud pertenece a otra ficha.", 409);
+        if (existing) return Response.json({ payment: paymentView(existing) });
+      }
+      const [p] = await db.insert(payments).values({ ownerId, patientId, budgetId, amount, method, concept, paidOn, requestId, createdAt: now() }).returning();
+      return Response.json({ payment: paymentView(p) }, { status: 201 });
     }
     if (action === "updateAppointmentReason") {
       const appointmentId = Number(input.appointmentId), reason = string(input.reason, 500);

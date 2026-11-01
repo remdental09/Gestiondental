@@ -44,7 +44,7 @@ export function createWorkersAiModel(ai: AiRunner, options: { perModelMs?: numbe
               { role: "user", content: buildModelUserPrompt(input) },
             ],
             response_format: { type: "json_schema", json_schema: AI_JSON_SCHEMA },
-            max_tokens: 2500,
+            max_tokens: 3500,
             temperature: 0,
           }), Math.min(perModelMs, left), model);
           // Si no se puede leer como JSON, se prueba el siguiente modelo.

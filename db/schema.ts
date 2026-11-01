@@ -50,6 +50,23 @@ export const appointments = sqliteTable("appointments", {
   createdAt: text("created_at").notNull(),
 }, table => [index("appointments_patient_day_idx").on(table.patientId, table.day)]);
 
+/** Pagos y abonos recibidos. amount en pesos chilenos enteros; paid_on en YYYY-MM-DD (America/Santiago). */
+export const payments = sqliteTable("payments", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  ownerId: text("owner_id").notNull(),
+  patientId: integer("patient_id").notNull().references(() => patients.id),
+  budgetId: integer("budget_id").references(() => budgets.id),
+  amount: integer("amount").notNull(),
+  method: text("method").notNull(),
+  concept: text("concept").notNull().default(""),
+  paidOn: text("paid_on").notNull(),
+  requestId: text("request_id"),
+  createdAt: text("created_at").notNull(),
+}, table => [
+  index("payments_patient_idx").on(table.patientId, table.paidOn),
+  uniqueIndex("payments_owner_request_unique").on(table.ownerId, table.requestId),
+]);
+
 export const periodontalExams = sqliteTable("periodontal_exams", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   ownerId: text("owner_id").notNull(),
