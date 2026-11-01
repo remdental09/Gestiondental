@@ -27,7 +27,7 @@ export function GlobalDictation({ patients, notes = [], onUsePatient, onCreatePa
   patients: PatientOption[];
   /** Evoluciones (con su paciente) para proponer qué anular cuando se dicta una orden. */
   notes?: (CommandNote & { patientId: number })[];
-  onUsePatient: (patientId: number, transcript: string, options?: { ignoreCommand?: boolean }) => void;
+  onUsePatient: (patientId: number, transcript: string, options?: { ignoreCommand?: boolean; incorporate?: boolean }) => void;
   onCreatePatient: (fields: NewPatientFields) => Promise<number>;
   onAnnul?: (patientId: number, evolutionId: number, mode: RemovalMode, reason: string, replacement: AnnulReplacement | null) => Promise<void>;
 }) {
@@ -49,6 +49,9 @@ export function GlobalDictation({ patients, notes = [], onUsePatient, onCreatePa
   const stopFallback = useRef<ReturnType<typeof setTimeout> | null>(null);
   const correction = useTextCorrection();
   const [commandDismissed, setCommandDismissed] = useState(false);
+  // «Incorporar a la ficha» pedido desde Inicio: al elegir la ficha se abre directo el resumen para confirmar.
+  const [incorporateAsked, setIncorporateAsked] = useState(false);
+  const decisionRef = useRef<HTMLElement | null>(null);
   const command = useMemo(() => listening || commandDismissed ? null : parseVoiceCommand(transcript, chileTodayIso()), [transcript, listening, commandDismissed]);
 
   useEffect(() => () => engine.current.abort(), []);
@@ -123,16 +126,18 @@ export function GlobalDictation({ patients, notes = [], onUsePatient, onCreatePa
     setChoice("");
     setOtherSearch("");
     setCommandDismissed(false);
+    setIncorporateAsked(false);
     correction.reset();
   };
 
   const finalText = () => transcript.trim();
 
-  const continueWith = (patientId: number) => {
+  const continueWith = (patientId: number, incorporate = incorporateAsked) => {
     const text = finalText();
     const ignoreCommand = commandDismissed;
     close();
-    onUsePatient(patientId, text, ignoreCommand ? { ignoreCommand } : undefined);
+    const options = { ...(ignoreCommand ? { ignoreCommand } : {}), ...(incorporate ? { incorporate } : {}) };
+    onUsePatient(patientId, text, Object.keys(options).length ? options : undefined);
   };
 
   const create = async () => {
@@ -155,6 +160,14 @@ export function GlobalDictation({ patients, notes = [], onUsePatient, onCreatePa
   const chosenId = choice && choice !== "new" ? Number(choice) : null;
   const chosenName = chosenId ? (candidates.find((c) => c.id === chosenId)?.name ?? patients.find((p) => p.id === chosenId)?.name ?? "") : "";
   const canCreate = fourNames(fields.name) && /^\d{4}-\d{2}-\d{2}$/.test(fields.birthDate);
+
+  /** Lleva el texto a la ficha elegida y abre ahí el resumen «Se incorporará a la ficha». */
+  const incorporate = () => {
+    setIncorporateAsked(true);
+    if (chosenId && decision) { continueWith(chosenId, true); return; }
+    if (!decision && !identifying) void identify(finalText());
+    setTimeout(() => decisionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 300);
+  };
 
   return <>
     <button type="button" onClick={() => setOpen(true)} data-testid="global-dictation-open" className="flex w-full items-center gap-4 rounded-2xl bg-[#087f83] p-4 text-left text-white shadow-sm transition hover:bg-[#07676b] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#087f83] sm:p-5">
@@ -188,11 +201,13 @@ export function GlobalDictation({ patients, notes = [], onUsePatient, onCreatePa
             {correction.result.source !== finalText() && <p className="text-xs text-amber-900">El dictado cambió después de corregir: vuelve a tocar «Corregir texto».</p>}
             <WordDiffView before={correction.result.source} after={correction.result.text} testId="global-dictation-diff" />
             <p className="text-xs leading-5 text-[#60757a]">Es una vista previa: al seguir con la ficha la IA vuelve a corregir y arma la nota para que la revises. Nada se guardó.</p>
+            <Button type="button" size="lg" className="h-auto min-h-12 w-full whitespace-normal bg-[#087f83] text-base hover:bg-[#07676b]" disabled={listening || identifying || finalText().length < 3} onClick={incorporate} data-testid="global-dictation-incorporate">{chosenId && decision ? `Incorporar a la ficha de ${chosenName.split(" ").slice(0, 3).join(" ")}` : "Incorporar a la ficha"}</Button>
+            {incorporateAsked && !chosenId && <p className="text-xs font-medium text-[#145b60]" role="status">{decision ? "Elige la ficha abajo y toca «Incorporar»." : "Buscando la ficha…"}</p>}
           </section>}
           {IOS_DICTATION_HINT && !transcript && <p className="rounded-lg bg-sky-50 p-3 text-xs leading-5 text-sky-950" role="note">{IOS_DICTATION_HINT}</p>}
           {identifying && <p role="status" aria-live="polite" className="flex items-center gap-2 rounded-lg bg-sky-50 p-3 font-medium text-sky-950" data-testid="global-dictation-identifying"><span className="size-4 shrink-0 animate-spin rounded-full border-2 border-sky-700 border-t-transparent" aria-hidden="true" />Buscando la ficha por RUT y nombre…</p>}
           {error && <div role="alert" className="rounded-lg bg-rose-50 p-3 text-rose-950" data-testid="global-dictation-error"><p>{error}</p>{!decision && transcript.trim().length >= 3 && <Button type="button" size="sm" variant="outline" className="mt-2 bg-white" onClick={() => void identify(finalText())}>Reintentar</Button>}</div>}
-          {decision && <section className="space-y-3 rounded-xl border border-[#cfe3e1] bg-[#f5faf9] p-3 sm:p-4" data-testid="global-dictation-decision" data-decision={decision.decision}>
+          {decision && <section ref={decisionRef} className="scroll-mt-4 space-y-3 rounded-xl border border-[#cfe3e1] bg-[#f5faf9] p-3 sm:p-4" data-testid="global-dictation-decision" data-decision={decision.decision}>
             <h3 className="text-base font-semibold text-[#145b60]">¿De quién es este dictado?</h3>
             <p className="leading-6 text-[#31575b]">{decision.explanation}</p>
             {(decision.identity.name || decision.identity.rut) && <p className="text-xs text-[#60757a]">Se entendió: {[decision.identity.name && `nombre «${decision.identity.name}»`, decision.identity.rut && `RUT ${decision.identity.rut}${decision.identity.rutValid ? "" : " (dígito verificador no válido)"}`].filter(Boolean).join(" · ")}</p>}
@@ -227,8 +242,8 @@ export function GlobalDictation({ patients, notes = [], onUsePatient, onCreatePa
             </div>}
             {command && chosenId && onAnnul && <VoiceCommandCard key={`${chosenId}-${command.evidence}`} command={command} patientName={chosenName} notes={notes.filter((note) => note.patientId === chosenId)} onConfirm={(evolutionId, mode, reason, replacement) => onAnnul(chosenId, evolutionId, mode, reason, replacement)} onDismiss={() => setCommandDismissed(true)} />}
             {choice === "new"
-              ? <Button type="button" size="lg" className="min-h-12 w-full bg-[#087f83] hover:bg-[#07676b]" disabled={!canCreate || creating} onClick={() => void create()} data-testid="global-dictation-create">{creating ? "Creando ficha…" : "Crear paciente y revisar el dictado"}</Button>
-              : <Button type="button" size="lg" variant={command && chosenId && onAnnul ? "outline" : "default"} className={command && chosenId && onAnnul ? "h-auto min-h-12 w-full whitespace-normal bg-white" : "h-auto min-h-12 w-full whitespace-normal bg-[#087f83] hover:bg-[#07676b]"} disabled={!chosenId} onClick={() => chosenId && continueWith(chosenId)} data-testid="global-dictation-continue">{chosenId ? `${command && onAnnul ? "Solo abrir la ficha de" : "Seguir con"} ${chosenName.split(" ").slice(0, 3).join(" ")}` : "Elige una ficha"}</Button>}
+              ? <Button type="button" size="lg" className="min-h-12 w-full bg-[#087f83] hover:bg-[#07676b]" disabled={!canCreate || creating} onClick={() => void create()} data-testid="global-dictation-create">{creating ? "Creando ficha…" : incorporateAsked ? "Crear paciente e incorporar el dictado" : "Crear paciente y revisar el dictado"}</Button>
+              : <Button type="button" size="lg" variant={command && chosenId && onAnnul ? "outline" : "default"} className={command && chosenId && onAnnul ? "h-auto min-h-12 w-full whitespace-normal bg-white" : "h-auto min-h-12 w-full whitespace-normal bg-[#087f83] hover:bg-[#07676b]"} disabled={!chosenId} onClick={() => chosenId && continueWith(chosenId)} data-testid="global-dictation-continue">{chosenId ? `${command && onAnnul ? "Solo abrir la ficha de" : incorporateAsked ? "Incorporar a la ficha de" : "Seguir con"} ${chosenName.split(" ").slice(0, 3).join(" ")}` : "Elige una ficha"}</Button>}
             <p className="text-xs leading-5 text-[#60757a]">Luego se abre la ficha: la IA corrige el texto, arma la nota por secciones y propone odontograma, citas, presupuesto y pagos. Revisas y aceptas cada cambio.</p>
           </section>}
         </div>

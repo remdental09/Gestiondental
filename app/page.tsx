@@ -149,7 +149,7 @@ export default function Home(){
     finally{setExporting(false)}
   },[]);
   const [noteTitle,setNoteTitle]=useState(""),[noteBody,setNoteBody]=useState("");
-  const [dictationRequest,setDictationRequest]=useState<{nonce:number;text:string;patientId:number;ignoreCommand?:boolean}|null>(null);
+  const [dictationRequest,setDictationRequest]=useState<{nonce:number;text:string;patientId:number;ignoreCommand?:boolean;incorporate?:boolean}|null>(null);
   const [showAnnulled,setShowAnnulled]=useState(false),[annulTarget,setAnnulTarget]=useState<Note|null>(null);
   /** Elimina definitivamente o anula (y opcionalmente reemplaza) una evolución tras la confirmación explícita del dentista. */
   const annulEvolution=useCallback(async(patientId:number,evolutionId:number,mode:RemovalMode,reason:string,replacement:AnnulReplacement|null)=>{
@@ -194,10 +194,10 @@ export default function Home(){
   const openSection=(destination:string)=>destination==="Inicio"?goHome():navigateTo(destination);
   const openPatient=(id:number,tab="evoluciones")=>navigateTo("Ficha clínica",id,tab);
   // Dictado desde Inicio: la ficha ya fue elegida (o creada) y confirmada; se abre y la IA corrige el texto allí.
-  const openDictatedPatient=(id:number,text:string,options?:{ignoreCommand?:boolean})=>{
+  const openDictatedPatient=(id:number,text:string,options?:{ignoreCommand?:boolean;incorporate?:boolean})=>{
     setNavigationHistory(previous=>[...previous.slice(-19),{section,patientId:selectedId,tab:activeTab}]);
     setSelectedId(id);setActiveTab("evoluciones");setSection("Ficha clínica");setMobileNav(false);
-    if(text.trim().length>=3)setDictationRequest({nonce:Date.now(),text:text.trim(),patientId:id,...(options?.ignoreCommand?{ignoreCommand:true}:{})});
+    if(text.trim().length>=3)setDictationRequest({nonce:Date.now(),text:text.trim(),patientId:id,...(options?.ignoreCommand?{ignoreCommand:true}:{}),...(options?.incorporate?{incorporate:true}:{})});
   };
   const createDictatedPatient=async(fields:NewPatientFields)=>{
     if(!hasFourNameParts(fields.name))throw new Error("Escribe los dos nombres y los dos apellidos.");

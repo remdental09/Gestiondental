@@ -289,7 +289,7 @@ export function resolveSpokenTime(text: string): SpokenTime | null {
   return { time: `${pad(hour)}:${pad(minute)}`, said };
 }
 
-const APPOINTMENT_CUE_FOLDED = /\b(?:proxim[ao]\s+(?:cita|control|sesion|atencion|hora)|(?:se\s+)?(?:cita|agenda|reagenda|cito|agendo)\s+(?:para|el|la|al|en|control)|control\s+(?:el|en|para)|vuelve\s+(?:el|en|a\s+control)|nos\s+vemos\s+(?:el|en|la|para|al|dentro)|(?:volver|regresar|regresa)\s+en|nueva\s+(?:cita|hora)|citar\s+(?:el|en|para))\b/;
+const APPOINTMENT_CUE_FOLDED = /\b(?:proxim[ao]\s+(?:cita|control|sesion|atencion|hora)|(?:se\s+)?(?:cita|agenda|reagenda|cito|agendo)\s+(?:para|el|la|al|en|control)|control\s+(?:el|en|para)|vuelve\s+(?:el|en|a\s+control)|nos\s+vemos\s+(?:el|en|la|para|al|dentro)|(?:volver|regresar|regresa)\s+en|nueva\s+(?:cita|hora)|citar\s+(?:el|en|para)|se\s+controla(?:ra)?\s+(?:en|el|para|dentro))\b/;
 export const isAppointmentText = (text: string) => APPOINTMENT_CUE_FOLDED.test(fold(text));
 
 // ---------- Corrección del texto mal oído ----------
@@ -328,10 +328,61 @@ const LEXICON: Array<[RegExp, string]> = [
   // Implantes: «técnica Flappers» → flapless (sin colgajo); «pieza 2,6» → 2.6 (FDI con punto).
   [/\bflap+(?:ers?|les+|leis|lis|ess)\b/gi, "flapless"],
   [/\b(pieza|diente)\s+([1-8]),([1-8])(?![\d,.])/gi, "$1 $2.$3"],
+  // «pieza: 30» (dos puntos que pone el reconocimiento de voz) → «pieza 30».
+  [/\b(pieza|diente)\s*:\s*(?=\d)/gi, "$1 "],
 ];
+
+/**
+ * Saludo y cierre dichos al dictar («Hola, quiero evolucionar la ficha de <nombre>», «eso es todo lo que quiero evolucionar»):
+ * no son nota clínica. Se quitan del texto que se rutea; la transcripción literal se guarda igual al final.
+ * Devuelve el nombre oído en el saludo para compararlo con el paciente abierto (sin enviarlo a la IA).
+ */
+const FRAME_OPEN = /^\s*(?:(?:hola|buenas?(?:\s+(?:tardes|d[ií]as|noches))?|ok|bueno|ya)[\s,.!]+)*(?:y\s+)?(?:(?:ahora\s+)?(?:quiero|quisiera|voy\s+a|vamos\s+a|necesito)\s+)(?:evolucionar|dictar|registrar|anotar|actualizar)(?:\s+(?:la\s+)?(?:ficha|evoluci[oó]n|atenci[oó]n|consulta))?(?:\s+(?:de|a|del|para)\s+(?:la\s+|el\s+)?(?:paciente\s+)?)?/iu;
+const NAME_STOP = /^(?:la|el|los|las)\s+paciente\b|^paciente\b|^(?:viene|vino|acude|asiste|consulta|controla\p{L}*|control|se|hoy|motivo|refiere|presenta|tiene|est[aá]|con|pieza|diente)\b/iu;
+const FRAME_CLOSE = /[\s,.;:]*\b(?:y\s+)?eso\s+(?:es|ser[ií]a)\s+todo(?:\s+lo\s+que\s+(?:quiero|quer[ií]a|voy\s+a)\s+(?:evolucionar|dictar|decir|registrar|anotar)(?:\s+(?:por\s+)?(?:ahora|hoy))?)?(?:\s+(?:por\s+)?(?:ahora|hoy))?(?:\s*,?\s*gracias)?[\s,.;:]*/giu;
+
+export function stripDictationFrame(text: string): { text: string; corrections: TranscriptCorrection[]; spokenName: string; nameEnd: number } {
+  let out = text;
+  const corrections: TranscriptCorrection[] = [];
+  let spokenName = "";
+  let nameEnd = 0;
+  const open = out.match(FRAME_OPEN);
+  if (open && open.index === 0) {
+    let rest = out.slice(open[0].length);
+    // El nombre: hasta 8 palabras o hasta «la paciente», «viene», un signo… lo que llegue primero.
+    const words: string[] = [];
+    const wordRe = /^\s*([\p{L}'’-]+)/u;
+    while (words.length < 8) {
+      const trimmed = rest.replace(/^\s+/, "");
+      if (!trimmed || /^[.,;:!?]/.test(trimmed) || NAME_STOP.test(trimmed)) break;
+      const word = rest.match(wordRe);
+      if (!word) break;
+      words.push(word[1]);
+      rest = rest.slice(word[0].length);
+    }
+    const said = `${open[0]}${words.join(" ")}`.trim();
+    nameEnd = text.length - rest.length;
+    spokenName = words.join(" ");
+    const next = rest.replace(/^[\s,.;:]+/, "");
+    out = next ? next.charAt(0).toUpperCase() + next.slice(1) : "";
+    corrections.push({ original: said, corrected: "", origin: "diccionario", applied: true, reason: "Saludo del dictado: no es nota clínica (queda en la transcripción literal)." });
+  }
+  out = out.replace(FRAME_CLOSE, (match, offset: number, whole: string) => {
+    corrections.push({ original: match.trim(), corrected: "", origin: "diccionario", applied: true, reason: "Cierre del dictado: no es nota clínica (queda en la transcripción literal)." });
+    const tail = whole.slice(offset + match.length).trim();
+    return tail ? ". " : "";
+  });
+  out = out.replace(/\.\s*([a-záéíóúñ])/g, (_, c: string) => `. ${c.toUpperCase()}`).trim();
+  return { text: out || text, corrections: out ? corrections : [], spokenName: out ? spokenName : "", nameEnd: out ? nameEnd : 0 };
+}
 
 /** «implante de 33 × 8» → «3,3 × 8 mm»: diámetro por largo del implante, con coma decimal para no leerse como pieza 3.3. */
 const IMPLANT_SIZE = /(?<![\d.,])([3-6])([0-9])\s*(?:×|x)\s*(\d{1,2})(?:\s*(?:mm|mil[ií]metros?))?(?![\d.,])/gi;
+
+/** Frases mal oídas sin una corrección segura (se marcan como desconocidas). */
+const UNKNOWN_PHRASES: Array<[RegExp, string]> = [
+  [/\ben\s+la\s+mesa\b/i, " (¿«en boca»? ¿«en la mesial»? ¿«está estable»?)"],
+];
 
 /** Dichos que el diccionario no corrige solo: quedan como pregunta para el profesional. */
 export function lexiconDoubts(text: string): string[] {
@@ -340,6 +391,11 @@ export function lexiconDoubts(text: string): string[] {
   if (brand) out.push(`¿La marca del implante es Arcsys (FGM)? Se oyó «${brand[1]}»: confírmala o corrígela.`);
   const integral = text.match(/\bimplantes?\s+integral(?:es)?\b/i);
   if (integral) out.push(`Se oyó «${integral[0]}»: ¿es un implante oseointegrado o la marca/modelo del implante?`);
+  // Frases que no tienen sentido clínico: se preguntan, no se adivinan.
+  for (const [pattern, hint] of UNKNOWN_PHRASES) {
+    const match = text.match(pattern);
+    if (match) out.push(`Se oyó «${match[0].trim()}»: no se entendió${hint}. No se cambió; corrígelo si quieres que quede en la nota.`);
+  }
   return out;
 }
 

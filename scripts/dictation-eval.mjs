@@ -52,7 +52,7 @@ async function runEngine(label, model) {
     const logs = [];
     let outcome;
     try {
-      outcome = await P.proposeFromTranscript({ transcript: item.text, chart: [] }, model, (event, data) => logs.push(`${event} ${JSON.stringify(data ?? {}).slice(0, 200)}`), { today: corpus.today, timeoutMs: 90_000 });
+      outcome = await P.proposeFromTranscript({ transcript: item.text, chart: item.chart ?? [] }, model, (event, data) => logs.push(`${event} ${JSON.stringify(data ?? {}).slice(0, 200)}`), { today: corpus.today, timeoutMs: 90_000 });
     } catch (cause) {
       rows.push({ item, diffs: [{ field: 'error', missing: [], extra: [String(cause?.message ?? cause)] }], engine: 'error' });
       continue;

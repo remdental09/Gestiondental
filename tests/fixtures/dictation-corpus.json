@@ -428,6 +428,108 @@
         ],
         "patientWarning": false
       }
+    },
+    {
+      "id": "c37-control-implante-sin-cambios",
+      "chart": [
+        {
+          "tooth": 36,
+          "status": "Implante"
+        }
+      ],
+      "text": "Control de implante pieza 3.6, sin dolor a la percusión, tejidos blandos sanos, sin movilidad. Se controla en seis meses.",
+      "expect": {
+        "type": "implante-control",
+        "odontogram": [],
+        "incomplete": [],
+        "appointments": [
+          "2027-05-01 -"
+        ],
+        "titleIncludes": "Control de implante",
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c38-obturacion-marca-odontograma",
+      "text": "Se realiza obturación de resina compuesta en oclusal de la pieza 3.6 por caries de dentina superficial, se ajusta oclusión.",
+      "expect": {
+        "type": "obturacion",
+        "odontogram": [
+          "36 O restored"
+        ],
+        "titleIncludes": "Obturación",
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c39-profilaxis-sin-odontograma",
+      "text": "Se realiza profilaxis y destartraje supragingival, pulido coronario. Encías levemente inflamadas, sangrado al sondaje generalizado. Control en seis meses.",
+      "expect": {
+        "type": "higiene",
+        "odontogram": [],
+        "appointments": [
+          "2027-05-01 -"
+        ],
+        "noteIncludes": [
+          "Procedimientos realizados"
+        ],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c40-ortodoncia-control",
+      "text": "Control de ortodoncia, se cambia arco a 0,016 niti superior e inferior, se activan elásticos. Próximo control en 4 semanas.",
+      "expect": {
+        "type": "ortodoncia",
+        "odontogram": [],
+        "appointments": [
+          "2026-11-29 -"
+        ],
+        "titleIncludes": "Ortodoncia",
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c41-implante-pilar-instalado",
+      "chart": [
+        {
+          "tooth": 36,
+          "status": "Implante"
+        }
+      ],
+      "text": "Se instala pilar de cicatrización en implante de la pieza 4.6, torque 15 Ncm, sin complicaciones.",
+      "expect": {
+        "type": "implante-rehabilitacion",
+        "odontogram": [],
+        "titleIncludes": "pilar",
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c42-sin-ia-preambulo-nombre-oido-mal",
+      "chart": [
+        {
+          "tooth": 36,
+          "status": "Implante"
+        }
+      ],
+      "text": "Hola y quiero evolucionar la ficha de Camila Fuente Saraya la paciente tiene Controlamos una semana es después el implante de la pieza: 30 con un pilar de 2 mm continuar estable la percusión se mantiene estable sin dolor el implante en la mesa: eso es todo lo que quiero evolucionar ahora Se controla en tres semanas",
+      "expect": {
+        "type": "implante-control",
+        "odontogram": [],
+        "appointments": [
+          "2026-11-22 -"
+        ],
+        "clarify": [
+          "en la mesa",
+          "30"
+        ],
+        "noteExcludes": [
+          "evolucionar",
+          "Hola"
+        ],
+        "patientWarning": false
+      }
     }
   ]
 }
