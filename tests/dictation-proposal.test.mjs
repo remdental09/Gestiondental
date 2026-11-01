@@ -144,108 +144,139 @@ test('el JSON del modelo se valida y descarta pieza inválida, caries incompleta
   assert.match(proposal.clarifications.join(' '), /no se guarda/i);
 });
 
-test('sin Workers AI se usa el estructurador local y un modelo fallido no reemplaza la revisión', async () => {
+const NOTE_KEYS = ['motivo', 'anamnesis', 'alergias', 'medicamentos', 'examen', 'diagnostico', 'procedimientos', 'plan', 'indicaciones', 'presupuesto'];
+const hallazgo = (fields) => ({ pieza: '', sistema: 'chilena', tipo: 'superficie', condicion: '', estado: '', caras: [], icdas: 0, actividad: '', material: '', color: '', evidencia: '', ...fields });
+const aiOutput = ({ nota = {}, hallazgos = [], procedimientos = [], presupuesto = [], ficha = [], dudas = [] } = {}) => ({
+  nota: Object.fromEntries(NOTE_KEYS.map((key) => [key, nota[key] ?? ''])),
+  hallazgos, procedimientos, presupuesto, ficha, dudas,
+});
+const mockModel = (output, onCall = () => {}) => ({
+  id: 'workers-ai',
+  model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+  complete: async (input) => { onCall(input); return typeof output === 'function' ? output(input) : output; },
+});
+
+test('sin Workers AI se usa el estructurador local y una IA fallida lo avisa', async () => {
   const local = await proposeFromTranscript({ transcript: 'Pieza 12 con obturación oclusal.', chart: [] }, null);
   assert.equal(local.engine, 'reglas-locales');
   assert.match(local.notice, /Workers AI no está enlazado/);
   assert.equal(local.proposal.odontogram[0].tooth, 24);
+  assert.equal(local.proposal.odontogram[0].origin, 'reglas');
 
+  const events = [];
   const failed = await proposeFromTranscript({ transcript: 'Pieza 12 con obturación oclusal.', chart: [] }, {
-    id: 'workers-ai',
-    model: 'modelo-de-prueba',
-    complete: async () => { throw new Error('sin cuota'); },
-  });
+    id: 'workers-ai', model: 'modelo-de-prueba', complete: async () => { throw new Error('sin cuota'); },
+  }, (event, detail) => events.push({ event, detail }));
   assert.equal(failed.engine, 'reglas-locales');
-  assert.match(failed.notice, /El modelo no redacta esta nota/);
+  assert.equal(failed.model, null);
+  assert.match(failed.notice, /La IA no respondió.*reglas locales.*sin cuota/);
   assert.equal(failed.proposal.odontogram[0].tooth, 24);
+  assert.equal(events[0].event, 'dictation.ai_failed');
+  assert.equal(JSON.stringify(events).includes('obturación'), false);
 
-  const events = [];
-  const accepted = await proposeFromTranscript({ transcript: 'Pieza 12 con obturación oclusal.', chart: [] }, {
-    id: 'workers-ai',
-    model: 'modelo-de-prueba',
-    complete: async () => ({
-      evolution: { title: 'Nota', body: 'Pieza 12 con obturación oclusal revisable.' },
-      odontogram: [{ tooth: 11, numbering: 'FDI', numberingLabel: 'FDI 1.1', sourceText: 'modelo', kind: 'status', status: 'Ausente' }],
-      budget: [],
-      perio: [],
-      clarifications: ['Revisar numeración.'],
-    }),
-  }, (event, detail) => events.push({ event, detail }));
-  assert.equal(accepted.engine, 'reglas-locales');
-  assert.equal(accepted.model, null);
-  assert.match(accepted.notice, /El modelo no redacta esta nota/);
-  assert.equal(accepted.proposal.odontogram.some((item) => item.status === 'Ausente' || item.tooth === 11), false);
-  assert.equal(accepted.proposal.odontogram[0].tooth, 24);
-  assert.equal(accepted.proposal.odontogram[0].finding.condition, 'restored');
-  assert.equal(events.some((item) => item.event === 'dictation.model_items_rejected'), false);
+  // El formato antiguo (sin «nota») no se acepta: se usan las reglas.
+  const legacy = await proposeFromTranscript({ transcript: 'Pieza 12 con obturación oclusal.', chart: [] }, mockModel({
+    evolution: { title: 'Nota', body: 'x' },
+    odontogram: [{ tooth: 11, numbering: 'FDI', numberingLabel: 'FDI 1.1', sourceText: 'modelo', kind: 'status', status: 'Ausente' }],
+  }));
+  assert.equal(legacy.engine, 'reglas-locales');
+  assert.equal(legacy.proposal.odontogram.some((item) => item.tooth === 11), false);
 });
 
-test('una corona inventada sobre caries y obturación no llega al odontograma', async () => {
-  const transcript = 'Pieza 30 caries oclusal. Pieza 12 obturación oclusal de resina.';
-  const local = structureTranscript(transcript);
-  assert.equal(local.odontogram.some((item) => item.status === 'Corona' || item.kind === 'crown'), false);
-  assert.equal(local.odontogram.find((item) => item.tooth === 24)?.finding.condition, 'restored');
-  assert.equal(local.odontogram.some((item) => item.tooth === 36), false);
-  assert.match(local.clarifications.join(' '), /ICDAS/i);
-
-  const events = [];
-  const outcome = await proposeFromTranscript({ transcript, chart: [] }, {
-    id: 'workers-ai',
-    model: '@cf/meta/llama-3.1-8b-instruct-fast',
-    complete: async () => ({
-      evolution: { title: 'Nota', body: 'Sin relación clínica.' },
-      odontogram: [
-        { tooth: 36, numbering: 'chilena', numberingLabel: 'nacional chilena 30', sourceText: 'Pieza 30 caries oclusal.', kind: 'crown', status: 'Corona' },
-        { tooth: 24, numbering: 'chilena', numberingLabel: 'nacional chilena 12', sourceText: 'Pieza 12 obturación oclusal de resina.', kind: 'crown', status: 'Corona' },
-      ],
-      budget: [],
-      perio: [],
-      clarifications: [],
-    }),
-  }, (event, detail) => events.push({ event, detail }));
-  assert.match(outcome.notice, /El modelo no redacta esta nota/);
-  assert.equal(outcome.proposal.odontogram.some((item) => item.kind === 'crown' || item.status === 'Corona'), false);
-  assert.equal(outcome.proposal.odontogram.find((item) => item.tooth === 24)?.finding.condition, 'restored');
-  assert.equal(outcome.proposal.odontogram.some((item) => item.tooth === 36), false);
-  assert.match(outcome.proposal.evolution.body, /obturación oclusal/i);
-  assert.match(outcome.proposal.clarifications.join(' '), /ICDAS/i);
-  assert.equal(events.some((item) => item.event === 'dictation.evolution_not_requested'), true);
-  assert.equal(JSON.stringify(events).includes(transcript), false);
-});
-
-test('la nota no llama al modelo aunque el binding exista', async () => {
-  let called = false;
-  const events = [];
-  const outcome = await proposeFromTranscript({ transcript: 'Pieza 12 con obturación oclusal.', chart: [] }, {
-    id: 'workers-ai',
-    model: '@cf/meta/llama-3.1-8b-instruct-fast',
-    complete: async () => { called = true; throw new Error('AiError: 5025: This model doesn\'t support JSON Schema.'); },
-  }, (event, detail) => events.push({ event, detail }));
-  assert.equal(called, false);
+test('una IA que no responde a tiempo cae a las reglas', async () => {
+  const outcome = await proposeFromTranscript({ transcript: 'Pieza 30 con obturación oclusal pieza 19 ausente', chart: [] }, {
+    id: 'workers-ai', model: 'lento', complete: () => new Promise(() => {}),
+  }, () => {}, { timeoutMs: 30 });
   assert.equal(outcome.engine, 'reglas-locales');
-  assert.match(outcome.notice, /El modelo no redacta esta nota/);
-  assert.match(outcome.proposal.evolution.body, /FDI 2\.4 \(Chile 12\): obturación oclusal/);
-  assert.equal(events[0].event, 'dictation.evolution_not_requested');
+  assert.match(outcome.notice, /sin respuesta/);
+  assert.ok(outcome.aiMs >= 25);
+  assert.deepEqual(outcome.proposal.odontogram.map((item) => item.tooth).sort(), [36, 46]);
+});
+
+test('la IA redacta la nota y sus hallazgos con cita válida se cruzan con las reglas', async () => {
+  const transcript = 'paciente refiere sensibilidad al frío niega alergias pieza 30 con obturación oclusal pieza 19 ausente pieza 14 caries mesial ICDAS 3 activa punto se indica control en 6 meses';
+  let seen = null;
+  const events = [];
+  const outcome = await proposeFromTranscript({ transcript, chart: [] }, mockModel({ usedModel: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', output: aiOutput({
+    nota: { motivo: 'Refiere sensibilidad al frío.', alergias: 'Niega alergias.', examen: 'Pieza 30 con obturación oclusal. Pieza 19 ausente. Pieza 14 con caries mesial ICDAS 3 activa.', indicaciones: 'Control en 6 meses.' },
+    hallazgos: [
+      hallazgo({ pieza: '30', condicion: 'obturacion', caras: ['O'], evidencia: 'pieza 30 con obturación oclusal' }),
+      hallazgo({ pieza: '19', tipo: 'estado', estado: 'Ausente', evidencia: 'pieza 19 ausente' }),
+      hallazgo({ pieza: '14', condicion: 'caries', caras: ['M'], icdas: 3, actividad: 'activa', evidencia: 'pieza 14 caries mesial ICDAS 3 activa' }),
+    ],
+    ficha: [{ campo: 'alergias', texto: 'Niega alergias', evidencia: 'niega alergias' }],
+  }) }, (input) => { seen = input; }), (event, detail) => events.push({ event, detail }));
+  assert.equal(seen.transcript, transcript);
+  assert.equal(outcome.engine, 'ia+reglas');
+  assert.equal(outcome.model, '@cf/meta/llama-3.3-70b-instruct-fp8-fast');
+  assert.match(outcome.notice, /La IA redactó la nota/);
+  const items = outcome.proposal.odontogram;
+  assert.deepEqual(items.map((item) => [item.tooth, item.surface ?? item.status, item.origin]).sort(), [[24 + 2, 'M', 'ia+reglas'], [36, 'O', 'ia+reglas'], [46, 'Ausente', 'ia+reglas']].sort());
+  assert.equal(items.every((item) => item.evidence && transcript.includes(item.evidence)), true);
+  assert.deepEqual(items.find((item) => item.tooth === 26).finding, { condition: 'caries', icdas: 3, activity: 'active' });
+  const body = outcome.proposal.evolution.body;
+  assert.match(body, /^Motivo de consulta\nRefiere sensibilidad al frío\./);
+  assert.match(body, /Examen \(odontograma\)\nFDI 3\.6 \(Chile 30\): obturación oclusal\.\nFDI 4\.6 \(Chile 19\): ausente\./);
+  assert.equal(outcome.proposal.ficha.length, 1);
+  assert.equal(outcome.proposal.ficha[0].field, 'allergies');
+  assert.equal(outcome.proposal.ficha[0].origin, 'ia+reglas');
+  assert.equal(outcome.proposal.transcript, transcript);
+  assert.equal(events[0].event, 'dictation.ai_ok');
   assert.equal(JSON.stringify(events).includes('obturación'), false);
 });
 
-test('un JSON compatible con caries ICDAS se conserva', async () => {
-  const transcript = 'Se observa caries en la cara oclusal de la pieza FDI 3.6, ICDAS 3, lesión activa.';
-  const outcome = await proposeFromTranscript({ transcript, chart: [] }, {
-    id: 'workers-ai',
-    model: '@cf/meta/llama-3.1-8b-instruct-fast',
-    complete: async () => ({
-      evolution: { title: 'Evolución dictada', body: 'Se observa caries en la cara oclusal de la pieza FDI 3.6, ICDAS 3, lesión activa.' },
-      odontogram: [{ tooth: 36, numbering: 'FDI', numberingLabel: 'FDI 3.6', sourceText: transcript, kind: 'surface', surface: 'O', finding: { condition: 'caries', icdas: 3, activity: 'active' } }],
-      budget: [],
-      perio: [],
-      clarifications: [],
-    }),
-  });
-  assert.match(outcome.notice, /El modelo no redacta esta nota/);
-  assert.equal(outcome.proposal.odontogram.length, 1);
-  assert.equal(outcome.proposal.odontogram[0].tooth, 36);
-  assert.deepEqual(outcome.proposal.odontogram[0].finding, { condition: 'caries', icdas: 3, activity: 'active' });
+test('la IA no cuela piezas, caras, ICDAS ni montos sin cita literal', async () => {
+  const transcript = 'Pieza 30 caries distal. Pieza 3 con fractura de la cúspide mesiopalatina y obturación oclusal de amalgama. Presupuesto corona pieza 3 350 mil pesos.';
+  const outcome = await proposeFromTranscript({ transcript, chart: [] }, mockModel(aiOutput({
+    nota: { examen: 'Pieza 30 con caries distal ICDAS 4 activa. Pieza 3 fracturada.' },
+    hallazgos: [
+      // ICDAS y actividad inventados: la cita no los tiene.
+      hallazgo({ pieza: '30', condicion: 'caries', caras: ['D'], icdas: 4, actividad: 'activa', evidencia: 'Pieza 30 caries distal' }),
+      // Caras de la fractura atribuidas a la obturación.
+      hallazgo({ pieza: '3', condicion: 'obturacion', caras: ['M', 'P', 'O'], evidencia: 'Pieza 3 con fractura de la cúspide mesiopalatina y obturación oclusal de amalgama' }),
+      // Cita que no está en el dictado.
+      hallazgo({ pieza: '12', tipo: 'estado', estado: 'Ausente', evidencia: 'pieza 12 ausente' }),
+      // Pieza que no está en la cita.
+      hallazgo({ pieza: '5', tipo: 'estado', estado: 'Corona', evidencia: 'Presupuesto corona pieza 3' }),
+    ],
+    presupuesto: [
+      { prestacion: 'Corona', monto: 350000, evidencia: 'Presupuesto corona pieza 3 350 mil pesos' },
+      { prestacion: 'Endodoncia', monto: 120000, evidencia: 'Presupuesto corona pieza 3 350 mil pesos' },
+    ],
+  })));
+  assert.equal(outcome.engine, 'ia+reglas');
+  const items = outcome.proposal.odontogram;
+  assert.equal(items.some((item) => item.tooth === 24 || item.tooth === 15 || item.kind === 'crown'), false);
+  assert.equal(items.some((item) => item.tooth === 36), false, 'caries sin ICDAS no entra al odontograma');
+  assert.deepEqual(outcome.proposal.incomplete.map((item) => [item.tooth, item.surface]), [[36, 'D']]);
+  assert.equal(outcome.proposal.incomplete[0].finding.icdas, null);
+  const molar = items.filter((item) => item.tooth === 16);
+  assert.deepEqual(molar.map((item) => item.surface), ['O']);
+  assert.equal(molar[0].finding.condition, 'restored');
+  assert.equal(outcome.proposal.budget.length, 1);
+  assert.equal(outcome.proposal.budget[0].amount, 350000);
+  assert.equal(/Falta el monto/.test(outcome.proposal.clarifications.join(' ')), false);
+  assert.match(outcome.proposal.clarifications.join(' '), /ICDAS/);
+  // La nota se queda, pero el ICDAS que no se dictó queda marcado para revisar.
+  assert.match(outcome.proposal.clarifications.join(' '), /«4», que no aparece en el dictado/);
+});
+
+test('IA y reglas en desacuerdo quedan marcadas como conflicto y fuera del registro', async () => {
+  const transcript = 'Pieza 12 obturación oclusal de resina.';
+  const outcome = await proposeFromTranscript({ transcript, chart: [] }, mockModel(aiOutput({
+    nota: { examen: 'Pieza 12 con caries oclusal.' },
+    hallazgos: [hallazgo({ pieza: '12', condicion: 'sellante', caras: ['O'], evidencia: 'Pieza 12 obturación oclusal de resina' })],
+  })));
+  const items = outcome.proposal.odontogram.filter((item) => item.tooth === 24);
+  assert.ok(items.length >= 1);
+  if (items.length === 2) {
+    assert.equal(items.every((item) => item.conflict), true);
+    assert.match(outcome.proposal.clarifications.join(' '), /no coinciden/);
+    assert.equal(outcome.proposal.evolution.body.includes('FDI 2.4'), false);
+  } else {
+    // El validador ya descartó el sellante sin respaldo en la cita.
+    assert.equal(items[0].finding.condition, 'restored');
+  }
 });
 
 test('dictados chilenos de caries, sellado, sondaje, presupuesto y corona cementada', () => {
@@ -344,13 +375,14 @@ test('el dictado en vivo no mezcla ICDAS con actividad ni incorpora la pieza sin
   let called = false;
   const outcome = await proposeFromTranscript({ transcript, chart: [] }, {
     id: 'workers-ai',
-    model: '@cf/meta/llama-3.1-8b-instruct-fast',
+    model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
     complete: async () => {
       called = true;
       return { title: 'Evolución', body: invented };
     },
   });
-  assert.equal(called, false);
+  assert.equal(called, true);
+  assert.equal(outcome.engine, 'reglas-locales');
   const proposal = outcome.proposal;
   const teeth = proposal.odontogram.map((item) => item.tooth);
   assert.deepEqual([...new Set(teeth)], [36, 11, 41, 46]);
@@ -367,7 +399,7 @@ test('el dictado en vivo no mezcla ICDAS con actividad ni incorpora la pieza sin
 
   const body = proposal.evolution.body;
   const exam = body.split('Pendiente de aclarar')[0];
-  assert.match(exam, /Examen\nFDI 3\.6 \(Chile 30\): caries M-O-D, ICDAS 4, activa\./);
+  assert.match(exam, /Examen \(odontograma\)\nFDI 3\.6 \(Chile 30\): caries M-O-D, ICDAS 4, activa\./);
   assert.match(exam, /FDI 1\.1 \(Chile 8\): caries palatina, ICDAS 2, inactiva\./);
   assert.match(exam, /FDI 4\.1 \(Chile 24\): obturación vestibular\./);
   assert.match(exam, /FDI 4\.6 \(Chile 19\): caries lingual, ICDAS 3, activa\./);

@@ -7,14 +7,18 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { formatFdi, type ClinicalImage, type OdontogramData, type PerioExam } from "@/app/clinical-data";
-import { createWebSpeechTranscription } from "@/lib/dictation/transcription";
+import { createWebSpeechTranscription, IOS_DICTATION_HINT } from "@/lib/dictation/transcription";
 import {
+  finalizeEvolution,
   parseDisplayedFdi,
+  planFichaUpdate,
   planChartWrites,
   reviewIssue,
   verifyDictationSave,
   type BudgetChange,
   type CrownMaterial,
+  type FichaChange,
+  type ItemOrigin,
   type OdontogramChange,
   type OdontogramSurface,
   type StructureOutcome,
@@ -37,7 +41,25 @@ type Reload = {
   clinicalImages: ClinicalImage[];
 };
 
-type ReviewTooth = OdontogramChange & { decision: "accepted" | "rejected"; toothText: string };
+type ReviewTooth = OdontogramChange & { decision: "accepted" | "rejected"; toothText: string; incompleteCaries?: boolean };
+type ReviewFicha = FichaChange & { decision: "accepted" | "rejected" };
+type PatientFicha = { name: string; rut: string; phone: string; email: string; allergies: string; history: string };
+
+const originLabel: Record<ItemOrigin, string> = { ia: "IA", reglas: "Reglas", "ia+reglas": "IA + reglas" };
+const fichaLabel: Record<FichaChange["field"], string> = { allergies: "Alergias", history: "Antecedentes", medications: "Medicamentos" };
+
+function OriginBadge({ origin, conflict }: { origin?: ItemOrigin; conflict?: boolean }) {
+  if (!origin && !conflict) return null;
+  return <span className="ml-2 inline-flex gap-1 align-middle">
+    {origin && <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${origin === "ia+reglas" ? "bg-emerald-100 text-emerald-900" : origin === "ia" ? "bg-sky-100 text-sky-900" : "bg-slate-100 text-slate-700"}`}>{originLabel[origin]}</span>}
+    {conflict && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-900">IA y reglas no coinciden</span>}
+  </span>;
+}
+
+function Evidence({ text }: { text?: string }) {
+  if (!text) return null;
+  return <p className="mt-1 text-xs text-[#71858b]"><span className="font-medium">Dicho: </span>«{text}»</p>;
+}
 type ReviewBudget = BudgetChange & { decision: "accepted" | "rejected"; amountText: string };
 
 const EXAMPLE = "El paciente refiere dolor al frío. Se observa caries en la cara oclusal de la pieza FDI 3.6, ICDAS 3, lesión activa. Pieza 12 con obturación oclusal. Niega alergia a penicilina. Presupuesto de corona de zirconio, 350000 pesos. Sondaje de 4 mm en mesial vestibular de FDI 1.6.";
@@ -79,6 +101,7 @@ export function ClinicalDictation({
   patientName,
   odontogram,
   latestNote,
+  patient,
   persist,
   onApplied,
 }: {
@@ -86,6 +109,7 @@ export function ClinicalDictation({
   patientName: string;
   odontogram: OdontogramData;
   latestNote: { title: string; body: string } | null;
+  patient?: PatientFicha | null;
   persist: (input: Record<string, unknown>) => Promise<{ note?: { id: number; title: string; body: string }; budget?: { id: number } }>;
   onApplied: (data: Reload) => void;
 }) {
@@ -105,6 +129,8 @@ export function ClinicalDictation({
   const [evolutionDecision, setEvolutionDecision] = useState<"accepted" | "rejected">("accepted");
   const [teeth, setTeeth] = useState<ReviewTooth[]>([]);
   const [budgets, setBudgets] = useState<ReviewBudget[]>([]);
+  const [fichaItems, setFichaItems] = useState<ReviewFicha[]>([]);
+  const [notRecorded, setNotRecorded] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
   const [result, setResult] = useState<{ ok: boolean; messages: string[] } | null>(null);
@@ -120,6 +146,8 @@ export function ClinicalDictation({
     setOutcome(null);
     setTeeth([]);
     setBudgets([]);
+    setFichaItems([]);
+    setNotRecorded([]);
     setResult(null);
     setFormError("");
   };
@@ -190,8 +218,14 @@ export function ClinicalDictation({
       setEvolutionTitle(data.proposal.evolution?.title ?? "");
       setEvolutionBody(data.proposal.evolution?.body ?? "");
       setEvolutionDecision(data.proposal.evolution ? "accepted" : "rejected");
-      setTeeth(data.proposal.odontogram.map((item) => ({ ...item, decision: "accepted", toothText: formatFdi(item.tooth) })));
+      // Lo que IA y reglas no comparten, o la caries sin ICDAS/actividad, parte rechazado.
+      setTeeth([
+        ...data.proposal.odontogram.map((item) => ({ ...item, decision: item.conflict ? "rejected" as const : "accepted" as const, toothText: formatFdi(item.tooth) })),
+        ...(data.proposal.incomplete ?? []).map((item) => ({ ...item, decision: "rejected" as const, toothText: formatFdi(item.tooth), incompleteCaries: true })),
+      ]);
       setBudgets(data.proposal.budget.map((item) => ({ ...item, decision: "accepted", amountText: item.amount > 0 ? String(item.amount) : "" })));
+      setFichaItems((data.proposal.ficha ?? []).map((item) => ({ ...item, decision: patient ? "accepted" : "rejected" })));
+      setNotRecorded([]);
     } catch (cause) {
       setOutcome(null);
       setFormError(cause instanceof Error ? cause.message : "No se pudo preparar la propuesta.");
@@ -235,8 +269,12 @@ export function ClinicalDictation({
       }
       acceptedBudgets.push({ ...item, label: item.label.trim(), amount });
     }
+    const acceptedFicha = fichaItems.filter((item) => item.decision === "accepted");
+    const fichaUpdate = patient ? planFichaUpdate(patient, acceptedFicha) : null;
     const saveEvolution = evolutionDecision === "accepted" && evolutionBody.trim().length > 0;
-    if (!saveEvolution && !acceptedTeeth.length && !acceptedBudgets.length) {
+    // El registro del odontograma de la nota se rehace con lo aceptado y se agrega la transcripción completa.
+    const finalBody = saveEvolution ? finalizeEvolution(evolutionBody, acceptedTeeth, outcome.proposal.transcript ?? transcript) : "";
+    if (!saveEvolution && !acceptedTeeth.length && !acceptedBudgets.length && !fichaUpdate) {
       setFormError("No hay nada aceptado para guardar.");
       return;
     }
@@ -250,8 +288,8 @@ export function ClinicalDictation({
     try {
       if (saveEvolution) {
         requestId.current ||= crypto.randomUUID();
-        const saved = await persist({ action: "addNote", patientId, title: evolutionTitle.trim() || "Evolución dictada", body: evolutionBody.trim(), requestId: requestId.current });
-        savedNote = { id: saved.note?.id, title: evolutionTitle.trim() || "Evolución dictada", body: evolutionBody.trim() };
+        const saved = await persist({ action: "addNote", patientId, title: evolutionTitle.trim() || "Evolución dictada", body: finalBody, requestId: requestId.current });
+        savedNote = { id: saved.note?.id, title: evolutionTitle.trim() || "Evolución dictada", body: saved.note?.body ?? finalBody };
         const readBack = await reload();
         after = readBack.toothStatuses[patientId] ?? before;
         onApplied(readBack);
@@ -261,8 +299,11 @@ export function ClinicalDictation({
         const saved = await persist({ action: "addBudget", patientId, title: item.title, label: item.label, amount: item.amount });
         if (saved.budget?.id) savedBudgetIds.push(saved.budget.id);
       }
+      if (fichaUpdate && patient) {
+        await persist({ action: "updatePatient", patientId, name: patient.name, rut: patient.rut, phone: patient.phone, email: patient.email, allergies: fichaUpdate.allergies, history: fichaUpdate.history });
+      }
       const finalRead = await reload();
-      const check = verifyDictationSave({
+      let check = verifyDictationSave({
         patientId,
         before,
         note: savedNote,
@@ -274,8 +315,21 @@ export function ClinicalDictation({
         budgets: finalRead.budgets,
         toothStatuses: finalRead.toothStatuses,
       });
+      if (fichaUpdate) {
+        const reread = finalRead.patients.find((entry) => entry.id === patientId);
+        if (!reread || reread.allergies !== fichaUpdate.allergies || reread.history !== fichaUpdate.history) check = { ok: false, messages: [...check.messages, "Alergias o antecedentes releídos no coinciden con lo aceptado."] };
+        else check = { ...check, messages: [...check.messages, "Alergias y antecedentes de la ficha actualizados y releídos."] };
+      }
       onApplied(finalRead);
       setResult(check);
+      setNotRecorded([
+        ...teeth.filter((item) => item.decision !== "accepted").map((item) => `${item.numberingLabel}${item.surface ? ` · ${surfaceLabel[item.surface]}` : ""}: ${item.kind === "surface" ? findingText(item.finding) : item.kind === "crown" ? "Corona" : item.status} — ${item.incompleteCaries ? "caries sin ICDAS o actividad" : "rechazado"}.`),
+        ...budgets.filter((item) => item.decision !== "accepted").map((item) => `Presupuesto: ${item.label} — rechazado.`),
+        ...fichaItems.filter((item) => item.decision !== "accepted" || !patient).map((item) => `${fichaLabel[item.field]}: ${item.text} — no se pasó a la ficha.`),
+        ...(outcome.proposal.perio.length ? [`Sondaje (${outcome.proposal.perio.length} sitios): queda solo en la nota.`] : []),
+        ...outcome.proposal.clarifications,
+        ...(!saveEvolution ? ["La evolución no se guardó."] : []),
+      ]);
       if (!check.ok) setFormError("La relectura no confirmó todo lo aceptado. Revisa la ficha antes de dictar de nuevo.");
     } catch (cause) {
       try { onApplied(await reload()); } catch { /* la ficha visible puede seguir en el estado anterior */ }
@@ -310,7 +364,8 @@ export function ClinicalDictation({
           <label className="block space-y-1.5 font-medium">Transcripción
             <Textarea data-testid="dictation-transcript" lang="es-CL" rows={5} className="min-h-32 field-sizing-fixed" value={interim ? `${transcript} ${interim}`.trim() : transcript} onChange={(event) => { if (listening) stop(); setTranscript(event.target.value); setInterim(""); resetReview(); }} placeholder="Habla o escribe el dictado. Revisa piezas y dosis antes de proponer cambios." />
           </label>
-          <p className="text-xs leading-5 text-[#60757a]">Chrome usa el reconocimiento del navegador en es-CL. El audio no se envía a una API de transcripción de pago. La propuesta pasa por revisión y la ficha manual no cambia sola.</p>
+          {IOS_DICTATION_HINT && <p className="rounded-lg bg-sky-50 p-3 text-xs leading-5 text-sky-950" role="note">{IOS_DICTATION_HINT}</p>}
+          <p className="text-xs leading-5 text-[#60757a]">Dicta libre: «punto» o «punto aparte» separa frases. La IA redacta la nota y propone los cambios con la frase dicha como respaldo; nada se aplica sin tu aceptación. Chrome usa el reconocimiento del navegador en es-CL. El audio no se envía a una API de transcripción de pago. La propuesta pasa por revisión y la ficha manual no cambia sola.</p>
           {formError && <p role="alert" className="rounded-lg bg-rose-50 p-3 text-rose-950">{formError}</p>}
           {outcome && <p className="rounded-lg bg-[#f4f7f8] p-3 leading-6 text-[#31575b]" role="status">{outcome.notice ?? "La evolución y las piezas salen de lo resuelto en el dictado. Sigue sujeta a tu revisión."}</p>}
           {proposal && <div className="space-y-4" data-testid="dictation-review">
@@ -322,9 +377,13 @@ export function ClinicalDictation({
               <p className="mt-2 text-xs text-[#71858b]">Última evolución guardada, no se reemplaza</p>
               <p className="mt-1 whitespace-pre-wrap rounded-lg bg-[#f7f4f4] p-3 text-[#71858b]">{latestNote ? `${latestNote.title}\n${latestNote.body}` : "Sin evoluciones registradas"}</p>
               {proposal.evolution ? <>
-                <p className="mt-3 text-xs text-[#71858b]">Texto nuevo</p>
+                <p className="mt-3 text-xs text-[#71858b]">Nota redactada (editable). Al guardar, el bloque «Examen (odontograma)» se rehace con lo aceptado abajo y se agrega la transcripción completa.</p>
                 <Input className="mt-1" aria-label="Título de la evolución" value={evolutionTitle} onChange={(event) => setEvolutionTitle(event.target.value)} disabled={evolutionDecision !== "accepted"} />
-                <Textarea className="mt-2 border-emerald-200 bg-emerald-50" aria-label="Cuerpo de la evolución" rows={6} value={evolutionBody} onChange={(event) => setEvolutionBody(event.target.value)} disabled={evolutionDecision !== "accepted"} />
+                <Textarea className="mt-2 border-emerald-200 bg-emerald-50" aria-label="Cuerpo de la evolución" rows={12} value={evolutionBody} onChange={(event) => setEvolutionBody(event.target.value)} disabled={evolutionDecision !== "accepted"} />
+                <details className="mt-2">
+                  <summary className="cursor-pointer text-xs font-medium text-[#087f83]">Ver el texto final que se guardará</summary>
+                  <p className="mt-2 max-h-72 overflow-y-auto whitespace-pre-wrap rounded-lg bg-[#f4f7f8] p-3 text-xs leading-5 text-[#31575b]" data-testid="dictation-final-preview">{finalizeEvolution(evolutionBody, teeth.filter((item) => item.decision === "accepted" && !reviewIssue(item)), proposal.transcript ?? transcript)}</p>
+                </details>
               </> : <p className="mt-3 text-[#71858b]">El dictado no produjo una evolución.</p>}
             </section>
             <section className="space-y-3">
@@ -336,8 +395,9 @@ export function ClinicalDictation({
                 return <article key={item.id} className={`rounded-xl border p-4 ${item.decision === "accepted" ? "border-emerald-200" : "border-[#e4ebed] opacity-70"}`} data-testid="dictation-tooth">
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div>
-                      <p className="font-semibold">{item.numberingLabel}</p>
-                      <p className="mt-1 text-xs text-[#71858b]">{item.sourceText}</p>
+                      <p className="font-semibold">{item.numberingLabel}<OriginBadge origin={item.origin} conflict={item.conflict} /></p>
+                      <Evidence text={item.evidence ?? item.sourceText} />
+                      {item.incompleteCaries && <p className="mt-1 text-xs font-medium text-amber-800">Caries sin ICDAS o actividad dictados: complétalos para aceptarla.</p>}
                     </div>
                     <Decision value={item.decision} onChange={(decision) => setTeeth((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, decision } : entry))} />
                   </div>
@@ -356,8 +416,8 @@ export function ClinicalDictation({
                         setTeeth((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, finding } : entry));
                       }}>{Object.entries(conditionLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
                       {item.finding?.condition === "caries" && <>
-                        <label className="space-y-1">ICDAS<select className="h-9 w-full rounded-md border px-2" value={item.finding.icdas ?? 1} onChange={(event) => setTeeth((current) => current.map((entry, entryIndex) => entryIndex === index && entry.finding?.condition === "caries" ? { ...entry, finding: { condition: "caries", icdas: Number(event.target.value) as 1 | 2 | 3 | 4 | 5 | 6, activity: entry.finding.activity ?? "uncertain" } } : entry))}>{[1, 2, 3, 4, 5, 6].map((code) => <option key={code} value={code}>{code}</option>)}</select></label>
-                        <label className="space-y-1">Actividad<select className="h-9 w-full rounded-md border px-2" value={item.finding.activity ?? "uncertain"} onChange={(event) => setTeeth((current) => current.map((entry, entryIndex) => entryIndex === index && entry.finding?.condition === "caries" ? { ...entry, finding: { condition: "caries", icdas: entry.finding.icdas ?? 1, activity: event.target.value as "active" | "inactive" | "uncertain" } } : entry))}>{Object.entries(activityLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+                        <label className="space-y-1">ICDAS<select className="h-9 w-full rounded-md border px-2" value={item.finding.icdas ?? ""} onChange={(event) => setTeeth((current) => current.map((entry, entryIndex) => entryIndex === index && entry.finding?.condition === "caries" ? { ...entry, finding: { condition: "caries", icdas: event.target.value ? Number(event.target.value) as 1 | 2 | 3 | 4 | 5 | 6 : null, activity: entry.finding.activity ?? null } } : entry))}><option value="">Sin dictar</option>{[1, 2, 3, 4, 5, 6].map((code) => <option key={code} value={code}>{code}</option>)}</select></label>
+                        <label className="space-y-1">Actividad<select className="h-9 w-full rounded-md border px-2" value={item.finding.activity ?? ""} onChange={(event) => setTeeth((current) => current.map((entry, entryIndex) => entryIndex === index && entry.finding?.condition === "caries" ? { ...entry, finding: { condition: "caries", icdas: entry.finding.icdas ?? null, activity: (event.target.value || null) as "active" | "inactive" | "uncertain" | null } } : entry))}><option value="">Sin dictar</option>{Object.entries(activityLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
                       </>}
                     </> : <>
                       <label className="space-y-1">Estado<select className="h-9 w-full rounded-md border px-2" value={item.kind === "crown" ? "Corona" : item.status} onChange={(event) => {
@@ -373,12 +433,31 @@ export function ClinicalDictation({
                 </article>;
               })}
             </section>
+            {(proposal.procedures ?? []).length > 0 && <section className="rounded-xl border border-[#dce5e7] p-4">
+              <h3 className="font-semibold">Procedimientos realizados (según la IA)</h3>
+              <p className="mt-1 text-xs text-[#60757a]">Van en la nota; revísalos ahí.</p>
+              <ul className="mt-2 space-y-2">{(proposal.procedures ?? []).map((item) => <li key={item.id} className="rounded-lg bg-[#f4f7f8] p-3">{item.text}{!item.verified && <span className="ml-2 text-xs font-medium text-amber-800">Sin cita literal en el dictado</span>}<Evidence text={item.verified ? item.evidence : undefined} /></li>)}</ul>
+            </section>}
+            {fichaItems.length > 0 && <section className="space-y-3">
+              <h3 className="font-semibold">Ficha del paciente</h3>
+              {!patient && <p className="text-xs text-[#71858b]">No hay ficha cargada para actualizar; quedan solo en la nota.</p>}
+              {fichaItems.map((item, index) => <article key={item.id} className={`rounded-xl border p-4 ${item.decision === "accepted" ? "border-emerald-200" : "border-[#e4ebed] opacity-70"}`} data-testid="dictation-ficha">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <p><span className="text-[#71858b]">{fichaLabel[item.field]}{item.field === "medications" ? " (se agrega a antecedentes)" : ""}: </span><span className="font-medium">{item.text}</span><OriginBadge origin={item.origin} /></p>
+                    <Evidence text={item.evidence} />
+                  </div>
+                  <Decision value={item.decision} disabled={!patient} onChange={(decision) => setFichaItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, decision } : entry))} />
+                </div>
+                {item.decision === "accepted" && <Input className="mt-2" aria-label={`Texto de ${fichaLabel[item.field]}`} value={item.text} onChange={(event) => setFichaItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, text: event.target.value } : entry))} />}
+              </article>)}
+            </section>}
             <section className="space-y-3">
               <h3 className="font-semibold">Presupuesto</h3>
               {budgets.length === 0 && <p className="rounded-lg border border-dashed border-[#dce5e7] p-3 text-[#71858b]">Sin prestaciones.</p>}
               {budgets.map((item, index) => <article key={item.id} className={`rounded-xl border p-4 ${item.decision === "accepted" ? "border-emerald-200" : "border-[#e4ebed] opacity-70"}`}>
                 <div className="flex flex-wrap items-start justify-between gap-2">
-                  <p><span className="text-[#71858b]">Nueva prestación: </span><ChangeHighlight current="Sin esta prestación" next={`${item.label} · ${Number(item.amountText) > 0 ? `${Number(item.amountText).toLocaleString("es-CL")} pesos` : "monto pendiente"}`} /></p>
+                  <div><p><span className="text-[#71858b]">Nueva prestación: </span><ChangeHighlight current="Sin esta prestación" next={`${item.label} · ${Number(item.amountText) > 0 ? `${Number(item.amountText).toLocaleString("es-CL")} pesos` : "monto pendiente"}`} /><OriginBadge origin={item.origin} /></p><Evidence text={item.evidence ?? item.sourceText} /></div>
                   <Decision value={item.decision} onChange={(decision) => setBudgets((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, decision } : entry))} />
                 </div>
                 {item.decision === "accepted" && <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -400,6 +479,11 @@ export function ClinicalDictation({
           {result && <div role="status" className={`rounded-lg p-3 ${result.ok ? "bg-emerald-50 text-emerald-950" : "bg-rose-50 text-rose-950"}`}>
             <p className="font-semibold">{result.ok ? "Guardado y releído." : "La relectura encontró diferencias."}</p>
             <ul className="mt-2 list-disc space-y-1 pl-5">{result.messages.map((message) => <li key={message}>{message}</li>)}</ul>
+          </div>}
+          {result && notRecorded.length > 0 && <div className="rounded-lg bg-amber-50 p-3 text-amber-950" data-testid="dictation-not-recorded">
+            <p className="font-semibold">No consignado en la ficha estructurada</p>
+            <p className="mt-1 text-xs">Sigue en la transcripción completa de la nota. Regístralo a mano si corresponde.</p>
+            <ul className="mt-2 list-disc space-y-1 pl-5">{notRecorded.map((message) => <li key={message}>{message}</li>)}</ul>
           </div>}
         </div>
         <DialogFooter>
