@@ -91,8 +91,12 @@ function titleFor(type: EvolutionType, detail: string | undefined, text: string)
   }
 }
 
-/** Clasifica lo hecho en la sesión. `tooth` es la pieza principal ya leída («FDI 3.6»), si la hay. */
-export function classifyEvolution(text: string, tooth?: string | null): EvolutionKind {
+/**
+ * Clasifica lo hecho en la sesión. `tooth` es la pieza principal ya leída («FDI 3.6»), si la hay.
+ * `implantInChart`: una pieza dictada ya figura como implante, así «se conecta pilar en la 3.6» cuenta
+ * como trabajo sobre implante aunque no se diga la palabra.
+ */
+export function classifyEvolution(text: string, tooth?: string | null, implantInChart = false): EvolutionKind {
   const all = fold(text);
   const today = withoutNextVisit(all);
   const performed = DONE_RE.test(today);
@@ -102,7 +106,7 @@ export function classifyEvolution(text: string, tooth?: string | null): Evolutio
     return { type, label, title: tooth ? `${base} · ${tooth}` : base, ...(detail ? { detail } : {}), control };
   };
 
-  const implant = /\bimplantes?\b/.test(today);
+  const implant = /\bimplantes?\b/.test(today) || (implantInChart && /\bpilar(?:es)?\b/.test(today));
   const isControl = /\b(?:control\w*|seguimiento|revision|chequeo|estable|oseointegrad\w*)\b/.test(today);
 
   if (/\burgencia\b|\bdolor\s+agudo\b|\bdrenaje\b/.test(today)) return make("urgencia");

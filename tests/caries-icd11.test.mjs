@@ -50,11 +50,11 @@ test('la caries de la muestra queda con profundidad y CIE-11, sin preguntar', ()
 });
 
 test('la aclaración de profundidad completa la caries y la pregunta desaparece', () => {
-  const first = structureTranscript('pieza 30 caries distal');
+  const first = structureTranscript('pieza 3.6 caries distal');
   assert.equal(first.clarifications.filter((q) => /profundidad de la caries/.test(q)).length, 1);
   const lines = answerLines([{ question: first.clarifications[0], answer: 'penetrante' }]);
-  assert.deepEqual(lines, ['Aclaración: pieza 30 caries distal: penetrante.']);
-  const p = structureTranscript(`pieza 30 caries distal. ${lines.join(' ')}`);
+  assert.deepEqual(lines, ['Aclaración: pieza 3.6 caries distal: penetrante.']);
+  const p = structureTranscript(`pieza 3.6 caries distal. ${lines.join(' ')}`);
   assert.deepEqual(p.odontogram.map((i) => [i.tooth, i.surface, i.finding.depth]), [[36, 'D', 'pulpar']]);
   assert.equal(p.clarifications.some((q) => /profundidad de la caries/.test(q)), false);
 });
@@ -62,7 +62,7 @@ test('la aclaración de profundidad completa la caries y la pregunta desaparece'
 test('preguntas repetidas de IA y reglas se juntan', () => {
   const odontogram = [{ kind: 'surface', tooth: 36, surface: 'D', finding: { condition: 'caries', depth: null } }];
   const notes = [
-    'FDI 3.6: ¿profundidad de la caries (esmalte, dentina superficial, dentina profunda o compromiso pulpar)? Opcional: «pieza 30 caries distal».',
+    'FDI 3.6: ¿profundidad de la caries (esmalte, dentina superficial, dentina profunda o compromiso pulpar)? Opcional: «pieza 3.6 caries distal».',
     'IA: FDI 3.6: ¿profundidad de la caries (esmalte, dentina superficial, dentina profunda o compromiso pulpar)? Opcional: «caries distal».',
     '¿Con qué medio se pagaron $50.000?',
     'IA: ¿Con qué medio se pagaron $50.000?',
