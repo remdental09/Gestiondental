@@ -146,6 +146,7 @@ export function ClinicalDictation({
   request = null,
   notes = [],
   onAnnul,
+  prominent = false,
 }: {
   patientId: number;
   patientName: string;
@@ -160,6 +161,8 @@ export function ClinicalDictation({
   /** Evoluciones del paciente, para resolver órdenes dictadas («elimina el último dictado…»). */
   notes?: CommandNote[];
   onAnnul?: AnnulHandler;
+  /** Botón grande «Dictar en esta ficha» (barra fija de la ficha abierta). */
+  prominent?: boolean;
 }) {
   const engine = useRef(createWebSpeechTranscription());
   const answerEngine = useRef(createWebSpeechTranscription());
@@ -647,7 +650,9 @@ export function ClinicalDictation({
   }
 
   return <>
-    <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)} data-testid="dictation-open"><Mic className="mr-2 size-4" />Dictar</Button>
+    {prominent
+      ? <Button type="button" size="lg" className="h-auto min-h-12 shrink-0 whitespace-normal bg-[#087f83] px-5 text-base hover:bg-[#07676b]" onClick={() => setOpen(true)} data-testid="dictation-open" aria-label={`Dictar en la ficha de ${patientName}`}><Mic className="mr-2 size-5" />Dictar</Button>
+      : <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)} data-testid="dictation-open"><Mic className="mr-2 size-4" />Dictar</Button>}
     <Dialog open={open} onOpenChange={(next) => { if (!next) close(); else setOpen(true); }}>
       <DialogContent className="max-h-[92vh] supports-[height:1dvh]:max-h-[92dvh] overflow-y-auto overscroll-contain bg-white pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:max-w-3xl">
         <DialogHeader>
