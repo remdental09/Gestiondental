@@ -36,6 +36,13 @@
       "when": 1793570400000,
       "tag": "0004_payments",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1793656800000,
+      "tag": "0005_evolution_diagnoses",
+      "breakpoints": true
     }
   ]
 }

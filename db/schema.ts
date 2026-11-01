@@ -30,6 +30,29 @@ export const evolutions = sqliteTable("evolutions", {
   requestId: text("request_id"),
 }, table => [index("evolutions_patient_date_idx").on(table.patientId, table.clinicalDate), uniqueIndex("evolutions_owner_request_unique").on(table.ownerId, table.requestId)]);
 
+/**
+ * Etiquetas de diagnóstico de una evolución, confirmadas por el profesional. `code` es CIE-11 del catálogo
+ * verificado (lib/icd11-catalog.ts) o "" para conceptos sin código; la pieza (FDI, p. ej. 24) y los hallazgos
+ * van aparte del código. `suggestedFrom`: «AAE» o «caries-pulpar» si fue una equivalencia sugerida y confirmada.
+ */
+export const evolutionDiagnoses = sqliteTable("evolution_diagnoses", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  ownerId: text("owner_id").notNull(),
+  patientId: integer("patient_id").notNull().references(() => patients.id),
+  evolutionId: integer("evolution_id").notNull().references(() => evolutions.id),
+  code: text("code").notNull().default(""),
+  title: text("title").notNull(),
+  tooth: integer("tooth"),
+  findings: text("findings").notNull().default(""),
+  evidence: text("evidence").notNull().default(""),
+  origin: text("origin").notNull().default("manual"),
+  suggestedFrom: text("suggested_from"),
+  createdAt: text("created_at").notNull(),
+}, table => [
+  index("evolution_diagnoses_evolution_idx").on(table.evolutionId),
+  index("evolution_diagnoses_patient_code_idx").on(table.patientId, table.code),
+]);
+
 export const budgets = sqliteTable("budgets", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   ownerId: text("owner_id").notNull(),

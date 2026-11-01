@@ -12,6 +12,7 @@
  */
 import {
   applyLexicon,
+  applySelfCorrections,
   depthFrom,
   describeDate,
   fold,
@@ -25,6 +26,7 @@ import {
   paymentAmount,
   paymentMethodFrom,
   reconcileCorrection,
+  spokenAmounts,
   resolveSpokenDate,
   resolveSpokenTime,
   santiagoToday,
@@ -35,7 +37,7 @@ import {
 export type { PaymentMethod, TranscriptCorrection } from "./spoken.ts";
 export { PAYMENT_METHOD_LABEL, PAYMENT_METHODS } from "./spoken.ts";
 import { CARIES_DEPTH_LABEL, CARIES_DEPTH_QUESTION, cariesDepthFrom, isCariesDepth, type CariesDepth } from "../caries.ts";
-import { cariesIcd11, icd11FromText, icd11Label } from "../icd11.ts";
+import { ICD11, ICD11_CATALOG, cariesIcd11, diagnosisMatches, icd11Label, type SuggestedMapping } from "../icd11.ts";
 export { CARIES_DEPTHS, CARIES_DEPTH_LABEL, CARIES_DEPTH_SHORT, cariesDetail } from "../caries.ts";
 export { cariesIcd11, icd11Label } from "../icd11.ts";
 
@@ -71,7 +73,23 @@ export type SurfaceFinding = {
 };
 
 /** Diagnóstico con código CIE-11 verificado (OMS, MMS 2026-01). */
-export type DiagnosisItem = { id: string; tooth?: number; code: string; title: string; label: string; evidence: string };
+/**
+ * Etiqueta de diagnóstico de una evolución. `code` es CIE-11 (o "" para conceptos sin código verificado);
+ * la pieza (`tooth`, FDI almacenado como 24) y los hallazgos (`findings`) se guardan aparte del código.
+ * `suggested`: equivalencia propuesta (términos AAE, caries con compromiso pulpar) que el profesional debe confirmar.
+ */
+export type DiagnosisItem = {
+  id: string;
+  tooth?: number;
+  code: string;
+  title: string;
+  label: string;
+  evidence: string;
+  findings?: string;
+  origin?: "reglas" | "ia" | "ia+reglas" | "manual";
+  suggested?: SuggestedMapping;
+  term?: string;
+};
 
 export type OdontogramChange = {
   id: string;
@@ -284,9 +302,9 @@ function clip(value: string, max = 180): string {
 
 /** Hallazgos clínicos que no son estados del odontograma: no aportan caras ni caries. */
 const OTHER_FINDING = /(?<!\p{L})(?:fractur\p{L}*|fisur\p{L}*|c[uú]spides?|desgaste|abfracci\p{L}*|abrasi[oó]n|erosi[oó]n|atrici[oó]n|movilidad|tinci[oó]n|manchas?|absceso|f[ií]stula|dolor|sensibilidad)(?!\p{L})/iu;
-const FINDING_CUE = /(?<!\p{L})(?:caries|obtura\p{L}*|restaura\p{L}*|resina|amalgama|sellante|san[oa]|ausente|implante|corona|exodoncia|extra[ií]d\p{L}*|resto\s+radicular|endodoncia|fractur\p{L}*|fisur\p{L}*|c[uú]spides?|icdas|esmalte|dentina|pulpar|penetrante|lesi[oó]n|movilidad|sondaje|dolor|sensibilidad|absceso|f[ií]stula|desgaste|abfracci\p{L}*|activ[ao]|inactiv[ao]|oclusal|mesial|distal|vestibular|palatin[ao]|lingual|incisal|mod)(?!\p{L})/iu;
-const TOOTH_START = /(?:^|\s)((?:(?:la|el)\s+)?(?:(?:pieza|diente)s?\s+(?:(?:fdi|iso|chilena|nacional|universal)\s+)?(?:\d|un[oa]?\b|dos\b|tres\b|cuatro\b|cinco\b|seis\b|siete\b|ocho\b|nueve\b|diez\b|once\b|doce\b|trece\b|catorce\b|quince\b|diec|veint|treinta|cuarenta|temporal|decidu|de\s+leche)|(?:fdi|iso)\s+\d))/giu;
-const CLAUSE_START = /(?:^|\s)((?:(?:el|la)\s+)?(?:paciente\s+)?(?:refiere|relata|comenta|niega)(?!\p{L})|se\s+(?:indica|planifica|realiz[oó]|instal[oó]|cement[oó]|observa)(?!\p{L})|(?:sondaje|sondeo|movilidad)(?!\p{L})|(?:el\s+paciente\s+|la\s+paciente\s+)?(?:abon[oó]|pag[oó]|cancel[oó])(?!\p{L})|pr[oó]xim[oa]\s+(?:cita|control|sesi[oó]n|hora)(?!\p{L})|se\s+(?:cita|agenda|reagenda)(?!\p{L})|aclaraci[oó]n:)/giu;
+const FINDING_CUE = /(?<!\p{L})(?:caries|obtura\p{L}*|restaura\p{L}*|resina|amalgama|sellante|san[oa]|ausente|implante|corona|exodoncia|extra[ií]d\p{L}*|resto\s+radicular|endodoncia|fractur\p{L}*|fisur\p{L}*|c[uú]spides?|icdas|esmalte|dentina|pulpar|penetrante|lesi[oó]n|movilidad|sondaje|dolor|sensibilidad|absceso|f[ií]stula|desgaste|abfracci\p{L}*|pulpitis|necrosis|periodontitis|activ[ao]|inactiv[ao]|oclusal|mesial|distal|vestibular|palatin[ao]|lingual|incisal|mod)(?!\p{L})/iu;
+const TOOTH_START = /(?:^|\s)((?:(?:la|el)\s+)?(?:(?:pieza|diente)s?\s+(?:(?:fdi|iso|chilena|nacional|universal)\s+)?(?:\d|un[oa]?\b|dos\b|tres\b|cuatro\b|cinco\b|seis\b|siete\b|ocho\b|nueve\b|diez\b|once\b|doce\b|trece\b|catorce\b|quince\b|diec|veint|treinta|cuarenta|temporal|decidu|de\s+leche)|(?:fdi|iso)\s+(?:\d|un[oa]?\b|dos\b|tres\b|cuatro\b|cinco\b|seis\b|siete\b|ocho\b)))/giu;
+const CLAUSE_START = /(?:^|\s)((?:(?:el|la)\s+)?(?:paciente\s+)?(?:refiere|relata|comenta|niega)(?!\p{L})|se\s+(?:indica|planifica|realiz[oó]|instal[oó]|cement[oó]|observa)(?!\p{L})|(?:sondaje|sondeo|movilidad)(?!\p{L})|(?:con\s+)?sangrado\s+al\s+(?:sondaje|sondeo)(?!\p{L})|(?:presupuesto|se\s+presupuesta)(?!\p{L})|(?:el\s+paciente\s+|la\s+paciente\s+)?(?:abon[oó]|pag[oó]|cancel[oó])(?!\p{L})|pr[oó]xim[oa]\s+(?:cita|control|sesi[oó]n|hora)(?!\p{L})|se\s+(?:cita|agenda|reagenda)(?!\p{L})|aclaraci[oó]n:)/giu;
 const OPEN_ENDING = /(?:^|\s)(?:en|de|del|la|el|los|las|a|al|para|entre|sobre|por|un|una|que|o|con|desde|hasta|observa|observan|presenta|presentan|indica|planifica|realiza|realiz[oó]|instal[oó]|cement[oó]|tiene|hay|evidencia|paciente)$/iu;
 const TRAILING_CONNECTOR = /(?:[\s,;:]+(?:y|e|con|adem[aá]s|tambi[eé]n))+[\s,;:]*$|[\s,;:]+$/iu;
 
@@ -651,9 +669,11 @@ function crownOnImplantSentence(sentence: string): boolean {
     && !(/\bprovisori[ao]\b/i.test(sentence) && !/\bdefinitiv[ao]\b/i.test(sentence));
 }
 
+const EXTRACTION_INDICATED = /(?<!\p{L})(?:indicaci[oó]n\s+de\s+exodoncia|indica(?:da)?\s+(?:la\s+)?exodoncia|exodoncia\s+indicada|para\s+exodoncia)(?!\p{L})/iu;
+
 function statusFrom(sentence: string): ToothStatus | null {
   if (/\bresto\s+radicular\b/i.test(sentence) && /\bendodoncia\b/i.test(sentence)) return "Resto radicular con endodoncia";
-  if (/\bindicaci[oó]n\s+de\s+exodoncia\b/i.test(sentence)) return "Indicación de exodoncia";
+  if (EXTRACTION_INDICATED.test(sentence)) return "Indicación de exodoncia";
   if (crownOnImplantSentence(sentence)) return null;
   if (/\bimplante\b/i.test(sentence) && !/\b(?:corona|pr[oó]tesis\s+fija)\b/i.test(sentence)) {
     if (/\b(?:control|seguimiento|revisi[oó]n|mantenimiento)\b/i.test(sentence) && !isPerformed(sentence)) return null;
@@ -675,7 +695,8 @@ export function depthQuestion(heading: string, ambiguous: string | undefined, qu
 function findingFrom(sentence: string): FindingResult {
   const deniesCaries = /\b(?:sin|no)\s+(?:se\s+observa\s+)?caries\b/i.test(sentence);
   const hasCaries = /\bcaries\b/i.test(sentence) && !deniesCaries;
-  const restored = /\b(?:obturaci[oó]n|obturad[oa]|restauraci[oó]n|restaurad[oa])\b/i.test(sentence);
+  // «resina vestibular» o «amalgama oclusal» dictadas solas son una obturación existente.
+  const restored = /\b(?:obturaci[oó]n|obturad[oa]|restauraci[oó]n|restaurad[oa]|resina|amalgama|ion[oó]mero)\b/i.test(sentence);
   const sealant = /\bsellante\b/i.test(sentence);
   const other = /\botra\s+restauraci[oó]n\b/i.test(sentence);
   const sound = /\b(?:sana|sano|sin\s+lesi[oó]n)\b/i.test(sentence) || deniesCaries;
@@ -733,13 +754,13 @@ function facesLabel(tooth: number, surfaces: OdontogramSurface[]): string {
   return sorted.map((surface) => surface === "O" && tooth % 10 <= 3 ? "I" : surface).join("-");
 }
 
-function describeFinding(tooth: number, finding: SurfaceFinding, surfaces: OdontogramSurface[]): string {
+function describeFinding(tooth: number, finding: SurfaceFinding, surfaces: OdontogramSurface[], root = false): string {
   const faces = facesLabel(tooth, surfaces);
   if (finding.condition === "caries") {
     const name = finding.depth && isCariesDepth(finding.depth) ? CARIES_DEPTH_LABEL[finding.depth].toLowerCase() : "caries (profundidad no consignada)";
     const legacy = !finding.depth && finding.icdas ? `, ICDAS ${finding.icdas}` : "";
     const activity = finding.activity === "active" ? ", activa" : finding.activity === "inactive" ? ", inactiva" : "";
-    return `${name} ${faces}${legacy}${activity} (${icd11Label(cariesIcd11(finding.depth))})`;
+    return `${name} ${faces}${legacy}${activity} (${icd11Label(cariesIcd11(finding.depth, root))})`;
   }
   if (finding.condition === "restored") return `obturación ${faces}`;
   if (finding.condition === "sealant") return `sellante ${faces}`;
@@ -773,15 +794,16 @@ function examLines(items: OdontogramChange[]): string[] {
   return teeth.map((tooth) => {
     const group = items.filter((item) => item.tooth === tooth);
     const parts: string[] = [];
-    const buckets = new Map<string, { finding: SurfaceFinding; surfaces: OdontogramSurface[] }>();
+    const buckets = new Map<string, { finding: SurfaceFinding; surfaces: OdontogramSurface[]; root: boolean }>();
     for (const item of group) {
       if (item.kind !== "surface" || !item.surface || !item.finding) continue;
-      const key = `${item.finding.condition}:${item.finding.depth ?? ""}:${item.finding.icdas ?? ""}:${item.finding.activity ?? ""}`;
-      const bucket = buckets.get(key) ?? { finding: item.finding, surfaces: [] };
+      const root = item.finding.condition === "caries" && isRootCaries(item.sourceText);
+      const key = `${item.finding.condition}:${item.finding.depth ?? ""}:${item.finding.icdas ?? ""}:${item.finding.activity ?? ""}:${root ? "r" : ""}`;
+      const bucket = buckets.get(key) ?? { finding: item.finding, surfaces: [], root };
       bucket.surfaces.push(item.surface);
       buckets.set(key, bucket);
     }
-    for (const bucket of buckets.values()) parts.push(describeFinding(tooth, bucket.finding, bucket.surfaces));
+    for (const bucket of buckets.values()) parts.push(describeFinding(tooth, bucket.finding, bucket.surfaces, bucket.root));
     for (const item of group) if (item.kind !== "surface") parts.push(describeStatus(item));
     return `${toothHeading(group[0])}: ${parts.join(". ")}.`;
   });
@@ -797,6 +819,24 @@ function fichaFrom(sentence: string): FichaField | null {
   if (/(?<!\p{L})(?:medicamentos?|f[aá]rmacos?|toma(?!\s+de(?!\p{L}))|tomando|consume|en\s+tratamiento\s+con|losart[aá]n|metformina|aspirina|clopidogrel|anticoagulante\p{L}*|warfarina|acenocumarol|levotiroxina|enalapril|insulina|omeprazol|atorvastatina)(?!\p{L})|\d+\s*(?:mg|mcg)(?!\p{L})/iu.test(sentence)) return "medications";
   if (/(?<!\p{L})(?:antecedentes?|hipertens\p{L}*|diab[eé]t\p{L}*|cardi[oó]pat\p{L}*|asm[aá]tic\p{L}*|asma|embarazad\p{L}*|epilep\p{L}*|hipotiroid\p{L}*|hipertiroid\p{L}*|fumador\p{L}*|tabaquismo|bifosfonatos?|radioterapia|quimioterapia|vih|hepatitis|marcapasos|anticoagulad\p{L}*)(?!\p{L})/iu.test(sentence)) return "history";
   return null;
+}
+
+/** «alérgica a la penicilina toma losartán»: alergia y medicamento son dos datos de la ficha. */
+const FICHA_CUT = /\s*[,;]?\s+(?=(?:y\s+)?(?:toma|tomando|consume|usa|en\s+tratamiento\s+con|al[eé]rgic\p{L}*|alergia|antecedentes?|hipertens\p{L}*|diab[eé]t\p{L}*)(?!\p{L}))/iu;
+
+function fichaParts(sentence: string): Array<{ field: FichaField; text: string }> {
+  const out: Array<{ field: FichaField; text: string }> = [];
+  for (const raw of sentence.split(new RegExp(FICHA_CUT.source, "giu"))) {
+    const text = raw.replace(/^y\s+/i, "").trim();
+    if (!text) continue;
+    const field = fichaFrom(text);
+    const last = out.at(-1);
+    if (!field || (last && last.field === field)) {
+      if (last) last.text = `${last.text} ${text}`;
+      else out.push({ field: fichaFrom(sentence) ?? "history", text });
+    } else out.push({ field, text });
+  }
+  return out.length ? out : [{ field: fichaFrom(sentence) ?? "history", text: sentence }];
 }
 
 function composeEvolution(transcript: string, odontogram: OdontogramChange[] = [], clarifications: string[] = [], ficha: FichaChange[] = []): { title: string; body: string } | null {
@@ -901,44 +941,112 @@ const DIAGNOSIS_DOUBT = new RegExp(`\\b(?:descart\\p{L}*|sospecha|probable|posib
 function isDiagnosisSentence(sentence: string): boolean {
   if (isPatient(sentence) || isPlan(sentence) || isNegatedFinding(sentence)) return false;
   const plain = sentence.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
-  return !DIAGNOSIS_DOUBT.test(plain) && icd11FromText(sentence).length > 0;
+  return !DIAGNOSIS_DOUBT.test(plain) && diagnosisMatches(sentence).length > 0;
+}
+
+/** Texto de la línea de un diagnóstico en la nota. */
+export function diagnosisLabel(item: Pick<DiagnosisItem, "tooth" | "code" | "title" | "findings" | "suggested">): string {
+  const where = item.tooth ? `FDI ${formatFdi(item.tooth)}${item.findings ? ` ${item.findings}` : ""}: ` : item.findings ? `${item.findings}: ` : "";
+  const code = item.code ? `CIE-11 ${item.code}` : "sin código CIE-11";
+  const suggested = item.suggested ? `, equivalencia sugerida de «${item.suggested.term}»` : "";
+  return `${where}${item.title} (${code}${suggested})`;
 }
 
 /**
- * Diagnósticos dictados por el profesional con código CIE-11 verificado (no relatos del paciente,
- * ni negaciones, ni sospechas, ni planes). Las caries van aparte, con su profundidad, en el odontograma.
+ * Diagnósticos dictados por el profesional (no relatos del paciente, ni negaciones, ni sospechas, ni planes),
+ * con código CIE-11 verificado o como etiqueta sin código. Las caries van aparte, con su profundidad.
  */
 export function textDiagnoses(text: string): DiagnosisItem[] {
   const out: DiagnosisItem[] = [];
   for (const sentence of sentences(text)) {
     if (!isDiagnosisSentence(sentence)) continue;
     const mention = toothMentions(sentence).find((item) => item.ok);
-    const tooth = mention && mention.ok ? mention.tooth : undefined;
-    for (const entry of icd11FromText(sentence)) {
-      if (out.some((done) => done.code === entry.code && done.tooth === tooth)) continue;
-      const where = tooth ? `FDI ${formatFdi(tooth)}: ` : "";
-      out.push({ id: `dx-${out.length + 1}`, tooth, code: entry.code, title: entry.title, label: `${where}${entry.title} (CIE-11 ${entry.code})`, evidence: clip(sentence, 400) });
+    const sentenceTooth = mention && mention.ok ? mention.tooth : undefined;
+    // «pieza 1.1 subluxación pieza 2.1 fractura…»: cada pieza dictada lleva su propio diagnóstico.
+    const clauses = sentence.split(/(?=\b(?:pieza|diente)\s)/iu).filter((clause) => clause.trim());
+    const found = clauses.length > 1
+      ? clauses.flatMap((clause) => {
+          const own = toothMentions(clause).find((item) => item.ok);
+          const tooth = own && own.ok ? own.tooth : undefined;
+          return diagnosisMatches(clause).map((match) => ({ match, tooth }));
+        })
+      : diagnosisMatches(sentence).map((match) => ({ match, tooth: sentenceTooth }));
+    for (const { match, tooth } of found) {
+      if (out.some((done) => done.code === match.code && done.title === match.title && done.tooth === tooth)) continue;
+      const item: DiagnosisItem = { id: `dx-${out.length + 1}`, tooth, code: match.code, title: match.title, label: "", evidence: clip(sentence, 400), findings: "", origin: "reglas", term: match.term, ...(match.suggested ? { suggested: match.suggested } : {}) };
+      item.label = diagnosisLabel(item);
+      out.push(item);
     }
   }
   return out;
 }
 
-/** Diagnóstico CIE-11 de cada caries propuesta, por pieza y profundidad. */
+const ROOT_CARIES = /\b(?:caries\s+(?:de\s+(?:la\s+)?)?(?:radicular|raiz|cemento)|radicular|cementari[ao]|superficie\s+radicular)\b/;
+
+/** Caries radicular (cemento): se dijo en la cita del hallazgo. */
+export function isRootCaries(sourceText: string | undefined): boolean {
+  return ROOT_CARIES.test(fold(sourceText ?? "")) && !/\bresto\s+radicular\b/.test(fold(sourceText ?? ""));
+}
+
+/**
+ * Diagnóstico CIE-11 de cada caries propuesta, por pieza y profundidad. La caries con compromiso pulpar
+ * propone además un diagnóstico pulpar (DA09.Z) como sugerencia a confirmar.
+ */
 export function cariesDiagnoses(items: OdontogramChange[]): DiagnosisItem[] {
   const groups = new Map<string, OdontogramChange[]>();
   for (const item of items) {
     if (item.kind !== "surface" || item.finding?.condition !== "caries") continue;
-    const key = `${item.tooth}:${item.finding.depth ?? ""}`;
+    const key = `${item.tooth}:${item.finding.depth ?? ""}:${isRootCaries(item.sourceText) ? "r" : ""}`;
     groups.set(key, [...(groups.get(key) ?? []), item]);
   }
-  return [...groups.values()].map((group, index) => {
+  const out: DiagnosisItem[] = [];
+  for (const group of groups.values()) {
     const first = group[0];
     const depth = first.finding?.depth ?? null;
-    const icd = cariesIcd11(depth);
-    const name = depth ? CARIES_DEPTH_LABEL[depth] : "Caries, profundidad no consignada";
+    const root = isRootCaries(first.sourceText);
+    const icd = cariesIcd11(depth, root);
+    const name = (depth ? CARIES_DEPTH_LABEL[depth] : "Caries, profundidad no consignada") + (root && depth !== "pulpar" ? " (radicular)" : "");
     const faces = facesLabel(first.tooth, group.map((item) => item.surface).filter((face): face is OdontogramSurface => Boolean(face)));
-    return { id: `dxc-${index + 1}`, tooth: first.tooth, code: icd.code, title: icd.title, label: `FDI ${formatFdi(first.tooth)} ${faces}: ${name} (${icd11Label(icd)})`, evidence: clip(first.sourceText, 400) };
-  });
+    const findings = `${faces}: ${name.toLowerCase()}`;
+    out.push({ id: `dxc-${out.length + 1}`, tooth: first.tooth, code: icd.code, title: icd.title, label: `FDI ${formatFdi(first.tooth)} ${faces}: ${name} (${icd11Label(icd)})`, evidence: clip(first.sourceText, 400), findings, origin: "reglas" });
+    if (depth === "pulpar" && !out.some((item) => item.tooth === first.tooth && item.code === "DA09.Z")) {
+      const pulp = ICD11["DA09.Z"];
+      const item: DiagnosisItem = { id: `dxc-${out.length + 1}`, tooth: first.tooth, code: pulp.code, title: pulp.title, label: "", evidence: clip(first.sourceText, 400), findings: "caries con compromiso pulpar", origin: "reglas", suggested: { from: "caries-pulpar", term: "caries con compromiso pulpar" } };
+      item.label = diagnosisLabel(item);
+      out.push(item);
+    }
+  }
+  return out;
+}
+
+/**
+ * Junta los diagnósticos de caries, reglas e IA. Si ya se dictó un diagnóstico pulpar (DA09.x) para la pieza,
+ * no se sugiere DA09.Z por la caries pulpar. Coincidencias IA/reglas quedan como «ia+reglas».
+ */
+export function mergeDiagnoses(caries: DiagnosisItem[], rules: DiagnosisItem[], ai: DiagnosisItem[] = []): DiagnosisItem[] {
+  const out: DiagnosisItem[] = [];
+  const same = (a: DiagnosisItem, b: DiagnosisItem) => a.code === b.code && (a.code ? true : fold(a.title) === fold(b.title)) && (a.tooth ?? 0) === (b.tooth ?? 0);
+  for (const item of [...rules, ...ai]) {
+    const prior = out.find((done) => same(done, item));
+    if (prior) { if (prior.origin !== item.origin) prior.origin = "ia+reglas"; continue; }
+    out.push({ ...item });
+  }
+  const pulpCoded = (tooth?: number) => out.some((item) => item.tooth === tooth && item.code.startsWith("DA09") && item.code !== "DA09.Z");
+  const withCaries = caries.filter((item) => !(item.suggested?.from === "caries-pulpar" && pulpCoded(item.tooth)));
+  return [...withCaries, ...out].map((item, index) => ({ ...item, id: `dx-${index + 1}` }));
+}
+
+/** Concepto elegido por la IA → código del catálogo: por las reglas o por título/sinónimo exacto. */
+function diagnosisFromTerm(term: string): { code: string; title: string; suggested?: SuggestedMapping } | null {
+  const matches = diagnosisMatches(term);
+  if (matches.length) return matches[0];
+  const target = fold(term).replace(/[.,;:]+$/, "").trim();
+  if (target.length < 4) return null;
+  for (const entry of ICD11_CATALOG) {
+    if (entry.kind !== "stem" || !entry.isLeaf) continue;
+    if ([entry.title, ...entry.synonyms].some((name) => fold(name) === target)) return { code: entry.code, title: ICD11[entry.code].title };
+  }
+  return null;
 }
 
 function withoutSection(lines: string[], header: string): string[] {
@@ -952,7 +1060,7 @@ function withoutSection(lines: string[], header: string): string[] {
 /** Agrega (o reemplaza) la sección de diagnósticos CIE-11 dictados, antes de la transcripción literal. */
 export function withDiagnosesSection(body: string, diagnoses: DiagnosisItem[]): string {
   const lines = withoutSection(body.replace(/\r\n/g, "\n").split("\n"), DIAGNOSES_HEADER);
-  const textOnly = diagnoses.filter((item) => !item.code.startsWith("DA08.0"));
+  const textOnly = diagnoses.filter((item) => !item.code.startsWith("DA08.0")).map((item) => ({ ...item, label: item.label || diagnosisLabel(item) }));
   if (!textOnly.length) return lines.join("\n").trim();
   const cut = lines.findIndex((line) => line.trim() === TRANSCRIPT_HEADER);
   const at = cut >= 0 ? cut : lines.length;
@@ -961,9 +1069,10 @@ export function withDiagnosesSection(body: string, diagnoses: DiagnosisItem[]): 
 }
 
 /** Arma el texto que se guarda: la nota revisada, el registro de odontograma con lo aceptado y la transcripción literal. */
-export function finalizeEvolution(body: string, accepted: OdontogramChange[], transcript: string, diagnoses: DiagnosisItem[] = []): string {
-  // Sin lista explícita se respeta la nota tal como quedó editada (incluida su sección CIE-11).
-  const lines = (diagnoses.length ? withDiagnosesSection(body, diagnoses) : body.replace(/\r\n/g, "\n")).split("\n");
+export function finalizeEvolution(body: string, accepted: OdontogramChange[], transcript: string, diagnoses?: DiagnosisItem[]): string {
+  // Sin lista se respeta la nota tal como quedó editada (incluida su sección CIE-11); con lista (aunque vacía),
+  // la sección refleja exactamente las etiquetas confirmadas por el profesional.
+  const lines = (diagnoses ? withDiagnosesSection(body, diagnoses) : body.replace(/\r\n/g, "\n")).split("\n");
   const cut = lines.findIndex((line) => line.trim() === TRANSCRIPT_HEADER);
   const kept = cut >= 0 ? lines.slice(0, cut) : lines;
   let at = kept.findIndex((line) => line.trim() === EXAM_REGISTRY_HEADER);
@@ -1010,13 +1119,17 @@ export function structureTranscript(transcript: string, options: { today?: strin
   for (const sentence of sentences(transcript)) {
     const field = fichaFrom(sentence);
     if (field && toothMentions(sentence).length === 0) {
-      ficha.push({ id: nextId("fic"), field, text: ensurePeriod(capitalize(clip(sentence, 400))), evidence: clip(sentence, 400), origin: "reglas" });
+      for (const part of fichaParts(sentence)) {
+        ficha.push({ id: nextId("fic"), field: part.field, text: ensurePeriod(capitalize(clip(part.text, 400))), evidence: clip(part.text, 400), origin: "reglas" });
+      }
       continue;
     }
-    if (/\b(?:epb|l[oö]e[\s-]?silness|aap[\s-]?efp|estadio|grado)\b/i.test(sentence) && /\b(?:periodon|sextante|epb|gingival)\b/i.test(sentence)) {
+    // Un diagnóstico dictado queda como etiqueta para confirmar en la revisión: no hace falta el aviso.
+    const taggedDiagnosis = isDiagnosisSentence(sentence);
+    if (!taggedDiagnosis && /\b(?:epb|l[oö]e[\s-]?silness|aap[\s-]?efp|estadio|grado)\b/i.test(sentence) && /\b(?:periodon|sextante|epb|gingival)\b/i.test(sentence)) {
       clarifications.push("El dictado menciona tamizaje o clasificación periodontal. No se infiere diagnóstico ni se guarda el periodontograma.");
     }
-    if (/\bdiagn[oó]stico\b/i.test(sentence)) {
+    if (!taggedDiagnosis && /\bdiagn[oó]stico\b/i.test(sentence)) {
       clarifications.push("No se creó un diagnóstico confirmado a partir del dictado.");
     }
     const grade = mobilityGrade(sentence);
@@ -1064,7 +1177,8 @@ export function structureTranscript(transcript: string, options: { today?: strin
       continue;
     }
 
-    const amount = parseAmount(sentence);
+    const isBudget = /\b(?:presupuesto|presupuesta|cotizaci[oó]n|honorarios)\b/i.test(sentence);
+    const amount = parseAmount(sentence) ?? (isBudget ? spokenAmounts(sentence)[0]?.value ?? null : null);
     if (amount) {
       budget.push({ id: nextId("pre"), title: "Presupuesto dictado", label: budgetLabel(sentence), amount, sourceText: clip(sentence) });
     } else if (/\b(?:presupuesto|cotizaci[oó]n|honorarios)\b/i.test(sentence)) {
@@ -1079,7 +1193,7 @@ export function structureTranscript(transcript: string, options: { today?: strin
       }
       continue;
     }
-    if (isPlan(sentence) && !isPerformed(sentence)) {
+    if (isPlan(sentence) && !isPerformed(sentence) && !EXTRACTION_INDICATED.test(sentence)) {
       if (/\b(?:implante|corona|exodoncia|caries|obturaci)\b/i.test(sentence)) {
         clarifications.push(`Plan o presupuesto, sin cambio de odontograma: «${clip(sentence)}».`);
       }
@@ -1162,6 +1276,8 @@ export function structureTranscript(transcript: string, options: { today?: strin
       const resolved = resolveDictatedSurfaces(scope, mention.tooth);
       for (const note of resolved.notes) clarifications.push(note);
       if (!resolved.surfaces.length) {
+        // «pieza 1.6 sin caries» sin cara: queda en la nota, no cambia el odontograma ni pregunta la cara.
+        if (surfaceResult.finding.condition === "sound" && /\b(?:sin|no)\s+(?:se\s+observa\s+)?caries\b/i.test(sentence)) continue;
         if (!resolved.notes.length) clarifications.push(`Falta la superficie del hallazgo: «${clip(sentence)}».`);
         continue;
       }
@@ -1562,29 +1678,33 @@ export const AI_SYSTEM_PROMPT = `Eres asistente de un odontólogo chileno. Recib
 - "condicion" (solo superficie): caries | obturacion | sellante | otra_restauracion | sana. "estado" (solo estado): Ausente | Implante | Corona | Indicación de exodoncia | Resto radicular con endodoncia. Deja "" lo que no aplique.
 - "caras": letras M, O, D, V, P (O también es incisal; P es palatina o lingual) SOLO si se dictaron para ese hallazgo. MOD = M,O,D.
 - "profundidad" (solo caries): "esmalte" (caries de esmalte, mancha blanca), "dentina_superficial" (dentina superficial o media), "dentina_profunda" (dentina profunda, caries profunda) o "pulpar" (compromiso pulpar, penetrante); "" si no se dijo. No uses ICDAS.
+- «resina», «amalgama» o «ionómero» con una cara (p. ej. «pieza 1.1 resina vestibular») es una obturación existente: condicion "obturacion".
+- «indica exodoncia», «exodoncia indicada» o «para exodoncia» de una pieza es el estado "Indicación de exodoncia" aunque sea una indicación. Otros planes («se indica endodoncia») no van en hallazgos.
+- Lo negado («sin caries», «no hay caries») no va en hallazgos.
 - Una fractura, fisura o cúspide fracturada NO es caries ni obturación: no la pongas en hallazgos; va en la nota (examen).
 - "material" y "color" solo para corona, si se dijeron.
 - "evidencia": copia EXACTA y continua de la transcripción (mismas palabras, sin corregir) que contenga el número de la pieza y el hallazgo. Si no puedes citar, no incluyas el hallazgo.
 
 3) "procedimientos": lo realizado hoy, cada uno con "texto" y "evidencia" literal.
 4) "presupuesto": prestaciones presupuestadas con "prestacion", "monto" en pesos (0 si no se dijo) y "evidencia" literal.
-5) "ficha": alergias, antecedentes médicos y medicamentos que toma el paciente, con "campo" (alergias | antecedentes | medicamentos), "texto" breve y "evidencia" literal. «Niega alergias» también se registra.
+5) "ficha": alergias, antecedentes médicos y medicamentos que toma el paciente, con "campo" (alergias | antecedentes | medicamentos), "texto" breve y "evidencia" literal. «Niega alergias» también se registra. Si una frase trae alergia y medicamento («alérgica a la penicilina toma losartán»), son dos elementos separados.
 6) "texto_corregido": la misma transcripción con SOLO errores de reconocimiento de voz corregidos (palabras mal oídas: «mecial» → «mesial», «caris» → «caries», «periodo de autograma» → «periodontograma») y números dictados en palabras pasados a cifras («dos cuatro» → «2.4», «cuatro milímetros» → «4 mm», «cincuenta mil» → «50.000»). Mantén el orden y las demás palabras; no resumas, no agregues datos, no cambies piezas, caras, cifras, negaciones ni términos clínicos correctos. Si no hay nada que corregir, repite el texto.
 7) "periodonto": cada sondaje, sangrado o supuración dictado, con "pieza", "sistema", "sitio" (MV, V, DV, ML, L, DL o "" si no se dijo), "profundidad" en mm (-1 si no se dijo), "sangrado", "supuracion" (true solo si se dijo) y "evidencia" literal.
 8) "pagos": dinero que el paciente pagó o abonó HOY (no lo presupuestado ni lo que debe), con "monto" en pesos, "medio" (efectivo | debito | credito | transferencia | otro | "" si no se dijo), "concepto" ("" si no se dijo) y "evidencia" literal.
 9) "citas": la próxima cita o control que se dictó, con "motivo" ("" si no se dijo) y "evidencia" literal que contenga la fecha u hora tal como se dijo. No calcules la fecha.
-10) "dudas": solo dudas reales que el odontólogo deba resolver (un número que no es pieza válida, una autocorrección confusa, una cara que no corresponde). Las piezas 1 a 32 sin etiqueta son numeración chilena: no generan duda. No preguntes por lo que ya falta en pagos, citas o sondajes (medio de pago, hora, sitio): eso se pregunta aparte.
+10) "diagnosticos": cada diagnóstico que el PROFESIONAL dictó hoy (no lo que el paciente relata, ni lo sospechado, probable, a descartar, negado o planificado), con "termino" (el diagnóstico tal como se dijo, p. ej. «pulpitis irreversible sintomática», «absceso apical crónico», «gingivitis inducida por placa», «periodontitis estadio III grado B»), "pieza" ("" si no se dijo) y "evidencia" literal que contenga el término. No pongas códigos: el sistema los asigna desde el catálogo CIE-11. Las caries ya van en hallazgos: no las repitas aquí.
+11) "dudas": solo dudas reales que el odontólogo deba resolver (un número que no es pieza válida, una autocorrección confusa, una cara que no corresponde). Las piezas 1 a 32 sin etiqueta son numeración chilena: no generan duda. No preguntes por lo que ya falta en pagos, citas o sondajes (medio de pago, hora, sitio): eso se pregunta aparte.
 
 Las líneas que empiezan con «Aclaración:» son respuestas del profesional a preguntas anteriores; completan o corrigen lo dictado antes y tienen prioridad.
 
-Si el profesional se corrige («no, perdón», «mejor dicho»), usa solo lo corregido. Los antecedentes médicos (diabetes, hipertensión, etc.) van en anamnesis, no en indicaciones. "indicaciones" es solo lo que se le indica al paciente.`;
+Si el profesional se corrige («no, perdón», «mejor dicho»), usa solo lo corregido. Un nombre de persona o un RUT dictado (del paciente, de un doctor o de otra persona) no es un hallazgo ni un dato de ficha; no lo inventes ni lo completes. Los antecedentes médicos (diabetes, hipertensión, etc.) van en anamnesis, no en indicaciones. "indicaciones" es solo lo que se le indica al paciente.`;
 
 const STRING = { type: "string" } as const;
 
 export const AI_JSON_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["nota", "hallazgos", "procedimientos", "presupuesto", "ficha", "texto_corregido", "periodonto", "pagos", "citas", "dudas"],
+  required: ["nota", "hallazgos", "procedimientos", "presupuesto", "ficha", "texto_corregido", "periodonto", "pagos", "citas", "diagnosticos", "dudas"],
   properties: {
     nota: {
       type: "object",
@@ -1659,6 +1779,10 @@ export const AI_JSON_SCHEMA = {
     citas: {
       type: "array",
       items: { type: "object", additionalProperties: false, required: ["motivo", "evidencia"], properties: { motivo: STRING, evidencia: STRING } },
+    },
+    diagnosticos: {
+      type: "array",
+      items: { type: "object", additionalProperties: false, required: ["termino", "pieza", "evidencia"], properties: { termino: STRING, pieza: STRING, evidencia: STRING } },
     },
     dudas: { type: "array", items: STRING },
   },
@@ -1755,6 +1879,7 @@ type AiExtraction = {
   perioPending?: PerioPending[];
   payments?: PaymentChange[];
   appointments?: AppointmentChange[];
+  diagnoses?: DiagnosisItem[];
 };
 
 function resolveAiTooth(pieza: string, sistema: string, evidence: string): Mention {
@@ -2030,8 +2155,31 @@ export function validateAiExtraction(input: unknown, transcript: string, options
     // Sistema de numeración, profundidad de caries, medio de pago, hora y sitio ya los preguntan las reglas.
     if (value && !/sistema|numeraci|etiqueta|icdas|actividad|profundidad|esmalte|dentina|medio de pago|forma de pago|hora|sitio/i.test(value)) clarifications.push(`IA: ${value}`);
   }
+  // Diagnósticos: la IA elige el concepto y cita la frase; el código lo pone el catálogo, nunca la IA.
+  const diagnoses: DiagnosisItem[] = [];
+  for (const raw of list(record.diagnosticos, 16)) {
+    if (!raw || typeof raw !== "object") continue;
+    const item = raw as Record<string, unknown>;
+    const term = str(item.termino, 120);
+    const evidence = str(item.evidencia, 400);
+    if (!term || !evidence || !evidenceInTranscript(evidence, transcript)) continue;
+    // Ni relatos del paciente, ni planes, ni negaciones, ni sospechas.
+    if (isPatient(evidence) || isPlan(evidence) || isNegatedFinding(evidence) || DIAGNOSIS_DOUBT.test(fold(evidence))) continue;
+    const mapped = diagnosisFromTerm(term);
+    if (!mapped) continue;
+    // El concepto debe estar en la cita: literal, o reconocido por las reglas en ella.
+    const said = normalizeEvidence(evidence).includes(normalizeEvidence(term)) || diagnosisMatches(evidence).some((m) => m.code === mapped.code && m.title === mapped.title);
+    if (!said) continue;
+    const pieza = str(item.pieza, 40);
+    const mention = pieza ? resolveAiTooth(pieza, "", evidence) : toothMentions(evidence).find((m) => m.ok);
+    const tooth = mention && mention.ok ? mention.tooth : undefined;
+    if (diagnoses.some((done) => done.code === mapped.code && done.title === mapped.title && done.tooth === tooth)) continue;
+    const dx: DiagnosisItem = { id: nextId("dx"), tooth, code: mapped.code, title: mapped.title, label: "", evidence: clip(evidence, 400), findings: "", origin: "ia", term, ...(mapped.suggested ? { suggested: mapped.suggested } : {}) };
+    dx.label = diagnosisLabel(dx);
+    diagnoses.push(dx);
+  }
   const correctedText = typeof record.texto_corregido === "string" ? record.texto_corregido.slice(0, 10000) : undefined;
-  return { noteBody, odontogram, incomplete, budget, ficha, procedures, clarifications, rejected, correctedText, perio, perioPending, payments, appointments };
+  return { noteBody, odontogram, incomplete, budget, ficha, procedures, clarifications, rejected, correctedText, perio, perioPending, payments, appointments, diagnoses };
 }
 
 function sameFinding(a: OdontogramChange, b: OdontogramChange): boolean {
@@ -2082,6 +2230,13 @@ export function mergeProposals(ai: AiExtraction, local: DictationProposal, trans
       return Boolean(text) && (ruleText.includes(text) || text.includes(ruleText));
     };
     const same = budget.find((item) => (rule.amount > 0 && item.amount === rule.amount) || (rule.amount === 0 && (overlaps(item) || (item.amount === 0 && ruleText.includes(normalizeEvidence(rule.label).split(" ")[0] ?? "")))));
+    // La IA dejó en 0 un monto dicho en palabras que las reglas sí leyeron: se completa en vez de duplicar.
+    const zero = rule.amount > 0 ? budget.find((item) => item.amount === 0 && overlaps(item)) : undefined;
+    if (!same && zero) {
+      zero.amount = rule.amount;
+      zero.origin = "ia+reglas";
+      continue;
+    }
     if (same) {
       same.origin = "ia+reglas";
       // La IA leyó el monto que las reglas no pudieron leer: no se pide de nuevo.
@@ -2220,13 +2375,17 @@ export async function proposeFromTranscript(
   if (transcript.length > 8000) throw new Error("El dictado es demasiado largo para este prototipo.");
   const today = options.today ?? santiagoToday();
   // 1) Diccionario de errores típicos del reconocimiento de voz (mecial → mesial…).
-  const lexicon = applyLexicon(transcript);
+  // y autocorrecciones dichas en voz alta («la 2.4, no, perdón, la 2.5» → «la 2.5»), visibles en «Texto corregido».
+  const dictionary = applyLexicon(transcript);
+  const selfFix = applySelfCorrections(dictionary.text);
+  const lexicon = { text: selfFix.text, corrections: [...dictionary.corrections, ...selfFix.corrections] };
   const fixed = lexicon.text;
   const localOnly = structureTranscript(fixed, { today });
-  const withText = (proposal: DictationProposal, text: string, corrections: TranscriptCorrection[]): DictationProposal => {
-    const diagnoses = [...cariesDiagnoses(proposal.odontogram), ...textDiagnoses(text)];
+  const withText = (proposal: DictationProposal, text: string, corrections: TranscriptCorrection[], aiDiagnoses: DiagnosisItem[] = []): DictationProposal => {
+    // En la nota solo entran los diagnósticos no sugeridos; las equivalencias sugeridas esperan confirmación.
+    const diagnoses = mergeDiagnoses(cariesDiagnoses(proposal.odontogram), textDiagnoses(text), aiDiagnoses);
     const clarifications = tidyClarifications(proposal.clarifications, proposal.odontogram);
-    const evolution = proposal.evolution ? { ...proposal.evolution, body: withDiagnosesSection(proposal.evolution.body, diagnoses) } : null;
+    const evolution = proposal.evolution ? { ...proposal.evolution, body: withDiagnosesSection(proposal.evolution.body, diagnoses.filter((item) => !item.suggested)) } : null;
     return { ...proposal, evolution, clarifications, diagnoses, transcript, corrected: { text, corrections } };
   };
   if (!model) return { engine: "reglas-locales", model: null, notice: LOCAL_NOTICE, proposal: withText(localOnly, fixed, lexicon.corrections) };
@@ -2246,7 +2405,7 @@ export async function proposeFromTranscript(
     const proposal = mergeProposals(ai, local, corrected);
     const aiMs = Date.now() - started;
     log("dictation.ai_ok", { model: usedModel, ms: aiMs, items: ai.odontogram.length, rejected: ai.rejected, corrections: reconciled.corrections.filter((item) => item.applied).length });
-    return { engine: "ia+reglas", model: usedModel, notice: AI_NOTICE, proposal: withText(proposal, corrected, [...lexicon.corrections, ...reconciled.corrections]), aiMs };
+    return { engine: "ia+reglas", model: usedModel, notice: AI_NOTICE, proposal: withText(proposal, corrected, [...lexicon.corrections, ...reconciled.corrections], ai.diagnoses ?? []), aiMs };
   } catch (cause) {
     const aiMs = Date.now() - started;
     const reason = cause instanceof Error ? cause.message.replace(/\s+/g, " ").slice(0, 120) : "error";

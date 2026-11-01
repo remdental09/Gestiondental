@@ -443,3 +443,37 @@ export function reconcileCorrection(source: string, aiText: string): { text: str
   out.push(...a.slice(a.length - suf).map((token, k) => { const other = b[b.length - suf + k]; return key(token) === key(other) ? other : token; }));
   return { text: out.join(" "), corrections };
 }
+
+// ---------- Autocorrecciones dictadas («la 2.4, no, perdón, la 2.5») ----------
+const SPOKEN_UNIT = "(?:uno|dos|tres|cuatro|cinco|seis|siete|ocho)";
+const TOOTH_TOKEN = `(?:\\d\\.\\d|\\d{1,2}|${SPOKEN_UNIT}\\s+(?:punto\\s+)?${SPOKEN_UNIT})`;
+const FIX_CUE = "(?:no[,\\s]+)?(?:perd[oó]n|mejor\\s+dicho|digo|corrijo|me\\s+equivoqu[eé])";
+const TOOTH_INTRO = "(?:es\\s+)?(?:la\\s+|el\\s+|(?:pieza|diente)\\s+)?";
+// Lo que va entre la pieza dicha y la corrección no puede nombrar otra pieza.
+const NO_OTHER_TOOTH = "(?:(?!\\d\\.\\d|\\bpieza\\b|\\bdiente\\b)[^.;\\n])*?";
+const NOT_A_TOOTH_AFTER = "(?![\\d.]?\\d)(?!\\s*(?:mil\\b|mm\\b|mil[ií]metros|pesos|%|hrs?\\b|horas))";
+const SELF_FIX_TOOTH = new RegExp(`(?<![\\p{L}\\d.])((?:pieza|diente)\\s+)?(${TOOTH_TOKEN})${NOT_A_TOOTH_AFTER}(${NO_OTHER_TOOTH})[,\\s]+${FIX_CUE}[,:\\s]+${TOOTH_INTRO}(${TOOTH_TOKEN})${NOT_A_TOOTH_AFTER}`, "giu");
+// «…la 2.4 caries mesial, no, la 2.5»: un «no» seguido de otra pieza con punto FDI también corrige.
+// Solo si la pieza nueva cierra la frase («…, no, la 2.5.» o «…, no, la 2.5, caries…»): «caries no la 4.6 sana» no se toca.
+const SELF_FIX_TOOTH_NO = /(?<![\p{L}\d.])(\d\.\d)((?:(?!\d\.\d|\bpieza\b|\bdiente\b)[^.;\n])*?)[,\s]+no[,\s]+(?:es\s+)?(?:la|el|(?:pieza|diente))\s+(\d\.\d)(?![\d.]?\d)(?=\s*(?:[,.;\n]|$))/giu;
+const FACE = "(?:mesial|distal|oclusal|vestibular|palatin[ao]|lingual|incisal)";
+const SELF_FIX_FACE = new RegExp(`(?<!\\p{L})${FACE}[,\\s]+${FIX_CUE}[,:\\s]+(${FACE})(?!\\p{L})`, "giu");
+
+/**
+ * Aplica las autocorrecciones dichas en voz alta: deja solo lo corregido y registra el cambio
+ * para mostrarlo en «Texto corregido». Corre antes de las reglas y de la IA.
+ */
+export function applySelfCorrections(text: string): { text: string; corrections: TranscriptCorrection[] } {
+  const corrections: TranscriptCorrection[] = [];
+  const note = (original: string, corrected: string) => corrections.push({ original, corrected, origin: "diccionario", applied: true, reason: "Autocorrección dictada" });
+  let out = text.replace(SELF_FIX_TOOTH, (whole, intro: string | undefined, old: string, middle: string, next: string) => {
+    // Un número suelto («20 … perdón 30») no es una pieza: solo «pieza 20», «2.4» o «dos cuatro».
+    if (/^\d{1,2}$/.test(old) && !intro) return whole;
+    const value = `${intro ?? ""}${next}${middle}`;
+    note(whole, value);
+    return value;
+  });
+  out = out.replace(SELF_FIX_TOOTH_NO, (whole, _old: string, middle: string, next: string) => { const value = `${next}${middle}`; note(whole, value); return value; });
+  out = out.replace(SELF_FIX_FACE, (whole, next: string) => { note(whole, next); return next; });
+  return { text: out, corrections };
+}
