@@ -4,6 +4,9 @@
   "main": "worker.ts",
   "compatibility_date": "2026-10-30",
   "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "OPENAI_TRANSCRIPTION_MODEL": "gpt-4o-transcribe"
+  },
   "workers_dev": true,
   "preview_urls": false,
   "observability": { "enabled": true },
