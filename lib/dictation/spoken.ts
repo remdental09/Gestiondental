@@ -306,6 +306,16 @@ const LEXICON: Array<[RegExp, string]> = [
   [/\bbestibular\b/gi, "vestibular"],
   [/\bcarie\b/gi, "caries"],
   [/\bcaris\b/gi, "caries"],
+  // Periodoncia: el reconocimiento suele separar «destartraje» en «de estar traje».
+  [/\bde\s+estar\s+traje(s)?\b/gi, "destartraje$1"],
+  [/\bdeestartraje(s)?\b/gi, "destartraje$1"],
+  [/\bdestar\s+traje(s)?\b/gi, "destartraje$1"],
+  [/\bdestartrage(s)?\b/gi, "destartraje$1"],
+  [/\bdestartaraje(s)?\b/gi, "destartraje$1"],
+  [/\bsupra\s*[- ]\s*gingival(es)?\b/gi, "supragingival$1"],
+  [/\bsub\s*[- ]\s*gingival(es)?\b/gi, "subgingival$1"],
+  [/\bligamento\s+(?:peridontal|periodental)\b/gi, "ligamento periodontal"],
+  [/\bpulpeptom[ií]a\b/gi, "pulpectomía"],
   [/\b(?:ic\s?das|i\s?c\s?das|ikdas|icda|y\s?cdas|hic\s?das)\b/gi, "ICDAS"],
   [/\bson\s?daje\b/gi, "sondaje"],
   [/\bsondage\b/gi, "sondaje"],
@@ -429,7 +439,8 @@ const PROTECTED = new Set(("mesial distal oclusal incisal vestibular palatino pa
   "derecha derecho izquierda izquierdo superior inferior arriba abajo " +
   "hoy manana ayer lunes martes miercoles jueves viernes sabado domingo enero febrero marzo abril mayo junio julio agosto septiembre octubre noviembre diciembre semana semanas dias mes meses " +
   "efectivo debito credito transferencia cheque " +
-  "sangrado sangra supuracion movilidad furca furcacion sondaje recesion " +
+  "sangrado sangra supuracion movilidad furca furcacion sondaje recesion pulpa pulpar pulpitis pulpectomia pulpotomia " +
+  "encia gingiva gingival periodontal periodonto periodontitis destartraje supragingival subgingival tartrectomia " +
   "alergia alergias alergico alergica penicilina amoxicilina ibuprofeno paracetamol losartan metformina aspirina clorhexidina " +
   "media cuarto tarde noche " +
   "mg ml gramos dosis cada horas").split(/\s+/));
