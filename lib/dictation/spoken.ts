@@ -314,6 +314,8 @@ const LEXICON: Array<[RegExp, string]> = [
   [/\bdestar\s+traje(s)?\b/gi, "destartraje$1"],
   [/\bdestartrage(s)?\b/gi, "destartraje$1"],
   [/\bdestartaraje(s)?\b/gi, "destartraje$1"],
+  // Solo en contexto gingival: el ASR a veces transcribe «destartraje» como «tatuaje».
+  [/\b(de\s+)?tatuaje(?=\s+(?:sub|supra)\s*[- ]?\s*gingival(?:es)?\b)/gi, "$1destartraje"],
   [/\bsupra\s*[- ]\s*gingival(es)?\b/gi, "supragingival$1"],
   [/\bsub\s*[- ]\s*gingival(es)?\b/gi, "subgingival$1"],
   [/\bligamento\s+(?:peridontal|periodental)\b/gi, "ligamento periodontal"],
