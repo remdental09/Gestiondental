@@ -2,7 +2,7 @@
 
 import { useCallback, useRef, useState } from "react";
 import { changedWordCount, wordDiff } from "@/lib/dictation/word-diff";
-import type { StructureOutcome, TranscriptCorrection } from "@/lib/dictation/proposal";
+import type { TranscriptCorrection } from "@/lib/dictation/proposal";
 
 /** Muestra lo dictado y lo corregido palabra a palabra: tachado en rojo lo que se quitó, en verde lo nuevo. */
 export function WordDiffView({ before, after, testId }: { before: string; after: string; testId?: string }) {
@@ -19,9 +19,16 @@ export function WordDiffView({ before, after, testId }: { before: string; after:
   </div>;
 }
 
-export type TextCorrection = { source: string; text: string; corrections: TranscriptCorrection[]; aiError?: string };
+export type TextCorrection = {
+  source: string;
+  text: string;
+  corrections: TranscriptCorrection[];
+  provider?: "openai" | "workers-ai" | "dictionary";
+  openAiNotConfigured?: boolean;
+  aiError?: string;
+};
 
-/** «Corregir texto» a pedido: usa la misma corrección (diccionario + IA) del dictado, sin guardar nada. */
+/** «Corregir texto» a pedido: corrige sin guardar y marca los cambios para revisión. */
 export function useTextCorrection() {
   const [correcting, setCorrecting] = useState(false);
   const [result, setResult] = useState<TextCorrection | null>(null);
@@ -34,10 +41,10 @@ export function useTextCorrection() {
     setCorrecting(true);
     setError("");
     try {
-      const response = await fetch("/api/dictation/structure", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ transcript: text, chart: [] }) });
-      const data = await response.json() as StructureOutcome & { error?: string };
+      const response = await fetch("/api/text-correction", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ transcript: text }) });
+      const data = await response.json() as TextCorrection & { error?: string };
       if (!response.ok) throw new Error(data.error || "No se pudo corregir el texto.");
-      const next: TextCorrection = { source: text, text: data.proposal.corrected?.text ?? text, corrections: data.proposal.corrected?.corrections ?? [], aiError: data.aiError };
+      const next: TextCorrection = { source: text, text: data.text ?? text, corrections: data.corrections ?? [], provider: data.provider, openAiNotConfigured: data.openAiNotConfigured, aiError: data.aiError };
       if (ticket === latest.current) setResult(next);
       return next;
     } catch (cause) {

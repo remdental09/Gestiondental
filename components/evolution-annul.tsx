@@ -45,7 +45,10 @@ function ReplacementEditor({ value, onChange, testId }: { value: string; onChang
       </Button>
       {correction.error && <span role="alert" className="text-xs text-[#a43542]">{correction.error}</span>}
     </div>
+    <p className="text-xs leading-5 text-[#60757a]">Al corregir, este texto se envía a OpenAI si está configurada la clave; si no, a Workers AI cuando está habilitado. No se guarda hasta que lo revises y confirmes.</p>
     {correction.result && <>
+      {correction.result.provider && <p className="text-xs text-[#60757a]">Proveedor: {correction.result.provider === "openai" ? "API de OpenAI" : correction.result.provider === "workers-ai" ? "Cloudflare Workers AI" : "diccionario local"}.</p>}
+      {correction.result.openAiNotConfigured && <p className="text-xs text-amber-900">La clave de OpenAI aún no está configurada en Cloudflare.</p>}
       {correction.result.aiError && <p className="text-xs text-amber-900">La IA no respondió ({correction.result.aiError}); se corrigió solo con el diccionario.</p>}
       <WordDiffView before={before} after={correction.result.text} testId={`${testId}-diff`} />
     </>}

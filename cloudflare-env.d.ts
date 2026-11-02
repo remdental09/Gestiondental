@@ -4,6 +4,10 @@ declare namespace Cloudflare {
     BUCKET?: R2Bucket;
     /** Workers AI. Declarado en wrangler.cloudflare.jsonc; en local puede no existir. */
     AI?: Ai;
+    /** Clave opcional de OpenAI, configurada como secreto del Worker. */
+    OPENAI_API_KEY?: string;
+    /** Modelo de bajo costo para corrección de texto; por defecto gpt-4o-mini. */
+    OPENAI_TEXT_MODEL?: string;
     ACCESS_TEAM_DOMAIN?: string;
     ACCESS_POLICY_AUD?: string;
     ACCESS_ALLOWED_EMAIL?: string;

@@ -194,9 +194,12 @@ export function GlobalDictation({ patients, notes = [], onUsePatient, onCreatePa
             <Textarea data-testid="global-dictation-transcript" lang="es-CL" rows={5} className="min-h-32 field-sizing-fixed text-base sm:text-sm" autoCapitalize="sentences" autoCorrect="off" spellCheck={false} value={interim ? `${transcript} ${interim}`.trim() : transcript} onChange={(event) => { if (listening) quietStop(); setTranscript(event.target.value); setInterim(""); setDecision(null); setCommandDismissed(false); }} placeholder="Ej.: «Tengo un paciente nuevo, Juan Pérez, RUT 12.345.678-5. Viene por dolor en la 3.6, pieza fracturada. Presupuesto corona 450.000, abona 100.000.»" />
           </label>
           {correction.correcting && <p role="status" aria-live="polite" className="flex items-center gap-2 rounded-lg bg-sky-50 p-3 font-medium text-sky-950"><span className="size-4 shrink-0 animate-spin rounded-full border-2 border-sky-700 border-t-transparent" aria-hidden="true" />Corrigiendo el texto con el diccionario clínico e IA…</p>}
+          {transcript.trim().length >= 3 && <p className="text-xs leading-5 text-[#60757a]">Al corregir, se envía la transcripción a OpenAI si está configurada la clave; si no, a Workers AI cuando está habilitado. No se guarda hasta que la revises.</p>}
           {correction.error && <p role="alert" className="rounded-lg bg-rose-50 p-3 text-rose-950">{correction.error}</p>}
           {correction.result && !correction.correcting && <section className="space-y-2 rounded-xl border border-sky-200 bg-sky-50/40 p-3" data-testid="global-dictation-corrected">
             <h3 className="font-semibold">Texto corregido</h3>
+            {correction.result.provider && <p className="text-xs text-[#60757a]">Proveedor: {correction.result.provider === "openai" ? "API de OpenAI" : correction.result.provider === "workers-ai" ? "Cloudflare Workers AI" : "diccionario local"}.</p>}
+            {correction.result.openAiNotConfigured && <p className="text-xs text-amber-900">La clave de OpenAI aún no está configurada en Cloudflare.</p>}
             {correction.result.aiError && <p className="text-xs text-amber-900">La IA no respondió ({correction.result.aiError}); se corrigió solo con el diccionario clínico.</p>}
             {correction.result.source !== finalText() && <p className="text-xs text-amber-900">El dictado cambió después de corregir: vuelve a tocar «Corregir texto».</p>}
             <WordDiffView before={correction.result.source} after={correction.result.text} testId="global-dictation-diff" />
