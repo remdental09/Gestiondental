@@ -90,3 +90,8 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 - La publicación autorizada de `workers.dev` sigue la acción manual de GitHub; el Site privado es un despliegue separado. Access y los bindings D1/R2 se conservan.
 
 - Verificación publicada: `OPENAI_API_KEY` está presente en el Worker. La consulta autenticada del modelo `gpt-transcribe` devolvió HTTP 404 en esta cuenta; la transcripción usa `gpt-4o-transcribe` como compatibilidad solo cuando el modelo nuevo no existe y no se fijó un override. El modelo elegido se devuelve en la respuesta y el diagnóstico privado comprueba ambos. La exactitud acústica con la voz real no se puede declarar por una compilación ni por esta comprobación de acceso.
+
+
+## Presupuestos independientes por paciente (2 de noviembre de 2026)
+- La sección global «Presupuestos» es un selector de fichas; cada fila abre directamente la pestaña «Presupuestos» del paciente elegido. No reúne ítems de varias personas en una misma lista.
+- Los presupuestos y pagos se consultan, crean y editan desde la ficha correspondiente. La API y la base de datos ya vinculan cada presupuesto a su paciente, por lo que el cambio no requiere migración ni modifica registros existentes.
