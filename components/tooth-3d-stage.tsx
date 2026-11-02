@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { OdontogramSurface, SurfaceFinding } from "@/app/clinical-data";
+import type { OdontogramSurface, PerioTooth, SurfaceFinding } from "@/app/clinical-data";
 import { surfaceMarkColor } from "@/app/tooth-3d-map";
 import { ANATOMY_SEGMENTS, buildToothAnatomy, type AnatomyMesh, type ToothZone } from "@/app/tooth-anatomy";
+import { PERIO_3D_KEYS, periodontalMarkers } from "@/app/perio-3d-map";
 
 type ThreeModule = typeof import("three");
 type RoomEnvironmentModule = typeof import("three/examples/jsm/environments/RoomEnvironment.js");
@@ -14,6 +15,7 @@ type StageProps = {
   surfaces: Partial<Record<OdontogramSurface, SurfaceFinding | undefined>>;
   hasCrown: boolean;
   reducedMotion: boolean;
+  periodontalSites?: PerioTooth["sites"];
   /** Optional starting orientation (radians) — used for static previews. */
   view?: { x: number; y: number };
 };
@@ -148,11 +150,12 @@ function glossyMaterial(THREE: ThreeModule, params: ConstructorParameters<ThreeM
   return material;
 }
 
-export function Tooth3DStage({ tooth, status, surfaces, hasCrown, reducedMotion, view }: StageProps) {
+export function Tooth3DStage({ tooth, status, surfaces, hasCrown, reducedMotion, view, periodontalSites }: StageProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [error, setError] = useState("");
   const surfaceKey = (["O", "V", "P", "M", "D"] as OdontogramSurface[]).map((surface) => `${surface}:${surfaces[surface]?.condition ?? ""}`).join("|");
   const viewKey = view ? `${view.x},${view.y}` : "";
+  const periodontalKey = periodontalSites ? PERIO_3D_KEYS.map(key => { const reading = periodontalSites[key]; return `${key}:${reading?.depth ?? ""}:${reading?.bleeding ?? ""}:${reading?.suppuration ?? ""}`; }).join("|") : "";
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -162,11 +165,11 @@ export function Tooth3DStage({ tooth, status, surfaces, hasCrown, reducedMotion,
     setError("");
     Promise.all([import("three"), import("three/examples/jsm/environments/RoomEnvironment.js")]).then(([THREE, room]) => {
       if (disposed) return;
-      try { release = mountTooth(THREE, room, canvas, { tooth, status, surfaces, hasCrown, reducedMotion, view }); }
+      try { release = mountTooth(THREE, room, canvas, { tooth, status, surfaces, hasCrown, reducedMotion, view, periodontalSites }); }
       catch (cause) { setError(cause instanceof Error ? cause.message : "No se pudo abrir el diente en 3D."); }
     }).catch(() => { if (!disposed) setError("No se pudo cargar la vista 3D."); });
     return () => { disposed = true; release(); };
-  }, [tooth, status, surfaces, hasCrown, reducedMotion, surfaceKey, viewKey]);
+  }, [tooth, status, surfaces, hasCrown, reducedMotion, surfaceKey, viewKey, periodontalKey]);
 
   return <div className="relative h-[min(52vh,420px)] min-h-64 w-full overflow-hidden rounded-xl bg-[#eef5f4]">
     <canvas ref={canvasRef} className="h-full w-full touch-none" aria-label="Diente tridimensional. Arrastra para girar." />
@@ -175,7 +178,7 @@ export function Tooth3DStage({ tooth, status, surfaces, hasCrown, reducedMotion,
 }
 
 function mountTooth(THREE: ThreeModule, room: RoomEnvironmentModule, canvas: HTMLCanvasElement, props: StageProps): () => void {
-  const { tooth, status, surfaces, hasCrown, reducedMotion, view } = props;
+  const { tooth, status, surfaces, hasCrown, reducedMotion, view, periodontalSites } = props;
   const missing = status === "Ausente";
   const implant = status === "Implante" || status === "Implante con pilar";
   // Pilar protésico de titanio sobre el implante, sin corona.
@@ -352,6 +355,36 @@ function mountTooth(THREE: ThreeModule, room: RoomEnvironmentModule, canvas: HTM
     const marker = new THREE.Mesh(track(new THREE.TorusGeometry(0.52, 0.055, 8, 32)), track(new THREE.MeshBasicMaterial({ color: 0x75858b })));
     marker.rotation.x = Math.PI / 2;
     inner.add(marker);
+  }
+
+  if (periodontalSites && !missing && !implant) {
+    // Six independent 3D probes follow the tooth while it rotates. The positions use the
+    // cervical outline of this anatomy, including the patient's mesial side.
+    const body = buildToothAnatomy(tooth, "full").meshes[0];
+    const neck: { x: number; z: number }[] = [];
+    for (let i = 0; i < body.level.length; i += 1) {
+      if (Math.abs(body.level[i]) < 0.015) neck.push({ x: body.positions[i * 3], z: body.positions[i * 3 + 2] });
+    }
+    if (neck.length === 0) throw new Error("No se pudo situar el sondaje en la pieza 3D.");
+    const xs = neck.map(point => point.x), zs = neck.map(point => point.z);
+    const outline = { left: Math.min(...xs), right: Math.max(...xs), front: Math.max(...zs), back: Math.min(...zs) };
+    for (const { x, z, length, color, bleeding, suppuration } of periodontalMarkers(tooth, outline, periodontalSites)) {
+      const material = track(new THREE.MeshBasicMaterial({ color, depthTest: false }));
+      const stem = new THREE.Mesh(track(new THREE.CylinderGeometry(0.013, 0.013, length, 8)), material);
+      stem.position.set(x, -length / 2, z);
+      stem.renderOrder = 4;
+      inner.add(stem);
+      const marker = new THREE.Mesh(track(new THREE.SphereGeometry(0.055, 12, 8)), material);
+      marker.position.set(x, -length, z);
+      marker.renderOrder = 5;
+      inner.add(marker);
+      if (bleeding || suppuration) {
+        const alert = new THREE.Mesh(track(new THREE.TorusGeometry(0.075, 0.012, 6, 20)), track(new THREE.MeshBasicMaterial({ color: suppuration ? 0x7c3aed : 0xdc2626, depthTest: false })));
+        alert.position.set(x, -length, z);
+        alert.renderOrder = 6;
+        inner.add(alert);
+      }
+    }
   }
 
   // Frame the whole tooth, roots included: centre it on the rotation pivot and back the camera off to fit.
