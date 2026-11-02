@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { formatFdi, type ClinicalImage, type OdontogramData, type PerioExam } from "@/app/clinical-data";
-import { createWebSpeechTranscription, IOS_DICTATION_HINT, MIC_DENIED, micAllowed } from "@/lib/dictation/transcription";
+import { createAudioTranscription, AUDIO_DICTATION_NOTICE } from "@/lib/dictation/audio-transcription";
 import { checkPatientMentions, patientVariantNote, patientWarning } from "@/lib/dictation/patient-check";
 import { WordDiffView } from "@/components/text-correction";
 import { VoiceCommandCard, type AnnulHandler } from "@/components/evolution-annul";
@@ -164,8 +164,8 @@ export function ClinicalDictation({
   /** Botón grande «Dictar en esta ficha» (barra fija de la ficha abierta). */
   prominent?: boolean;
 }) {
-  const engine = useRef(createWebSpeechTranscription());
-  const answerEngine = useRef(createWebSpeechTranscription());
+  const engine = useRef(createAudioTranscription());
+  const answerEngine = useRef(createAudioTranscription());
   const requestId = useRef("");
   const session = useRef("");
   // Lo ya guardado en este dictado no se repite si hay que reintentar tras un error.
@@ -174,6 +174,8 @@ export function ClinicalDictation({
   const [supported, setSupported] = useState(true);
   const [unsupportedMessage, setUnsupportedMessage] = useState("");
   const [listening, setListening] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+  const [audioRetry, setAudioRetry] = useState<"main" | "answer" | null>(null);
   const [speechError, setSpeechError] = useState("");
   const [transcript, setTranscript] = useState("");
   const [interim, setInterim] = useState("");
@@ -256,6 +258,8 @@ export function ClinicalDictation({
     setAnswering(null);
     setListening(false);
     setInterim("");
+    setTranscribing(false);
+    setAudioRetry(null);
     setOpen(false);
   };
 
@@ -267,14 +271,12 @@ export function ClinicalDictation({
       setSpeechError(engine.current.unsupportedMessage());
       return;
     }
-    if (!(await micAllowed())) {
-      setSpeechError(MIC_DENIED);
-      return;
-    }
+
     setListening(true);
     autoPending.current = true;
     heard.current = { text: transcript, interim: "" };
     engine.current.start(transcript, {
+      onStatus: (status) => { setTranscribing(status === "transcribing"); setListening(status === "starting" || status === "recording"); if (status !== "error") setAudioRetry(null); },
       onTranscript: (text, spokenInterim) => {
         heard.current = { text, interim: spokenInterim };
         setTranscript(text);
@@ -283,6 +285,7 @@ export function ClinicalDictation({
       },
       onError: (message) => {
         setSpeechError(message);
+        setAudioRetry(engine.current.hasPendingAudio?.() ? "main" : null);
         setListening(false);
         setInterim("");
       },
@@ -308,14 +311,12 @@ export function ClinicalDictation({
       setSpeechError(answerEngine.current.unsupportedMessage());
       return;
     }
-    if (!(await micAllowed())) {
-      setSpeechError(MIC_DENIED);
-      return;
-    }
+
     setAnswering(question);
     answerEngine.current.start(answers[question] ?? "", {
+      onStatus: (status) => { setTranscribing(status === "transcribing"); if (status !== "error") setAudioRetry(null); },
       onTranscript: (text, spoken) => setAnswers((current) => ({ ...current, [question]: spoken ? `${text} ${spoken}`.trim() : text })),
-      onError: (message) => { setSpeechError(message); setAnswering(null); },
+      onError: (message) => { setSpeechError(message); setAudioRetry(answerEngine.current.hasPendingAudio?.() ? "answer" : null); setAnswering(null); },
       onEnd: () => setAnswering(null),
     });
   };
@@ -396,18 +397,18 @@ export function ClinicalDictation({
   };
 
   const stop = () => {
-    engine.current.stop();
+    setTranscribing(true);
     setListening(false);
-    setInterim("");
-    // Si Safari no avisa el fin del dictado, se corrige igual con lo último que se oyó.
-    if (autoPending.current && !stopFallback.current) stopFallback.current = setTimeout(() => { stopFallback.current = null; correctAfterDictation(); }, 1500);
+    engine.current.stop();
   };
 
   /** Escribir a mano o cargar el ejemplo detiene el dictado sin corregir solo. */
   const stopWithoutCorrecting = () => {
     autoPending.current = false;
     if (stopFallback.current) { clearTimeout(stopFallback.current); stopFallback.current = null; }
-    engine.current.stop();
+    engine.current.abort();
+    setTranscribing(false);
+    setAudioRetry(null);
     setListening(false);
     setInterim("");
   };
@@ -691,22 +692,25 @@ export function ClinicalDictation({
         <div className="space-y-4 text-sm">
           {!supported && <p className="rounded-lg bg-[#f4f7f8] p-3 leading-6 text-[#31575b]" role="status">{unsupportedMessage}</p>}
           <div className="flex flex-wrap gap-2">
-            <Button type="button" variant={listening ? "default" : "outline"} className={listening ? "bg-[#087f83] hover:bg-[#07676b]" : ""} onClick={listening ? stop : () => void start()} aria-pressed={listening} data-testid="dictation-mic">
+            <Button type="button" variant={listening ? "default" : "outline"} className={listening ? "bg-[#087f83] hover:bg-[#07676b]" : ""} disabled={transcribing} onClick={listening ? stop : () => void start()} aria-pressed={listening} data-testid="dictation-mic">
               {listening ? <MicOff className="mr-2 size-4" /> : <Mic className="mr-2 size-4" />}
               {listening ? "Detener" : "Dictar"}
             </Button>
             <Button type="button" variant="outline" onClick={() => { stopWithoutCorrecting(); setTranscript(EXAMPLE); setInterim(""); resetReview(); }} data-testid="dictation-example">Cargar ejemplo</Button>
-            <Button type="button" className="bg-[#087f83] hover:bg-[#07676b]" disabled={structuring || listening || transcript.trim().length < 3} onClick={() => void structure(transcript)} data-testid="dictation-structure"><Sparkles className="mr-2 size-4" aria-hidden="true" />{structuring ? "Corrigiendo texto…" : outcome ? "Volver a corregir texto" : "Corregir texto"}</Button>
+            <Button type="button" className="bg-[#087f83] hover:bg-[#07676b]" disabled={transcribing || structuring || listening || transcript.trim().length < 3} onClick={() => void structure(transcript)} data-testid="dictation-structure"><Sparkles className="mr-2 size-4" aria-hidden="true" />{structuring ? "Corrigiendo texto…" : outcome ? "Volver a corregir texto" : "Corregir texto"}</Button>
           </div>
           {listening && <p role="status" className="font-medium text-[#087f83]">Escuchando en español de Chile… Al detener, el texto se corrige solo con IA.</p>}
           {structuring && <p role="status" aria-live="polite" className="flex items-center gap-2 rounded-lg bg-sky-50 p-3 font-medium text-sky-950" data-testid="dictation-correcting"><span className="size-4 shrink-0 animate-spin rounded-full border-2 border-sky-700 border-t-transparent" aria-hidden="true" />Corrigiendo con IA… redactando la nota por secciones.</p>}
+          <p className="rounded-lg bg-sky-50 p-3 text-xs leading-5 text-sky-950" role="note">{AUDIO_DICTATION_NOTICE}</p>
+          {listening && <p role="status" className="text-[#087f83]">Grabando el audio. Al detener, aparecerá la transcripción para revisar.</p>}
+          {transcribing && <p role="status" aria-live="polite" className="rounded-lg bg-sky-50 p-3 font-medium text-sky-950">Transcribiendo el audio con OpenAI… Espera que aparezca el texto antes de corregirlo.</p>}
+          {audioRetry && <Button type="button" variant="outline" disabled={transcribing} onClick={() => { setSpeechError(""); (audioRetry === "answer" ? answerEngine.current : engine.current).retry?.(); }}>Reintentar la transcripción del audio</Button>}
           {speechError && <p role="alert" className="text-[#a43542]">{speechError}</p>}
-          <label className="block space-y-1.5 font-medium">Transcripción original, sin corregir (en vivo, editable; se guarda aparte al final de la evolución)
-            <Textarea data-testid="dictation-transcript" lang="es-CL" rows={5} className="min-h-32 field-sizing-fixed text-base sm:text-sm" autoCapitalize="sentences" autoCorrect="off" spellCheck={false} value={interim ? `${transcript} ${interim}`.trim() : transcript} onChange={(event) => { if (listening) stopWithoutCorrecting(); setTranscript(event.target.value); setInterim(""); resetReview(); setCommandIgnored(false); }} placeholder="Habla o escribe el dictado. Revisa piezas y dosis antes de proponer cambios." />
+          <label className="block space-y-1.5 font-medium">Transcripción del audio, sin corregir (editable; se guarda aparte al final de la evolución)
+            <Textarea data-testid="dictation-transcript" lang="es-CL" rows={5} className="min-h-32 field-sizing-fixed text-base sm:text-sm" autoCapitalize="sentences" autoCorrect="off" spellCheck={false} value={interim ? `${transcript} ${interim}`.trim() : transcript} onChange={(event) => { if (listening || transcribing) stopWithoutCorrecting(); setTranscript(event.target.value); setInterim(""); resetReview(); setCommandIgnored(false); }} placeholder="Habla o escribe el dictado. Revisa piezas y dosis antes de proponer cambios." />
           </label>
-          {IOS_DICTATION_HINT && <p className="rounded-lg bg-sky-50 p-3 text-xs leading-5 text-sky-950" role="note">{IOS_DICTATION_HINT}</p>}
           {command && onAnnul && !structuring && <VoiceCommandCard key={command.evidence} command={command} notes={notes} patientName={patientName} onConfirm={onAnnul} onDismiss={() => { setCommandIgnored(true); void structure(transcript); }} />}
-          <p className="text-xs leading-5 text-[#60757a]">Dicta libre: «punto» o «punto aparte» separa frases. La IA redacta la nota y propone los cambios con la frase dicha como respaldo; nada se aplica sin tu aceptación. El reconocimiento es el del navegador (Chrome o Safari) en es-CL. El audio no se envía a una API de transcripción de pago. La propuesta pasa por revisión y la ficha manual no cambia sola.</p>
+          <p className="text-xs leading-5 text-[#60757a]">Dicta libre: «punto» o «punto aparte» separa frases. La IA redacta la nota y propone los cambios con la frase dicha como respaldo; nada se aplica sin tu aceptación. La propuesta pasa por revisión y la ficha manual no cambia sola.</p>
           {formError && <div role="alert" className="rounded-lg bg-rose-50 p-3 text-rose-950" data-testid="dictation-error">
             <p>{formError}</p>
             {!outcome && !structuring && lastStructured.trim().length >= 3 && <Button type="button" size="sm" variant="outline" className="mt-2 bg-white" onClick={() => void structure(lastStructured)} data-testid="dictation-retry">Reintentar corrección</Button>}
@@ -714,7 +718,7 @@ export function ClinicalDictation({
           {outcome?.aiError && <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-950" data-testid="dictation-ai-failed">
             <p className="font-medium">La IA no corrigió este dictado: {outcome.aiError}.</p>
             <p className="mt-1 text-xs leading-5">La nota de abajo salió solo de las reglas locales (diccionario y secciones por palabras clave). Revísala con más cuidado o reintenta.</p>
-            <Button type="button" size="sm" variant="outline" className="mt-2 bg-white" disabled={structuring} onClick={() => void structure(lastStructured || transcript)} data-testid="dictation-retry-ai">{structuring ? "Corrigiendo con IA…" : "Reintentar con IA"}</Button>
+            <Button type="button" size="sm" variant="outline" className="mt-2 bg-white" disabled={transcribing || structuring} onClick={() => void structure(lastStructured || transcript)} data-testid="dictation-retry-ai">{structuring ? "Corrigiendo con IA…" : "Reintentar con IA"}</Button>
           </div>}
           {outcome && !outcome.aiError && outcome.aiNote && <p className="text-xs text-[#71858b]" data-testid="dictation-ai-provider">{outcome.aiNote}</p>}
           {outcome && !outcome.aiError && <p className="rounded-lg bg-[#f4f7f8] p-3 leading-6 text-[#31575b]" role="status">{outcome.notice ?? "La evolución y las piezas salen de lo resuelto en el dictado. Sigue sujeta a tu revisión."}</p>}
@@ -741,9 +745,9 @@ export function ClinicalDictation({
               </ul> : null}
               <div className="mt-2"><WordDiffView before={lastStructured || transcript} after={proposal.corrected?.text ?? workingText} testId="dictation-diff" /></div>
               <Textarea className="mt-2 bg-white text-base sm:text-sm" aria-label="Texto corregido (editable)" rows={4} value={workingText} onChange={(event) => setWorkingText(event.target.value)} data-testid="dictation-corrected-text" />
-              <Button type="button" variant="outline" size="sm" className="mt-2" disabled={structuring || workingText.trim().length < 3} onClick={() => void structure(workingText)}>Volver a proponer con este texto</Button>
+              <Button type="button" variant="outline" size="sm" className="mt-2" disabled={transcribing || structuring || workingText.trim().length < 3} onClick={() => void structure(workingText)}>Volver a proponer con este texto</Button>
               <p className="mt-1 text-[11px] text-[#71858b]">Volver a proponer rehace la propuesta y descarta los ajustes hechos abajo.</p>
-              <Button type="button" size="lg" className="mt-3 h-auto min-h-12 w-full whitespace-normal bg-[#087f83] text-base hover:bg-[#07676b]" disabled={structuring || saving} onClick={incorporate} data-testid="dictation-incorporate">{structuring ? "Preparando…" : "Incorporar a la ficha"}</Button>
+              <Button type="button" size="lg" className="mt-3 h-auto min-h-12 w-full whitespace-normal bg-[#087f83] text-base hover:bg-[#07676b]" disabled={transcribing || structuring || saving} onClick={incorporate} data-testid="dictation-incorporate">{structuring ? "Preparando…" : "Incorporar a la ficha"}</Button>
             </section>
             {planOpen && <div ref={planRef} className="scroll-mt-4"><IncorporatePlan
               kindLabel={proposal.evolutionKind?.label}
@@ -786,10 +790,10 @@ export function ClinicalDictation({
                 <p className="text-sm">{question}</p>
                 <div className="mt-1 flex gap-2">
                   <Input className="bg-white text-base sm:text-sm" aria-label={`Respuesta: ${question}`} value={answers[question] ?? ""} onChange={(event) => setAnswers((current) => ({ ...current, [question]: event.target.value }))} placeholder="Respuesta" />
-                  <Button type="button" variant={answering === question ? "default" : "outline"} size="icon" className={`shrink-0 ${answering === question ? "bg-[#087f83] hover:bg-[#07676b]" : ""}`} aria-label={answering === question ? "Detener respuesta dictada" : "Dictar respuesta"} aria-pressed={answering === question} onClick={() => void dictateAnswer(question)}>{answering === question ? <MicOff className="size-4" /> : <Mic className="size-4" />}</Button>
+                  <Button type="button" variant={answering === question ? "default" : "outline"} size="icon" className={`shrink-0 ${answering === question ? "bg-[#087f83] hover:bg-[#07676b]" : ""}`} disabled={transcribing || listening} aria-label={answering === question ? "Detener respuesta dictada" : "Dictar respuesta"} aria-pressed={answering === question} onClick={() => void dictateAnswer(question)}>{answering === question ? <MicOff className="size-4" /> : <Mic className="size-4" />}</Button>
                 </div>
               </li>)}</ul>
-              <Button type="button" className="mt-3 bg-[#087f83] hover:bg-[#07676b]" disabled={structuring || !Object.values(answers).some((value) => value.trim())} onClick={applyAnswers} data-testid="dictation-apply-answers">{structuring ? "Aplicando…" : "Aplicar respuestas"}</Button>
+              <Button type="button" className="mt-3 bg-[#087f83] hover:bg-[#07676b]" disabled={transcribing || structuring || !Object.values(answers).some((value) => value.trim())} onClick={applyAnswers} data-testid="dictation-apply-answers">{structuring ? "Aplicando…" : "Aplicar respuestas"}</Button>
             </section>}
             <section className="rounded-xl border border-[#dce5e7] p-4" data-testid="dictation-evolution">
               <div className="flex flex-wrap items-center justify-between gap-2">

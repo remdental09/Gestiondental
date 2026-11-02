@@ -23,6 +23,10 @@ jobs:
             echo 'No hay un token Cloudflare accesible en los secretos de esta acción.' >&2
             exit 1
           fi
+      - name: Comprobar transcripción de audio
+        run: |
+          node --experimental-strip-types --test tests/audio-transcription.test.mjs
+          pnpm exec tsc --noEmit --strict --skipLibCheck --allowImportingTsExtensions --module esnext --moduleResolution bundler --target es2022 --lib es2023,dom lib/dictation/audio-transcription.ts lib/dictation/openai-transcription.ts
       - name: Compilar Worker con los bindings D1/R2 existentes
         run: CLOUDFLARE_DEPLOY=1 pnpm build
       - name: Desplegar Worker compilado
