@@ -30,24 +30,33 @@ function timeout<T>(promise: Promise<T>, ms: number, model: string): Promise<T> 
 }
 
 /**
- * Redacta la nota y extrae hallazgos con cita literal. Cadena: Llama 8B → 70B → Mistral Small (Workers AI)
- * → OpenAI gpt-4o-mini (si hay OPENAI_API_KEY). Un error 4006 (cupo diario) salta directo a OpenAI.
+ * Redacta la nota y extrae hallazgos con cita literal. Por defecto usa Workers AI y OpenAI como respaldo;
+ * preferOpenAi invierte ese orden cuando la clave está disponible. Un error 4006 salta directo al respaldo.
  * Si todo falla, proposal.ts deja las reglas locales. El resultado se valida contra la transcripción.
  */
-export function createWorkersAiModel(ai: AiRunner | null | undefined, options: { perModelMs?: number; totalMs?: number; openAi?: OpenAiFallback } = {}): ClinicalModel {
+export function createWorkersAiModel(ai: AiRunner | null | undefined, options: { perModelMs?: number; totalMs?: number; openAi?: OpenAiFallback; preferOpenAi?: boolean } = {}): ClinicalModel {
   const chain = ai ? [WORKERS_AI_MODEL, ...WORKERS_AI_FALLBACKS] : [];
   const perModelMs = options.perModelMs ?? 30_000;
   const totalMs = options.totalMs ?? 45_000;
   const openAiKey = options.openAi?.apiKey?.trim();
   const openAiModel = options.openAi?.model?.trim() || OPENAI_STRUCTURE_MODEL;
-  const reserve = openAiKey ? OPENAI_RESERVE_MS : 0;
+  const reserve = openAiKey && !options.preferOpenAi ? OPENAI_RESERVE_MS : 0;
   return {
     id: "workers-ai",
-    model: chain[0] ?? `openai/${openAiModel}`,
+    model: options.preferOpenAi && openAiKey ? `openai/${openAiModel}` : chain[0] ?? `openai/${openAiModel}`,
     async complete(input): Promise<ModelAnswer> {
       const started = Date.now();
       const failures: string[] = [];
       let quota = false;
+      if (openAiKey && options.preferOpenAi) {
+        try {
+          const content = await runOpenAiStructure(input, openAiKey, { model: openAiModel, fetcher: options.openAi?.fetcher, timeoutMs: Math.min(20_000, totalMs), onUsage: options.openAi?.onUsage });
+          const output = validateModelOutput(modelOutputToJson(content));
+          return { usedModel: `openai/${openAiModel}`, output };
+        } catch (cause) {
+          failures.push(`openai: ${(cause instanceof Error ? cause.message : String(cause)).slice(0, 80)}`);
+        }
+      }
       for (const model of chain) {
         const left = totalMs - reserve - (Date.now() - started);
         if (left < 5_000) break;
@@ -63,7 +72,7 @@ export function createWorkersAiModel(ai: AiRunner | null | undefined, options: {
           if (isQuotaError(message)) { quota = true; break; }
         }
       }
-      if (openAiKey) {
+      if (openAiKey && !options.preferOpenAi) {
         const left = totalMs - (Date.now() - started);
         if (left >= 5_000) {
           try {
