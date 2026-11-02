@@ -2,6 +2,7 @@
 // Set de regresión del dictado clínico.
 //   node scripts/dictation-eval.mjs            → solo reglas locales (sin red, sin costo)
 //   node scripts/dictation-eval.mjs --ai       → además la cadena de Workers AI del deploy (login de wrangler)
+//   node scripts/dictation-eval.mjs --openai   → además solo el respaldo OpenAI (gpt-4o-mini; clave en OPENAI_API_KEY del entorno)
 // Opciones: --out <dir> (por defecto /workspace/gd-eval), --only c01,c02, --strict (sale con 1 si algo falla),
 //   --model <id> (prueba un solo modelo, sin respaldo; para comparar 8B vs 70B).
 // Nada se guarda en ninguna ficha: solo se comparan propuestas con lo esperado.
@@ -12,6 +13,8 @@ import * as P from '../lib/dictation/proposal.ts';
 import { santiagoToday } from '../lib/dictation/spoken.ts';
 import { summarize, compare } from './dictation-eval-lib.mjs';
 import { runPatientIdentifyEval } from './patient-identify-eval.mjs';
+import { createWorkersAiModel } from '../lib/dictation/workers-ai.ts';
+import { openAiCostUsd } from '../lib/dictation/openai-structure.ts';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
@@ -95,6 +98,21 @@ if (flag('--ai')) {
   }
 }
 
+let openAiCostLine = '';
+if (flag('--openai')) {
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
+  if (!apiKey) throw new Error('Falta OPENAI_API_KEY en el entorno.');
+  const usages = [];
+  const model = createWorkersAiModel(null, { totalMs: 60_000, openAi: { apiKey, model: value('--openai-model', ''), onUsage: (usage) => usages.push(usage) } });
+  results.push(await runEngine('IA (OpenAI gpt-4o-mini) + validación', model));
+  if (usages.length) {
+    const prompt = usages.reduce((sum, u) => sum + u.prompt_tokens, 0) / usages.length;
+    const completion = usages.reduce((sum, u) => sum + u.completion_tokens, 0) / usages.length;
+    const total = usages.reduce((sum, u) => sum + openAiCostUsd(u), 0);
+    openAiCostLine = `OpenAI: ${usages.length} llamadas, promedio ${Math.round(prompt)} tokens de entrada y ${Math.round(completion)} de salida; costo estimado ${(total / usages.length).toFixed(5)} USD por dictado (total ${total.toFixed(4)} USD).`;
+  }
+}
+
 const identify = runPatientIdentifyEval();
 const identifySection = [`## Identificación de paciente (nuevo vs existente, solo código): ${identify.passed}/${identify.rows.length}`, '', '| Caso | Resultado | Decisión |', '|---|---|---|',
   ...identify.rows.map((row) => `| ${row.item.id} | ${row.diffs.length ? `**falla** ${row.diffs.map((d) => `${d.field}: esperado ${JSON.stringify(d.expected)}, salió ${JSON.stringify(d.actual)}`).join('; ')}` : 'ok'} | ${row.result.decision}${row.result.suggestedPatientId ? ` → ${row.result.suggestedPatientId}` : ''} |`)].join('\n');
@@ -106,6 +124,7 @@ const header = [
   `Corpus: tests/fixtures/dictation-corpus.json (${cases.length} casos, datos ficticios; fecha de referencia ${corpus.today}). Hora de Chile (America/Santiago).`,
   '',
   results.map((r) => `- ${r.label}: **${r.passed}/${r.rows.length}**`).join('\n'),
+  ...(openAiCostLine ? ['', openAiCostLine] : []),
   '',
 ].join('\n');
 const report = `${header}\n${results.map(section).join('\n\n')}\n\n${identifySection}\n`;
@@ -113,6 +132,7 @@ mkdirSync(outDir, { recursive: true });
 const file = join(outDir, `report-${day}.md`);
 writeFileSync(file, report);
 console.log(results.map((r) => `${r.label}: ${r.passed}/${r.rows.length}`).join('\n'));
+if (openAiCostLine) console.log(openAiCostLine);
 console.log(`Identificación de paciente: ${identify.passed}/${identify.rows.length}`);
 console.log(`Reporte: ${file}`);
 if (flag('--strict') && (results.some((r) => r.passed < r.rows.length) || identify.passed < identify.rows.length)) process.exitCode = 1;

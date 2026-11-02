@@ -20,7 +20,9 @@ export async function POST(request: Request) {
   const record = body as Record<string, unknown>;
   const transcript = typeof record.transcript === "string" ? record.transcript : "";
   try {
-    const model = env.AI ? createWorkersAiModel(env.AI) : null;
+    const openAiKey = env.OPENAI_API_KEY?.trim();
+    // Workers AI primero; OpenAI solo como respaldo (clave en el secreto OPENAI_API_KEY).
+    const model = env.AI || openAiKey ? createWorkersAiModel(env.AI, { openAi: { apiKey: openAiKey, model: env.OPENAI_STRUCTURE_MODEL } }) : null;
     const outcome = await proposeFromTranscript({ transcript, chart: sanitizeChart(record.chart) }, model);
     return Response.json(outcome, { headers: { "Cache-Control": "no-store" } });
   } catch (cause) {
