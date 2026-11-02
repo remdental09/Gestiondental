@@ -95,3 +95,8 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 ## Presupuestos independientes por paciente (2 de noviembre de 2026)
 - La sección global «Presupuestos» es un selector de fichas; cada fila abre directamente la pestaña «Presupuestos» del paciente elegido. No reúne ítems de varias personas en una misma lista.
 - Los presupuestos y pagos se consultan, crean y editan desde la ficha correspondiente. La API y la base de datos ya vinculan cada presupuesto a su paciente, por lo que el cambio no requiere migración ni modifica registros existentes.
+
+
+## Redacción visible tras el dictado (2 de noviembre de 2026)
+- La vista previa de Inicio presenta por separado la transcripción corregida palabra por palabra y una nota clínica redactada por secciones mediante la ruta de estructuración. La ficha vuelve a generar la propuesta con su contexto y exige revisión antes de guardar.
+- Si existe `OPENAI_API_KEY`, la estructuración intenta primero el modelo configurado en `OPENAI_STRUCTURE_MODEL` (por defecto `gpt-4o-mini`); Workers AI es respaldo. El texto original se conserva. La redacción ordena lo dictado sin convertir planes en procedimientos realizados ni completar números de identidad inciertos.

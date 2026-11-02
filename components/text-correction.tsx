@@ -2,7 +2,7 @@
 
 import { useCallback, useRef, useState } from "react";
 import { changedWordCount, wordDiff } from "@/lib/dictation/word-diff";
-import type { TranscriptCorrection } from "@/lib/dictation/proposal";
+import type { TranscriptCorrection, StructureOutcome } from "@/lib/dictation/proposal";
 
 /** Muestra lo dictado y lo corregido palabra a palabra: tachado en rojo lo que se quitó, en verde lo nuevo. */
 export function WordDiffView({ before, after, testId }: { before: string; after: string; testId?: string }) {
@@ -26,6 +26,9 @@ export type TextCorrection = {
   provider?: "openai" | "workers-ai" | "dictionary";
   openAiNotConfigured?: boolean;
   aiError?: string;
+  redraftedNote?: string;
+  draftModel?: string | null;
+  draftNotice?: string | null;
 };
 
 /** «Corregir texto» a pedido: corrige sin guardar y marca los cambios para revisión. */
@@ -41,10 +44,20 @@ export function useTextCorrection() {
     setCorrecting(true);
     setError("");
     try {
-      const response = await fetch("/api/text-correction", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ transcript: text }) });
-      const data = await response.json() as TextCorrection & { error?: string };
-      if (!response.ok) throw new Error(data.error || "No se pudo corregir el texto.");
-      const next: TextCorrection = { source: text, text: data.text ?? text, corrections: data.corrections ?? [], provider: data.provider, openAiNotConfigured: data.openAiNotConfigured, aiError: data.aiError };
+      const response = await fetch("/api/dictation/structure", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ transcript: text }) });
+      const data = await response.json() as StructureOutcome & { error?: string };
+      if (!response.ok) throw new Error(data.error || "No se pudo redactar la nota.");
+      const corrected = data.proposal?.corrected;
+      const next: TextCorrection = {
+        source: text,
+        text: corrected?.text ?? text,
+        corrections: corrected?.corrections ?? [],
+        provider: data.model?.startsWith("openai/") ? "openai" : data.engine === "ia+reglas" ? "workers-ai" : "dictionary",
+        aiError: data.aiError,
+        redraftedNote: data.proposal?.evolution?.body?.trim() ?? "",
+        draftModel: data.model,
+        draftNotice: data.notice,
+      };
       if (ticket === latest.current) setResult(next);
       return next;
     } catch (cause) {
