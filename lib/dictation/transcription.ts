@@ -124,7 +124,7 @@ export function createWebSpeechTranscription(lang = "es-CL"): TranscriptionEngin
           try {
             recognizer.phrases = DENTAL_SPEECH_HINTS.map(({ phrase, boost }) => new browser.SpeechRecognitionPhrase!(phrase, boost));
           } catch {
-            recognizer.phrases = [];
+            // El dictado sigue con el reconocimiento normal del navegador.
           }
         }
         recognizer.onresult = (event) => {
