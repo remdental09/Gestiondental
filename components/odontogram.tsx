@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { formatFdi, type OdontogramData, type OdontogramSurface, type SurfaceFinding } from "@/app/clinical-data";
 import { surfaceScreenSide } from "@/app/odontogram-surface";
+import { calculateCariesExperience } from "@/app/odontogram-index";
 import { Tooth3DModal } from "@/components/tooth-3d-modal";
 import { CARIES_DEPTHS, CARIES_DEPTH_SHORT, cariesDetail } from "@/lib/caries";
 
@@ -55,24 +56,6 @@ function OcclusalToothView({tooth,findings,selectedSurface,disabled,crownMarker,
   </svg>;
 }
 
-function calculateIndex(teeth:number[],data:OdontogramData) {
-  let caries=0,missing=0,filled=0;
-  for(const tooth of teeth){
-    const status=data.teeth[tooth]??"Sin hallazgos";
-    if(status==="Ausente"||status==="Indicación de exodoncia"){
-      if(data.missingReason[tooth]==="caries")missing++;
-      continue;
-    }
-    if(status==="Implante"||status==="Implante con pilar")continue;
-    const surfaces=Object.values(data.surfaces[tooth]??{});
-    const hasCaries=surfaces.some(s=>s?.condition==="caries");
-    const hasRestoration=surfaces.some(s=>s?.condition==="restored"||s?.condition==="other_restoration");
-    if(hasCaries)caries++;
-    else if(hasRestoration)filled++;
-  }
-  return {caries,missing,filled,total:caries+missing+filled};
-}
-
 export function Odontogram({data,onSetStatus,onSetMissingReason,onSetSurface,onSetCrownDetails}:{data:OdontogramData;onSetStatus:(tooth:number,status:string)=>Promise<void>;onSetMissingReason:(tooth:number,reason:"caries"|"other"|"unknown")=>Promise<void>;onSetSurface:(tooth:number,surface:OdontogramSurface,finding:SurfaceFinding)=>Promise<void>;onSetCrownDetails:(tooth:number,material:string,shade:string)=>Promise<void>}) {
   const [viewTrigger,setViewTrigger]=useState<HTMLElement|null>(null);
   const [dentition,setDentition]=useState<"permanent"|"primary">("permanent");
@@ -83,8 +66,8 @@ export function Odontogram({data,onSetStatus,onSetMissingReason,onSetSurface,onS
   const status=data.teeth[selected]??"Sin hallazgos";
   const crown=data.crowns?.[selected];
   const crownCount=teeth.filter(tooth=>data.teeth[tooth]==="Corona"||(data.teeth[tooth]==="Implante"&&Boolean(data.crowns?.[tooth]))).length;
-  const index=useMemo(()=>calculateIndex(permanentTeeth,data),[data]);
-  const primaryIndex=useMemo(()=>calculateIndex(primaryTeeth,data),[data]);
+  const index=useMemo(()=>calculateCariesExperience(permanentTeeth,data),[data]);
+  const primaryIndex=useMemo(()=>calculateCariesExperience(primaryTeeth,data),[data]);
   const toothAlias=(tooth:number)=>dentition==="permanent"?`Chile ${chilePermanent(tooth)}`:`Chile ${primaryLetters[tooth]}`;
   const runSave=async(action:()=>Promise<void>,success:string)=>{setSaving(true);setMessage("");try{await action();setMessage(success)}catch(e){setMessage(e instanceof Error?e.message:"No se pudo guardar el cambio.")}finally{setSaving(false)}};
   const saveSurface=(surface:OdontogramSurface,finding:SurfaceFinding)=>void runSave(()=>onSetSurface(selected,surface,finding),`${surfaceLabel(selected,surface)} guardada.`);

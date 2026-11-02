@@ -14,6 +14,7 @@ const patientColumns = Object.fromEntries(
 );
 const imports = {
   'drizzle-orm': {},
+  '@/app/clinical-data': { formatFdi: tooth => String(tooth) },
   '@/app/clinical-import': { ClinicalImportError: class ClinicalImportError extends Error {}, runDriveRecordImport: () => { throw new Error('Unexpected import'); } },
   '@/app/drive-backup': { confirmDriveSnapshot() {}, getDriveSnapshot() {}, listDriveBackupQueue() {} },
   '@/app/sync-odontogram': { syncInstalledImplants: async () => ({ updatedTeeth: [] }) },

@@ -38,8 +38,18 @@ export function Tooth3DModal({
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
+  const focusFrame = useRef<number | null>(null);
   const [reducedMotion, setReducedMotion] = useState(() => window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   const [grown, setGrown] = useState(reducedMotion);
+  useLayoutEffect(() => {
+    if (focusFrame.current !== null) cancelAnimationFrame(focusFrame.current);
+    return () => {
+      const target = returnFocusTo;
+      focusFrame.current = requestAnimationFrame(() => {
+        if (target?.isConnected) target.focus({ preventScroll: true });
+      });
+    };
+  }, [returnFocusTo]);
   useLayoutEffect(() => {
     const media = window.matchMedia("(prefers-reduced-motion: reduce)");
     const apply = () => setReducedMotion(media.matches);
@@ -61,9 +71,8 @@ export function Tooth3DModal({
       media.removeEventListener("change", apply);
       window.removeEventListener("keydown", onKey);
       if (frame) cancelAnimationFrame(frame);
-      returnFocusTo?.focus();
     };
-  }, [reducedMotion, returnFocusTo]);
+  }, [reducedMotion]);
   const dx = origin ? origin.left + origin.width / 2 - window.innerWidth / 2 : 0;
   const dy = origin ? origin.top + origin.height / 2 - window.innerHeight / 2 : 0;
   const placed = reducedMotion || grown || !origin;
