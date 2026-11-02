@@ -35,6 +35,7 @@ import {
   type PaymentMethod,
   type TranscriptCorrection,
 } from "./spoken.ts";
+import { dentalGlossaryLine } from "./dental-lexicon.ts";
 
 export type { PaymentMethod, TranscriptCorrection } from "./spoken.ts";
 export { PAYMENT_METHOD_LABEL, PAYMENT_METHODS } from "./spoken.ts";
@@ -1836,7 +1837,7 @@ export const AI_SYSTEM_PROMPT = `Eres asistente de un odontólogo chileno. Recib
 3) "procedimientos": lo realizado hoy, cada uno con "texto" y "evidencia" literal.
 4) "presupuesto": prestaciones presupuestadas con "prestacion", "monto" en pesos (0 si no se dijo) y "evidencia" literal.
 5) "ficha": alergias, antecedentes médicos y medicamentos que toma el paciente, con "campo" (alergias | antecedentes | medicamentos), "texto" breve y "evidencia" literal. «Niega alergias» también se registra. Si una frase trae alergia y medicamento («alérgica a la penicilina toma losartán»), son dos elementos separados.
-6) "texto_corregido": la misma transcripción con SOLO errores de reconocimiento de voz corregidos (palabras mal oídas: «mecial» → «mesial», «caris» → «caries», «periodo de autograma» → «periodontograma») y números dictados en palabras pasados a cifras («dos cuatro» → «2.4», «cuatro milímetros» → «4 mm», «cincuenta mil» → «50.000»; en implantes: «Flappers» → «flapless», medida «33 × 8» → «3,3 × 8 mm» con coma decimal). Una marca de implante dudosa («Arcis», ¿Arcsys?) no la cambies: pregúntala en dudas. Mantén el orden y las demás palabras; no resumas, no agregues datos, no cambies piezas, caras, cifras, negaciones ni términos clínicos correctos. Si no hay nada que corregir, repite el texto.
+6) "texto_corregido": la misma transcripción con SOLO errores de reconocimiento de voz corregidos (palabras mal oídas: «mecial» → «mesial», «caris» → «caries», «periodo de autograma» → «periodontograma», «traje supergival» → «destartraje supragingival», «sub gingival» → «subgingival», «6ectontes» → «6 sextantes», «endo doncia» → «endodoncia»; usa el glosario odontológico del mensaje) y números dictados en palabras pasados a cifras («dos cuatro» → «2.4», «cuatro milímetros» → «4 mm», «cincuenta mil» → «50.000»; en implantes: «Flappers» → «flapless», medida «33 × 8» → «3,3 × 8 mm» con coma decimal). Una marca de implante dudosa («Arcis», ¿Arcsys?) no la cambies: pregúntala en dudas. Mantén el orden y las demás palabras; no resumas, no agregues datos, no cambies piezas, caras, cifras, negaciones ni términos clínicos correctos. Si no hay nada que corregir, repite el texto.
 7) "periodonto": cada sondaje, sangrado o supuración dictado, con "pieza", "sistema", "sitio" (MV, V, DV, ML, L, DL o "" si no se dijo), "profundidad" en mm (-1 si no se dijo), "sangrado", "supuracion" (true solo si se dijo) y "evidencia" literal.
 8) "pagos": dinero que el paciente pagó o abonó HOY (no lo presupuestado ni lo que debe), con "monto" en pesos, "medio" (efectivo | debito | credito | transferencia | otro | "" si no se dijo), "concepto" ("" si no se dijo) y "evidencia" literal.
 9) "citas": la próxima cita o control que se dictó, con "motivo" ("" si no se dijo) y "evidencia" literal que contenga la fecha u hora tal como se dijo. No calcules la fecha.
@@ -1966,7 +1967,7 @@ export function buildModelUserPrompt(input: StructureInput): string {
   const chart = input.chart.length
     ? `\n\nEstado previo del odontograma (solo contexto, no lo repitas como hallazgo): ${input.chart.slice(0, 40).map((item) => `FDI ${formatFdi(item.tooth)} ${item.status}`).join("; ")}.`
     : "";
-  return `Transcripción literal del dictado:\n«${input.transcript.trim()}»${chart}\n\nDevuelve el JSON.`;
+  return `Transcripción literal del dictado:\n«${input.transcript.trim()}»${chart}\n\n${dentalGlossaryLine(input.transcript)}\n\nDevuelve el JSON.`;
 }
 
 /** Normaliza para comparar citas: sin tildes, minúsculas y solo letras o números. */
@@ -2120,8 +2121,15 @@ export function validateAiExtraction(input: unknown, transcript: string, options
   // Nota
   const nota = record.nota as Record<string, unknown>;
   const noteLines: string[] = [];
+  // Si el modelo dejó vacía la sección de procedimientos pero los listó aparte con cita literal
+  // verificada, la nota los recoge (así un procedimiento dictado no se pierde de la ficha).
+  const listedProcedures = list(record.procedimientos, 24)
+    .map((raw) => (raw && typeof raw === "object" ? raw as Record<string, unknown> : {}))
+    .filter((item) => str(item.texto, 300) && str(item.evidencia, 400) && evidenceInTranscript(str(item.evidencia, 400), transcript))
+    .map((item) => ensurePeriod(capitalize(str(item.texto, 300))));
   for (const [key, label] of NOTE_SECTIONS) {
-    const body = typeof nota[key] === "string" ? (nota[key] as string).trim().slice(0, 4000) : "";
+    let body = typeof nota[key] === "string" ? (nota[key] as string).trim().slice(0, 4000) : "";
+    if (key === "procedimientos" && !body && listedProcedures.length) body = [...new Set(listedProcedures)].join(" ");
     if (body && !/^(?:-|—|no\s+(?:se\s+)?(?:dict[oó]|refiere|consigna|menciona)\p{L}*|sin\s+datos|n\/a)\.?$/iu.test(body)) noteLines.push(label, ensurePeriod(capitalize(body)), "");
   }
   const noteBody = noteLines.join("\n").trim();

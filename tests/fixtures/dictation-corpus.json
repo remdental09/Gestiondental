@@ -651,6 +651,197 @@
         ],
         "patientWarning": false
       }
+    },
+    {
+      "id": "c50-lexico-caso-real-destartraje-sextantes",
+      "text": "se evalúa el paciente hoy día y estamos confirmo que necesita esta traje supergival completo así que el día de hoy se va a realizar traje los seis grupos dentales más un Pulido coronario es la actividad por hoy el presupuesto será de $90,000 para los 6ectontes",
+      "expect": {
+        "correctedIncludes": [
+          "destartraje supragingival completo",
+          "realizar destartraje",
+          "seis sextantes",
+          "pulido coronario",
+          "$90.000",
+          "6 sextantes"
+        ],
+        "correctedExcludes": [
+          "traje supergival",
+          "6ectontes",
+          "grupos dentales"
+        ],
+        "odontogram": [],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c51-lexico-destar-traje-sub-gingival",
+      "text": "se realiza destar traje sub gingival en el cuarto cuadrante",
+      "expect": {
+        "correctedIncludes": [
+          "destartraje subgingival",
+          "cuarto cuadrante"
+        ],
+        "odontogram": [],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c52-lexico-pulpotomia-ionomero",
+      "text": "pieza 8.4 con caries profunda se hace pulpo tomia y se obtura con vidrio yo nomero",
+      "expect": {
+        "correctedIncludes": [
+          "pulpotomía",
+          "vidrio ionómero"
+        ],
+        "correctedExcludes": [
+          "pulpo tomia",
+          "yo nomero"
+        ],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c53-lexico-endo-doncia",
+      "text": "endo doncia de la 2.6 en dos sesiones, se instrumenta y se deja hidroxido de calcio",
+      "expect": {
+        "correctedIncludes": [
+          "endodoncia de la 2.6"
+        ],
+        "correctedExcludes": [
+          "endo doncia"
+        ],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c54-lexico-exo-doncia-indicada",
+      "text": "se indica exo doncia de la 3.8",
+      "expect": {
+        "correctedIncludes": [
+          "exodoncia de la 3.8"
+        ],
+        "odontogram": [
+          "38 Indicación de exodoncia"
+        ],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c55-lexico-anestesia-spix",
+      "text": "anestesia troncular con articaina tecnica de espix para la 4.6",
+      "expect": {
+        "correctedIncludes": [
+          "articaína",
+          "de spix"
+        ],
+        "correctedExcludes": [
+          "espix"
+        ],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c56-lexico-radiografias",
+      "text": "radiografia retro albeolar de la 1.1 y bait wing derecha",
+      "expect": {
+        "correctedIncludes": [
+          "retroalveolar",
+          "bite-wing"
+        ],
+        "correctedExcludes": [
+          "retro albeolar",
+          "bait wing"
+        ],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c57-lexico-sextontes-subjingival",
+      "text": "sextontes dos y cinco con calculo subjingival, se realiza raspado y a lisado radicular",
+      "expect": {
+        "correctedIncludes": [
+          "sextantes dos y cinco",
+          "subgingival",
+          "raspado y alisado radicular"
+        ],
+        "correctedExcludes": [
+          "sextontes",
+          "subjingival"
+        ],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c58-lexico-protesis-fija",
+      "text": "incrustacion on lei en la 3.6 y corona metal seramica sobre perno muñon en la 2.1",
+      "expect": {
+        "correctedIncludes": [
+          "onlay",
+          "metal cerámica",
+          "perno muñón"
+        ],
+        "correctedExcludes": [
+          "on lei",
+          "seramica"
+        ],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c59-lexico-gingivitis-bruxismo",
+      "text": "gingi vitis asociada a placa, paciente con bruquismo, se indica plano de relajacion",
+      "expect": {
+        "correctedIncludes": [
+          "gingivitis",
+          "bruxismo"
+        ],
+        "correctedExcludes": [
+          "gingi vitis",
+          "bruquismo"
+        ],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c60-lexico-fonasa-ges-clorhexidina",
+      "text": "paciente fonasa b con ges, se indica clorexidina al cero coma doce por ciento",
+      "expect": {
+        "correctedIncludes": [
+          "Fonasa b",
+          "GES",
+          "clorhexidina"
+        ],
+        "correctedExcludes": [
+          "clorexidina"
+        ],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c61-lexico-traje-comun-no-cambia",
+      "text": "le traje los exámenes de sangre y la paciente vino con su traje de trabajo",
+      "expect": {
+        "correctedIncludes": [
+          "le traje",
+          "su traje"
+        ],
+        "correctedExcludes": [
+          "destartraje"
+        ],
+        "odontogram": [],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c62-lexico-sexta-sesenta-no-cambia",
+      "text": "paciente de sesenta años, la sexta sesión será en marzo",
+      "expect": {
+        "correctedExcludes": [
+          "sextante"
+        ],
+        "odontogram": [],
+        "patientWarning": false
+      }
     }
   ]
 }

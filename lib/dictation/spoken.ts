@@ -1,6 +1,8 @@
+import { correctDentalTerms, isDentalWord, phoneticKey } from "./dental-lexicon.ts";
+
 // Utilidades puras para el dictado en español de Chile: números hablados, montos,
 // fechas y horas relativas en America/Santiago, y la verificación de la corrección
-// del texto mal oído. Sin dependencias: lo importan el servidor, el cliente y los tests.
+// del texto mal oído. Solo depende del léxico dental: lo importan el servidor, el cliente y los tests.
 
 export type CorrectionOrigin = "diccionario" | "ia";
 export type TranscriptCorrection = {
@@ -410,6 +412,16 @@ export function applyLexicon(text: string): { text: string; corrections: Transcr
       return keepCase;
     });
   }
+  // Léxico odontológico: confusiones típicas del dictado y parecido fonético con términos dentales.
+  const dental = correctDentalTerms(out);
+  out = dental.text;
+  for (const c of dental.corrections) if (fold(c.original) !== fold(c.corrected) && !corrections.some(x => x.original === c.original && x.corrected === c.corrected)) corrections.push({ original: c.original, corrected: c.corrected, origin: "diccionario", applied: true, reason: c.reason });
+  // «$90,000» del reconocimiento de voz en inglés → «$90.000» (en Chile el punto separa los miles).
+  out = out.replace(/\$\s?(\d{1,3}(?:,\d{3})+)(?![\d,])/g, (match, digits: string) => {
+    const value = `$${digits.replace(/,/g, ".")}`;
+    if (!corrections.some(c => c.original === match)) corrections.push({ original: match, corrected: value, origin: "diccionario", applied: true, reason: "monto en formato chileno" });
+    return value;
+  });
   if (/\bimplantes?\b/i.test(out)) {
     out = out.replace(IMPLANT_SIZE, (match, whole: string, decimal: string, length: string) => {
       const value = `${whole},${decimal} × ${length} mm`;
@@ -464,6 +476,26 @@ function multisetMinus(a: string[], b: string[]) {
   return out;
 }
 
+function dentalVerdict(removed: string[], added: string[]): { safe: boolean; reason?: string } | null {
+  const content = added.filter(w => !INSERTABLE.has(w));
+  if (!content.length) return null;
+  const longDental = (w: string) => w.length >= 6 && isDentalWord(w);
+  // Quitar un término dental correcto solo vale si lo nuevo es la misma palabra (plural, género, tilde)
+  // o la contiene («gingival» → «supragingival»); «atrición» → «abrasión» no.
+  for (const w of removed) {
+    if (!longDental(w)) continue;
+    const stem = fold(w).slice(0, -2);
+    if (!content.some(c => fold(c).includes(stem))) return { safe: false, reason: "reemplaza un término que ya era válido" };
+  }
+  if (!content.every(isDentalWord)) return null;
+  const ka = phoneticKey(removed.join("")), kb = phoneticKey(content.join(""));
+  if (ka.length < 3) return null;
+  const close = levenshtein(ka, kb) <= Math.max(1, Math.round(Math.max(ka.length, kb.length) * 0.4));
+  // «traje» → «destartraje»: lo oído es el final o el comienzo del término.
+  const inside = removed.every(w => w.length >= 4 && content.some(c => { const kc = phoneticKey(c), kw = phoneticKey(w); return kc.length > kw.length && (kc.endsWith(kw) || kc.startsWith(kw)); }));
+  return close || inside ? { safe: true } : null;
+}
+
 /** Decide si un cambio propuesto por la IA solo corrige lo mal oído, sin cambiar el sentido. */
 export function judgeCorrection(original: string, corrected: string): { safe: boolean; reason?: string } {
   const sigO = numberSignature(original), sigC = numberSignature(corrected);
@@ -476,6 +508,10 @@ export function judgeCorrection(original: string, corrected: string): { safe: bo
   if (removed.some(w => PROTECTED.has(w) && !repeated.includes(w))) return { safe: false, reason: "reemplaza un término que ya era válido" };
   if (!removed.length) return { safe: false, reason: "agrega contenido que no se dictó" };
   if (!added.length) return removed.every(w => FILLERS.has(w) || INSERTABLE.has(w)) ? { safe: true } : { safe: false, reason: "borra contenido dictado" };
+  // Término dental mal oído: lo nuevo es léxico odontológico y suena como lo dictado
+  // («traje supergival» → «destartraje supragingival»). Un término dental válido no se reemplaza por otro distinto.
+  const dental = dentalVerdict(removed, added);
+  if (dental) return dental;
   const a = removed.join(""), b = added.join("");
   const limit = Math.max(1, Math.round(Math.max(a.length, b.length) * 0.34));
   if (Math.min(a.length, b.length) < 3 || levenshtein(a, b) > limit) return { safe: false, reason: "no se parece a lo dictado" };
