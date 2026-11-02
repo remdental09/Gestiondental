@@ -33,6 +33,7 @@ export function summarize(proposal, transcript, patient) {
     note: proposal.evolution?.body ?? '',
     type: proposal.evolutionKind?.type ?? '',
     title: proposal.evolution?.title ?? '',
+    corrected: proposal.corrected?.text ?? transcript,
   };
 }
 
@@ -70,5 +71,9 @@ export function compare(expect, actual) {
   if ('titleIncludes' in expect && !actual.title.toLowerCase().includes(expect.titleIncludes.toLowerCase())) diffs.push({ field: 'titleIncludes', missing: [expect.titleIncludes], extra: [actual.title] });
   for (const text of expect.noteIncludes ?? []) if (!actual.note.includes(text)) diffs.push({ field: 'noteIncludes', missing: [text], extra: [] });
   for (const text of expect.noteExcludes ?? []) if (actual.note.includes(text)) diffs.push({ field: 'noteExcludes', missing: [], extra: [text] });
+  // Texto corregido (léxico dental): sin distinguir mayúsculas.
+  const corrected = (actual.corrected ?? '').toLowerCase();
+  for (const text of expect.correctedIncludes ?? []) if (!corrected.includes(text.toLowerCase())) diffs.push({ field: 'correctedIncludes', missing: [text], extra: [actual.corrected] });
+  for (const text of expect.correctedExcludes ?? []) if (corrected.includes(text.toLowerCase())) diffs.push({ field: 'correctedExcludes', missing: [], extra: [text] });
   return diffs;
 }

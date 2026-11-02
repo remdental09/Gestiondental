@@ -29,6 +29,7 @@ control alta cita hoy manana ayer semana mes ano anos dias dia hora horas minuto
 diabetico diabetica hipertenso hipertensa asmatico asmatica alergico alergica embarazada fumador fumadora cardiopata epileptico epileptica
 anticoagulado anticoagulada nervioso nerviosa ansioso ansiosa tranquilo tranquila colaborador colaboradora pediatrico pediatrica
 nuevo nueva antiguo antigua habitual frecuente ambulatorio ambulatoria sano sana estable inestable dolor sensible sensibilidad
+fonasa isapre ges auge prais particular beneficiario beneficiaria titular carga convenio tramo
 `.split(/\s+/).filter(Boolean));
 
 // Sufijos de adjetivos o verbos en minúscula (un apellido dictado en minúscula con estas terminaciones se pierde; se prefiere no alarmar).
