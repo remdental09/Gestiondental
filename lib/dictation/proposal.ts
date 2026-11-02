@@ -1820,7 +1820,7 @@ export const AI_SYSTEM_PROMPT = `${DENTAL_DICTIONARY_HINTS}\n\nEres asistente de
 
 1) "nota": redacta una ficha clínica clara en español de Chile, en tercera persona y estilo clínico, repartida en las secciones motivo, anamnesis, alergias, medicamentos, examen, diagnostico, procedimientos, plan, indicaciones y presupuesto. Corrige puntuación y redacción, pero NO agregues nada que no se haya dicho: ni diagnósticos, ni piezas, ni caras, ni profundidades de caries, ni montos, ni medicamentos, ni negaciones. Si algo no se dijo, deja la sección como cadena vacía "". Conserva los números de pieza tal como se dictaron (si dijo «pieza 30», escribe «pieza 30»). Lo que el paciente cuenta (refiere, relata) va en motivo o anamnesis, nunca en examen. Si el profesional dicta un diagnóstico, va en diagnostico; si no, déjalo vacío.
 
-La nota debe ordenar las ideas en una secuencia lógica y eliminar muletillas, repeticiones y frases dirigidas al sistema. Explica relaciones causales solo si el profesional las expresó. Diferencia hallazgo, plan futuro y tratamiento realizado: «se planifica colocar implantes» no significa que ya estén instalados. Si el reconocimiento oyó «root» en un contexto explícito de identificación, entiende que se refiere al RUT, pero no reconstruyas un número de identidad dudoso ni lo agregues a la nota clínica. Cuando un término o número sea ambiguo, conserva lo dicho y plantea la duda; no rellenes vacíos con conocimiento general.
+La nota debe ordenar las ideas en una secuencia lógica y eliminar muletillas, repeticiones y frases dirigidas al sistema. Conserva expresamente las negaciones y la temporalidad relevantes (por ejemplo, «la cirugía todavía no se ha realizado»); omitirlas cambia el sentido clínico. Explica relaciones causales solo si el profesional las expresó. Diferencia hallazgo, plan futuro y tratamiento realizado: «se planifica colocar implantes» no significa que ya estén instalados. Si el reconocimiento oyó «root» en un contexto explícito de identificación, entiende que se refiere al RUT, pero no reconstruyas un número de identidad dudoso ni lo agregues a la nota clínica. Cuando un término o número sea ambiguo, conserva lo dicho y plantea la duda; no rellenes vacíos con conocimiento general.
 
 2) "hallazgos": un elemento por cada pieza y hallazgo de odontograma OBSERVADO HOY en el examen o realizado hoy. No incluyas lo que el paciente relata, lo planificado, presupuestado o negado.
 - "pieza": el número tal como se dictó ("30", "3.6", "cuarenta y seis").
@@ -2122,6 +2122,13 @@ export function validateAiExtraction(input: unknown, transcript: string, options
 
   // Nota
   const nota = record.nota as Record<string, unknown>;
+  // Una negación explícita de un procedimiento pendiente no puede desaparecer en la redacción.
+  // Se repone literalmente desde el dictado, sin inferir fecha, pieza ni motivo.
+  const notDone = transcript.match(/\b(?:la\s+cirug[ií]a|el\s+tratamiento|el\s+procedimiento|la\s+exodoncia|la\s+endodoncia)\s+(?:(?:a[uú]n|todav[ií]a)\s+)?no\s+(?:se\s+)?(?:(?:ha|hab[ií]a)\s+)?(?:realizad[oa]|efectuad[oa]|iniciad[oa])\b/iu);
+  const noteText = Object.values(nota).filter((value): value is string => typeof value === "string").join(" ");
+  if (notDone && !/\b(?:no\s+(?:(?:se\s+)?(?:ha\s+)?)?(?:realiz|efectu|inici)|sin\s+(?:realizar|efectuar|iniciar)|pendiente\s+de\s+(?:realizar|efectuar|iniciar))/iu.test(noteText)) {
+    nota.plan = [typeof nota.plan === "string" ? nota.plan : "", ensurePeriod(capitalize(notDone[0]))].filter(Boolean).join(" ");
+  }
   const noteLines: string[] = [];
   for (const [key, label] of NOTE_SECTIONS) {
     const body = typeof nota[key] === "string" ? (nota[key] as string).trim().slice(0, 4000) : "";
