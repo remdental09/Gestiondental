@@ -16,6 +16,7 @@ const USER_FULL_NAME_ENCODING_HEADER =
 // These headers are injected only by worker.ts after validating Cloudflare Access.
 const ACCESS_USER_ID_HEADER = "x-clinic-access-owner-id";
 const ACCESS_USER_EMAIL_HEADER = "x-clinic-access-email";
+const ACCESS_USER_NAME_HEADER = "x-clinic-access-name";
 const PERCENT_ENCODED_UTF8 = "percent-encoded-utf-8";
 const SIGN_IN_PATH = "/signin-with-chatgpt";
 const SIGN_OUT_PATH = "/signout-with-chatgpt";
@@ -26,11 +27,13 @@ export async function getChatGPTUser(): Promise<ChatGPTUser | null> {
   const accessUserId = requestHeaders.get(ACCESS_USER_ID_HEADER);
   const accessEmail = requestHeaders.get(ACCESS_USER_EMAIL_HEADER);
   if (accessUserId && accessEmail) {
+    const encodedName = requestHeaders.get(ACCESS_USER_NAME_HEADER);
+    const accessName = encodedName ? safeDecodeURIComponent(encodedName) : null;
     return {
       userId: accessUserId,
-      displayName: accessEmail,
+      displayName: accessName || accessEmail,
       email: accessEmail,
-      fullName: null,
+      fullName: accessName,
     };
   }
 

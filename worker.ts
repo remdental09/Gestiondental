@@ -1,5 +1,6 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import app from "vinext/server/fetch-handler";
+import { resolveOwner } from "./app/access-owners";
 
 type AccessIdentity = { email?: string | null };
 type AccessContext = {
@@ -10,6 +11,7 @@ type WorkerContext = ExecutionContext & { access?: AccessContext };
 
 const ACCESS_EMAIL_HEADER = "x-clinic-access-email";
 const ACCESS_OWNER_ID_HEADER = "x-clinic-access-owner-id";
+const ACCESS_NAME_HEADER = "x-clinic-access-name";
 const denied = () => new Response("Acceso privado requerido.", {
   status: 401,
   headers: { "Cache-Control": "no-store" },
@@ -72,9 +74,11 @@ export default {
     const configuredIssuerValue = env.ACCESS_TEAM_DOMAIN?.trim();
     const configuredIssuer = configuredIssuerValue ? accessIssuer(configuredIssuerValue) : null;
     const audience = env.ACCESS_POLICY_AUD?.trim();
-    const allowedEmail = env.ACCESS_ALLOWED_EMAIL?.trim().toLowerCase();
-    const ownerId = env.CLINIC_OWNER_ID?.trim();
-    if ((configuredIssuerValue && !configuredIssuer) || !allowedEmail || !ownerId) return notReady();
+    if (configuredIssuerValue && !configuredIssuer) return notReady();
+    // Configuración de cuentas antes de verificar la identidad: si falta o está mal, nadie entra.
+    const ownerConfig = { CLINIC_OWNERS: env.CLINIC_OWNERS, ACCESS_ALLOWED_EMAIL: env.ACCESS_ALLOWED_EMAIL, CLINIC_OWNER_ID: env.CLINIC_OWNER_ID };
+    const configCheck = resolveOwner("", ownerConfig);
+    if (!configCheck.ok && configCheck.status === 503) return notReady();
 
     let email = "";
     const access = (context as WorkerContext).access;
@@ -103,18 +107,22 @@ export default {
       }
     }
 
-    if (!email || email !== allowedEmail) return denied();
+    // Cada correo autorizado tiene su propio owner_id; un correo desconocido no hereda el del titular.
+    const resolved = resolveOwner(email, ownerConfig);
+    if (!resolved.ok) return resolved.status === 503 ? notReady() : denied();
 
     const headers = new Headers(request.headers);
     headers.delete(ACCESS_EMAIL_HEADER);
     headers.delete(ACCESS_OWNER_ID_HEADER);
+    headers.delete(ACCESS_NAME_HEADER);
     headers.delete("Cf-Access-Jwt-Assertion");
     headers.delete("oai-authenticated-user-id");
     headers.delete("oai-authenticated-user-email");
     headers.delete("oai-authenticated-user-full-name");
     headers.delete("oai-authenticated-user-full-name-encoding");
     headers.set(ACCESS_EMAIL_HEADER, email);
-    headers.set(ACCESS_OWNER_ID_HEADER, ownerId);
+    headers.set(ACCESS_OWNER_ID_HEADER, resolved.owner.ownerId);
+    headers.set(ACCESS_NAME_HEADER, encodeURIComponent(resolved.owner.name));
 
     return app.fetch(new Request(request, { headers }), env, context);
   },

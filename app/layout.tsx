@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Gestión Dental · Dr. Luis Rodríguez",
+  title: "Gestión Dental",
   description: "Prototipo privado de ficha odontológica, presupuestos y agenda.",
   other: {
     "codex-preview": "development",
