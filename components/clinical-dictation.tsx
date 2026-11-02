@@ -716,6 +716,7 @@ export function ClinicalDictation({
             <p className="mt-1 text-xs leading-5">La nota de abajo salió solo de las reglas locales (diccionario y secciones por palabras clave). Revísala con más cuidado o reintenta.</p>
             <Button type="button" size="sm" variant="outline" className="mt-2 bg-white" disabled={structuring} onClick={() => void structure(lastStructured || transcript)} data-testid="dictation-retry-ai">{structuring ? "Corrigiendo con IA…" : "Reintentar con IA"}</Button>
           </div>}
+          {outcome && !outcome.aiError && outcome.aiNote && <p className="text-xs text-[#71858b]" data-testid="dictation-ai-provider">{outcome.aiNote}</p>}
           {outcome && !outcome.aiError && <p className="rounded-lg bg-[#f4f7f8] p-3 leading-6 text-[#31575b]" role="status">{outcome.notice ?? "La evolución y las piezas salen de lo resuelto en el dictado. Sigue sujeta a tu revisión."}</p>}
           {proposal && <div className="space-y-4" data-testid="dictation-review">
             {patientVariants.length > 0 && patientWarnings.length === 0 && <p className="rounded-lg bg-[#f4f7f8] p-3 text-xs text-[#31575b]" role="status" data-testid="dictation-patient-variant">{patientVariants.join(" ")}</p>}

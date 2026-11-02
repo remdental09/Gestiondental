@@ -260,6 +260,8 @@ export type StructureOutcome = {
   aiError?: string;
   /** Milisegundos que tardó el paso de IA, si se llamó. */
   aiMs?: number;
+  /** La IA respondió por un respaldo (OpenAI): nota discreta, no es advertencia. */
+  aiNote?: string;
 };
 
 export type ChartAction =
@@ -2495,7 +2497,7 @@ const defaultDictationLog: DictationLog = (event, detail) => {
 };
 
 /** Resultado de un modelo con el nombre del que respondió (cadena de respaldo). */
-export type ModelAnswer = { usedModel: string; output: unknown };
+export type ModelAnswer = { usedModel: string; output: unknown; /** Aviso discreto, p. ej. «Corregido con OpenAI (cupo de Workers AI agotado)». */ note?: string };
 
 function isModelAnswer(value: unknown): value is ModelAnswer {
   return Boolean(value) && typeof value === "object" && typeof (value as ModelAnswer).usedModel === "string" && "output" in (value as object);
@@ -2712,6 +2714,12 @@ export function applyEvolutionPolicy(proposal: DictationProposal, chart: Structu
 /** Motivo de la falla de la IA en palabras simples (el cupo diario gratuito de Workers AI se renueva a las 00:00 UTC). */
 export function aiFailureReason(message: string): string {
   const text = message.replace(/\s+/g, " ");
+  const openAi = /openai: OpenAI respondió HTTP (\d{3})/.exec(text);
+  if (openAi || /openai:/.test(text)) {
+    const base = aiFailureReason(text.replace(/;?\s*openai:.*$/, "")) ;
+    const detail = `el respaldo OpenAI tampoco respondió${openAi ? ` (HTTP ${openAi[1]})` : ""}`;
+    return /^(error|sin tiempo para la IA)$/.test(base) || !text.replace(/;?\s*openai:.*$/, "").trim() ? detail : `${base}; ${detail}`;
+  }
   if (/\b4006\b|daily free allocation|neurons/i.test(text)) return "se agotó el cupo diario gratuito de Workers AI; se renueva a las 00:00 UTC (21:00 hora de Chile en horario de verano, 20:00 en invierno)";
   if (/tard[oó]|timeout|timed out/i.test(text)) return "la IA tardó demasiado en responder";
   return text.replace(/[«»"].*$/, "").trim().slice(0, 160) || "error";
@@ -2750,6 +2758,7 @@ export async function proposeFromTranscript(
   try {
     const raw = await withTimeout(Promise.resolve(model.complete({ transcript: fixed, chart: input.chart })), options.timeoutMs ?? 50_000);
     const usedModel = isModelAnswer(raw) ? raw.usedModel : model.model;
+    const aiNote = isModelAnswer(raw) && typeof raw.note === "string" && raw.note ? raw.note : undefined;
     const json = modelOutputToJson(isModelAnswer(raw) ? raw.output : raw);
     const aiText = json && typeof json === "object" && typeof (json as Record<string, unknown>).texto_corregido === "string" ? (json as Record<string, string>).texto_corregido : "";
     // 2) La corrección de la IA se acepta palabra por palabra solo si no cambia cifras ni términos clínicos.
@@ -2762,7 +2771,7 @@ export async function proposeFromTranscript(
     const proposal = mergeProposals(ai, local, corrected);
     const aiMs = Date.now() - started;
     log("dictation.ai_ok", { model: usedModel, ms: aiMs, items: ai.odontogram.length, rejected: ai.rejected, corrections: reconciled.corrections.filter((item) => item.applied).length });
-    return { engine: "ia+reglas", model: usedModel, notice: AI_NOTICE, proposal: withText(proposal, corrected, [...lexicon.corrections, ...reconciled.corrections], ai.diagnoses ?? []), aiMs };
+    return { engine: "ia+reglas", model: usedModel, notice: AI_NOTICE, proposal: withText(proposal, corrected, [...lexicon.corrections, ...reconciled.corrections], ai.diagnoses ?? []), aiMs, ...(aiNote ? { aiNote } : {}) };
   } catch (cause) {
     const aiMs = Date.now() - started;
     const reason = cause instanceof Error ? cause.message.replace(/\s+/g, " ").slice(0, 120) : "error";

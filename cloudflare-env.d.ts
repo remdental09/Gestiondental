@@ -8,6 +8,8 @@ declare namespace Cloudflare {
     OPENAI_API_KEY?: string;
     /** Modelo de bajo costo para corrección de texto; por defecto gpt-4o-mini. */
     OPENAI_TEXT_MODEL?: string;
+    /** Modelo de OpenAI de respaldo para estructurar el dictado; por defecto gpt-4o-mini. */
+    OPENAI_STRUCTURE_MODEL?: string;
     ACCESS_TEAM_DOMAIN?: string;
     ACCESS_POLICY_AUD?: string;
     ACCESS_ALLOWED_EMAIL?: string;
