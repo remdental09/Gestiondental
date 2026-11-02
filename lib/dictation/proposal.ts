@@ -1,3 +1,4 @@
+import { DENTAL_DICTIONARY_HINTS } from "./dental-lexicon.ts";
 /**
  * Propuesta estructurada de un dictado clínico.
  * La validación es pura: sirve para la salida de Workers AI y para el
@@ -1815,7 +1816,7 @@ export const NOTE_SECTIONS = [
   ["presupuesto", "Presupuesto"],
 ] as const;
 
-export const AI_SYSTEM_PROMPT = `Eres asistente de un odontólogo chileno. Recibes la transcripción literal de un dictado por voz (puede venir sin puntuación y con errores de reconocimiento). Devuelves SOLO JSON con el esquema pedido.
+export const AI_SYSTEM_PROMPT = `${DENTAL_DICTIONARY_HINTS}\n\nEres asistente de un odontólogo chileno. Recibes la transcripción literal de un dictado por voz (puede venir sin puntuación y con errores de reconocimiento). Devuelves SOLO JSON con el esquema pedido.
 
 1) "nota": redacta una ficha clínica clara en español de Chile, en tercera persona y estilo clínico, repartida en las secciones motivo, anamnesis, alergias, medicamentos, examen, diagnostico, procedimientos, plan, indicaciones y presupuesto. Corrige puntuación y redacción, pero NO agregues nada que no se haya dicho: ni diagnósticos, ni piezas, ni caras, ni profundidades de caries, ni montos, ni medicamentos, ni negaciones. Si algo no se dijo, deja la sección como cadena vacía "". Conserva los números de pieza tal como se dictaron (si dijo «pieza 30», escribe «pieza 30»). Lo que el paciente cuenta (refiere, relata) va en motivo o anamnesis, nunca en examen. Si el profesional dicta un diagnóstico, va en diagnostico; si no, déjalo vacío.
 
@@ -1836,7 +1837,7 @@ export const AI_SYSTEM_PROMPT = `Eres asistente de un odontólogo chileno. Recib
 3) "procedimientos": lo realizado hoy, cada uno con "texto" y "evidencia" literal.
 4) "presupuesto": prestaciones presupuestadas con "prestacion", "monto" en pesos (0 si no se dijo) y "evidencia" literal.
 5) "ficha": alergias, antecedentes médicos y medicamentos que toma el paciente, con "campo" (alergias | antecedentes | medicamentos), "texto" breve y "evidencia" literal. «Niega alergias» también se registra. Si una frase trae alergia y medicamento («alérgica a la penicilina toma losartán»), son dos elementos separados.
-6) "texto_corregido": la misma transcripción con SOLO errores de reconocimiento de voz corregidos (palabras mal oídas: «mecial» → «mesial», «caris» → «caries», «periodo de autograma» → «periodontograma») y números dictados en palabras pasados a cifras («dos cuatro» → «2.4», «cuatro milímetros» → «4 mm», «cincuenta mil» → «50.000»; en implantes: «Flappers» → «flapless», medida «33 × 8» → «3,3 × 8 mm» con coma decimal). Una marca de implante dudosa («Arcis», ¿Arcsys?) no la cambies: pregúntala en dudas. Mantén el orden y las demás palabras; no resumas, no agregues datos, no cambies piezas, caras, cifras, negaciones ni términos clínicos correctos. Si no hay nada que corregir, repite el texto.
+6) "texto_corregido": la misma transcripción con SOLO errores de reconocimiento de voz corregidos (palabras mal oídas: «mecial» → «mesial», «caris» → «caries», «periodo de autograma» → «periodontograma», «de estar traje» → «destartraje», «sub gingival» → «subgingival» y «supra gingival» → «supragingival») y números dictados en palabras pasados a cifras («dos cuatro» → «2.4», «cuatro milímetros» → «4 mm», «cincuenta mil» → «50.000»; en implantes: «Flappers» → «flapless», medida «33 × 8» → «3,3 × 8 mm» con coma decimal). Una marca de implante dudosa («Arcis», ¿Arcsys?) no la cambies: pregúntala en dudas. Mantén el orden y las demás palabras; no resumas, no agregues datos, no cambies piezas, caras, cifras, negaciones ni términos clínicos correctos. Si no hay nada que corregir, repite el texto.
 7) "periodonto": cada sondaje, sangrado o supuración dictado, con "pieza", "sistema", "sitio" (MV, V, DV, ML, L, DL o "" si no se dijo), "profundidad" en mm (-1 si no se dijo), "sangrado", "supuracion" (true solo si se dijo) y "evidencia" literal.
 8) "pagos": dinero que el paciente pagó o abonó HOY (no lo presupuestado ni lo que debe), con "monto" en pesos, "medio" (efectivo | debito | credito | transferencia | otro | "" si no se dijo), "concepto" ("" si no se dijo) y "evidencia" literal.
 9) "citas": la próxima cita o control que se dictó, con "motivo" ("" si no se dijo) y "evidencia" literal que contenga la fecha u hora tal como se dijo. No calcules la fecha.
