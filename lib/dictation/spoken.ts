@@ -314,7 +314,7 @@ const LEXICON: Array<[RegExp, string]> = [
   [/\bdestartaraje(s)?\b/gi, "destartraje$1"],
   [/\bsupra\s*[- ]\s*gingival(es)?\b/gi, "supragingival$1"],
   [/\bsub\s*[- ]\s*gingival(es)?\b/gi, "subgingival$1"],
-  [/\bligamento\s+peri(?:d|e)ontal\b/gi, "ligamento periodontal"],
+  [/\bligamento\s+(?:peridontal|periodental)\b/gi, "ligamento periodontal"],
   [/\bpulpeptom[ií]a\b/gi, "pulpectomía"],
   [/\b(?:ic\s?das|i\s?c\s?das|ikdas|icda|y\s?cdas|hic\s?das)\b/gi, "ICDAS"],
   [/\bson\s?daje\b/gi, "sondaje"],
