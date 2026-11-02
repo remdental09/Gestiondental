@@ -1,3 +1,4 @@
+import { DENTAL_DICTIONARY_HINTS } from "./dental-lexicon.ts";
 /**
  * Propuesta estructurada de un dictado clínico.
  * La validación es pura: sirve para la salida de Workers AI y para el
@@ -1815,7 +1816,7 @@ export const NOTE_SECTIONS = [
   ["presupuesto", "Presupuesto"],
 ] as const;
 
-export const AI_SYSTEM_PROMPT = `Eres asistente de un odontólogo chileno. Recibes la transcripción literal de un dictado por voz (puede venir sin puntuación y con errores de reconocimiento). Devuelves SOLO JSON con el esquema pedido.
+export const AI_SYSTEM_PROMPT = `${DENTAL_DICTIONARY_HINTS}\n\nEres asistente de un odontólogo chileno. Recibes la transcripción literal de un dictado por voz (puede venir sin puntuación y con errores de reconocimiento). Devuelves SOLO JSON con el esquema pedido.
 
 1) "nota": redacta una ficha clínica clara en español de Chile, en tercera persona y estilo clínico, repartida en las secciones motivo, anamnesis, alergias, medicamentos, examen, diagnostico, procedimientos, plan, indicaciones y presupuesto. Corrige puntuación y redacción, pero NO agregues nada que no se haya dicho: ni diagnósticos, ni piezas, ni caras, ni profundidades de caries, ni montos, ni medicamentos, ni negaciones. Si algo no se dijo, deja la sección como cadena vacía "". Conserva los números de pieza tal como se dictaron (si dijo «pieza 30», escribe «pieza 30»). Lo que el paciente cuenta (refiere, relata) va en motivo o anamnesis, nunca en examen. Si el profesional dicta un diagnóstico, va en diagnostico; si no, déjalo vacío.
 
