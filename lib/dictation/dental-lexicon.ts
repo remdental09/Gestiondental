@@ -95,6 +95,26 @@ export const DENTAL_DICTIONARY = {
   ],
 } as const;
 
+export const DENTAL_SPEECH_HINTS = [
+  { phrase: "destartraje", boost: 9 },
+  { phrase: "destartraje supragingival", boost: 10 },
+  { phrase: "destartraje subgingival", boost: 10 },
+  { phrase: "detartraje", boost: 8 },
+  { phrase: "tartrectomía", boost: 8 },
+  { phrase: "pulpa dental", boost: 7 },
+  { phrase: "pulpectomía", boost: 8 },
+  { phrase: "pulpotomía", boost: 8 },
+  { phrase: "ligamento periodontal", boost: 8 },
+  { phrase: "encía", boost: 7 },
+  { phrase: "periodontitis", boost: 7 },
+  { phrase: "gingivitis", boost: 7 },
+  { phrase: "sondaje periodontal", boost: 8 },
+  { phrase: "periodontograma", boost: 8 },
+  { phrase: "exodoncia", boost: 7 },
+  { phrase: "endodoncia", boost: 7 },
+  { phrase: "odontograma", boost: 8 },
+] as const;
+
 const foldTerm = (value: string) => value
   .normalize("NFD")
   .replace(/[\u0300-\u036f]/g, "")
@@ -113,4 +133,5 @@ export const DENTAL_DICTIONARY_HINTS = [
   ...Object.entries(DENTAL_DICTIONARY).map(([group, terms]) => `${group}: ${terms.join(", ")}.`),
   "Los sinónimos y regionalismos (por ejemplo, destartraje, detartraje y tartrectomía; tapadura, obturación y empaste) son formas válidas: no los sustituyas entre sí.",
   "No confundas términos distintos: pulpectomía no es pulpotomía; gingivitis no es periodontitis; supra gingival y sub gingival expresan localizaciones diferentes.",
+  "En contexto periodontal, «tatuaje subgingival» o «tatuaje supragingival» puede ser un error del reconocimiento de voz por «destartraje»; corrígelo solo cuando acompañe a supra/ subgingival o a términos de periodoncia.",
 ].join("\n");
