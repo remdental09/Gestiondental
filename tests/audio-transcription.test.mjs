@@ -22,6 +22,18 @@ test('server rejects empty, oversized and unsupported files before calling the p
     await assert.rejects(transcribeDentalAudio(blob, 'secret', { fetcher }), /Audio vacío/);
   }
 });
+test('missing new model uses a compatible OpenAI transcriber with the correct context fields', async () => {
+  const requests = [];
+  const result = await transcribeDentalAudio(audio(), 'secret', { fetcher: async (_url, init) => {
+    requests.push(init.body);
+    return requests.length === 1 ? new Response('', { status: 404 }) : Response.json({ text: 'Destartraje.' });
+  } });
+  assert.equal(result.model, 'gpt-4o-transcribe');
+  assert.equal(requests.length, 2);
+  assert.equal(requests[1].get('language'), 'es');
+  assert.deepEqual(requests[1].getAll('keywords[]'), []);
+  assert.equal(requests[1].get('file').size, requests[0].get('file').size);
+});
 test('provider failure and silence are explicit; provider body is not leaked', async () => {
   await assert.rejects(transcribeDentalAudio(audio(), 'secret', { fetcher: async () => new Response('private-provider-body', { status: 429 }) }), /límite|saldo/);
   await assert.rejects(transcribeDentalAudio(audio(), 'secret', { fetcher: async () => Response.json({ text: '' }) }), /No se reconoció voz/);
