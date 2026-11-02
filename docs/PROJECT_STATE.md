@@ -102,3 +102,5 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 - Si existe `OPENAI_API_KEY`, la estructuración intenta primero el modelo configurado en `OPENAI_STRUCTURE_MODEL` (por defecto `gpt-4o-mini`); Workers AI es respaldo. El texto original se conserva. La redacción ordena lo dictado sin convertir planes en procedimientos realizados ni completar números de identidad inciertos.
 
 - La revisión de una frase ficticia detectó que el modelo omitía «la cirugía todavía no se ha realizado». La validación repone literalmente esa negación en el plan si la nota no expresa que el procedimiento sigue pendiente; no modifica D1 ni registra actos clínicos.
+
+- La nota clínica debe redactarse como evolución odontológica profesional en español clínico chileno: concisa, en tercera persona y ordenada por motivo, examen, diagnóstico dictado, procedimientos realizados, plan e indicaciones. La edición estilística mejora la claridad, pero conserva certeza, temporalidad y hechos del dictado.
