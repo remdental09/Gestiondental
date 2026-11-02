@@ -369,7 +369,7 @@ function mountTooth(THREE: ThreeModule, room: RoomEnvironmentModule, canvas: HTM
     const xs = neck.map(point => point.x), zs = neck.map(point => point.z);
     const outline = { left: Math.min(...xs), right: Math.max(...xs), front: Math.max(...zs), back: Math.min(...zs) };
     for (const { x, z, length, color, bleeding, suppuration } of periodontalMarkers(tooth, outline, periodontalSites)) {
-      const material = track(new THREE.MeshBasicMaterial({ color, depthTest: false }));
+      const material = track(new THREE.MeshBasicMaterial({ color }));
       const stem = new THREE.Mesh(track(new THREE.CylinderGeometry(0.013, 0.013, length, 8)), material);
       stem.position.set(x, -length / 2, z);
       stem.renderOrder = 4;
@@ -379,7 +379,7 @@ function mountTooth(THREE: ThreeModule, room: RoomEnvironmentModule, canvas: HTM
       marker.renderOrder = 5;
       inner.add(marker);
       if (bleeding || suppuration) {
-        const alert = new THREE.Mesh(track(new THREE.TorusGeometry(0.075, 0.012, 6, 20)), track(new THREE.MeshBasicMaterial({ color: suppuration ? 0x7c3aed : 0xdc2626, depthTest: false })));
+        const alert = new THREE.Mesh(track(new THREE.TorusGeometry(0.075, 0.012, 6, 20)), track(new THREE.MeshBasicMaterial({ color: suppuration ? 0x7c3aed : 0xdc2626 })));
         alert.position.set(x, -length, z);
         alert.renderOrder = 6;
         inner.add(alert);
