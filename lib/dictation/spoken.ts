@@ -1,3 +1,5 @@
+import { DENTAL_PROTECTED_WORDS } from "./dental-lexicon.ts";
+
 // Utilidades puras para el dictado en español de Chile: números hablados, montos,
 // fechas y horas relativas en America/Santiago, y la verificación de la corrección
 // del texto mal oído. Sin dependencias: lo importan el servidor, el cliente y los tests.
@@ -484,7 +486,7 @@ export function judgeCorrection(original: string, corrected: string): { safe: bo
   const added = multisetMinus(wordsC, wordsO).filter(w => !INSERTABLE.has(w));
   const repeated = multisetMinus(wordsO, wordsC).filter(w => wordsC.includes(w));
   if (!removed.length && !added.length) return { safe: true };
-  if (removed.some(w => PROTECTED.has(w) && !repeated.includes(w))) return { safe: false, reason: "reemplaza un término que ya era válido" };
+  if (removed.some(w => (PROTECTED.has(w) || DENTAL_PROTECTED_WORDS.has(w)) && !repeated.includes(w))) return { safe: false, reason: "reemplaza un término que ya era válido" };
   if (!removed.length) return { safe: false, reason: "agrega contenido que no se dictó" };
   if (!added.length) return removed.every(w => FILLERS.has(w) || INSERTABLE.has(w)) ? { safe: true } : { safe: false, reason: "borra contenido dictado" };
   const a = removed.join(""), b = added.join("");
