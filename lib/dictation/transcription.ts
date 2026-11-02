@@ -1,3 +1,5 @@
+import { DENTAL_SPEECH_HINTS } from "./dental-lexicon.ts";
+
 /**
  * Motor de transcripción del dictado clínico.
  * Este prototipo solo implementa la Web Speech API del navegador (es-CL).
@@ -19,12 +21,16 @@ export interface TranscriptionEngine {
   abort(): void;
 }
 
-type SpeechResult = { isFinal: boolean; 0: { transcript: string } };
+type SpeechAlternative = { transcript: string; confidence?: number };
+type SpeechResult = { isFinal: boolean; length: number; [index: number]: SpeechAlternative };
+type SpeechPhrase = { phrase: string; boost: number };
 type SpeechEvent = { resultIndex: number; results: ArrayLike<SpeechResult> };
 type SpeechRecognizer = {
   lang: string;
   continuous: boolean;
   interimResults: boolean;
+  maxAlternatives?: number;
+  phrases?: SpeechPhrase[];
   onresult: ((event: SpeechEvent) => void) | null;
   onerror: ((event: { error: string }) => void) | null;
   onend: (() => void) | null;
@@ -56,8 +62,21 @@ export function createWebSpeechTranscription(lang = "es-CL"): TranscriptionEngin
     const browser = window as typeof window & {
       SpeechRecognition?: new () => SpeechRecognizer;
       webkitSpeechRecognition?: new () => SpeechRecognizer;
+      SpeechRecognitionPhrase?: new (phrase: string, boost: number) => SpeechPhrase;
     };
     return browser.SpeechRecognition ?? browser.webkitSpeechRecognition ?? null;
+  };
+
+  const phraseFor = (result: SpeechResult): string => {
+    const count = Math.max(1, Math.min(result.length || 1, 5));
+    const alternatives = Array.from({ length: count }, (_, index) => result[index]).filter(Boolean);
+    const foldSpeech = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    const score = (alternative: SpeechAlternative) => {
+      const transcript = foldSpeech(alternative.transcript);
+      const matched = DENTAL_SPEECH_HINTS.filter((hint) => transcript.includes(foldSpeech(hint.phrase))).length;
+      return (alternative.confidence ?? 0) + Math.min(0.6, matched * 0.16);
+    };
+    return alternatives.reduce((best, candidate) => score(candidate) > score(best) ? candidate : best, alternatives[0])?.transcript ?? "";
   };
 
   return {
@@ -95,13 +114,26 @@ export function createWebSpeechTranscription(lang = "es-CL"): TranscriptionEngin
         recognizer.lang = lang;
         recognizer.continuous = true;
         recognizer.interimResults = true;
+        recognizer.maxAlternatives = 4;
+        const browser = window as typeof window & {
+          SpeechRecognitionPhrase?: new (phrase: string, boost: number) => SpeechPhrase;
+        };
+        // Contextual phrase boosts are experimental and not available in Safari/older browsers.
+        // Keep the ordinary recognition path when the browser does not expose both pieces.
+        if ("phrases" in recognizer && browser.SpeechRecognitionPhrase) {
+          try {
+            recognizer.phrases = DENTAL_SPEECH_HINTS.map(({ phrase, boost }) => new browser.SpeechRecognitionPhrase!(phrase, boost));
+          } catch {
+            recognizer.phrases = [];
+          }
+        }
         recognizer.onresult = (event) => {
           if (active !== recognizer) return;
           restarts = 0;
           let finalText = "";
           let interim = "";
           for (let index = event.resultIndex; index < event.results.length; index += 1) {
-            const piece = event.results[index][0].transcript;
+            const piece = phraseFor(event.results[index]);
             if (event.results[index].isFinal) finalText += piece;
             else interim += piece;
           }
