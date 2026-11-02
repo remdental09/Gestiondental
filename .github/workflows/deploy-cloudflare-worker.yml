@@ -1,0 +1,32 @@
+name: Publicar Worker de Gestión Dental
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --global pnpm@11.25.0
+      - run: pnpm install --frozen-lockfile
+      - name: Comprobar acceso de Cloudflare
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo 'Falta el secreto CLOUDFLARE_API_TOKEN en este repositorio.' >&2
+            exit 1
+          fi
+      - name: Compilar Worker con los bindings D1/R2 existentes
+        run: CLOUDFLARE_DEPLOY=1 pnpm build
+      - name: Desplegar Worker compilado
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm exec wrangler deploy --config dist/server/wrangler.json
