@@ -538,8 +538,8 @@ export function ClinicalDictation({
     const acceptedFicha = fichaItems.filter((item) => item.decision === "accepted");
     const fichaUpdate = patient ? planFichaUpdate(patient, acceptedFicha) : null;
     const saveEvolution = evolutionDecision === "accepted" && evolutionBody.trim().length > 0;
-    // El registro del odontograma de la nota se rehace con lo aceptado y se agrega la transcripción completa.
-    const finalBody = saveEvolution ? finalizeEvolution(evolutionBody, acceptedTeeth, literalTranscript(), dxPlan.items) : "";
+    // La evolución conserva la redacción clínica y solo incorpora cambios de odontograma aceptados.
+    const finalBody = saveEvolution ? finalizeEvolution(evolutionBody, acceptedTeeth, dxPlan.items) : "";
     const dxTags = saveEvolution ? dxPlan.tags : [];
     if (!saveEvolution && !acceptedTeeth.length && !acceptedBudgets.length && !fichaUpdate && !acceptedPayments.length && !acceptedAppointments.length && !savePerio) {
       setFormError("No hay nada aceptado para guardar.");
@@ -674,14 +674,6 @@ export function ClinicalDictation({
   };
   const updateDx = (id: string, patch: Partial<ReviewDiagnosis>) => setDxItems((current) => current.map((entry) => entry.id === id ? { ...entry, ...patch } : entry));
 
-  /** Lo dictado tal cual y, si cambió, el texto revisado: ambos quedan al final de la nota. */
-  function literalTranscript() {
-    const raw = transcript.trim();
-    const revised = workingText.trim();
-    if (!revised || revised === raw) return raw;
-    return `${raw}\n\nTexto revisado y aclaraciones:\n${revised}`;
-  }
-
   return <>
     {prominent
       ? <Button type="button" size="lg" className="h-auto min-h-12 shrink-0 whitespace-normal bg-[#087f83] px-5 text-base hover:bg-[#07676b]" onClick={() => setOpen(true)} data-testid="dictation-open" aria-label={`Dictar en la ficha de ${patientName}`}><Mic className="mr-2 size-5" />Dictar</Button>
@@ -709,7 +701,7 @@ export function ClinicalDictation({
           {transcribing && <p role="status" aria-live="polite" className="rounded-lg bg-sky-50 p-3 font-medium text-sky-950">Transcribiendo el audio con OpenAI… Espera que aparezca el texto antes de corregirlo.</p>}
           {audioRetry && <Button type="button" variant="outline" disabled={transcribing} onClick={() => { setSpeechError(""); (audioRetry === "answer" ? answerEngine.current : engine.current).retry?.(); }}>Reintentar la transcripción del audio</Button>}
           {speechError && <p role="alert" className="text-[#a43542]">{speechError}</p>}
-          <label className="block space-y-1.5 font-medium">Transcripción del audio, sin corregir (editable; se guarda aparte al final de la evolución)
+          <label className="block space-y-1.5 font-medium">Transcripción del dictado (editable; se usa como referencia y no se incorpora a la evolución clínica)
             <Textarea data-testid="dictation-transcript" lang="es-CL" rows={5} className="min-h-32 field-sizing-fixed text-base sm:text-sm" autoCapitalize="sentences" autoCorrect="off" spellCheck={false} value={interim ? `${transcript} ${interim}`.trim() : transcript} onChange={(event) => { if (listening || transcribing) stopWithoutCorrecting(); setTranscript(event.target.value); setInterim(""); resetReview(); setCommandIgnored(false); }} placeholder="Habla o escribe el dictado. Revisa piezas y dosis antes de proponer cambios." />
           </label>
           {command && onAnnul && !structuring && <VoiceCommandCard key={command.evidence} command={command} notes={notes} patientName={patientName} onConfirm={onAnnul} onDismiss={() => { setCommandIgnored(true); void structure(transcript); }} />}
@@ -806,7 +798,7 @@ export function ClinicalDictation({
               <p className="mt-2 text-xs text-[#71858b]">Última evolución guardada, no se reemplaza</p>
               <p className="mt-1 whitespace-pre-wrap rounded-lg bg-[#f7f4f4] p-3 text-[#71858b]">{latestNote ? `${latestNote.title}\n${latestNote.body}` : "Sin evoluciones registradas"}</p>
               {proposal.evolution ? <>
-                <p className="mt-3 text-xs text-[#71858b]">Nota redactada (editable). Al guardar, el bloque «Examen (odontograma)» se rehace con lo aceptado abajo y se agrega la transcripción completa.</p>
+                <p className="mt-3 text-xs text-[#71858b]">Nota redactada (editable). Al guardar, el bloque «Examen (odontograma)» se rehace con lo aceptado abajo. Las instrucciones y el texto literal del dictado no se agregan al historial clínico.</p>
                 <Input className="mt-1" aria-label="Título de la evolución" value={evolutionTitle} onChange={(event) => setEvolutionTitle(event.target.value)} disabled={evolutionDecision !== "accepted"} />
                 <Textarea className="mt-2 border-emerald-200 bg-emerald-50" aria-label="Cuerpo de la evolución" rows={12} value={evolutionBody} onChange={(event) => setEvolutionBody(event.target.value)} disabled={evolutionDecision !== "accepted"} />
                 <details className="mt-2">
@@ -814,7 +806,7 @@ export function ClinicalDictation({
                   <p className="mt-2 max-h-72 overflow-y-auto whitespace-pre-wrap rounded-lg bg-[#f4f7f8] p-3 text-xs leading-5 text-[#31575b]" data-testid="dictation-final-preview">{(() => {
                     const shown = teeth.filter((item) => item.decision === "accepted" && !reviewIssue(item));
                     const plan = diagnosisPlan(shown);
-                    return finalizeEvolution(evolutionBody, shown, literalTranscript(), "error" in plan ? undefined : plan.items);
+                    return finalizeEvolution(evolutionBody, shown, "error" in plan ? undefined : plan.items);
                   })()}</p>
                 </details>
               </> : <p className="mt-3 text-[#71858b]">El dictado no produjo una evolución.</p>}
@@ -1012,7 +1004,7 @@ export function ClinicalDictation({
           </div>}
           {result && notRecorded.length > 0 && <div className="rounded-lg bg-amber-50 p-3 text-amber-950" data-testid="dictation-not-recorded">
             <p className="font-semibold">No consignado en la ficha estructurada</p>
-            <p className="mt-1 text-xs">Sigue en la transcripción completa de la nota. Regístralo a mano si corresponde.</p>
+            <p className="mt-1 text-xs">No se incorpora automáticamente a la evolución clínica. Revísalo y agrégalo manualmente si corresponde.</p>
             <ul className="mt-2 list-disc space-y-1 pl-5">{notRecorded.map((message) => <li key={message}>{message}</li>)}</ul>
           </div>}
         </div>
