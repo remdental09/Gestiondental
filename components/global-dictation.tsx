@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { createWebSpeechTranscription, IOS_DICTATION_HINT, MIC_DENIED, micAllowed } from "@/lib/dictation/transcription";
+import { createAudioTranscription, AUDIO_DICTATION_NOTICE } from "@/lib/dictation/audio-transcription";
 import type { PatientDecision } from "@/lib/dictation/patient-identify";
 import { hasFourNameParts } from "@/app/patient-identity";
 import { WordDiffView, useTextCorrection } from "@/components/text-correction";
@@ -31,9 +31,11 @@ export function GlobalDictation({ patients, notes = [], onUsePatient, onCreatePa
   onCreatePatient: (fields: NewPatientFields) => Promise<number>;
   onAnnul?: (patientId: number, evolutionId: number, mode: RemovalMode, reason: string, replacement: AnnulReplacement | null) => Promise<void>;
 }) {
-  const engine = useRef(createWebSpeechTranscription());
+  const engine = useRef(createAudioTranscription());
   const [open, setOpen] = useState(false);
   const [listening, setListening] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+  const [audioRetry, setAudioRetry] = useState<"main" | "answer" | null>(null);
   const [transcript, setTranscript] = useState("");
   const [interim, setInterim] = useState("");
   const [speechError, setSpeechError] = useState("");
@@ -82,6 +84,7 @@ export function GlobalDictation({ patients, notes = [], onUsePatient, onCreatePa
     if (text.length < 3) return;
     setTranscript(text);
     void identify(text);
+    void correction.correct(text);
   };
 
   const start = async () => {
@@ -89,28 +92,30 @@ export function GlobalDictation({ patients, notes = [], onUsePatient, onCreatePa
     setDecision(null);
     setError("");
     if (!engine.current.isSupported()) { setSpeechError(engine.current.unsupportedMessage()); return; }
-    if (!(await micAllowed())) { setSpeechError(MIC_DENIED); return; }
+
     setListening(true);
     autoPending.current = true;
     heard.current = { text: transcript, interim: "" };
     engine.current.start(transcript, {
+      onStatus: (status) => { setTranscribing(status === "transcribing"); setListening(status === "starting" || status === "recording"); if (status !== "error") setAudioRetry(null); },
       onTranscript: (text, spoken) => { heard.current = { text, interim: spoken }; setTranscript(text); setInterim(spoken); },
-      onError: (message) => { setSpeechError(message); setListening(false); setInterim(""); },
+      onError: (message) => { setSpeechError(message); setAudioRetry(engine.current.hasPendingAudio?.() ? "main" : null); setListening(false); setInterim(""); },
       onEnd: () => { setListening(false); setInterim(""); afterDictation(); },
     });
   };
 
   const stop = () => {
-    engine.current.stop();
+    setTranscribing(true);
     setListening(false);
-    setInterim("");
-    if (autoPending.current && !stopFallback.current) stopFallback.current = setTimeout(() => { stopFallback.current = null; afterDictation(); }, 1500);
+    engine.current.stop();
   };
 
   const quietStop = () => {
     autoPending.current = false;
     if (stopFallback.current) { clearTimeout(stopFallback.current); stopFallback.current = null; }
-    engine.current.stop();
+    engine.current.abort();
+    setTranscribing(false);
+    setAudioRetry(null);
     setListening(false);
     setInterim("");
   };
@@ -182,16 +187,19 @@ export function GlobalDictation({ patients, notes = [], onUsePatient, onCreatePa
         </DialogHeader>
         <div className="space-y-4 text-sm">
           <div className="flex flex-wrap gap-2">
-            <Button type="button" size="lg" className={`min-h-12 flex-1 sm:flex-none ${listening ? "bg-[#a43542] hover:bg-[#8a2c37]" : "bg-[#087f83] hover:bg-[#07676b]"}`} onClick={listening ? stop : () => void start()} aria-pressed={listening} data-testid="global-dictation-mic">
+            <Button type="button" size="lg" className={`min-h-12 flex-1 sm:flex-none ${listening ? "bg-[#a43542] hover:bg-[#8a2c37]" : "bg-[#087f83] hover:bg-[#07676b]"}`} disabled={transcribing} onClick={listening ? stop : () => void start()} aria-pressed={listening} data-testid="global-dictation-mic">
               {listening ? <MicOff className="mr-2 size-5" /> : <Mic className="mr-2 size-5" />}{listening ? "Detener" : transcript ? "Seguir dictando" : "Empezar a dictar"}
             </Button>
-            {!listening && transcript.trim().length >= 3 && !identifying && <Button type="button" size="lg" variant="outline" className="min-h-12" onClick={() => void identify(finalText())} data-testid="global-dictation-identify">{decision ? "Volver a buscar la ficha" : "Buscar la ficha"}</Button>}
-            {!listening && transcript.trim().length >= 3 && <Button type="button" size="lg" variant="outline" className="min-h-12" disabled={correction.correcting} onClick={() => void correction.correct(finalText())} data-testid="global-dictation-correct"><Sparkles className="mr-2 size-5" aria-hidden="true" />{correction.correcting ? "Corrigiendo…" : "Corregir texto"}</Button>}
+            {!listening && !transcribing && transcript.trim().length >= 3 && !identifying && <Button type="button" size="lg" variant="outline" className="min-h-12" onClick={() => void identify(finalText())} data-testid="global-dictation-identify">{decision ? "Volver a buscar la ficha" : "Buscar la ficha"}</Button>}
+            {!listening && !transcribing && transcript.trim().length >= 3 && <Button type="button" size="lg" variant="outline" className="min-h-12" disabled={transcribing || correction.correcting} onClick={() => void correction.correct(finalText())} data-testid="global-dictation-correct"><Sparkles className="mr-2 size-5" aria-hidden="true" />{correction.correcting ? "Corrigiendo…" : "Corregir texto"}</Button>}
           </div>
           {listening && <p role="status" className="font-medium text-[#087f83]">Escuchando en español de Chile… Al detener se busca la ficha y la IA corrige el texto.</p>}
+          <p className="rounded-lg bg-sky-50 p-3 text-xs leading-5 text-sky-950" role="note">{AUDIO_DICTATION_NOTICE}</p>
+          {transcribing && <p role="status" aria-live="polite" className="rounded-lg bg-sky-50 p-3 font-medium text-sky-950">Transcribiendo el audio con OpenAI… Espera que aparezca el texto antes de corregirlo.</p>}
+          {audioRetry && <Button type="button" variant="outline" disabled={transcribing} onClick={() => { setSpeechError(""); engine.current.retry?.(); }}>Reintentar la transcripción del audio</Button>}
           {speechError && <p role="alert" className="text-[#a43542]">{speechError}</p>}
-          <label className="block space-y-1.5 font-medium">Transcripción original, sin corregir (en vivo, editable)
-            <Textarea data-testid="global-dictation-transcript" lang="es-CL" rows={5} className="min-h-32 field-sizing-fixed text-base sm:text-sm" autoCapitalize="sentences" autoCorrect="off" spellCheck={false} value={interim ? `${transcript} ${interim}`.trim() : transcript} onChange={(event) => { if (listening) quietStop(); setTranscript(event.target.value); setInterim(""); setDecision(null); setCommandDismissed(false); }} placeholder="Ej.: «Tengo un paciente nuevo, Juan Pérez, RUT 12.345.678-5. Viene por dolor en la 3.6, pieza fracturada. Presupuesto corona 450.000, abona 100.000.»" />
+          <label className="block space-y-1.5 font-medium">Transcripción del audio, sin corregir (editable)
+            <Textarea data-testid="global-dictation-transcript" lang="es-CL" rows={5} className="min-h-32 field-sizing-fixed text-base sm:text-sm" autoCapitalize="sentences" autoCorrect="off" spellCheck={false} value={interim ? `${transcript} ${interim}`.trim() : transcript} onChange={(event) => { if (listening || transcribing) quietStop(); setTranscript(event.target.value); setInterim(""); setDecision(null); setCommandDismissed(false); }} placeholder="Ej.: «Tengo un paciente nuevo, Juan Pérez, RUT 12.345.678-5. Viene por dolor en la 3.6, pieza fracturada. Presupuesto corona 450.000, abona 100.000.»" />
           </label>
           {correction.correcting && <p role="status" aria-live="polite" className="flex items-center gap-2 rounded-lg bg-sky-50 p-3 font-medium text-sky-950"><span className="size-4 shrink-0 animate-spin rounded-full border-2 border-sky-700 border-t-transparent" aria-hidden="true" />Corrigiendo el texto con el diccionario clínico e IA…</p>}
           {transcript.trim().length >= 3 && <p className="text-xs leading-5 text-[#60757a]">Al corregir, se envía la transcripción a OpenAI si está configurada la clave; si no, a Workers AI cuando está habilitado. No se guarda hasta que la revises.</p>}
@@ -204,10 +212,9 @@ export function GlobalDictation({ patients, notes = [], onUsePatient, onCreatePa
             {correction.result.source !== finalText() && <p className="text-xs text-amber-900">El dictado cambió después de corregir: vuelve a tocar «Corregir texto».</p>}
             <WordDiffView before={correction.result.source} after={correction.result.text} testId="global-dictation-diff" />
             <p className="text-xs leading-5 text-[#60757a]">Es una vista previa: al seguir con la ficha la IA vuelve a corregir y arma la nota para que la revises. Nada se guardó.</p>
-            <Button type="button" size="lg" className="h-auto min-h-12 w-full whitespace-normal bg-[#087f83] text-base hover:bg-[#07676b]" disabled={listening || identifying || finalText().length < 3} onClick={incorporate} data-testid="global-dictation-incorporate">{chosenId && decision ? `Incorporar a la ficha de ${chosenName.split(" ").slice(0, 3).join(" ")}` : "Incorporar a la ficha"}</Button>
+            <Button type="button" size="lg" className="h-auto min-h-12 w-full whitespace-normal bg-[#087f83] text-base hover:bg-[#07676b]" disabled={transcribing || listening || identifying || finalText().length < 3} onClick={incorporate} data-testid="global-dictation-incorporate">{chosenId && decision ? `Incorporar a la ficha de ${chosenName.split(" ").slice(0, 3).join(" ")}` : "Incorporar a la ficha"}</Button>
             {incorporateAsked && !chosenId && <p className="text-xs font-medium text-[#145b60]" role="status">{decision ? "Elige la ficha abajo y toca «Incorporar»." : "Buscando la ficha…"}</p>}
           </section>}
-          {IOS_DICTATION_HINT && !transcript && <p className="rounded-lg bg-sky-50 p-3 text-xs leading-5 text-sky-950" role="note">{IOS_DICTATION_HINT}</p>}
           {identifying && <p role="status" aria-live="polite" className="flex items-center gap-2 rounded-lg bg-sky-50 p-3 font-medium text-sky-950" data-testid="global-dictation-identifying"><span className="size-4 shrink-0 animate-spin rounded-full border-2 border-sky-700 border-t-transparent" aria-hidden="true" />Buscando la ficha por RUT y nombre…</p>}
           {error && <div role="alert" className="rounded-lg bg-rose-50 p-3 text-rose-950" data-testid="global-dictation-error"><p>{error}</p>{!decision && transcript.trim().length >= 3 && <Button type="button" size="sm" variant="outline" className="mt-2 bg-white" onClick={() => void identify(finalText())}>Reintentar</Button>}</div>}
           {decision && <section ref={decisionRef} className="scroll-mt-4 space-y-3 rounded-xl border border-[#cfe3e1] bg-[#f5faf9] p-3 sm:p-4" data-testid="global-dictation-decision" data-decision={decision.decision}>

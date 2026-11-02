@@ -1,0 +1,24 @@
+name: Comprobar dictado de audio
+on:
+  pull_request:
+    paths:
+      - 'lib/dictation/**'
+      - 'components/*dictation*'
+      - 'app/api/audio-transcription/**'
+      - 'tests/audio-transcription.test.mjs'
+      - '.github/workflows/check-audio.yml'
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --global pnpm@11.25.0
+      - run: pnpm install --frozen-lockfile
+      - run: node --experimental-strip-types --test tests/audio-transcription.test.mjs
+      - run: pnpm exec tsc --noEmit
+      - run: CLOUDFLARE_DEPLOY=1 pnpm build

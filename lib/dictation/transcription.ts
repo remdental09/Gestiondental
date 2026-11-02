@@ -10,6 +10,7 @@ export type DictationHandlers = {
   onTranscript: (text: string, interim: string) => void;
   onError: (message: string) => void;
   onEnd: () => void;
+  onStatus?: (status: "starting" | "recording" | "transcribing" | "error" | "idle") => void;
 };
 
 export interface TranscriptionEngine {
@@ -19,6 +20,8 @@ export interface TranscriptionEngine {
   start(baseText: string, handlers: DictationHandlers): void;
   stop(): void;
   abort(): void;
+  retry?(): void;
+  hasPendingAudio?(): boolean;
 }
 
 type SpeechAlternative = { transcript: string; confidence?: number };
