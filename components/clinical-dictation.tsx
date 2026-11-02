@@ -264,6 +264,7 @@ export function ClinicalDictation({
   };
 
   const start = async () => {
+    if (transcribing || answering) return;
     setSpeechError("");
     setResult(null);
     if (!engine.current.isSupported()) {
@@ -298,6 +299,7 @@ export function ClinicalDictation({
   };
 
   const dictateAnswer = async (question: string) => {
+    if (transcribing || listening) return;
     if (answering === question) {
       answerEngine.current.stop();
       setAnswering(null);
@@ -322,6 +324,7 @@ export function ClinicalDictation({
   };
 
   const structure = async (text = transcript) => {
+    if (transcribing || answering) return;
     setFormError("");
     setResult(null);
     if (answering) { answerEngine.current.stop(); setAnswering(null); }
@@ -692,7 +695,7 @@ export function ClinicalDictation({
         <div className="space-y-4 text-sm">
           {!supported && <p className="rounded-lg bg-[#f4f7f8] p-3 leading-6 text-[#31575b]" role="status">{unsupportedMessage}</p>}
           <div className="flex flex-wrap gap-2">
-            <Button type="button" variant={listening ? "default" : "outline"} className={listening ? "bg-[#087f83] hover:bg-[#07676b]" : ""} disabled={transcribing} onClick={listening ? stop : () => void start()} aria-pressed={listening} data-testid="dictation-mic">
+            <Button type="button" variant={listening ? "default" : "outline"} className={listening ? "bg-[#087f83] hover:bg-[#07676b]" : ""} disabled={transcribing || !!answering} onClick={listening ? stop : () => void start()} aria-pressed={listening} data-testid="dictation-mic">
               {listening ? <MicOff className="mr-2 size-4" /> : <Mic className="mr-2 size-4" />}
               {listening ? "Detener" : "Dictar"}
             </Button>
@@ -789,7 +792,7 @@ export function ClinicalDictation({
               <ul className="mt-3 space-y-3">{proposal.clarifications.map((question) => <li key={question}>
                 <p className="text-sm">{question}</p>
                 <div className="mt-1 flex gap-2">
-                  <Input className="bg-white text-base sm:text-sm" aria-label={`Respuesta: ${question}`} value={answers[question] ?? ""} onChange={(event) => setAnswers((current) => ({ ...current, [question]: event.target.value }))} placeholder="Respuesta" />
+                  <Input className="bg-white text-base sm:text-sm" disabled={transcribing || answering === question} aria-label={`Respuesta: ${question}`} value={answers[question] ?? ""} onChange={(event) => setAnswers((current) => ({ ...current, [question]: event.target.value }))} placeholder="Respuesta" />
                   <Button type="button" variant={answering === question ? "default" : "outline"} size="icon" className={`shrink-0 ${answering === question ? "bg-[#087f83] hover:bg-[#07676b]" : ""}`} disabled={transcribing || listening} aria-label={answering === question ? "Detener respuesta dictada" : "Dictar respuesta"} aria-pressed={answering === question} onClick={() => void dictateAnswer(question)}>{answering === question ? <MicOff className="size-4" /> : <Mic className="size-4" />}</Button>
                 </div>
               </li>)}</ul>

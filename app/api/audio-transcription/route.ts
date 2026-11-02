@@ -7,9 +7,20 @@ export const dynamic = "force-dynamic";
 const json = (data: unknown, status = 200) => Response.json(data, { status, headers: { "Cache-Control": "no-store" } });
 const active = new Set<string>();
 
-export async function GET() {
+export async function GET(request: Request) {
   if (!(await getChatGPTUser())) return json({ error: "Inicia sesión para usar el dictado." }, 401);
-  return json({ available: !!env.OPENAI_API_KEY?.trim(), provider: "openai", model: env.OPENAI_TRANSCRIPTION_MODEL?.trim() || AUDIO_TRANSCRIPTION_MODEL, maxRecordingMs: MAX_RECORDING_MS });
+  const model = env.OPENAI_TRANSCRIPTION_MODEL?.trim() || AUDIO_TRANSCRIPTION_MODEL;
+  const available = !!env.OPENAI_API_KEY?.trim();
+  let modelAccess: string | undefined;
+  // Diagnóstico autenticado sin enviar audio ni consumir una transcripción.
+  // Una clave restringida puede permitir audio sin permitir leer /models.
+  if (available && new URL(request.url).searchParams.get("probe") === "1") {
+    try {
+      const response = await fetch(`https://api.openai.com/v1/models/${encodeURIComponent(model)}`, { headers: { Authorization: `Bearer ${env.OPENAI_API_KEY!.trim()}` }, signal: AbortSignal.timeout(8_000) });
+      modelAccess = response.ok ? "available" : `unverified_http_${response.status}`;
+    } catch { modelAccess = "unverified_network"; }
+  }
+  return json({ available, provider: "openai", model, maxRecordingMs: MAX_RECORDING_MS, ...(modelAccess ? { modelAccess } : {}) });
 }
 
 export async function POST(request: Request) {
