@@ -8,5 +8,7 @@ declare namespace Cloudflare {
     ACCESS_POLICY_AUD?: string;
     ACCESS_ALLOWED_EMAIL?: string;
     CLINIC_OWNER_ID?: string;
+    /** JSON correo → { ownerId, name }: una cuenta independiente por correo autorizado. */
+    CLINIC_OWNERS?: string;
   }
 }
