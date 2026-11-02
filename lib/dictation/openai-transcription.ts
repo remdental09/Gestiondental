@@ -1,6 +1,8 @@
 import { DENTAL_SPEECH_HINTS } from "./dental-lexicon.ts";
 
 export const AUDIO_TRANSCRIPTION_MODEL = "gpt-transcribe";
+/** Compatibilidad para cuentas que aún no exponen el modelo nuevo. Configuración explícita prevalece. */
+export const AUDIO_COMPATIBILITY_MODEL = "gpt-4o-transcribe";
 export const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
 export const MAX_RECORDING_MS = 5 * 60 * 1000;
 const EXTENSIONS: Record<string, string> = { "audio/webm": "webm", "video/webm": "webm", "audio/mp4": "m4a", "video/mp4": "mp4", "audio/mpeg": "mp3", "audio/wav": "wav", "audio/x-wav": "wav" };
@@ -31,6 +33,9 @@ export async function transcribeDentalAudio(audio: Blob, apiKey: string, options
   });
   // No devolver cuerpos del proveedor, que podrían contener datos del dictado.
   if (!response.ok) {
+    if (response.status === 404 && !options.model?.trim()) {
+      return transcribeDentalAudio(audio, apiKey, { ...options, model: AUDIO_COMPATIBILITY_MODEL });
+    }
     if (response.status === 401 || response.status === 403) throw new Error("La clave de OpenAI no tiene acceso a la transcripción de audio.");
     if (response.status === 429) throw new Error("OpenAI alcanzó su límite o no tiene saldo disponible. Puedes reintentar la grabación.");
     if (response.status === 400 || response.status === 404) throw new Error("OpenAI no aceptó el audio o el modelo de transcripción configurado.");

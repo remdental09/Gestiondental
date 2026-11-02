@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
-import { AUDIO_TRANSCRIPTION_MODEL, MAX_AUDIO_BYTES, MAX_RECORDING_MS, transcribeDentalAudio } from "@/lib/dictation/openai-transcription";
+import { AUDIO_TRANSCRIPTION_MODEL, AUDIO_COMPATIBILITY_MODEL, MAX_AUDIO_BYTES, MAX_RECORDING_MS, transcribeDentalAudio } from "@/lib/dictation/openai-transcription";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -9,14 +9,18 @@ const active = new Set<string>();
 
 export async function GET(request: Request) {
   if (!(await getChatGPTUser())) return json({ error: "Inicia sesión para usar el dictado." }, 401);
-  const model = env.OPENAI_TRANSCRIPTION_MODEL?.trim() || AUDIO_TRANSCRIPTION_MODEL;
+  let model = env.OPENAI_TRANSCRIPTION_MODEL?.trim() || AUDIO_TRANSCRIPTION_MODEL;
   const available = !!env.OPENAI_API_KEY?.trim();
   let modelAccess: string | undefined;
   // Diagnóstico autenticado sin enviar audio ni consumir una transcripción.
   // Una clave restringida puede permitir audio sin permitir leer /models.
   if (available && new URL(request.url).searchParams.get("probe") === "1") {
     try {
-      const response = await fetch(`https://api.openai.com/v1/models/${encodeURIComponent(model)}`, { headers: { Authorization: `Bearer ${env.OPENAI_API_KEY!.trim()}` }, signal: AbortSignal.timeout(8_000) });
+      let response = await fetch(`https://api.openai.com/v1/models/${encodeURIComponent(model)}`, { headers: { Authorization: `Bearer ${env.OPENAI_API_KEY!.trim()}` }, signal: AbortSignal.timeout(8_000) });
+      if (response.status === 404 && !env.OPENAI_TRANSCRIPTION_MODEL?.trim()) {
+        model = AUDIO_COMPATIBILITY_MODEL;
+        response = await fetch(`https://api.openai.com/v1/models/${encodeURIComponent(model)}`, { headers: { Authorization: `Bearer ${env.OPENAI_API_KEY!.trim()}` }, signal: AbortSignal.timeout(8_000) });
+      }
       modelAccess = response.ok ? "available" : `unverified_http_${response.status}`;
     } catch { modelAccess = "unverified_network"; }
   }
