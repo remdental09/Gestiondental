@@ -395,7 +395,7 @@ export async function POST(request: Request) {
           const previousCount = data.history?.length ?? 0;
           appendToothHistory(data, tooth, "diagnosis", before, {
             recordedAt: t, clinicalDate: note.clinicalDate, source: "evolution", sourceEvolutionId: evolutionId,
-            sourceActionId, title: "Diagnóstico: " + tag.title, detail: tag.findings || tag.evidence,
+            sourceActionId, title: tag.title, detail: tag.findings || tag.evidence,
           });
           if ((data.history?.length ?? 0) > previousCount) addedDiagnosis = true;
         }
