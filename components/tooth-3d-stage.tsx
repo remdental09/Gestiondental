@@ -78,9 +78,16 @@ function ceramicColor(level: number, stain: number): RGB {
  */
 function findingTint(zone: ToothZone, surfaces: StageProps["surfaces"]): { color: RGB; strength: number } | null {
   if (zone === "R" || zone === "S") return null;
-  const condition = surfaces[zone]?.condition;
+  const finding = surfaces[zone];
+  const condition = finding?.condition;
   if (!condition || condition === "not_examined") return null;
-  const hex = surfaceMarkColor(condition);
+  const hex = condition === "restored" && finding.restorationStage === "provisional"
+    ? "#e6a14a"
+    : condition === "restored" && finding.restorationMaterial === "Amalgama"
+      ? "#8996a3"
+      : condition === "restored" && finding.restorationMaterial === "Vidrio ionómero"
+        ? "#8ab6a0"
+        : surfaceMarkColor(condition);
   return { color: linear(parseInt(hex.replace("#", ""), 16)), strength: condition === "sound" ? 0.28 : 0.86 };
 }
 
