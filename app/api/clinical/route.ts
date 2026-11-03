@@ -32,6 +32,7 @@ const displayDate = (value: string) => {
   return new Intl.DateTimeFormat("es-CL", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(Date.UTC(y, m - 1, d)));
 };
 const diagnosisView = (d: typeof evolutionDiagnoses.$inferSelect) => ({ id: d.id, evolutionId: d.evolutionId, code: d.code, title: d.title, tooth: d.tooth, findings: d.findings, evidence: d.evidence, origin: d.origin, suggestedFrom: d.suggestedFrom });
+type ChartHistoryMetadata = { source: "manual" | "evolution"; sourceEvolutionId?: number; sourceActionId?: string; clinicalDate?: string; title: string };
 const error = (message: string, status = 400) => Response.json({ error: message }, { status });
 const string = (value: unknown, max: number) => typeof value === "string" ? value.trim().slice(0, max) : "";
 const normalizePatientName = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
@@ -245,6 +246,21 @@ export async function POST(request: Request) {
     if (!Number.isSafeInteger(patientId) || patientId <= 0) return error("Selecciona un paciente válido.");
     const [patient] = await db.select({ id: patients.id, name: patients.name, rut: patients.rut, birthDate: patients.birthDate, phone: patients.phone, email: patients.email, allergies: patients.allergies, history: patients.history }).from(patients).where(and(eq(patients.id, patientId), eq(patients.ownerId, ownerId)));
     if (!patient) return error("Paciente no encontrado.", 404);
+    const chartHistoryMetadata = async (fallbackTitle: string): Promise<ChartHistoryMetadata | { error: string }> => {
+      const rawId = input.sourceEvolutionId;
+      if (rawId === undefined || rawId === null || rawId === "") return { source: "manual", title: fallbackTitle };
+      const sourceEvolutionId = Number(rawId);
+      const sourceActionId = string(input.sourceActionId, 180);
+      if (!Number.isSafeInteger(sourceEvolutionId) || sourceEvolutionId <= 0 || !sourceActionId) return { error: "La vinculación con la evolución clínica no es válida." };
+      const [sourceNote] = await db.select({ id: evolutions.id, clinicalDate: evolutions.clinicalDate }).from(evolutions)
+        .where(and(eq(evolutions.id, sourceEvolutionId), eq(evolutions.patientId, patientId), eq(evolutions.ownerId, ownerId))).limit(1);
+      if (!sourceNote) return { error: "La evolución vinculada no pertenece a esta ficha." };
+      return { source: "evolution", sourceEvolutionId, sourceActionId, clinicalDate: sourceNote.clinicalDate, title: string(input.historyTitle, 180) || fallbackTitle };
+    };
+    const historyAlreadyRecorded = (data: OdontogramData, metadata: ChartHistoryMetadata) =>
+      metadata.source === "evolution" && Boolean(metadata.sourceActionId && data.history?.some(event =>
+        event.sourceEvolutionId === metadata.sourceEvolutionId && event.sourceActionId === metadata.sourceActionId));
+
     if (action === "updatePatient") {
       const nameInput = typeof input.name === "string" ? input.name.trim() : patient.name;
       const normalizedName = normalizePatientName(nameInput), storedNormalizedName = normalizePatientName(patient.name);
@@ -365,6 +381,29 @@ export async function POST(request: Request) {
       const remove = db.delete(evolutionDiagnoses).where(and(eq(evolutionDiagnoses.evolutionId, evolutionId), eq(evolutionDiagnoses.ownerId, ownerId)));
       const inserts = parsed.tags.map(tag => db.insert(evolutionDiagnoses).values({ ownerId, patientId, evolutionId, code: tag.code, title: tag.title, tooth: tag.tooth, findings: tag.findings, evidence: tag.evidence, origin: tag.origin, suggestedFrom: tag.suggestedFrom, createdAt: t }));
       await db.batch([remove, ...inserts]);
+      const toothTags = parsed.tags.filter(tag => typeof tag.tooth === "number" && Number.isSafeInteger(tag.tooth) && allowedTeeth.has(tag.tooth));
+      if (toothTags.length) {
+        const [oldChart] = await db.select().from(toothStatuses).where(and(eq(toothStatuses.ownerId, ownerId), eq(toothStatuses.patientId, patientId))).limit(1);
+        const data = normalizeOdontogram(oldChart ? JSON.parse(oldChart.data) : {});
+        let addedDiagnosis = false;
+        for (const tag of toothTags) {
+          const tooth = tag.tooth;
+          if (typeof tooth !== "number") continue;
+          const sourceActionId = ("diagnosis:" + tooth + ":" + tag.code + ":" + (tag.findings || tag.title)).slice(0, 180);
+          if (data.history?.some(event => event.sourceEvolutionId === evolutionId && event.sourceActionId === sourceActionId)) continue;
+          const before = toothHistorySnapshot(data, tooth);
+          const previousCount = data.history?.length ?? 0;
+          appendToothHistory(data, tooth, "diagnosis", before, {
+            recordedAt: t, clinicalDate: note.clinicalDate, source: "evolution", sourceEvolutionId: evolutionId,
+            sourceActionId, title: "Diagnóstico: " + tag.title, detail: tag.findings || tag.evidence,
+          });
+          if ((data.history?.length ?? 0) > previousCount) addedDiagnosis = true;
+        }
+        if (addedDiagnosis) {
+          await db.insert(toothStatuses).values({ ownerId, patientId, data: JSON.stringify(data), updatedAt: t })
+            .onConflictDoUpdate({ target: toothStatuses.patientId, set: { data: JSON.stringify(data), updatedAt: t } });
+        }
+      }
       const saved = await db.select().from(evolutionDiagnoses).where(and(eq(evolutionDiagnoses.evolutionId, evolutionId), eq(evolutionDiagnoses.ownerId, ownerId))).orderBy(evolutionDiagnoses.id);
       return Response.json({ evolutionId, diagnoses: saved.map(diagnosisView) });
     }
@@ -442,13 +481,16 @@ export async function POST(request: Request) {
       if (!Number.isSafeInteger(tooth) || !allowedTeeth.has(tooth) || !["Sin hallazgos", "Implante", "Implante con pilar", "Corona", "Ausente", "Indicación de exodoncia", "Resto radicular con endodoncia"].includes(status)) return error("Estado dental inválido.");
       const [old] = await db.select().from(toothStatuses).where(and(eq(toothStatuses.ownerId, ownerId), eq(toothStatuses.patientId, patientId)));
       const data = normalizeOdontogram(old ? JSON.parse(old.data) : {});
+      const historyMeta = await chartHistoryMetadata(status === "Sin hallazgos" ? "Estado registrado: sin hallazgos" : "Estado actualizado: " + status);
+      if ("error" in historyMeta) return error(historyMeta.error);
+      if (historyAlreadyRecorded(data, historyMeta)) return Response.json({ odontogram: data });
       const before = toothHistorySnapshot(data, tooth);
       if (status === "Sin hallazgos") delete data.teeth[tooth];
       else data.teeth[tooth] = status;
       if (status === "Corona" && data.crowns?.[tooth]) data.crowns[tooth] = { ...data.crowns[tooth], foundation: "tooth" };
       else if (!(status === "Implante" && data.crowns?.[tooth]?.foundation === "implant")) delete data.crowns?.[tooth];
       const updatedAt = now();
-      appendToothHistory(data, tooth, "status", before, { recordedAt: updatedAt, source: "manual", title: status === "Sin hallazgos" ? "Estado registrado: sin hallazgos" : `Estado actualizado: ${status}` });
+      appendToothHistory(data, tooth, "status", before, { recordedAt: updatedAt, ...historyMeta });
       await db.insert(toothStatuses).values({ ownerId, patientId, data: JSON.stringify(data), updatedAt }).onConflictDoUpdate({ target: toothStatuses.patientId, set: { data: JSON.stringify(data), updatedAt } });
       return Response.json({ odontogram: data });
     }
@@ -458,6 +500,9 @@ export async function POST(request: Request) {
       if (!Number.isSafeInteger(tooth) || !allowedTeeth.has(tooth) || (material && !["Zirconio","Disilicato","Metal cerámica","Resina","Otro"].includes(material)) || (shade && !/^[A-D][1-4](?:\.5)?$/i.test(shade))) return error("Revisa la pieza y el material de la corona.");
       const [old] = await db.select().from(toothStatuses).where(and(eq(toothStatuses.ownerId, ownerId), eq(toothStatuses.patientId, patientId))).limit(1);
       const data = normalizeOdontogram(old ? JSON.parse(old.data) : {});
+      const historyMeta = await chartHistoryMetadata("Corona sobre implante");
+      if ("error" in historyMeta) return error(historyMeta.error);
+      if (historyAlreadyRecorded(data, historyMeta)) return Response.json({ odontogram: data });
       const before = toothHistorySnapshot(data, tooth);
       const foundation = requested ?? (data.teeth[tooth] === "Implante" || data.teeth[tooth] === "Implante con pilar" ? "implant" : "tooth");
       // Una corona sobre un implante con pilar lo deja como implante con corona (Implante + corona sobre implante).
@@ -465,9 +510,9 @@ export async function POST(request: Request) {
       if (foundation === "implant" && data.teeth[tooth] !== "Implante") return error("Primero registra el implante en la pieza indicada.");
       if (foundation === "tooth" && data.teeth[tooth] !== "Corona") return error("Primero registra una corona en la pieza indicada.");
       if (!material && foundation !== "implant") return error("Revisa la pieza y el material de la corona.");
-      data.crowns![tooth] = { material: material || data.crowns?.[tooth]?.material || "", shade: shade || null, source: "manual", foundation };
+      data.crowns![tooth] = { material: material || data.crowns?.[tooth]?.material || "", shade: shade || null, source: historyMeta.source, clinicalDate: historyMeta.clinicalDate, foundation };
       const updatedAt = now();
-      appendToothHistory(data, tooth, "crown", before, { recordedAt: updatedAt, source: "manual", title: foundation === "implant" ? "Corona sobre implante" : "Corona sobre diente" });
+      appendToothHistory(data, tooth, "crown", before, { recordedAt: updatedAt, ...historyMeta, title: historyMeta.title || (foundation === "implant" ? "Corona sobre implante" : "Corona sobre diente") });
       await db.insert(toothStatuses).values({ ownerId, patientId, data: JSON.stringify(data), updatedAt }).onConflictDoUpdate({ target: toothStatuses.patientId, set: { data: JSON.stringify(data), updatedAt } });
       const [verified] = await db.select({ data: toothStatuses.data }).from(toothStatuses).where(and(eq(toothStatuses.ownerId, ownerId), eq(toothStatuses.patientId, patientId))).limit(1);
       const confirmed = verified ? normalizeOdontogram(JSON.parse(verified.data)).crowns?.[tooth] : null;
@@ -480,10 +525,13 @@ export async function POST(request: Request) {
       const [old] = await db.select().from(toothStatuses).where(and(eq(toothStatuses.ownerId, ownerId), eq(toothStatuses.patientId, patientId)));
       const data = normalizeOdontogram(old ? JSON.parse(old.data) : {});
       if (!data.teeth[tooth] || !["Ausente","Indicación de exodoncia"].includes(data.teeth[tooth])) return error("Primero registra la pieza como ausente o indicada para exodoncia.");
+      const historyMeta = await chartHistoryMetadata("Causa de ausencia: " + reason);
+      if ("error" in historyMeta) return error(historyMeta.error);
+      if (historyAlreadyRecorded(data, historyMeta)) return Response.json({ odontogram: data });
       const before = toothHistorySnapshot(data, tooth);
       data.missingReason[tooth] = reason as "caries"|"other"|"unknown";
       const updatedAt = now();
-      appendToothHistory(data, tooth, "missing_reason", before, { recordedAt: updatedAt, source: "manual", title: `Causa de ausencia: ${reason}` });
+      appendToothHistory(data, tooth, "missing_reason", before, { recordedAt: updatedAt, ...historyMeta });
       await db.insert(toothStatuses).values({ ownerId, patientId, data: JSON.stringify(data), updatedAt }).onConflictDoUpdate({ target: toothStatuses.patientId, set: { data: JSON.stringify(data), updatedAt } });
       return Response.json({ odontogram: data });
     }
@@ -500,14 +548,35 @@ export async function POST(request: Request) {
         if (icdas !== null && (!Number.isInteger(icdas) || icdas < 1 || icdas > 6)) return error("ICDAS inválido.");
         if (activity !== null && !["active","inactive","uncertain"].includes(activity)) return error("Actividad de la lesión inválida.");
         normalized = { condition:"caries", depth: isCariesDepth(depthRaw) ? depthRaw : null, icdas:icdas as SurfaceFinding["icdas"], activity:activity as SurfaceFinding["activity"] };
-      } else normalized = { condition:condition as SurfaceFinding["condition"], depth:null, icdas:null, activity:null };
+      } else {
+        const restorationStage = condition === "restored" ? string(finding.restorationStage, 20) : "";
+        const restorationMaterial = condition === "restored" ? string(finding.restorationMaterial, 40) : "";
+        if (restorationStage && !["provisional", "definitive"].includes(restorationStage)) return error("Tipo de restauración inválido.");
+        if (restorationMaterial && !["Resina compuesta", "Vidrio ionómero", "Amalgama", "Cavit", "IRM", "Otro"].includes(restorationMaterial)) return error("Material de restauración inválido.");
+        normalized = {
+          condition:condition as SurfaceFinding["condition"], depth:null, icdas:null, activity:null,
+          ...(condition === "restored" && restorationStage ? { restorationStage: restorationStage as SurfaceFinding["restorationStage"] } : {}),
+          ...(condition === "restored" && restorationMaterial ? { restorationMaterial: restorationMaterial as SurfaceFinding["restorationMaterial"] } : {}),
+        };
+      }
       const [old] = await db.select().from(toothStatuses).where(and(eq(toothStatuses.ownerId, ownerId), eq(toothStatuses.patientId, patientId)));
       const data = normalizeOdontogram(old ? JSON.parse(old.data) : {});
       if (["Ausente","Implante","Implante con pilar"].includes(data.teeth[tooth]??"")) return error("No se registran superficies dentarias en dientes ausentes o implantes.");
+      const priorFinding = data.surfaces[tooth]?.[surface as OdontogramSurface];
+      if (condition === "restored" && priorFinding?.condition === "restored") {
+        normalized = {
+          ...normalized,
+          ...(!normalized.restorationStage && priorFinding.restorationStage ? { restorationStage: priorFinding.restorationStage } : {}),
+          ...(!normalized.restorationMaterial && priorFinding.restorationMaterial ? { restorationMaterial: priorFinding.restorationMaterial } : {}),
+        };
+      }
+      const historyMeta = await chartHistoryMetadata("Hallazgo actualizado en cara " + surface);
+      if ("error" in historyMeta) return error(historyMeta.error);
+      if (historyAlreadyRecorded(data, historyMeta)) return Response.json({ odontogram: data });
       const before = toothHistorySnapshot(data, tooth);
       data.surfaces[tooth] = { ...(data.surfaces[tooth]??{}), [surface as OdontogramSurface]: normalized };
       const updatedAt = now();
-      appendToothHistory(data, tooth, "surface", before, { recordedAt: updatedAt, source: "manual", surface: surface as OdontogramSurface, title: `Hallazgo actualizado en cara ${surface}` });
+      appendToothHistory(data, tooth, "surface", before, { recordedAt: updatedAt, ...historyMeta, surface: surface as OdontogramSurface });
       await db.insert(toothStatuses).values({ ownerId, patientId, data: JSON.stringify(data), updatedAt }).onConflictDoUpdate({ target: toothStatuses.patientId, set: { data: JSON.stringify(data), updatedAt } });
       return Response.json({ odontogram: data });
     }
