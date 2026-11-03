@@ -118,7 +118,8 @@ export function Tooth3DModal({
     if (event.eventType === "diagnosis") return [event.title ? `Diagnóstico: ${event.title}` : "Diagnóstico consignado", event.detail].filter(Boolean).join(" · ");
     if (event.eventType === "surface" && event.surface) {
       const face = event.surface === "O" ? bitingFaceName(tooth) : event.surface === "P" ? innerFaceName(tooth) : event.surface === "V" ? "Vestibular" : event.surface === "M" ? "Mesial" : "Distal";
-      return `${face}: ${findingLabel(event.before?.surfaces[event.surface])} → ${findingLabel(after?.surfaces[event.surface])}`;
+      const transition = findingLabel(event.before?.surfaces[event.surface]) + " → " + findingLabel(after?.surfaces[event.surface]);
+      return face + ": " + (event.title ? event.title + " · " : "") + transition;
     }
     if (event.eventType === "status") return `${event.before?.status ?? "Sin hallazgos"} → ${after?.status ?? "Sin hallazgos"}`;
     if (event.eventType === "missing_reason") return event.title ?? `Causa de ausencia: ${after?.missingReason ?? "sin especificar"}`;
