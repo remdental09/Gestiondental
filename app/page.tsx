@@ -207,9 +207,10 @@ export default function Home(){
       else{
         const updates:Record<string,string>={};
         const cleanRutValue=(value:string)=>value.toUpperCase().replace(/[^0-9K]/g,"");
-        if(identity.rut&&identity.rutValid&&validRut(identity.rut)){
-          if(selected.rut&&cleanRutValue(selected.rut)!==cleanRutValue(identity.rut))notices.push("El RUT dictado difiere del RUT registrado; no se sobrescribió.");
-          else if(!selected.rut&&!patients.some(item=>item.id!==id&&cleanRutValue(item.rut||"")===cleanRutValue(identity.rut)))updates.rut=identity.rut;
+        const dictatedRut=identity.rut;
+        if(dictatedRut&&identity.rutValid&&validRut(dictatedRut)){
+          if(selected.rut&&cleanRutValue(selected.rut)!==cleanRutValue(dictatedRut))notices.push("El RUT dictado difiere del RUT registrado; no se sobrescribió.");
+          else if(!selected.rut&&!patients.some(item=>item.id!==id&&cleanRutValue(item.rut||"")===cleanRutValue(dictatedRut)))updates.rut=dictatedRut;
           else if(!selected.rut)notices.push("Ese RUT ya está asociado a otra ficha; no se guardó.");
         }
         if(identity.birthDate&&ageFromBirthDate(identity.birthDate)!==null){
