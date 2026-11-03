@@ -225,7 +225,6 @@ export function ClinicalDictation({
   const [outcome, setOutcome] = useState<StructureOutcome | null>(null);
   const [evolutionTitle, setEvolutionTitle] = useState("");
   const [evolutionBody, setEvolutionBody] = useState("");
-  const [evolutionDecision, setEvolutionDecision] = useState<"accepted" | "rejected">("accepted");
   const [teeth, setTeeth] = useState<ReviewTooth[]>([]);
   const [budgets, setBudgets] = useState<ReviewBudget[]>([]);
   const [fichaItems, setFichaItems] = useState<ReviewFicha[]>([]);
@@ -258,10 +257,6 @@ export function ClinicalDictation({
   const patientWarnings = patientCheck ? patientWarning(patientCheck, patientName, patient?.rut) : [];
   const patientBlocked = patientWarnings.length > 0 && !patientConfirmed;
   const patientVariants = patientCheck ? patientVariantNote(patientCheck, patientName) : [];
-  // «Incorporar a la ficha»: resumen corto de lo que se guardará, con casillas, antes de confirmar.
-  const [planOpen, setPlanOpen] = useState(false);
-  const planAfterStructure = useRef(false);
-  const planRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const transcription = engine.current;
@@ -289,7 +284,6 @@ export function ClinicalDictation({
     setAnswers({});
     setResult(null);
     setFormError("");
-    setPlanOpen(false);
   };
 
   const close = () => {
@@ -373,7 +367,6 @@ export function ClinicalDictation({
     setLastStructured(text);
     setStructuring(true);
     setPatientConfirmed(false);
-    setPlanOpen(false);
     try {
       const response = await fetch("/api/dictation/structure", {
         method: "POST",
@@ -388,7 +381,6 @@ export function ClinicalDictation({
       setOutcome(data);
       setEvolutionTitle(data.proposal.evolution?.title ?? "");
       setEvolutionBody(data.proposal.evolution?.body ?? "");
-      setEvolutionDecision(data.proposal.evolution ? "accepted" : "rejected");
       // Lo que IA y reglas no comparten, o un hallazgo incompleto, parte rechazado. La caries sin profundidad sí se propone.
       setTeeth([
         // Un cambio con advertencia (p. ej. volver a marcar un implante en un control) también parte sin aceptar.
@@ -420,13 +412,7 @@ export function ClinicalDictation({
       setDxItems((data.proposal.diagnoses ?? []).filter((item) => !item.code.startsWith("DA08.0")).map((item) => ({ ...item, decision: item.suggested ? "rejected" as const : "accepted" as const, toothText: item.tooth ? formatFdi(item.tooth) : "", findingsText: item.findings ?? "", codeSearch: "" })));
       setDxSearch("");
       setAppointmentItems((data.proposal.appointments ?? []).map((item) => ({ ...item, decision: item.day && item.time && !item.timeDoubt ? "accepted" : "rejected", dayValue: item.day ?? "", timeValue: item.time ?? "" })));
-      if (planAfterStructure.current) {
-        planAfterStructure.current = false;
-        setPlanOpen(true);
-        setTimeout(() => planRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
-      }
     } catch (cause) {
-      planAfterStructure.current = false;
       setOutcome(null);
       setFormError(`No se pudo corregir con IA: ${cause instanceof Error && !/failed to fetch|load failed|network/i.test(cause.message) ? cause.message : "sin conexión con el servidor"}. Nada se guardó.`);
     } finally {
@@ -477,7 +463,6 @@ export function ClinicalDictation({
         setInterim("");
         resetReview();
         setCommandIgnored(!!request.ignoreCommand);
-        planAfterStructure.current = !!request.incorporate;
         if (request.ignoreCommand || !isCommand(text)) void structure(text);
       }
     }, 0);
@@ -505,63 +490,53 @@ export function ClinicalDictation({
     return data;
   };
 
-  /** Abre el resumen «Incorporar a la ficha». Si el texto corregido cambió, se vuelve a proponer primero. */
-  const incorporate = () => {
-    if (!outcome) return;
-    const proposed = (outcome.proposal.corrected?.text ?? "").trim();
-    if (workingText.trim().length >= 3 && proposed && workingText.trim() !== proposed) {
-      planAfterStructure.current = true;
-      void structure(workingText);
-      return;
-    }
-    setPlanOpen(true);
-    setTimeout(() => planRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
-  };
-
   const confirm = async () => {
-    // Ya guardado y releído: no se vuelve a guardar el mismo dictado (evita duplicados).
     if (!outcome || saving || result?.ok) return;
     if (patientBlocked) {
       setFormError(`El dictado nombra a otra persona o a otro RUT. Confirma que corresponde a ${patientName} antes de guardar.`);
       return;
     }
-    const acceptedTeeth: OdontogramChange[] = [];
+    const reviewWarnings: string[] = [];
+    let acceptedTeeth: OdontogramChange[] = [];
     for (const item of teeth) {
       if (item.decision !== "accepted") continue;
       const tooth = parseDisplayedFdi(item.toothText);
       if (!tooth) {
-        setFormError("Revisa las piezas en nomenclatura FDI con punto, por ejemplo 3.6.");
-        return;
+        reviewWarnings.push(`${item.numberingLabel}: la pieza no está en nomenclatura FDI válida; no se actualizó el odontograma.`);
+        continue;
       }
       const next = { ...item, tooth, numberingLabel: tooth === item.tooth ? item.numberingLabel : `FDI ${formatFdi(tooth)}`, numbering: tooth === item.tooth ? item.numbering : "FDI" as const };
       const issue = reviewIssue(next);
       if (issue) {
-        setFormError(issue);
-        return;
+        reviewWarnings.push(`${item.numberingLabel}: ${issue} El hallazgo quedó fuera del odontograma.`);
+        continue;
       }
       acceptedTeeth.push(next);
     }
-    const acceptedTargets = new Set<string>();
+    const targets = new Map<string, OdontogramChange[]>();
     for (const item of acceptedTeeth) {
       const target = item.kind === "surface" && item.surface
         ? `surface:${item.tooth}:${item.surface}`
         : `${item.kind}:${item.tooth}`;
-      if (acceptedTargets.has(target)) {
-        const where = item.kind === "surface" && item.surface
-          ? `la superficie ${surfaceLabel[item.surface]} de FDI ${formatFdi(item.tooth)}`
-          : `FDI ${formatFdi(item.tooth)}`;
-        setFormError(`Hay más de una propuesta aceptada para ${where}. Deja marcada solo una y vuelve a guardar.`);
-        return;
-      }
-      acceptedTargets.add(target);
+      targets.set(target, [...(targets.get(target) ?? []), item]);
+    }
+    const duplicateTargets = new Set([...targets].filter(([, items]) => items.length > 1).map(([target]) => target));
+    if (duplicateTargets.size) {
+      reviewWarnings.push("Hay propuestas duplicadas para una pieza o superficie. Se omitieron del odontograma para evitar conflictos.");
+      acceptedTeeth = acceptedTeeth.filter((item) => {
+        const target = item.kind === "surface" && item.surface
+          ? `surface:${item.tooth}:${item.surface}`
+          : `${item.kind}:${item.tooth}`;
+        return !duplicateTargets.has(target);
+      });
     }
     const acceptedBudgets: BudgetChange[] = [];
     for (const item of budgets) {
       if (item.decision !== "accepted") continue;
       const amount = Number(item.amountText);
       if (!item.label.trim() || !Number.isSafeInteger(amount) || amount < 1) {
-        setFormError("Revisa la prestación y el monto en pesos, sin decimales.");
-        return;
+        reviewWarnings.push(`Presupuesto «${item.label || "sin prestación"}»: revisa prestación y monto en pesos; no se registró.`);
+        continue;
       }
       acceptedBudgets.push({ ...item, label: item.label.trim(), amount });
     }
@@ -569,52 +544,72 @@ export function ClinicalDictation({
     for (const item of paymentItems) {
       if (item.decision !== "accepted") continue;
       const amount = Number(item.amountText.replace(/\./g, ""));
-      if (!Number.isSafeInteger(amount) || amount < 1) { setFormError("Revisa el monto del pago en pesos, sin decimales."); return; }
-      if (!item.methodValue) { setFormError("Elige el medio de pago de $" + amount.toLocaleString("es-CL") + "."); return; }
-      const proposalMatch = /^proposal:(.+)$/.exec(item.budgetId);
+      const method = item.methodValue;
+      if (!Number.isSafeInteger(amount) || amount < 1) {
+        reviewWarnings.push("Un abono dictado necesita un monto válido; quedó pendiente de revisión.");
+        continue;
+      }
+      if (!method) {
+        reviewWarnings.push(`Abono de $${amount.toLocaleString("es-CL")}: falta confirmar el medio de pago; quedó pendiente y no detiene la evolución.`);
+        continue;
+      }
+      let budgetSelection = item.budgetId;
+      const proposalMatch = /^proposal:(.+)$/.exec(budgetSelection);
       if (proposalMatch && !acceptedBudgets.some((budget) => budget.id === proposalMatch[1])) {
-        setFormError("El pago de $" + amount.toLocaleString("es-CL") + " está vinculado a un presupuesto dictado que no aceptaste. Acepta ese presupuesto o cambia la asociación.");
-        return;
+        reviewWarnings.push(`Abono de $${amount.toLocaleString("es-CL")}: se guardará sin vincular a un presupuesto que no fue aceptado.`);
+        budgetSelection = "";
       }
-      const existingMatch = /^existing:(\d+)$/.exec(item.budgetId);
+      const existingMatch = /^existing:(\d+)$/.exec(budgetSelection);
       if (existingMatch && !budgetOptions.some((budget) => budget.id === Number(existingMatch[1]))) {
-        setFormError("El presupuesto seleccionado ya no está disponible. Revisa la asociación del pago.");
-        return;
+        reviewWarnings.push(`Abono de $${amount.toLocaleString("es-CL")}: el presupuesto vinculado ya no está disponible; se guardará sin vínculo.`);
+        budgetSelection = "";
       }
-      acceptedPayments.push({ key: "pay:" + item.id + ":" + amount + ":" + item.methodValue + ":" + item.budgetId, amount, method: item.methodValue, concept: item.concept.trim(), budgetSelection: item.budgetId });
+      acceptedPayments.push({ key: "pay:" + item.id + ":" + amount + ":" + method + ":" + budgetSelection, amount, method, concept: item.concept.trim(), budgetSelection });
     }
     const acceptedAppointments: { key: string; day: string; time: string; reason: string }[] = [];
     for (const item of appointmentItems) {
       if (item.decision !== "accepted") continue;
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(item.dayValue) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(item.timeValue) || !item.reason.trim()) { setFormError("Revisa fecha, hora y motivo de la próxima cita."); return; }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(item.dayValue) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(item.timeValue) || !item.reason.trim()) {
+        reviewWarnings.push(`Próxima cita «${item.said || item.evidence}»: revisa fecha, hora y motivo; no se agendó.`);
+        continue;
+      }
       acceptedAppointments.push({ key: `cita:${item.id}:${item.dayValue}:${item.timeValue}`, day: item.dayValue, time: item.timeValue, reason: item.reason.trim() });
     }
     const perioReadings: { tooth: number; site: PerioSite; depth: number; bleeding: boolean; suppuration: boolean }[] = [];
     for (const item of perioItems) {
       if (item.decision !== "accepted") continue;
       const tooth = parseDisplayedFdi(item.toothText), depth = Number(item.depthText);
-      if (!tooth || !item.site || item.depthText.trim() === "" || !Number.isInteger(depth) || depth < 0 || depth > 20) { setFormError("Revisa pieza FDI, sitio y milímetros (enteros de 0 a 20) del sondaje."); return; }
-      if (perioReadings.some((reading) => reading.tooth === tooth && reading.site === item.site)) { setFormError(`El sitio ${item.site} de FDI ${formatFdi(tooth)} está dos veces.`); return; }
+      if (!tooth || !item.site || item.depthText.trim() === "" || !Number.isInteger(depth) || depth < 0 || depth > 20) {
+        reviewWarnings.push(`Sondaje FDI ${item.toothText || "sin pieza"}: revisa pieza, sitio y profundidad; no se incorporó al periodontograma.`);
+        continue;
+      }
+      if (perioReadings.some((reading) => reading.tooth === tooth && reading.site === item.site)) {
+        reviewWarnings.push(`El sitio ${item.site} de FDI ${formatFdi(tooth)} está repetido; se omitió el dato duplicado.`);
+        continue;
+      }
       perioReadings.push({ tooth, site: item.site, depth, bleeding: item.bleeding, suppuration: item.suppuration });
     }
     const perioMobility: { tooth: number; grade: string }[] = [];
     for (const item of mobilityItems) {
       if (item.decision !== "accepted") continue;
       const tooth = parseDisplayedFdi(item.toothText);
-      if (!tooth) { setFormError("Revisa la pieza FDI de la movilidad."); return; }
+      if (!tooth) {
+        reviewWarnings.push(`Movilidad «${item.toothText}»: revisa la pieza FDI; no se incorporó al periodontograma.`);
+        continue;
+      }
       perioMobility.push({ tooth, grade: item.grade });
     }
     const savePerio = perioReadings.length > 0 || perioMobility.length > 0;
-    const dxPlan = diagnosisPlan(acceptedTeeth);
-    if ("error" in dxPlan) { setFormError(dxPlan.error); return; }
+    const diagnosis = diagnosisPlan(acceptedTeeth);
+    const dxPlan = "error" in diagnosis ? null : diagnosis;
+    if (!dxPlan) reviewWarnings.push((diagnosis as { error: string }).error + " Los datos estructurados de diagnóstico quedaron pendientes; la nota clínica se guarda.");
     const acceptedFicha = fichaItems.filter((item) => item.decision === "accepted");
     const fichaUpdate = patient ? planFichaUpdate(patient, acceptedFicha) : null;
-    const saveEvolution = evolutionDecision === "accepted" && evolutionBody.trim().length > 0;
-    // La evolución conserva la redacción clínica y solo incorpora cambios de odontograma aceptados.
-    const finalBody = saveEvolution ? finalizeEvolution(evolutionBody, acceptedTeeth, dxPlan.items) : "";
-    const dxTags = saveEvolution ? dxPlan.tags : [];
+    const saveEvolution = evolutionBody.trim().length > 0;
+    const finalBody = saveEvolution ? finalizeEvolution(evolutionBody, acceptedTeeth, dxPlan?.items.length ? dxPlan.items : undefined) : "";
+    const dxTags = saveEvolution ? dxPlan?.tags ?? [] : [];
     if (!saveEvolution && !acceptedTeeth.length && !acceptedBudgets.length && !fichaUpdate && !acceptedPayments.length && !acceptedAppointments.length && !savePerio) {
-      setFormError("No hay nada aceptado para guardar.");
+      setFormError("No hay una evolución ni cambios estructurados listos para guardar. Revisa la nota o los campos opcionales.");
       return;
     }
     setSaving(true);
@@ -640,7 +635,6 @@ export function ClinicalDictation({
         requestId.current ||= crypto.randomUUID();
         const saved = await persist({ action: "addNote", patientId, title: evolutionTitle.trim() || "Evolución dictada", body: finalBody, requestId: requestId.current });
         savedNote = { id: saved.note?.id, title: evolutionTitle.trim() || "Evolución dictada", body: saved.note?.body ?? finalBody };
-        // Etiquetas de diagnóstico confirmadas: código, pieza y hallazgos por separado (idempotente).
         if (saved.note?.id && dxTags.length) await persist({ action: "setEvolutionDiagnoses", patientId, evolutionId: saved.note.id, tags: dxTags });
         const readBack = await reload();
         after = readBack.toothStatuses[patientId] ?? before;
@@ -673,6 +667,7 @@ export function ClinicalDictation({
         await persist({ action: "updatePatient", patientId, name: patient.name, rut: patient.rut, phone: patient.phone, email: patient.email, allergies: fichaUpdate.allergies, history: fichaUpdate.history });
       }
       const finalRead = await reload();
+      const noteConfirmed = !!savedNote && finalRead.notes.some((note) => note.patientId === patientId && (savedNote?.id ? note.id === savedNote.id : note.title === savedNote?.title) && note.body === savedNote?.body);
       let check = verifyDictationSave({
         patientId,
         before,
@@ -701,9 +696,11 @@ export function ClinicalDictation({
         if (!reread || reread.allergies !== fichaUpdate.allergies || reread.history !== fichaUpdate.history) check = { ok: false, messages: [...check.messages, "Alergias o antecedentes releídos no coinciden con lo aceptado."] };
         else check = { ...check, messages: [...check.messages, "Alergias y antecedentes de la ficha actualizados y releídos."] };
       }
+      if (reviewWarnings.length) check = { ...check, messages: [...check.messages, `${saveEvolution ? "La evolución" : "La ficha"} quedó guardada; algunos campos opcionales siguen pendientes de revisión.`] };
       onApplied(finalRead);
       setResult(check);
       setNotRecorded([
+        ...reviewWarnings,
         ...teeth.filter((item) => item.decision !== "accepted").map((item) => `${item.numberingLabel}${item.surface ? ` · ${surfaceLabel[item.surface]}` : ""}: ${item.kind === "surface" ? findingText(item.finding) : item.kind === "crown" ? "Corona" : item.status} — ${item.incompleteCaries ? "incompleto" : "rechazado"}.`),
         ...budgets.filter((item) => item.decision !== "accepted").map((item) => `Presupuesto: ${item.label} — rechazado.`),
         ...fichaItems.filter((item) => item.decision !== "accepted" || !patient).map((item) => `${fichaLabel[item.field]}: ${item.text} — no se pasó a la ficha.`),
@@ -711,14 +708,23 @@ export function ClinicalDictation({
         ...paymentItems.filter((item) => item.decision !== "accepted").map((item) => `Pago $${Number(item.amountText || 0).toLocaleString("es-CL")} — no se registró.`),
         ...appointmentItems.filter((item) => item.decision !== "accepted").map((item) => `Cita «${item.said || item.evidence}» — no se agendó.`),
         ...dxItems.filter((item) => item.decision !== "accepted").map((item) => `Diagnóstico ${item.code || "sin código"} ${item.title}${item.toothText ? ` (FDI ${item.toothText})` : ""} — ${item.suggested ? "sugerencia no confirmada" : "rechazado"}.`),
-        ...(!saveEvolution && dxPlan.tags.length ? ["Los diagnósticos aceptados no se guardaron porque la evolución no se guardó."] : []),
+        ...(!saveEvolution && dxPlan?.tags.length ? ["Los diagnósticos aceptados no se guardaron porque no se generó evolución."] : []),
         ...outcome.proposal.clarifications.filter((question) => !DEPTH_QUESTION.test(question)),
-        ...(!saveEvolution ? ["La evolución no se guardó."] : []),
+        ...(!saveEvolution ? ["El dictado no generó texto de evolución; los campos estructurados aceptados se guardaron por separado."] : []),
       ]);
-      if (!check.ok) setFormError("La relectura no confirmó todo lo aceptado. Revisa la ficha antes de dictar de nuevo.");
+      if (!check.ok) setFormError(noteConfirmed ? "La evolución se guardó y se releyó. Revisa las diferencias en los campos opcionales." : "La relectura no confirmó todo lo aceptado. Revisa el estado detallado antes de volver a guardar.");
     } catch (cause) {
-      try { onApplied(await reload()); } catch { /* la ficha visible puede seguir en el estado anterior */ }
-      setFormError(cause instanceof Error ? cause.message : "No se pudo guardar.");
+      const errorMessage = cause instanceof Error ? cause.message : "No se pudo completar el guardado.";
+      let recovered: Awaited<ReturnType<typeof reload>> | null = null;
+      try { recovered = await reload(); onApplied(recovered); } catch { /* la ficha visible puede seguir en el estado anterior */ }
+      const noteRecovered = !!savedNote && !!recovered?.notes.some((note) => note.patientId === patientId && (savedNote?.id ? note.id === savedNote.id : note.title === savedNote?.title) && note.body === savedNote?.body);
+      if (noteRecovered) {
+        setResult({ ok: false, messages: ["La evolución clínica se guardó y se releyó; algunos datos opcionales no se completaron.", errorMessage] });
+        setNotRecorded([...reviewWarnings, "Hay campos estructurados pendientes. Revisa la ficha antes de volver a guardar."]);
+        setFormError("");
+      } else {
+        setFormError(errorMessage);
+      }
     } finally {
       setSaving(false);
     }
@@ -795,7 +801,7 @@ export function ClinicalDictation({
             <Button type="button" size="sm" variant="outline" className="mt-2 bg-white" disabled={transcribing || structuring} onClick={() => void structure(lastStructured || transcript)} data-testid="dictation-retry-ai">{structuring ? "Corrigiendo con IA…" : "Reintentar con IA"}</Button>
           </div>}
           {outcome && !outcome.aiError && outcome.aiNote && <p className="text-xs text-[#71858b]" data-testid="dictation-ai-provider">{outcome.aiNote}</p>}
-          {outcome && !outcome.aiError && <p className="rounded-lg bg-[#f4f7f8] p-3 leading-6 text-[#31575b]" role="status">{outcome.notice ?? "La evolución y las piezas salen de lo resuelto en el dictado. Sigue sujeta a tu revisión."}</p>}
+          {outcome && !outcome.aiError && <p className="rounded-lg bg-[#f4f7f8] p-3 leading-6 text-[#31575b]" role="status">{outcome.notice ?? "Revisa la evolución clínica redactada. Los campos estructurados son opcionales y no detienen su guardado."}</p>}
           {proposal && <div className="space-y-4" data-testid="dictation-review">
             {patientVariants.length > 0 && patientWarnings.length === 0 && <p className="rounded-lg bg-[#f4f7f8] p-3 text-xs text-[#31575b]" role="status" data-testid="dictation-patient-variant">{patientVariants.join(" ")}</p>}
             {patientWarnings.length > 0 && <section role="alert" className="rounded-xl border-2 border-rose-400 bg-rose-50 p-4 text-rose-950" data-testid="dictation-patient-warning">
@@ -807,6 +813,40 @@ export function ClinicalDictation({
                 <span>Confirmo que este dictado corresponde a {patientName}. Si no, cierra y abre la ficha correcta.</span>
               </label>
             </section>}
+            <section className="rounded-xl border border-[#dce5e7] p-4" data-testid="dictation-evolution">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="font-semibold">Evolución clínica de hoy{proposal.evolutionKind ? <span className="ml-2 rounded-full bg-sky-100 px-2 py-0.5 text-xs font-medium text-sky-900">{proposal.evolutionKind.label}</span> : null}</h3>
+              </div>
+              <p className="mt-1 text-xs leading-5 text-[#60757a]">Revisa la redacción del diagnóstico, los procedimientos y el plan indicado. Las preguntas y los datos de pago o presupuesto quedan abajo y no bloquean el guardado.</p>
+              <details className="mt-2">
+                <summary className="cursor-pointer text-xs font-medium text-[#087f83]">Ver última evolución guardada (no se reemplaza)</summary>
+                <p className="mt-2 whitespace-pre-wrap rounded-lg bg-[#f7f4f4] p-3 text-sm text-[#71858b]">{latestNote ? `${latestNote.title}\n${latestNote.body}` : "Sin evoluciones registradas"}</p>
+              </details>
+              {proposal.evolution ? <>
+                <p className="mt-3 text-xs text-[#71858b]">Nota clínica redactada (editable).</p>
+                <Input className="mt-1" aria-label="Título de la evolución" value={evolutionTitle} onChange={(event) => setEvolutionTitle(event.target.value)} />
+                <Textarea className="mt-2 border-emerald-200 bg-emerald-50" aria-label="Cuerpo de la evolución" rows={9} value={evolutionBody} onChange={(event) => setEvolutionBody(event.target.value)} />
+              </> : <p className="mt-3 text-[#71858b]">El dictado no produjo una evolución.</p>}
+            </section>
+            {missing.length > 0 && <section className="rounded-xl border border-[#dbe7e8] bg-white p-3 text-sm text-[#31575b]" data-testid="dictation-missing">
+              <p><strong>Falta (opcional):</strong> {missing.join(" · ")}</p>
+              <p className="mt-1 text-xs text-[#60757a]">No es obligatorio y no impide guardar la evolución. Puedes aclararlo después.</p>
+            </section>}
+            {proposal.clarifications.length > 0 && <section className="rounded-xl bg-amber-50 p-4 text-amber-950" data-testid="dictation-clarifications">
+              <h3 className="font-semibold">Aclaraciones opcionales ({proposal.clarifications.length})</h3>
+              <p className="mt-1 text-xs leading-5">Responde escribiendo o con el micrófono y pulsa «Aplicar respuestas». Lo no respondido no se aplica.</p>
+              <ul className="mt-3 space-y-3">{proposal.clarifications.map((question) => <li key={question}>
+                <p className="text-sm">{question}</p>
+                <div className="mt-1 flex gap-2">
+                  <Input className="bg-white text-base sm:text-sm" disabled={transcribing || answering === question} aria-label={`Respuesta: ${question}`} value={answers[question] ?? ""} onChange={(event) => setAnswers((current) => ({ ...current, [question]: event.target.value }))} placeholder="Respuesta" />
+                  <Button type="button" variant={answering === question ? "default" : "outline"} size="icon" className={`shrink-0 ${answering === question ? "bg-[#087f83] hover:bg-[#07676b]" : ""}`} disabled={transcribing || listening} aria-label={answering === question ? "Detener respuesta dictada" : "Dictar respuesta"} aria-pressed={answering === question} onClick={() => void dictateAnswer(question)}>{answering === question ? <MicOff className="size-4" /> : <Mic className="size-4" />}</Button>
+                </div>
+              </li>)}</ul>
+              <Button type="button" className="mt-3 bg-[#087f83] hover:bg-[#07676b]" disabled={transcribing || structuring || !Object.values(answers).some((value) => value.trim())} onClick={applyAnswers} data-testid="dictation-apply-answers">{structuring ? "Aplicando…" : "Aplicar respuestas"}</Button>
+            </section>}
+            <details className="rounded-xl border border-[#dce5e7] bg-white p-3" data-testid="dictation-transcript-review">
+              <summary className="cursor-pointer font-medium text-[#31575b]">Ver transcripción y correcciones (opcional)</summary>
+              <div className="mt-3">
             <section className="rounded-xl border border-sky-200 bg-sky-50/40 p-4" data-testid="dictation-corrected">
               <h3 className="font-semibold">Texto corregido</h3>
               <p className="mt-1 text-xs leading-5 text-[#60757a]">Diccionario clínico e IA corrigen lo mal oído sin agregar datos. Cada cambio queda marcado; lo que la IA quiso cambiar sin respaldo se descarta. Puedes editarlo y volver a proponer.</p>
@@ -820,76 +860,13 @@ export function ClinicalDictation({
               <div className="mt-2"><WordDiffView before={lastStructured || transcript} after={proposal.corrected?.text ?? workingText} testId="dictation-diff" /></div>
               <Textarea className="mt-2 bg-white text-base sm:text-sm" aria-label="Texto corregido (editable)" rows={4} value={workingText} onChange={(event) => setWorkingText(event.target.value)} data-testid="dictation-corrected-text" />
               <Button type="button" variant="outline" size="sm" className="mt-2" disabled={transcribing || structuring || workingText.trim().length < 3} onClick={() => void structure(workingText)}>Volver a proponer con este texto</Button>
-              <p className="mt-1 text-[11px] text-[#71858b]">Volver a proponer rehace la propuesta y descarta los ajustes hechos abajo.</p>
-              <Button type="button" size="lg" className="mt-3 h-auto min-h-12 w-full whitespace-normal bg-[#087f83] text-base hover:bg-[#07676b]" disabled={transcribing || structuring || saving} onClick={incorporate} data-testid="dictation-incorporate">{structuring ? "Preparando…" : "Incorporar a la ficha"}</Button>
+              <p className="mt-1 text-[11px] text-[#71858b]">Si editas la transcripción, vuelve a proponer antes de guardar.</p>
             </section>
-            {planOpen && <div ref={planRef} className="scroll-mt-4"><IncorporatePlan
-              kindLabel={proposal.evolutionKind?.label}
-              control={!!proposal.evolutionKind?.control}
-              evolution={proposal.evolution ? { title: evolutionTitle, accepted: evolutionDecision === "accepted", toggle: (on) => setEvolutionDecision(on ? "accepted" : "rejected") } : null}
-              teeth={teeth.map((item, index) => ({ key: item.id, label: `${item.numberingLabel}${item.surface ? ` · ${surfaceLabel[item.surface]}` : ""}: ${item.kind === "surface" ? findingText(item.finding) : item.kind === "crown" ? "Corona" : item.status}`, note: item.advisory ?? (item.conflict ? "IA y reglas no coinciden." : item.incompleteCaries ? "Hallazgo incompleto: complétalo en la revisión detallada." : undefined), checked: item.decision === "accepted", toggle: (on: boolean) => setTeeth((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, decision: on ? "accepted" : "rejected" } : entry)) }))}
-              policyNotes={proposal.policyNotes ?? []}
-              perio={[
-                ...perioItems.map((item, index) => ({ key: item.id, label: `Sondaje FDI ${item.toothText}${item.site ? ` ${item.site}` : ""}${item.depthText ? ` ${item.depthText} mm` : ""}${item.bleeding ? " · sangrado" : ""}`, note: item.pending ? "Incompleto: complétalo en la revisión detallada." : undefined, checked: item.decision === "accepted", toggle: (on: boolean) => setPerioItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, decision: on ? "accepted" : "rejected" } : entry)) })),
-                ...mobilityItems.map((item, index) => ({ key: item.id, label: `Movilidad FDI ${item.toothText}: grado ${item.grade}`, checked: item.decision === "accepted", toggle: (on: boolean) => setMobilityItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, decision: on ? "accepted" : "rejected" } : entry)) })),
-              ]}
-              appointments={appointmentItems.map((item, index) => ({ key: item.id, label: `${item.reason || "Control"}${item.said ? ` ${item.said.replace(/^(?:control|pr[oó]ximo control|se controla)\s*/i, "")}` : ""} (${item.dayValue ? new Intl.DateTimeFormat("es-CL", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(`${item.dayValue}T12:00:00Z`)) : "fecha pendiente"})`, time: item.timeValue, note: item.timeDoubt ?? item.note, checked: item.decision === "accepted", toggle: (on: boolean) => setAppointmentItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, decision: on ? "accepted" : "rejected" } : entry)), setTime: (time: string) => setAppointmentItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, timeValue: time, decision: time ? "accepted" : entry.decision } : entry)) }))}
-              others={[
-                ...paymentItems.map((item, index) => ({ key: item.id, group: "Pago", label: `$${Number(item.amountText || 0).toLocaleString("es-CL")} · ${item.methodValue ? PAYMENT_METHOD_LABEL[item.methodValue] : "medio sin indicar"}`, checked: item.decision === "accepted", toggle: (on: boolean) => setPaymentItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, decision: on ? "accepted" : "rejected" } : entry)) })),
-                ...budgets.map((item, index) => ({ key: item.id, group: "Presupuesto", label: `${item.label} · ${Number(item.amountText) > 0 ? `$${Number(item.amountText).toLocaleString("es-CL")}` : "monto pendiente"}`, checked: item.decision === "accepted", toggle: (on: boolean) => setBudgets((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, decision: on ? "accepted" : "rejected" } : entry)) })),
-                ...fichaItems.map((item, index) => ({ key: item.id, group: "Ficha", label: `${fichaLabel[item.field]}: ${item.text}`, checked: item.decision === "accepted", disabled: !patient, toggle: (on: boolean) => setFichaItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, decision: on ? "accepted" : "rejected" } : entry)) })),
-                ...cariesDiagnoses(teeth.filter((item) => item.decision === "accepted")).filter((item) => item.code.startsWith("DA08.0")).map((item) => ({ key: item.id, group: "Diagnóstico", label: `${item.label} (desde el odontograma)`, checked: true, disabled: true, toggle: () => {} })),
-                ...dxItems.map((item) => ({ key: item.id, group: "Diagnóstico", label: `${item.code ? `${item.code} · ` : ""}${item.title}${item.toothText ? ` (FDI ${item.toothText})` : ""}`, note: item.suggested ? "Sugerido: confírmalo solo si corresponde." : undefined, checked: item.decision === "accepted", toggle: (on: boolean) => updateDx(item.id, { decision: on ? "accepted" : "rejected" }) })),
-              ]}
-              clarifications={proposal.clarifications.length}
-              variants={patientVariants}
-              patientWarnings={patientWarnings}
-              patientName={patientName}
-              patientConfirmed={patientConfirmed}
-              onPatientConfirmed={setPatientConfirmed}
-              saving={saving}
-              result={result}
-              error={formError}
-              onConfirm={() => void confirm()}
-              onDetails={() => { setPlanOpen(false); setTimeout(() => document.querySelector("[data-testid=dictation-evolution]")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50); }}
-            /></div>}
-            {missing.length > 0 && <section className="rounded-xl border border-[#dbe7e8] bg-white p-3 text-sm text-[#31575b]" data-testid="dictation-missing">
-              <p><strong>Falta (opcional):</strong> {missing.join(" · ")}</p>
-              <p className="mt-1 text-xs text-[#60757a]">No es obligatorio: puedes guardar igual. Si lo sabes, agrégalo al texto corregido y vuelve a proponer.</p>
-            </section>}
-            {proposal.clarifications.length > 0 && <section className="rounded-xl bg-amber-50 p-4 text-amber-950" data-testid="dictation-clarifications">
-              <h3 className="font-semibold">Falta aclarar ({proposal.clarifications.length})</h3>
-              <p className="mt-1 text-xs leading-5">Responde escribiendo o con el micrófono y pulsa «Aplicar respuestas». Lo no respondido no se aplica.</p>
-              <ul className="mt-3 space-y-3">{proposal.clarifications.map((question) => <li key={question}>
-                <p className="text-sm">{question}</p>
-                <div className="mt-1 flex gap-2">
-                  <Input className="bg-white text-base sm:text-sm" disabled={transcribing || answering === question} aria-label={`Respuesta: ${question}`} value={answers[question] ?? ""} onChange={(event) => setAnswers((current) => ({ ...current, [question]: event.target.value }))} placeholder="Respuesta" />
-                  <Button type="button" variant={answering === question ? "default" : "outline"} size="icon" className={`shrink-0 ${answering === question ? "bg-[#087f83] hover:bg-[#07676b]" : ""}`} disabled={transcribing || listening} aria-label={answering === question ? "Detener respuesta dictada" : "Dictar respuesta"} aria-pressed={answering === question} onClick={() => void dictateAnswer(question)}>{answering === question ? <MicOff className="size-4" /> : <Mic className="size-4" />}</Button>
-                </div>
-              </li>)}</ul>
-              <Button type="button" className="mt-3 bg-[#087f83] hover:bg-[#07676b]" disabled={transcribing || structuring || !Object.values(answers).some((value) => value.trim())} onClick={applyAnswers} data-testid="dictation-apply-answers">{structuring ? "Aplicando…" : "Aplicar respuestas"}</Button>
-            </section>}
-            <section className="rounded-xl border border-[#dce5e7] p-4" data-testid="dictation-evolution">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <h3 className="font-semibold">Evolución{proposal.evolutionKind ? <span className="ml-2 rounded-full bg-sky-100 px-2 py-0.5 text-xs font-medium text-sky-900">{proposal.evolutionKind.label}</span> : null}</h3>
-                <Decision value={proposal.evolution ? evolutionDecision : "rejected"} disabled={!proposal.evolution} onChange={setEvolutionDecision} />
               </div>
-              <p className="mt-2 text-xs text-[#71858b]">Última evolución guardada, no se reemplaza</p>
-              <p className="mt-1 whitespace-pre-wrap rounded-lg bg-[#f7f4f4] p-3 text-[#71858b]">{latestNote ? `${latestNote.title}\n${latestNote.body}` : "Sin evoluciones registradas"}</p>
-              {proposal.evolution ? <>
-                <p className="mt-3 text-xs text-[#71858b]">Nota redactada (editable). Al guardar, el bloque «Examen (odontograma)» se rehace con lo aceptado abajo. Las instrucciones y el texto literal del dictado no se agregan al historial clínico.</p>
-                <Input className="mt-1" aria-label="Título de la evolución" value={evolutionTitle} onChange={(event) => setEvolutionTitle(event.target.value)} disabled={evolutionDecision !== "accepted"} />
-                <Textarea className="mt-2 border-emerald-200 bg-emerald-50" aria-label="Cuerpo de la evolución" rows={12} value={evolutionBody} onChange={(event) => setEvolutionBody(event.target.value)} disabled={evolutionDecision !== "accepted"} />
-                <details className="mt-2">
-                  <summary className="cursor-pointer text-xs font-medium text-[#087f83]">Ver el texto final que se guardará</summary>
-                  <p className="mt-2 max-h-72 overflow-y-auto whitespace-pre-wrap rounded-lg bg-[#f4f7f8] p-3 text-xs leading-5 text-[#31575b]" data-testid="dictation-final-preview">{(() => {
-                    const shown = teeth.filter((item) => item.decision === "accepted" && !reviewIssue(item));
-                    const plan = diagnosisPlan(shown);
-                    return finalizeEvolution(evolutionBody, shown, "error" in plan ? undefined : plan.items);
-                  })()}</p>
-                </details>
-              </> : <p className="mt-3 text-[#71858b]">El dictado no produjo una evolución.</p>}
-            </section>
+            </details>
+            <details className="rounded-xl border border-[#dce5e7] bg-white p-3" data-testid="dictation-structured-review">
+              <summary className="cursor-pointer font-medium text-[#31575b]">Revisar campos estructurados (opcional)</summary>
+              <div className="mt-4 space-y-4">
             <section className="space-y-3">
               <h3 className="font-semibold">Odontograma</h3>
               {teeth.length === 0 && <p className="rounded-lg border border-dashed border-[#dce5e7] p-3 text-[#71858b]">Sin cambios de odontograma.</p>}
@@ -1076,20 +1053,22 @@ export function ClinicalDictation({
                 </div>}
               </article>)}
             </section>
+              </div>
+            </details>
           </div>}
           {result && <div role="status" className={`rounded-lg p-3 ${result.ok ? "bg-emerald-50 text-emerald-950" : "bg-rose-50 text-rose-950"}`}>
             <p className="font-semibold">{result.ok ? "Guardado y releído." : "La relectura encontró diferencias."}</p>
             <ul className="mt-2 list-disc space-y-1 pl-5">{result.messages.map((message) => <li key={message}>{message}</li>)}</ul>
           </div>}
           {result && notRecorded.length > 0 && <div className="rounded-lg bg-amber-50 p-3 text-amber-950" data-testid="dictation-not-recorded">
-            <p className="font-semibold">No consignado en la ficha estructurada</p>
-            <p className="mt-1 text-xs">No se incorpora automáticamente a la evolución clínica. Revísalo y agrégalo manualmente si corresponde.</p>
+            <p className="font-semibold">Pendiente de revisión (opcional)</p>
+            <p className="mt-1 text-xs">Estos datos no se añadieron a campos estructurados; la nota clínica se gestiona por separado.</p>
             <ul className="mt-2 list-disc space-y-1 pl-5">{notRecorded.map((message) => <li key={message}>{message}</li>)}</ul>
           </div>}
         </div>
         <DialogFooter className="sticky bottom-0 -mx-6 -mb-6 border-t border-[#e4ebed] bg-white px-6 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
           <Button type="button" variant="outline" onClick={close}>Cerrar</Button>
-          <Button type="button" className="bg-[#087f83] hover:bg-[#07676b]" disabled={!outcome || saving || patientBlocked || !!result?.ok} title={patientBlocked ? "Confirma el paciente antes de guardar" : undefined} onClick={() => void confirm()} data-testid="dictation-confirm">{saving ? "Guardando y releyendo…" : "Guardar lo aceptado"}</Button>
+          <Button type="button" className="bg-[#087f83] hover:bg-[#07676b]" disabled={!outcome || saving || patientBlocked || !!result?.ok} title={patientBlocked ? "Confirma el paciente antes de guardar" : undefined} onClick={() => void confirm()} data-testid="dictation-confirm">{saving ? "Guardando y verificando…" : "Guardar evolución"}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -1101,90 +1080,6 @@ export function ClinicalDictation({
  * Pide el micrófono antes de dictar. En iPhone/iPad se omite: Safari lo pide al iniciar el
  * reconocimiento y abrir y cerrar antes el micrófono puede dejarlo ocupado («audio-capture»).
  */
-
-type PlanRow = { key: string; label: string; note?: string; checked: boolean; disabled?: boolean; toggle: (on: boolean) => void };
-
-function PlanCheck({ row }: { row: PlanRow }) {
-  return <label className={`flex items-start gap-3 rounded-lg px-2 py-2 ${row.checked ? "bg-white" : "bg-transparent text-[#60757a]"}`} data-testid="dictation-plan-item">
-    <input type="checkbox" className="mt-0.5 size-5 shrink-0 accent-[#087f83]" checked={row.checked} disabled={row.disabled} onChange={(event) => row.toggle(event.target.checked)} />
-    <span className="min-w-0">
-      <span className={row.checked ? "font-medium text-[#163238]" : "line-through decoration-1"}>{row.label}</span>
-      {row.note && <span className="mt-0.5 block text-xs font-medium text-amber-800">{row.note}</span>}
-    </span>
-  </label>;
-}
-
-function PlanGroup({ title, empty, children }: { title: string; empty?: string; children?: React.ReactNode }) {
-  return <div className="border-t border-sky-100 pt-2 first:border-t-0 first:pt-0">
-    <h4 className="text-xs font-semibold uppercase tracking-wide text-[#31575b]">{title}</h4>
-    {empty ? <p className="px-2 py-1.5 text-sm text-[#60757a]">{empty}</p> : <div className="mt-1 space-y-0.5">{children}</div>}
-  </div>;
-}
-
-/** Resumen corto de «Incorporar a la ficha»: cada cambio con su casilla (marcada por defecto si es seguro). */
-function IncorporatePlan(props: {
-  kindLabel?: string;
-  control: boolean;
-  evolution: { title: string; accepted: boolean; toggle: (on: boolean) => void } | null;
-  teeth: PlanRow[];
-  policyNotes: string[];
-  perio: PlanRow[];
-  appointments: (PlanRow & { time: string; setTime: (time: string) => void })[];
-  others: (PlanRow & { group: string })[];
-  clarifications: number;
-  variants: string[];
-  patientWarnings: string[];
-  patientName: string;
-  patientConfirmed: boolean;
-  onPatientConfirmed: (value: boolean) => void;
-  saving: boolean;
-  result: { ok: boolean; messages: string[] } | null;
-  error: string;
-  onConfirm: () => void;
-  onDetails: () => void;
-}) {
-  const groups = [...new Set(props.others.map((row) => row.group))];
-  const blocked = props.patientWarnings.length > 0 && !props.patientConfirmed;
-  const nothing = !props.evolution?.accepted && ![...props.teeth, ...props.perio, ...props.appointments, ...props.others].some((row) => row.checked && !row.disabled);
-  return <section className="rounded-xl border-2 border-[#087f83] bg-sky-50/60 p-4" data-testid="dictation-plan" aria-label="Qué se incorporará a la ficha">
-    <h3 className="text-base font-semibold">Se incorporará a la ficha</h3>
-    <p className="mt-0.5 text-xs text-[#60757a]">Desmarca lo que no corresponda. Lo dudoso parte sin marcar.</p>
-    {props.variants.length > 0 && props.patientWarnings.length === 0 && <p className="mt-2 rounded-lg bg-white p-2 text-xs text-[#31575b]">{props.variants.join(" ")}</p>}
-    {props.patientWarnings.length > 0 && <label className="mt-2 flex items-start gap-2 rounded-lg border border-rose-300 bg-rose-50 p-2 text-sm font-medium text-rose-950">
-      <input type="checkbox" className="mt-0.5 size-5 shrink-0" checked={props.patientConfirmed} onChange={(event) => props.onPatientConfirmed(event.target.checked)} data-testid="dictation-plan-patient-confirm" />
-      <span>{props.patientWarnings[0]} Confirmo que es de {props.patientName}.</span>
-    </label>}
-    <div className="mt-3 space-y-2">
-      <PlanGroup title="Evolución" empty={props.evolution ? undefined : "El dictado no produjo una evolución."}>
-        {props.evolution && <PlanCheck row={{ key: "evo", label: props.evolution.title || "Evolución dictada", note: props.kindLabel ? `Tipo: ${props.kindLabel}` : undefined, checked: props.evolution.accepted, toggle: props.evolution.toggle }} />}
-      </PlanGroup>
-      <PlanGroup title="Odontograma" empty={props.teeth.length ? undefined : props.control ? "Sin cambios (control)." : "Sin cambios."}>
-        {props.teeth.map((row) => <PlanCheck key={row.key} row={row} />)}
-      </PlanGroup>
-      {props.policyNotes.length > 0 && <ul className="space-y-1 px-2 text-xs text-sky-950" data-testid="dictation-plan-policy">{props.policyNotes.map((note) => <li key={note}>· {note}</li>)}</ul>}
-      <PlanGroup title="Periodontograma" empty={props.perio.length ? undefined : "Sin cambios."}>
-        {props.perio.map((row) => <PlanCheck key={row.key} row={row} />)}
-      </PlanGroup>
-      <PlanGroup title="Cita" empty={props.appointments.length ? undefined : "Sin próxima cita en el dictado."}>
-        {props.appointments.map((row) => <div key={row.key}>
-          <PlanCheck row={row} />
-          <label className="ml-10 flex items-center gap-2 text-xs text-[#31575b]">Hora
-            <input type="time" step={300} className="h-10 rounded-md border bg-white px-2 text-base" value={row.time} onChange={(event) => row.setTime(event.target.value)} data-testid="dictation-plan-time" />
-            {!row.time && <span className="font-medium text-amber-800">falta la hora</span>}
-          </label>
-        </div>)}
-      </PlanGroup>
-      {groups.map((group) => <PlanGroup key={group} title={group === "Diagnóstico" ? "Diagnósticos" : group}>
-        {props.others.filter((row) => row.group === group).map((row) => <PlanCheck key={row.key} row={row} />)}
-      </PlanGroup>)}
-    </div>
-    {props.clarifications > 0 && <p className="mt-3 rounded-lg bg-amber-50 p-2 text-xs text-amber-950">{props.clarifications} aclaración(es) pendiente(s) más arriba. No bloquean: lo dudoso queda solo en la nota.</p>}
-    {props.error && !props.result && <p role="alert" className="mt-3 rounded-lg bg-rose-50 p-2 text-sm text-rose-950">{props.error}</p>}
-    {props.result && <p role="status" className={`mt-3 rounded-lg p-2 text-sm font-medium ${props.result.ok ? "bg-emerald-50 text-emerald-950" : "bg-rose-50 text-rose-950"}`} data-testid="dictation-plan-result">{props.result.ok ? "Incorporado a la ficha y releído." : "La relectura encontró diferencias: revisa abajo."}</p>}
-    <Button type="button" size="lg" className="mt-3 h-auto min-h-12 w-full whitespace-normal bg-[#087f83] text-base hover:bg-[#07676b]" disabled={props.saving || blocked || nothing || !!props.result?.ok} title={blocked ? "Confirma el paciente antes de guardar" : undefined} onClick={props.onConfirm} data-testid="dictation-plan-confirm">{props.saving ? "Incorporando y releyendo…" : props.result?.ok ? "Incorporado" : "Confirmar e incorporar"}</Button>
-    <button type="button" className="mt-2 w-full text-center text-xs font-medium text-[#087f83] underline" onClick={props.onDetails}>Revisar en detalle</button>
-  </section>;
-}
 
 function Decision({ value, onChange, disabled = false }: { value: "accepted" | "rejected"; onChange: (value: "accepted" | "rejected") => void; disabled?: boolean }) {
   return <div className="flex gap-2">
