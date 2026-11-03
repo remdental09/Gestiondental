@@ -2,11 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   chileToFdi,
+  answerLines,
   formatFdi,
   parseModelJson,
   planChartWrites,
   proposeFromTranscript,
   structureTranscript,
+  withAnswers,
   universalToFdi,
   validateProposal,
   verifyDictationSave,
@@ -24,6 +26,18 @@ test('FDI con punto y equivalencias chilena y universal no se cruzan', () => {
   assert.equal(universalToFdi(30), 46);
   assert.equal(formatFdi(chileToFdi(30)), '3.6');
   assert.equal(formatFdi(chileToFdi(19)), '4.6');
+});
+
+test('un diagnóstico sospechado no se codifica y pide confirmación clínica para reinterpretarlo', () => {
+  const proposal = structureTranscript('Se sospecha una posible pulpitis en pieza 20, pero no están todos los requisitos para confirmarla.');
+  assert.deepEqual(proposal.odontogram, []);
+  assert.doesNotMatch(proposal.evolution.body, /Diagnóstico\n.*CIE-11/);
+  assert.equal(proposal.clarifications.length, 1);
+  assert.match(proposal.clarifications[0], /¿El clínico confirma .*pulpitis.* como diagnóstico/);
+  assert.match(proposal.clarifications[0], /se volverá a interpretar con IA/);
+  const answered = withAnswers(proposal.transcript, answerLines([{ question: proposal.clarifications[0], answer: 'Confirmo pulpitis en FDI 4.5 como diagnóstico clínico' }]));
+  const reviewed = structureTranscript(answered);
+  assert.equal(reviewed.clarifications.some((item) => /Diagnóstico por confirmar/.test(item)), false);
 });
 
 test('separa caries por profundidad del estado general y conserva el relato', () => {

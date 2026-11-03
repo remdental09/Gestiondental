@@ -154,7 +154,9 @@ type CatalogDiagnosisTerm = { code: string; title: string; term: string; re: Reg
 const CATALOG_DIAGNOSIS_TERMS: CatalogDiagnosisTerm[] = ICD11_CATALOG.flatMap((entry) => {
   if (entry.kind !== "stem" || !entry.isLeaf || entry.code === "DA08.0") return [];
   const title = ICD11[entry.code]?.title ?? entry.title;
-  const variants = [...new Set([title, entry.title, ...entry.synonyms].map((name) => name.trim()).filter(Boolean))];
+  // «Boca seca» y «sequedad bucal» son síntomas referidos por el paciente, no diagnósticos.
+  // Mantenerlos como sinónimos de búsqueda manual, pero no autoetiquetar DA02.1 en una evolución.
+  const variants = [...new Set([title, entry.title, ...(entry.code === "DA02.1" ? [] : entry.synonyms)].map((name) => name.trim()).filter(Boolean))];
   return variants.flatMap((term) => {
     const words = fold(term).trim().split(/[^a-z0-9]+/).filter(Boolean);
     if (!words.length) return [];
@@ -231,6 +233,7 @@ export function diagnosisMatches(text: string): DiagnosisMatch[] {
   for (const candidate of CATALOG_DIAGNOSIS_TERMS) {
     const match = candidate.re.exec(t);
     if (!match) continue;
+    if ((candidate.code === "DA08.11" || candidate.code === "DA08.12") && !dentalContext(t)) continue;
     const start = match.index, end = start + match[0].length;
     // Si una regla clínica o una etiqueta sin código ya cubre la frase, conserva esa decisión más específica.
     if (overlaps(matchedRanges, start, end) || overlaps(uncodedRanges, start, end)) continue;

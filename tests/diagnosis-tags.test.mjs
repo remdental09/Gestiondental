@@ -73,6 +73,12 @@ test('conceptos sin código verificado quedan como etiquetas sin código', () =>
   assert.deepEqual(icd11FromText('gingivitis inducida por placa'), []);
 });
 
+test('boca seca referida no se convierte en xerostomía sin diagnóstico explícito', () => {
+  assert.deepEqual(codes('Refiere boca seca al despertar y sangrado al usar hilo dental.'), []);
+  assert.deepEqual(codes('Xerostomía diagnosticada'), ['DA02.1']);
+  assert.equal(searchDiagnoses('boca seca')[0].code, 'DA02.1');
+});
+
 test('caries radicular usa cemento y la caries pulpar sugiere un diagnóstico pulpar', () => {
   assert.equal(cariesIcd11('dentina_superficial', true).code, 'DA08.0&XA4KC7');
   assert.equal(cariesIcd11('pulpar', true).code, 'DA08.0&XA5B71');
@@ -110,7 +116,7 @@ test('la IA elige diagnósticos con cita; el código lo pone el catálogo', () =
 test('al guardar, la sección CIE-11 refleja solo las etiquetas confirmadas', () => {
   const body = `Examen\nPieza 2.6 pulpitis.\n\n${DIAGNOSES_HEADER}\nFDI 2.6: Pulpitis (CIE-11 DA09.0)`;
   assert.equal(finalizeEvolution(body, [], '').includes(DIAGNOSES_HEADER), true, 'sin lista se respeta la nota');
-  assert.equal(finalizeEvolution(body, [], '', []).includes(DIAGNOSES_HEADER), false, 'lista vacía: el profesional quitó todo');
-  const kept = finalizeEvolution(body, [], '', [{ id: 'a', tooth: 26, code: '', title: 'Gingivitis inducida por placa (biofilm)', label: '', evidence: '' }]);
+  assert.equal(finalizeEvolution(body, [], []).includes(DIAGNOSES_HEADER), false, 'lista vacía: el profesional quitó todo');
+  const kept = finalizeEvolution(body, [], [{ id: 'a', tooth: 26, code: '', title: 'Gingivitis inducida por placa (biofilm)', label: '', evidence: '' }]);
   assert.match(kept, /FDI 2\.6: Gingivitis inducida por placa \(biofilm\) \(sin código CIE-11\)/);
 });

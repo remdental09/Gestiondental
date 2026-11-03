@@ -1055,6 +1055,27 @@ function isDiagnosisSentence(sentence: string): boolean {
   return !DIAGNOSIS_DOUBT.test(plain) && diagnosisMatches(sentence).length > 0;
 }
 
+/** La duda clínica no se codifica; se convierte en una pregunta que vuelve al flujo de interpretación con IA. */
+function uncertainDiagnosisQuestion(sentence: string): string | null {
+  if (!DIAGNOSIS_DOUBT.test(fold(sentence))) return null;
+  const matches = diagnosisMatches(sentence);
+  if (!matches.length) return null;
+  const terms = [...new Set(matches.map((item) => item.term || item.title))];
+  const mentions = toothMentions(sentence).filter((item): item is Extract<Mention, { ok: true }> => item.ok);
+  const location = mentions.length === 1 ? ` en FDI ${formatFdi(mentions[0].tooth)}` : "";
+  return `Diagnóstico por confirmar: «${clip(sentence, 180)}». ¿El clínico confirma ${terms.join(" / ")}${location} como diagnóstico, o debe quedar solo como sospecha? Responde con la corrección; se volverá a interpretar con IA.`;
+}
+
+function diagnosisUncertaintyAnswered(sentence: string, transcript: string): boolean {
+  const source = normalizeEvidence(sentence);
+  return transcript.split(/\n+/).some((line) => {
+    if (!/^\s*Aclaraci[oó]n\s*:/iu.test(line)) return false;
+    const match = line.match(/^\s*Aclaraci[oó]n\s*:\s*(.+?):\s*(.+)$/iu);
+    if (!match?.[2].trim()) return false;
+    return source.includes(normalizeEvidence(match[1]));
+  });
+}
+
 /** Texto de la línea de un diagnóstico en la nota. */
 export function diagnosisLabel(item: Pick<DiagnosisItem, "tooth" | "code" | "title" | "findings" | "suggested">): string {
   const where = item.tooth ? `FDI ${formatFdi(item.tooth)}${item.findings ? ` ${item.findings}` : ""}: ` : item.findings ? `${item.findings}: ` : "";
@@ -1235,6 +1256,10 @@ export function structureTranscript(transcript: string, options: { today?: strin
     }
     // Un diagnóstico dictado queda como etiqueta para confirmar en la revisión: no hace falta el aviso.
     const taggedDiagnosis = isDiagnosisSentence(sentence);
+    if (!taggedDiagnosis && !/^\s*Aclaraci[oó]n\s*:/iu.test(sentence) && !diagnosisUncertaintyAnswered(sentence, transcript)) {
+      const question = uncertainDiagnosisQuestion(sentence);
+      if (question) clarifications.push(question);
+    }
     if (!taggedDiagnosis && /\b(?:epb|l[oö]e[\s-]?silness|aap[\s-]?efp|estadio|grado)\b/i.test(sentence) && /\b(?:periodon|sextante|epb|gingival)\b/i.test(sentence)) {
       clarifications.push("El dictado menciona tamizaje o clasificación periodontal. No se infiere diagnóstico ni se guarda el periodontograma.");
     }
@@ -1953,8 +1978,8 @@ La nota debe ordenar las ideas en una secuencia lógica y eliminar muletillas, r
 7) "periodonto": cada sondaje, sangrado o supuración dictado, con "pieza", "sistema", "sitio" (MV, V, DV, ML, L, DL o "" si no se dijo), "profundidad" en mm (-1 si no se dijo), "sangrado", "supuracion" (true solo si se dijo) y "evidencia" literal.
 8) "pagos": dinero que el paciente pagó o abonó HOY (no lo que debe). Si dice «la mitad», «50 %» o una fracción equivalente de un monto total único e inequívoco, calcula el monto abonado en "monto" y conserva la cita literal en "evidencia". El presupuesto mantiene su monto total original; el pago se registra como abono asociado. Si hay más de un total posible, no adivines: deja el pago pendiente de aclaración. Completa "medio" solo si se dictó (efectivo | debito | credito | transferencia | otro | ""), y "concepto" solo si aparece en la cita. No inventes método ni monto.
 9) "citas": la próxima cita o control que se dictó, con "motivo" ("" si no se dijo) y "evidencia" literal que contenga la fecha u hora tal como se dijo. No calcules la fecha.
-10) "diagnosticos": cada diagnóstico que el PROFESIONAL dictó hoy (no lo que el paciente relata, ni lo sospechado, probable, a descartar, negado o planificado), con "termino" (el diagnóstico tal como se dijo, p. ej. «pulpitis irreversible sintomática», «absceso apical crónico», «gingivitis inducida por placa», «periodontitis estadio III grado B»), "pieza" ("" si no se dijo) y "evidencia" literal que contenga el término. No pongas códigos: el sistema los asigna desde el catálogo CIE-11. Las caries ya van en hallazgos: no las repitas aquí.
-11) "dudas": solo dudas reales que el odontólogo deba resolver (un número que no es pieza válida, una autocorrección confusa, una cara que no corresponde). Pregunta por la pieza solo si el número no es válido en ningún sistema (sin etiqueta: 1 a 32 es chilena, 33 a 48 y 51 a 85 es FDI; p. ej. «pieza 39» o «pieza 50»): pregunta «¿Qué pieza?» sin suponer ninguna. «pieza 30» es chilena (FDI 3.6): no es una duda. No preguntes por lo que ya falta en pagos, citas o sondajes (medio de pago, hora, sitio): eso se pregunta aparte.
+10) "diagnosticos": cada diagnóstico que el PROFESIONAL dictó hoy (no lo que el paciente relata, ni lo sospechado, probable, a descartar, negado o planificado), con "termino" (el diagnóstico tal como se dijo, p. ej. «pulpitis irreversible sintomática», «absceso apical crónico», «gingivitis inducida por placa», «periodontitis estadio III grado B»), "pieza" ("" si no se dijo) y "evidencia" literal que contenga el término. No pongas códigos: el sistema los asigna desde el catálogo CIE-11. Elige el término clínico y código más específico que esté respaldado por las palabras del profesional; normaliza errores evidentes de reconocimiento solo cuando el contexto lo haga inequívoco. No conviertas síntomas («boca seca», «dolor al frío», «sangrado») en diagnósticos. Si se expresa que faltan criterios o no se puede distinguir entre diagnósticos, deja el diagnóstico vacío y formula una pregunta clínica concreta en «dudas». Las caries ya van en hallazgos: no las repitas aquí.
+11) "dudas": incluye dudas reales que el odontólogo deba resolver: además de números inválidos, autocorrecciones confusas o caras inciertas, pregunta cuando un término clínico esté mal reconocido o un diagnóstico sea posible/sospechado y el profesional diga que no hay criterios suficientes para confirmarlo. Cita brevemente la frase y pregunta qué término/diagnóstico confirma el clínico o qué dato permitiría distinguirlo. No propongas una respuesta como hecho ni asignes un código mientras no se aclare. Pregunta por la pieza solo si el número no es válido en ningún sistema (sin etiqueta: 1 a 32 es chilena, 33 a 48 y 51 a 85 es FDI; p. ej. «pieza 39» o «pieza 50»): pregunta «¿Qué pieza?» sin suponer ninguna. «pieza 30» es chilena (FDI 3.6): no es una duda. No preguntes por lo que ya falta en pagos, citas o sondajes (medio de pago, hora, sitio): eso se pregunta aparte.
 
 Las líneas que empiezan con «Aclaración:» son respuestas del profesional a preguntas anteriores; completan o corrigen lo dictado antes y tienen prioridad.
 

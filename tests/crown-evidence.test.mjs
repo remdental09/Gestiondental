@@ -12,6 +12,7 @@ test("an explicitly labeled FDI 1.2 is not Chilean tooth 12", () => {
 test("proposed, provisional, negated, or multi-tooth work is not projected", () => {
   for (const note of [
     "Pieza 12: se planifica corona definitiva de zirconio.",
+    "Pieza 12: se planifica instalar la corona definitiva de zirconio con cemento de ionómero.",
     "Pieza 12: corona provisoria de resina. Se cementa.",
     "Pieza 12: corona definitiva de zirconio. No se cementó.",
     "Pieza 12 y pieza 13: coronas definitivas de zirconio. Se cementa."

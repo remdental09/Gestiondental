@@ -21,7 +21,9 @@ export function cementedCrownFromEvolution(body: string): CrownEvidence | null {
     : code >= 25 && code <= 32 ? 30 + (code - 24) : null;
   if (!tooth) return null;
   const hasDefinitive = /\bcorona\b/i.test(body) || /\bpr[oó]tesis\s+fija\s+definitiva\b/i.test(body);
-  const hasPlacement = /\b(?:se\s+cement[aó]|se\s+instal[oó]|se\s+coloc[oó]|cement[oó])/i.test(body);
+  // No aceptar «cemento» como si fuera el verbo «cementó»: suele nombrar el material
+  // de una corona planificada («se instalará ... con cemento de ionómero»).
+  const hasPlacement = /(?<!\p{L})(?:se\s+(?:cementa|cementó|instala|instaló|coloca|colocó)|(?:queda|quedó)\s+cementada)(?!\p{L})/iu.test(body);
   const negated = /\b(?:no\s+se\s+cement[aó]|no\s+se\s+instal[oó]|no\s+se\s+coloc[oó]|sin\s+cementar)/i.test(body);
   if (!hasDefinitive || !hasPlacement || negated || (/\bprovisori[ao]\b/i.test(body) && !/\bdefinitiv[ao]\b/i.test(body))) return null;
   const material = /\b(?:zirconio|circonio)\b/i.test(body) ? "Zirconio"
