@@ -9,7 +9,7 @@
  * Un correo que no está en la lista recibe 401: nunca hereda el owner_id del titular.
  */
 export type ClinicOwner = { ownerId: string; name: string };
-export type OwnerConfig = { CLINIC_OWNERS?: string; ACCESS_ALLOWED_EMAIL?: string; CLINIC_OWNER_ID?: string };
+export type OwnerConfig = { CLINIC_OWNERS?: string; ACCESS_ALLOWED_EMAIL?: string; CLINIC_OWNER_ID?: string; CLINIC_OPEN_REGISTRATION?: string };
 export type OwnerResolution = { ok: true; owner: ClinicOwner } | { ok: false; status: 401 | 503 };
 
 const OWNER_ID = /^[A-Za-z0-9_.:@-]{8,200}$/;
@@ -52,12 +52,30 @@ export function resolveOwner(emailInput: string, config: OwnerConfig): OwnerReso
   const legacyOwner = config.CLINIC_OWNER_ID?.trim() || undefined;
   const owners = parseClinicOwners(config.CLINIC_OWNERS, { email: legacyEmail, ownerId: legacyOwner });
   if (owners === "invalid") return { ok: false, status: 503 };
-  if (!owners && !(legacyEmail && legacyOwner)) return { ok: false, status: 503 };
+  const openRegistration = config.CLINIC_OPEN_REGISTRATION?.trim().toLowerCase() === "true";
+  if (!owners && !(legacyEmail && legacyOwner) && !openRegistration) return { ok: false, status: 503 };
   if (!email) return { ok: false, status: 401 };
   const mapped = owners?.get(email);
   if (mapped) return { ok: true, owner: mapped };
   if (legacyEmail && legacyOwner && email === legacyEmail) return { ok: true, owner: { ownerId: legacyOwner, name: nameFromEmail(email) } };
   return { ok: false, status: 401 };
+}
+
+/**
+ * Permite crear un espacio aislado para cualquier correo que haya sido autenticado
+ * por Cloudflare Access, solo cuando el administrador activa CLINIC_OPEN_REGISTRATION.
+ * El ID determinista mantiene el mismo espacio en cada inicio de sesión sin guardar
+ * el correo como clave de partición.
+ */
+export async function resolveOwnerWithRegistration(emailInput: string, config: OwnerConfig): Promise<OwnerResolution> {
+  const resolved = resolveOwner(emailInput, config);
+  if (resolved.ok || resolved.status === 503 || config.CLINIC_OPEN_REGISTRATION?.trim().toLowerCase() !== "true") return resolved;
+
+  const email = emailInput.trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return { ok: false, status: 401 };
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("gestion-dental-owner-v1:" + email));
+  const ownerId = "email:" + Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
+  return { ok: true, owner: { ownerId, name: nameFromEmail(email) } };
 }
 
 /** Iniciales del botón de inicio: «Dr. Luis Rodríguez» → «LR». Sin nombre, «GD» (Gestión Dental). */
