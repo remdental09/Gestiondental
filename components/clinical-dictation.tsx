@@ -541,6 +541,20 @@ export function ClinicalDictation({
       }
       acceptedTeeth.push(next);
     }
+    const acceptedTargets = new Set<string>();
+    for (const item of acceptedTeeth) {
+      const target = item.kind === "surface" && item.surface
+        ? `surface:${item.tooth}:${item.surface}`
+        : `${item.kind}:${item.tooth}`;
+      if (acceptedTargets.has(target)) {
+        const where = item.kind === "surface" && item.surface
+          ? `la superficie ${surfaceLabel[item.surface]} de FDI ${formatFdi(item.tooth)}`
+          : `FDI ${formatFdi(item.tooth)}`;
+        setFormError(`Hay más de una propuesta aceptada para ${where}. Deja marcada solo una y vuelve a guardar.`);
+        return;
+      }
+      acceptedTargets.add(target);
+    }
     const acceptedBudgets: BudgetChange[] = [];
     for (const item of budgets) {
       if (item.decision !== "accepted") continue;

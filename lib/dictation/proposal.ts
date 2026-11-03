@@ -1892,7 +1892,7 @@ export const NOTE_SECTIONS = [
 export const AI_SYSTEM_PROMPT = `${DENTAL_DICTIONARY_HINTS}\n\nEres asistente de un odontólogo chileno. Recibes la transcripción literal de un dictado por voz (puede venir sin puntuación y con errores de reconocimiento). Devuelves SOLO JSON con el esquema pedido.
 
 1) "nota": redacta una evolución odontológica profesional, clara y concisa, en español clínico de Chile y en tercera persona. Esta es una RE-REDACCIÓN CLÍNICA, no una transcripción corregida palabra por palabra: transforma activamente el habla cotidiana, las abreviaciones y las expresiones coloquiales en lenguaje odontológico natural. La nota final no debe sonar a dictado ni conservar frases como «muela», «bien grande», «arreglarla», «capaz», «se ve» o «se va bien» cuando exista una formulación clínica inequívoca. Conserva todos los hechos, su temporalidad, negaciones y grado de certeza; profesionalizar la expresión no autoriza a inventar hallazgos ni diagnósticos.
-Equivalencias de estilo: «le duele con frío» → «refiere dolor provocado por frío» (sin inferir diagnóstico pulpar); «muela 3.6» → «pieza 3.6» (sin cambiar su numeración); «caries bien grande» → «lesión cariosa extensa»; «caries dentinaria superficial» → «lesión cariosa dentinaria superficial» (conserva esa profundidad; nunca la conviertas en «terminal superficial» ni agregues una cara no dictada); «parece profunda» → «aparentemente profunda» (sin afirmar compromiso pulpar); «arreglarla» → «realizar tratamiento restaurador» solo cuando ese plan se desprenda claramente del dictado; «capaz va a endodoncia» → «se considerará tratamiento endodóntico», manteniendo el carácter condicional; «se hace destartraje supra y subgingival en los seis grupos» → «Se realiza destartraje supragingival y subgingival en los seis grupos»; «se va bien» → «finaliza la atención en buenas condiciones» si eso es lo que expresa el contexto. Usa «se observa» en lugar de «se ve» cuando se trate de un hallazgo clínico.
+Equivalencias de estilo: «le duele con frío» → «refiere dolor provocado por frío» (sin inferir diagnóstico pulpar); «muela 3.6» → «pieza 3.6» (sin cambiar su numeración); «compósito/composito» → «composite» y «restauración de composite» o «restauración de resina compuesta» (elige una sola forma; no las dupliques); «caries bien grande» → «lesión cariosa extensa»; «caries dentinaria superficial» → «lesión cariosa dentinaria superficial» (conserva esa profundidad; nunca la conviertas en «terminal superficial» ni agregues una cara no dictada); «parece profunda» → «aparentemente profunda» (sin afirmar compromiso pulpar); «arreglarla» → «realizar tratamiento restaurador» solo cuando ese plan se desprenda claramente del dictado; «capaz va a endodoncia» → «se considerará tratamiento endodóntico», manteniendo el carácter condicional; «se hace destartraje supra y subgingival en los seis grupos» → «Se realiza destartraje supragingival y subgingival en los seis grupos»; «se va bien» → «finaliza la atención en buenas condiciones» si eso es lo que expresa el contexto. Usa «se observa» en lugar de «se ve» cuando se trate de un hallazgo clínico.
 Si la ubicación se expresa con palabras ambiguas como «por arriba», no la conviertas automáticamente en cara oclusal ni en otra superficie: redacta el hallazgo sin asignar una cara y pregunta en «dudas» si esa ubicación es clínicamente relevante.
 Ejemplo de estilo para este tipo de dictado:
 Dictado informal: «Paciente viene a control. Le duele con frío la muela 3.6. Se ve una caries bien grande por arriba y parece que está profunda. Se conversa que primero hay que arreglarla y ver si aguanta; si no, capaz va a endodoncia. Se hace destartraje supra y subgingival en los seis grupos. Paciente se va bien».
@@ -2161,6 +2161,24 @@ function resolveAiTooth(pieza: string, sistema: string, evidence: string): Menti
   return { ok: false, reason: `La IA propuso la pieza «${raw || "sin número"}», pero la cita no la contiene: «${clip(evidence, 120)}».` };
 }
 
+
+/** Amplía una cita breve a su frase original solo cuando esta cita y una única pieza explícita aparecen juntas. */
+function quoteEvidenceWithPiece(evidence: string, pieza: string, sistema: string, transcript: string): string {
+  const raw = pieza.trim().replace(/^(?:pieza|diente)\s+/i, "");
+  if (!raw) return evidence;
+  let expected: Mention | null = null;
+  if (/^\d{1,2}(?:\.\d)?$/.test(raw)) expected = interpretTooth(raw, sistema || undefined);
+  else expected = toothMentions(`pieza ${raw}`)[0] ?? null;
+  if (!expected?.ok) return evidence;
+
+  for (const candidate of transcript.split(/\n+|(?<=[.!?;])\s+/u).map((part) => part.trim()).filter(Boolean)) {
+    if (!evidenceInTranscript(evidence, candidate)) continue;
+    const mentions = toothMentions(candidate);
+    if (mentions.length === 1 && mentions[0].ok && mentions[0].tooth === expected.tooth) return candidate;
+  }
+  return evidence;
+}
+
 /** Segmento de la cita que habla de la pieza indicada, para no tomar caras ni hallazgos de la pieza vecina. */
 function segmentFor(evidence: string, tooth: number): string {
   const parts = sentences(evidence);
@@ -2189,6 +2207,14 @@ function answerContext(evidence: string, transcript: string): string {
 }
 
 /** Si el odontólogo dijo «dentinaria superficial», repara la sustitución inválida del modelo por «terminal». */
+/** Normaliza la denominación del material restaurador sin duplicar sinónimos. */
+function normalizeCompositeTerm(value: string): string {
+  return value
+    .replace(/\bcomp[oó]sito(s)?\b/giu, (match, plural: string | undefined) => `${/^[A-ZÁÉÍÓÚ]/u.test(match) ? "C" : "c"}omposite${plural ? "s" : ""}`)
+    .replace(/\bcomposite\s+o\s+resina\s+compuesta\b/giu, "resina compuesta")
+    .replace(/\bresina\s+compuesta\s+o\s+composite\b/giu, "resina compuesta");
+}
+
 function preserveDentinariaSuperficial(text: string, transcript: string): string {
   if (!/\b(?:dentina|dentinaria)\s+superficial\b/u.test(normalizeEvidence(transcript))) return text;
   return text
@@ -2213,7 +2239,7 @@ export function validateAiExtraction(input: unknown, transcript: string, options
   // Nota
   const nota = record.nota as Record<string, unknown>;
   for (const [key, value] of Object.entries(nota)) {
-    if (typeof value === "string") nota[key] = preserveDentinariaSuperficial(value, transcript);
+    if (typeof value === "string") nota[key] = normalizeCompositeTerm(preserveDentinariaSuperficial(value, transcript));
   }
   // Una negación explícita de un procedimiento pendiente no puede desaparecer en la redacción.
   // Se repone literalmente desde el dictado, sin inferir fecha, pieza ni motivo.
@@ -2245,6 +2271,7 @@ export function validateAiExtraction(input: unknown, transcript: string, options
       reject(`La IA propuso «${what || "hallazgo"}» en pieza ${pieza || "?"} sin una cita literal del dictado. No se aplicó.`);
       continue;
     }
+    evidence = quoteEvidenceWithPiece(evidence, pieza, str(item.sistema), transcript);
     evidence = answerContext(evidence, transcript);
     const mention = resolveAiTooth(pieza, str(item.sistema), evidence);
     if (!mention.ok) { reject(mention.reason); continue; }
@@ -2371,8 +2398,10 @@ export function validateAiExtraction(input: unknown, transcript: string, options
     const item = raw as Record<string, unknown>;
     let evidence = str(item.evidencia, 400);
     if (!evidence || !evidenceInTranscript(evidence, transcript)) { reject(`Sondaje propuesto sin cita literal del dictado. No se anotó.`); continue; }
+    const pieza = str(item.pieza, 40);
+    evidence = quoteEvidenceWithPiece(evidence, pieza, str(item.sistema), transcript);
     evidence = answerContext(evidence, transcript);
-    const mention = resolveAiTooth(str(item.pieza, 40), str(item.sistema), evidence);
+    const mention = resolveAiTooth(pieza, str(item.sistema), evidence);
     if (!mention.ok) { reject(mention.reason); continue; }
     const segment = segmentFor(evidence, mention.tooth);
     const reading = perioReading(segment);
@@ -2448,8 +2477,10 @@ export function validateAiExtraction(input: unknown, transcript: string, options
     if (!raw || typeof raw !== "object") continue;
     const item = raw as Record<string, unknown>;
     const term = str(item.termino, 120);
-    const evidence = str(item.evidencia, 400);
+    let evidence = str(item.evidencia, 400);
     if (!term || !evidence || !evidenceInTranscript(evidence, transcript)) continue;
+    const pieza = str(item.pieza, 40);
+    evidence = quoteEvidenceWithPiece(evidence, pieza, "", transcript);
     // Ni relatos del paciente, ni planes, ni negaciones, ni sospechas.
     if (isPatient(evidence) || isPlan(evidence) || isNegatedFinding(evidence) || DIAGNOSIS_DOUBT.test(fold(evidence))) continue;
     const mapped = diagnosisFromTerm(term);
@@ -2457,7 +2488,6 @@ export function validateAiExtraction(input: unknown, transcript: string, options
     // El concepto debe estar en la cita: literal, o reconocido por las reglas en ella.
     const said = normalizeEvidence(evidence).includes(normalizeEvidence(term)) || diagnosisMatches(evidence).some((m) => m.code === mapped.code && m.title === mapped.title);
     if (!said) continue;
-    const pieza = str(item.pieza, 40);
     const mention = pieza ? resolveAiTooth(pieza, "", evidence) : toothMentions(evidence).find((m) => m.ok);
     const tooth = mention && mention.ok ? mention.tooth : undefined;
     if (diagnoses.some((done) => done.code === mapped.code && done.title === mapped.title && done.tooth === tooth)) continue;
@@ -2515,7 +2545,7 @@ function procedureTextMatches(source: string, candidate: string): boolean {
 }
 
 function professionalizeProcedureText(value: string): string {
-  let text = value.replace(/\s+/g, " ").trim();
+  let text = normalizeCompositeTerm(value.replace(/\s+/g, " ").trim());
   text = text
     .replace(/^se hace\b/i, "Se realiza")
     .replace(/^se efectu[oó]\b/i, "Se realizó")
@@ -2601,8 +2631,36 @@ function completeDischargeCondition(body: string, localBody: string): string {
 }
 
 function mergeProposals(ai: AiExtraction, local: DictationProposal, transcript: string): DictationProposal {
-  const odontogram: OdontogramChange[] = ai.odontogram.map((item) => ({ ...item }));
+  const odontogram: OdontogramChange[] = [];
   const clarifications = [...ai.clarifications];
+  const conflicts = new Set<string>();
+  for (const candidate of ai.odontogram) {
+    const same = odontogram.find((item) => sameFinding(item, candidate));
+    if (same) {
+      if (same.origin && candidate.origin) same.origin = originUnion(same.origin, candidate.origin);
+      else same.origin = same.origin ?? candidate.origin;
+      if (!same.material && candidate.material) same.material = candidate.material;
+      if (!same.shade && candidate.shade) same.shade = candidate.shade;
+      continue;
+    }
+    const rivals = odontogram.filter((item) => collides(item, candidate));
+    if (rivals.length) {
+      for (const item of rivals) item.conflict = true;
+      odontogram.push({ ...candidate, conflict: true });
+      const key = candidate.kind === "surface"
+        ? `surface:${candidate.tooth}:${candidate.surface}`
+        : `${candidate.kind}:${candidate.tooth}`;
+      if (!conflicts.has(key)) {
+        conflicts.add(key);
+        const location = candidate.kind === "surface" && candidate.surface
+          ? `la superficie ${candidate.surface}`
+          : candidate.kind === "crown" ? "la corona" : "el estado general";
+        clarifications.push(`La IA entregó propuestas incompatibles para ${location} de FDI ${formatFdi(candidate.tooth)}. Elige una antes de guardar.`);
+      }
+      continue;
+    }
+    odontogram.push({ ...candidate });
+  }
   for (const rule of local.odontogram) {
     const same = odontogram.find((item) => item.origin !== "reglas" && sameFinding(item, rule));
     if (same) {
@@ -3163,6 +3221,7 @@ export function verifyDictationSave(input: {
     const expected = acceptedStatus.get(tooth) ?? statusOf(input.before, tooth);
     if (actual !== expected) errors.push(`FDI ${formatFdi(tooth)} quedó «${actual}» y se esperaba «${expected}».`);
   }
+  const checkedSurfaces = new Map<string, string>();
   for (const item of input.accepted) {
     if (item.kind === "crown" && item.material) {
       const crown = chart.crowns?.[item.tooth];
@@ -3170,6 +3229,18 @@ export function verifyDictationSave(input: {
       else messages.push(`Corona FDI ${formatFdi(item.tooth)}: ${item.material}.`);
     }
     if (item.kind === "surface" && item.surface && item.finding) {
+      const key = `${item.tooth}:${item.surface}`;
+      const signature = [item.finding.condition, item.finding.depth ?? "", item.finding.icdas ?? "", item.finding.activity ?? ""].join(":");
+      const previous = checkedSurfaces.get(key);
+      if (previous === "conflict") continue;
+      if (previous !== undefined) {
+        if (previous !== signature) {
+          checkedSurfaces.set(key, "conflict");
+          errors.push(`Hay más de una propuesta aceptada para la superficie ${item.surface} de FDI ${formatFdi(item.tooth)}. Elige una sola.`);
+        }
+        continue;
+      }
+      checkedSurfaces.set(key, signature);
       const actual = chart.surfaces?.[item.tooth]?.[item.surface];
       if (!actual || actual.condition !== item.finding.condition || (actual.depth ?? null) !== (item.finding.depth ?? null) || (actual.icdas ?? null) !== (item.finding.icdas ?? null) || (actual.activity ?? null) !== (item.finding.activity ?? null)) {
         errors.push(`La superficie ${item.surface} de FDI ${formatFdi(item.tooth)} no coincide al releer.`);

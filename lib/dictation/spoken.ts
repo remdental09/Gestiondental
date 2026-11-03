@@ -338,6 +338,7 @@ const LEXICON: Array<[RegExp, string]> = [
   [/\bbestibular\b/gi, "vestibular"],
   [/\bcarie\b/gi, "caries"],
   [/\bcaris\b/gi, "caries"],
+  [/\bcomp[oó]sito(s)?\b/gi, "composite$1"],
   // Periodoncia: el reconocimiento suele separar «destartraje» en «de estar traje».
   [/\bde\s+estar\s+traje(s)?\b/gi, "destartraje$1"],
   [/\bdeestartraje(s)?\b/gi, "destartraje$1"],
