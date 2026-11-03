@@ -10,6 +10,7 @@ import { getDb } from "@/db";
 import { appointments, budgets, calendarEvents, clinicalImages, evolutionDiagnoses, evolutions, patients, payments, periodontalExams, toothStatuses } from "@/db/schema";
 import { sanitizeDiagnosisTags } from "@/lib/evolution-diagnoses";
 import type { OdontogramData, OdontogramSurface, SurfaceFinding } from "@/app/clinical-data";
+import { appendToothHistory, toothHistorySnapshot } from "@/app/odontogram-history";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -89,11 +90,12 @@ const normalizeOdontogram = (raw: unknown): OdontogramData => {
   const missingReason = source.missingReason && typeof source.missingReason === "object" && !Array.isArray(source.missingReason) ? { ...(source.missingReason as OdontogramData["missingReason"]) } : {};
   for (const [key,value] of Object.entries(source)) if (/^\d{2}$/.test(key) && typeof value === "string") teeth[Number(key)] = value;
   const crowns = source.crowns && typeof source.crowns === "object" && !Array.isArray(source.crowns) ? { ...(source.crowns as NonNullable<OdontogramData["crowns"]>) } : {};
+  const history = Array.isArray(source.history) ? source.history as NonNullable<OdontogramData["history"]> : [];
   for (const value of Object.values(crowns)) {
     if (!value || typeof value !== "object") continue;
     if (value.foundation !== "implant" && value.foundation !== "tooth") delete value.foundation;
   }
-  return { teeth, surfaces, missingReason, crowns };
+  return { teeth, surfaces, missingReason, crowns, history };
 };
 const normalizePerio = (raw: unknown) => {
   const source = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string,unknown> : {};
@@ -289,7 +291,7 @@ export async function POST(request: Request) {
       }
       const [n] = await db.insert(evolutions).values({ ownerId, patientId, clinicalDate, recordedAt: t, title, body, requestId, backupStatus: "not_configured" }).returning();
       let chart;
-      try { chart = await syncInstalledImplants(ownerId, patientId, body, t); }
+      try { chart = await syncInstalledImplants(ownerId, patientId, body, t, n.id, clinicalDate); }
       catch { chart = { updatedTeeth: [], odontogram: null, warning: "Evolución guardada; revisa el odontograma, cuya actualización no pudo verificarse." }; }
       return Response.json({ note: { id: n.id, patientId, date: displayDate(clinicalDate), clinicalDate, recordedAt: t, title, body, backupStatus: n.backupStatus }, chart }, { status: 201 });
     }
@@ -315,7 +317,7 @@ export async function POST(request: Request) {
       } else await annul;
       let chart;
       if (replacement) {
-        try { chart = await syncInstalledImplants(ownerId, patientId, replacementBody, t); }
+        try { chart = await syncInstalledImplants(ownerId, patientId, replacementBody, t, replacement.id, replacement.clinicalDate); }
         catch { chart = { updatedTeeth: [], odontogram: null, warning: "Evolución guardada; revisa el odontograma, cuya actualización no pudo verificarse." }; }
       }
       return Response.json({
@@ -343,7 +345,7 @@ export async function POST(request: Request) {
       } else await db.batch([removeTags, removeNote]);
       let chart;
       if (replacement) {
-        try { chart = await syncInstalledImplants(ownerId, patientId, replacementBody, t); }
+        try { chart = await syncInstalledImplants(ownerId, patientId, replacementBody, t, replacement.id, replacement.clinicalDate); }
         catch { chart = { updatedTeeth: [], odontogram: null, warning: "Evolución guardada; revisa el odontograma, cuya actualización no pudo verificarse." }; }
       }
       return Response.json({
@@ -371,7 +373,7 @@ export async function POST(request: Request) {
       if (!Number.isSafeInteger(evolutionId) || evolutionId <= 0) return error("Evolución inválida.");
       const [note] = await db.select().from(evolutions).where(and(eq(evolutions.id, evolutionId), eq(evolutions.patientId, patientId), eq(evolutions.ownerId, ownerId))).limit(1);
       if (!note) return error("Evolución no encontrada en esta ficha.", 404);
-      const chart = await syncInstalledImplants(ownerId, patientId, note.body, note.recordedAt);
+      const chart = await syncInstalledImplants(ownerId, patientId, note.body, note.recordedAt, note.id, note.clinicalDate);
       return Response.json({ chart });
     }
     if (action === "addBudget") {
@@ -440,11 +442,14 @@ export async function POST(request: Request) {
       if (!Number.isSafeInteger(tooth) || !allowedTeeth.has(tooth) || !["Sin hallazgos", "Implante", "Implante con pilar", "Corona", "Ausente", "Indicación de exodoncia", "Resto radicular con endodoncia"].includes(status)) return error("Estado dental inválido.");
       const [old] = await db.select().from(toothStatuses).where(and(eq(toothStatuses.ownerId, ownerId), eq(toothStatuses.patientId, patientId)));
       const data = normalizeOdontogram(old ? JSON.parse(old.data) : {});
+      const before = toothHistorySnapshot(data, tooth);
       if (status === "Sin hallazgos") delete data.teeth[tooth];
       else data.teeth[tooth] = status;
       if (status === "Corona" && data.crowns?.[tooth]) data.crowns[tooth] = { ...data.crowns[tooth], foundation: "tooth" };
       else if (!(status === "Implante" && data.crowns?.[tooth]?.foundation === "implant")) delete data.crowns?.[tooth];
-      await db.insert(toothStatuses).values({ ownerId, patientId, data: JSON.stringify(data), updatedAt: now() }).onConflictDoUpdate({ target: toothStatuses.patientId, set: { data: JSON.stringify(data), updatedAt: now() } });
+      const updatedAt = now();
+      appendToothHistory(data, tooth, "status", before, { recordedAt: updatedAt, source: "manual", title: status === "Sin hallazgos" ? "Estado registrado: sin hallazgos" : `Estado actualizado: ${status}` });
+      await db.insert(toothStatuses).values({ ownerId, patientId, data: JSON.stringify(data), updatedAt }).onConflictDoUpdate({ target: toothStatuses.patientId, set: { data: JSON.stringify(data), updatedAt } });
       return Response.json({ odontogram: data });
     }
     if (action === "setCrownDetails") {
@@ -453,6 +458,7 @@ export async function POST(request: Request) {
       if (!Number.isSafeInteger(tooth) || !allowedTeeth.has(tooth) || (material && !["Zirconio","Disilicato","Metal cerámica","Resina","Otro"].includes(material)) || (shade && !/^[A-D][1-4](?:\.5)?$/i.test(shade))) return error("Revisa la pieza y el material de la corona.");
       const [old] = await db.select().from(toothStatuses).where(and(eq(toothStatuses.ownerId, ownerId), eq(toothStatuses.patientId, patientId))).limit(1);
       const data = normalizeOdontogram(old ? JSON.parse(old.data) : {});
+      const before = toothHistorySnapshot(data, tooth);
       const foundation = requested ?? (data.teeth[tooth] === "Implante" || data.teeth[tooth] === "Implante con pilar" ? "implant" : "tooth");
       // Una corona sobre un implante con pilar lo deja como implante con corona (Implante + corona sobre implante).
       if (foundation === "implant" && data.teeth[tooth] === "Implante con pilar") data.teeth[tooth] = "Implante";
@@ -461,6 +467,7 @@ export async function POST(request: Request) {
       if (!material && foundation !== "implant") return error("Revisa la pieza y el material de la corona.");
       data.crowns![tooth] = { material: material || data.crowns?.[tooth]?.material || "", shade: shade || null, source: "manual", foundation };
       const updatedAt = now();
+      appendToothHistory(data, tooth, "crown", before, { recordedAt: updatedAt, source: "manual", title: foundation === "implant" ? "Corona sobre implante" : "Corona sobre diente" });
       await db.insert(toothStatuses).values({ ownerId, patientId, data: JSON.stringify(data), updatedAt }).onConflictDoUpdate({ target: toothStatuses.patientId, set: { data: JSON.stringify(data), updatedAt } });
       const [verified] = await db.select({ data: toothStatuses.data }).from(toothStatuses).where(and(eq(toothStatuses.ownerId, ownerId), eq(toothStatuses.patientId, patientId))).limit(1);
       const confirmed = verified ? normalizeOdontogram(JSON.parse(verified.data)).crowns?.[tooth] : null;
@@ -473,8 +480,11 @@ export async function POST(request: Request) {
       const [old] = await db.select().from(toothStatuses).where(and(eq(toothStatuses.ownerId, ownerId), eq(toothStatuses.patientId, patientId)));
       const data = normalizeOdontogram(old ? JSON.parse(old.data) : {});
       if (!data.teeth[tooth] || !["Ausente","Indicación de exodoncia"].includes(data.teeth[tooth])) return error("Primero registra la pieza como ausente o indicada para exodoncia.");
+      const before = toothHistorySnapshot(data, tooth);
       data.missingReason[tooth] = reason as "caries"|"other"|"unknown";
-      await db.insert(toothStatuses).values({ ownerId, patientId, data: JSON.stringify(data), updatedAt: now() }).onConflictDoUpdate({ target: toothStatuses.patientId, set: { data: JSON.stringify(data), updatedAt: now() } });
+      const updatedAt = now();
+      appendToothHistory(data, tooth, "missing_reason", before, { recordedAt: updatedAt, source: "manual", title: `Causa de ausencia: ${reason}` });
+      await db.insert(toothStatuses).values({ ownerId, patientId, data: JSON.stringify(data), updatedAt }).onConflictDoUpdate({ target: toothStatuses.patientId, set: { data: JSON.stringify(data), updatedAt } });
       return Response.json({ odontogram: data });
     }
     if (action === "setToothSurface") {
@@ -494,8 +504,11 @@ export async function POST(request: Request) {
       const [old] = await db.select().from(toothStatuses).where(and(eq(toothStatuses.ownerId, ownerId), eq(toothStatuses.patientId, patientId)));
       const data = normalizeOdontogram(old ? JSON.parse(old.data) : {});
       if (["Ausente","Implante","Implante con pilar"].includes(data.teeth[tooth]??"")) return error("No se registran superficies dentarias en dientes ausentes o implantes.");
+      const before = toothHistorySnapshot(data, tooth);
       data.surfaces[tooth] = { ...(data.surfaces[tooth]??{}), [surface as OdontogramSurface]: normalized };
-      await db.insert(toothStatuses).values({ ownerId, patientId, data: JSON.stringify(data), updatedAt: now() }).onConflictDoUpdate({ target: toothStatuses.patientId, set: { data: JSON.stringify(data), updatedAt: now() } });
+      const updatedAt = now();
+      appendToothHistory(data, tooth, "surface", before, { recordedAt: updatedAt, source: "manual", surface: surface as OdontogramSurface, title: `Hallazgo actualizado en cara ${surface}` });
+      await db.insert(toothStatuses).values({ ownerId, patientId, data: JSON.stringify(data), updatedAt }).onConflictDoUpdate({ target: toothStatuses.patientId, set: { data: JSON.stringify(data), updatedAt } });
       return Response.json({ odontogram: data });
     }
     return error("Acción no reconocida.");

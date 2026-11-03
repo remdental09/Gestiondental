@@ -211,7 +211,7 @@ export function Tooth3DStage({ tooth, status, surfaces, hasCrown, reducedMotion,
     return () => { disposed = true; release(); };
   }, [tooth, status, surfaces, hasCrown, reducedMotion, surfaceKey, viewKey, periodontalKey, showPeriodontium]);
 
-  return <div className="relative h-[min(52vh,420px)] min-h-64 w-full overflow-hidden rounded-xl bg-[#eef5f4]">
+  return <div className="relative h-[min(42vh,360px)] min-h-56 w-full overflow-hidden rounded-xl bg-[#eef5f4]">
     <canvas ref={canvasRef} className="h-full w-full touch-none" aria-label="Diente tridimensional. Arrastra para girar." />
     {error && <p role="alert" className="absolute inset-0 flex items-center justify-center p-6 text-center text-sm text-[#7a3038]">{error}</p>}
   </div>;

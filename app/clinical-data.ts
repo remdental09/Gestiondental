@@ -58,14 +58,36 @@ export type CrownDetails = {
   /** tooth: corona sobre diente natural. implant: prótesis fija sobre implante. Ausente en fichas antiguas: diente natural. */
   foundation?: "tooth" | "implant";
 };
+export type ToothHistorySnapshot = {
+  status: string;
+  surfaces: Partial<Record<OdontogramSurface, SurfaceFinding>>;
+  missingReason: "caries" | "other" | "unknown" | null;
+  crown: CrownDetails | null;
+};
+export type ToothHistoryEvent = {
+  id: string;
+  tooth: number;
+  recordedAt: string;
+  clinicalDate?: string;
+  eventType: "status" | "surface" | "crown" | "missing_reason" | "evolution" | "diagnosis";
+  source?: "manual" | "evolution";
+  sourceEvolutionId?: number;
+  surface?: OdontogramSurface;
+  title?: string;
+  detail?: string;
+  before?: ToothHistorySnapshot | null;
+  after?: ToothHistorySnapshot | null;
+};
 export type OdontogramData = {
   teeth: Record<number, string>;
   surfaces: Record<number, Partial<Record<OdontogramSurface, SurfaceFinding>>>;
   missingReason: Record<number, "caries" | "other" | "unknown">;
   crowns?: Record<number, CrownDetails>;
+  /** Historial append-only de cambios del odontograma, cuando está disponible. */
+  history?: ToothHistoryEvent[];
 };
 
-export const emptyOdontogram = (): OdontogramData => ({ teeth: {}, surfaces: {}, missingReason: {}, crowns: {} });
+export const emptyOdontogram = (): OdontogramData => ({ teeth: {}, surfaces: {}, missingReason: {}, crowns: {}, history: [] });
 export type ClinicalImage = {
   id: number;
   patientId: number;

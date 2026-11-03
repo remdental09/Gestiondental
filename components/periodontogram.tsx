@@ -3,7 +3,7 @@ import { useState, type MouseEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Tooth3DModal } from "@/components/tooth-3d-modal";
 import { Input } from "@/components/ui/input";
-import { EPB_SEXTANTS, formatFdi, GINGIVAL_INDEX_SITES, PERIO_SITES, type EPBCode, type GingivalIndexSiteKey, type PerioExam, type PerioReading, type PerioSiteKey, type PerioTooth, summarizePerio } from "@/app/clinical-data";
+import { EPB_SEXTANTS, formatFdi, GINGIVAL_INDEX_SITES, PERIO_SITES, type EPBCode, type GingivalIndexSiteKey, type PerioExam, type PerioReading, type PerioSiteKey, type PerioTooth, summarizePerio, type ToothHistoryEvent } from "@/app/clinical-data";
 
 const teeth = [18,17,16,15,14,13,12,11,21,22,23,24,25,26,27,28,48,47,46,45,44,43,42,41,31,32,33,34,35,36,37,38];
 const arches = [{ label: "Maxilar", teeth: teeth.slice(0,16) }, { label: "Mandíbula", teeth: teeth.slice(16) }];
@@ -31,7 +31,7 @@ function PeriodontalTooth({tooth, data, selected, excluded, outerSites, outerAtT
   </button>;
 }
 
-export function Periodontogram({exams,onSave,toothStatuses}:{exams:PerioExam[];onSave:(exam:PerioExam)=>Promise<void>;toothStatuses:Record<number,string>}) {
+export function Periodontogram({exams,onSave,toothStatuses,toothHistory=[]}:{exams:PerioExam[];onSave:(exam:PerioExam)=>Promise<void>;toothStatuses:Record<number,string>;toothHistory?:ToothHistoryEvent[]}) {
   const [tooth,setTooth]=useState(16);
   const [viewer,setViewer]=useState<Viewer|null>(null);
   const [showLatest,setShowLatest]=useState(true);
@@ -74,7 +74,7 @@ export function Periodontogram({exams,onSave,toothStatuses}:{exams:PerioExam[];o
     </section>
     <div className="flex flex-wrap gap-2"><Button type="button" className="bg-[#087f83] hover:bg-[#07676b]" onClick={save} disabled={!dirty||saving}>{saving?"Guardando…":"Guardar examen periodontal"}</Button><Button type="button" variant="outline" onClick={startNew}>Nuevo examen</Button></div>{message&&<p role="status" className="text-sm text-[#31575b]">{message}</p>}
     <details className="rounded-xl border border-[#e4ebed] p-4"><summary className="cursor-pointer text-sm font-semibold">Cómo leer los índices y las alertas</summary><div className="mt-2 space-y-2 text-sm leading-6 text-[#60757a]"><p>EPB MINSAL: código máximo por sextante; 0–4 y * siguen los criterios nacionales de profundidad, sangrado, cálculo y furcación. El código * requiere examen completo. El EPB es tamizaje, no diagnóstico.</p><p>Índice gingival MINSAL: 0 normal, 1 inflamación leve, 2 moderada, 3 severa; promedio 0,1–1 leve, 1,1–2 moderada y 2,1–3 severa. Se calcula sólo con sitios puntuados.</p><p>El registro completo guarda profundidad, margen gingival, inserción clínica calculada, sangrado, supuración, movilidad y furcación. Las piezas ausentes e implantes no se confunden con dientes en el examen periodontal.</p><p>La clasificación AAP/EFP de estadio/grado requiere criterio profesional y antecedentes que esta pantalla no calcula.</p><p>Referencias: <a className="underline" target="_blank" rel="noopener noreferrer" href="https://diprece.minsal.cl/wrdprss_minsal/wp-content/uploads/2017/09/Orientaciones-T%C3%A9cnicas-para-la-prevenci%C3%B3n-y-tratamiento-de-las-enfermedades-gingivales-y-periodontales.pdf">Orientaciones MINSAL 2017</a> · <a className="underline" target="_blank" rel="noopener noreferrer" href="https://www.periodontalcare.sdcep.org.uk/guidance/assessment/special-tests/full-periodontal-examination/what-should-be-recorded/periodontal-parameters/">registro periodontal completo de seis sitios</a> · <a className="underline" target="_blank" rel="noopener noreferrer" href="https://www.perio.org/research-science/2017-classification-of-periodontal-and-peri-implant-diseases-and-conditions/">clasificación AAP/EFP 2017</a>.</p></div></details>
-    {viewer&&<Tooth3DModal tooth={viewer.tooth} status={toothStatuses[viewer.tooth]??""} surfaces={noSurfaces} hasCrown={false} origin={viewer.origin} onClose={()=>setViewer(null)} returnFocusTo={viewer.trigger} periodontalSites={displayTooth(viewer.tooth).sites}/>}
+    {viewer&&<Tooth3DModal tooth={viewer.tooth} status={toothStatuses[viewer.tooth]??""} surfaces={noSurfaces} hasCrown={false} origin={viewer.origin} onClose={()=>setViewer(null)} returnFocusTo={viewer.trigger} periodontalSites={displayTooth(viewer.tooth).sites} periodontalHistory={exams} toothHistory={toothHistory}/>}
     {exams.length>1&&<div><h4 className="font-semibold">Historial de exámenes</h4><ul className="mt-2 space-y-2 text-sm text-[#53686e]">{exams.map(e=>{const summary=summarizePerio(e);return <li key={e.id} className="rounded-lg border border-[#e5eced] p-3">{formatDate(e.recordedAt)} · {summary.measured} sitios sondados · {summary.gingivalAverage!==null?`IG ${summary.gingivalAverage.toFixed(2)}`:"IG sin registrar"}</li>})}</ul></div>}
   </div>;
 }

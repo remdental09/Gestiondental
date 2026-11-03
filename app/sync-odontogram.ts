@@ -5,9 +5,10 @@ import { installedImplantTeeth } from "@/app/implant-evidence";
 import { cementedCrownFromEvolution } from "@/app/crown-evidence";
 import type { OdontogramData } from "@/app/clinical-data";
 import { projectEvolutionChart, projectionHolds } from "@/app/odontogram-projection";
+import { appendToothHistory, toothHistorySnapshot } from "@/app/odontogram-history";
 
 // The clinical note remains the history; the chart is a projection of the current state.
-export async function syncInstalledImplants(ownerId: string, patientId: number, body: string, recordedAt: string) {
+export async function syncInstalledImplants(ownerId: string, patientId: number, body: string, recordedAt: string, evolutionId?: number, clinicalDate = recordedAt.slice(0, 10)) {
   const implants = installedImplantTeeth(body);
   const crown = cementedCrownFromEvolution(body);
   if (!implants.length && !crown) return { updatedTeeth: [] as number[], odontogram: null as OdontogramData | null };
@@ -20,10 +21,17 @@ export async function syncInstalledImplants(ownerId: string, patientId: number, 
   const source: OdontogramData = {
     teeth: { ...(raw.teeth ?? {}) }, surfaces: { ...(raw.surfaces ?? {}) },
     missingReason: { ...(raw.missingReason ?? {}) }, crowns: { ...(raw.crowns ?? {}) },
+    history: Array.isArray(raw.history) ? raw.history : [],
   };
   const projected = projectEvolutionChart(source, implants, crown, chartIsNewer);
   if (!projected.updatedTeeth.length) return { updatedTeeth: projected.updatedTeeth, odontogram: projected.data };
   const updatedAt = new Date().toISOString();
+  for (const tooth of projected.updatedTeeth) {
+    appendToothHistory(projected.data, tooth, "evolution", toothHistorySnapshot(source, tooth), {
+      recordedAt: updatedAt, clinicalDate, source: "evolution", sourceEvolutionId: evolutionId,
+      title: crown?.tooth === tooth ? "Corona registrada desde la evolución clínica" : "Estado actualizado desde la evolución clínica",
+    });
+  }
   await db.insert(toothStatuses).values({ ownerId, patientId, data: JSON.stringify(projected.data), updatedAt })
     .onConflictDoUpdate({ target: toothStatuses.patientId, set: { data: JSON.stringify(projected.data), updatedAt } });
   const [verified] = await db.select().from(toothStatuses).where(and(eq(toothStatuses.ownerId, ownerId), eq(toothStatuses.patientId, patientId))).limit(1);
