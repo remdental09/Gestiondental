@@ -60,6 +60,12 @@ const patientValidationMessage=(validation:PatientDraftValidation)=>[validation.
 function Info({label,value}:{label:string;value:string}){return <div><p className="text-xs font-medium uppercase tracking-wide text-[#8aa0a5]">{label}</p><p className="mt-1 text-sm font-medium">{value}</p></div>}
 function Field({label,children}:{label:string;children:React.ReactNode}){return <label className="block space-y-1.5 text-sm font-medium">{label}{children}</label>}
 function Empty({text}:{text:string}){return <p className="rounded-xl border border-dashed border-[#dce5e7] p-6 text-center text-sm text-[#71858b]">{text}</p>}
+function requestDriveBackup(patientId:number){
+  if(!Number.isSafeInteger(patientId)||patientId<=0)return;
+  void fetch("/api/drive/sync",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({patientId}),keepalive:true})
+    .then(async response=>{const result=await response.json() as Record<string,unknown>;window.dispatchEvent(new CustomEvent("gestion-dental:drive-backup",{detail:result}))})
+    .catch(()=>window.dispatchEvent(new CustomEvent("gestion-dental:drive-backup",{detail:{configured:true,connected:true,results:[{saved:false}]}})));
+}
 function BudgetCard({b,patientName,onEdit}:{b:Budget;patientName?:string;onEdit?:()=>void}){return <div className="rounded-xl border border-[#e4ebed] p-5 transition hover:border-[#9accca]"><div className="flex flex-wrap items-start justify-between gap-3"><div><strong>{b.title}</strong>{patientName&&<p className="mt-1 text-sm text-[#71858b]">{patientName}</p>}<p className="mt-1 text-xs text-[#8aa0a5]">{b.date} · {b.status}</p></div><div className="flex items-center gap-3"><span className="font-semibold text-[#087f83]">{money(b.items.reduce((sum,i)=>sum+i.amount,0))}</span>{onEdit&&<Button type="button" variant="outline" size="sm" onClick={onEdit}><Pencil className="mr-1 size-4"/>Editar</Button>}</div></div><div className="mt-4 border-t border-[#edf1f2] pt-3">{b.items.map((i,idx)=><p key={idx} className="flex justify-between gap-3 text-sm text-[#60757a]"><span>{i.label}</span><span>{money(i.amount)}</span></p>)}</div></div>}
 function AgendaWeekControls({weekStart,onPrevious,onNext,onCurrent}:{weekStart:string;onPrevious:()=>void;onNext:()=>void;onCurrent:()=>void}) {
   return <div className="flex flex-wrap items-center gap-2">
@@ -136,7 +142,7 @@ export default function Home(){
     const data=await response.json() as ClinicalMutationResponse;
     if(!response.ok)throw new Error(data.error||"No se pudo guardar.");
     const patientId=Number(input.patientId||((data as {patient?:{id?:number}}).patient?.id)||0);
-    if(Number.isSafeInteger(patientId)&&patientId>0){void fetch("/api/drive/sync",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({patientId}),keepalive:true}).then(async backupResponse=>{const result=await backupResponse.json() as Record<string,unknown>;window.dispatchEvent(new CustomEvent("gestion-dental:drive-backup",{detail:result}))}).catch(()=>window.dispatchEvent(new CustomEvent("gestion-dental:drive-backup",{detail:{configured:true,connected:true,results:[{saved:false}]}})))}
+    requestDriveBackup(patientId);
     return data;
   },[]);
   const applyClinicalLoad=useCallback((data:ClinicalLoadResponse)=>{
@@ -322,12 +328,14 @@ export default function Home(){
       if(!response.ok)throw new Error(result.error||"No se pudo guardar la imagen.");
       setClinicalImages(previous=>[result.image,...previous]);
     }
+    requestDriveBackup(selectedId);
   };
   const removeImage=async(id:number)=>{
     const response=await fetch("/api/images/"+id,{method:"DELETE"});
     const result=await response.json() as {error?:string};
     if(!response.ok)throw new Error(result.error||"No se pudo quitar la imagen.");
     setClinicalImages(previous=>previous.filter(item=>item.id!==id));
+    requestDriveBackup(selectedId);
   };
   const updateTooth=async(tooth:number,status:string)=>{
     if(!await reviewChange({patientId:selectedId,heading:"Estado del odontograma",details:[`Pieza FDI ${formatFdi(tooth)}: ${toothStatuses[selectedId]?.teeth[tooth]||"Sin hallazgos"} → ${status}.`]}))throw new Error("Cambio cancelado; no se guardó.");
