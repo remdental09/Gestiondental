@@ -19,10 +19,11 @@ export function appendToothHistory(
   tooth: number,
   eventType: ToothHistoryEvent["eventType"],
   before: ToothHistorySnapshot,
-  metadata: Partial<Pick<ToothHistoryEvent, "recordedAt" | "clinicalDate" | "source" | "sourceEvolutionId" | "surface" | "title" | "detail">> = {},
+  metadata: Partial<Pick<ToothHistoryEvent, "recordedAt" | "clinicalDate" | "source" | "sourceEvolutionId" | "sourceActionId" | "surface" | "title" | "detail">> = {},
 ): OdontogramData {
   const after = toothHistorySnapshot(chart, tooth);
-  if (JSON.stringify(before) === JSON.stringify(after)) return chart;
+  // Los diagnósticos son hitos informativos y pueden no cambiar el estado actual del diente.
+  if (JSON.stringify(before) === JSON.stringify(after) && eventType !== "diagnosis") return chart;
   const history = chart.history ?? [];
   const recordedAt = metadata.recordedAt ?? new Date().toISOString();
   const event: ToothHistoryEvent = {
