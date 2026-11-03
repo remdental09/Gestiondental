@@ -52,7 +52,12 @@ function titleCase(word: string): string {
 /** Texto dictado con «guion»/«raya» y «arroba» convertidos para leer RUT y correo. */
 function spokenSymbols(text: string): string {
   return text
+    // «root» suele ser un error de reconocimiento de «RUT» cuando precede a un número.
+    .replace(/(?<!\p{L})root(?=\s*(?:(?:es|n[uú]mero|numero)\s*)?[:,.-]?\s*\d)/giu, "RUT")
     .replace(/\s*(?:gui[oó]n|raya)\s*(?=[\dkK]\b)/giu, "-")
+    // Reconoce correos dictados («luis punto rodriguez arroba gmail punto com»).
+    .replace(/((?:[\p{L}\p{N}_-]+\s+punto\s+){1,4}[\p{L}\p{N}_-]+)\s+arroba\s+([\p{L}\p{N}-]+(?:\s+punto\s+[\p{L}\p{N}-]+)+)/giu,
+      (_match, local: string, domain: string) => local.replace(/\s+punto\s+/giu, ".") + "@" + domain.replace(/\s+punto\s+/giu, "."))
     .replace(/\s+arroba\s+/giu, "@")
     .replace(/(@[\w-]+)\s+punto\s+(\w+)/giu, "$1.$2");
 }
@@ -61,6 +66,7 @@ function extractName(text: string): { name: string; quote: string } | null {
   for (const match of text.matchAll(NAME_CUE)) {
     const index = match.index ?? 0;
     if (BLOCK_BEFORE.test(text.slice(Math.max(0, index - 25), index))) continue;
+    const explicitNameCue = /(?:se\s+llama|nombre|llamad[oa]|pacient[ea]\s+nuev[oa])/iu.test(match[0]);
     const rest = text.slice(index + match[0].length, index + match[0].length + 90);
     const words = rest.split(/\s+/);
     const parts: string[] = [];
@@ -75,7 +81,7 @@ function extractName(text: string): { name: string; quote: string } | null {
       // «Acevedo y pon solamente…»: tras «y» solo sigue el nombre si viene con mayúscula.
       if (!capital && parts.length && fold(parts[parts.length - 1]) === "y") break;
       // Sin mayúscula solo se acepta como continuación de un nombre ya empezado con mayúscula.
-      if (!capital && !parts.some((part) => /^\p{Lu}/u.test(part))) break;
+      if (!capital && !parts.some((part) => /^\p{Lu}/u.test(part)) && !explicitNameCue) break;
       if (!capital && /(?:ico|ica|ente|ante|oso|osa|mente|cion|ado|ada|ido|ida)$/.test(folded)) break;
       parts.push(bare);
       if (bare !== clean || parts.length >= 6) break;
@@ -119,11 +125,33 @@ function extractBirthDate(text: string): string | null {
   return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === iso ? iso : null;
 }
 
+const SPOKEN_PHONE_DIGITS: Record<string, string> = {
+  cero: "0", zero: "0", un: "1", uno: "1", una: "1", dos: "2", tres: "3",
+  cuatro: "4", cinco: "5", seis: "6", siete: "7", ocho: "8", nueve: "9",
+};
+
 function extractPhone(text: string): string | null {
   const match = /(?:tel[eé]fono|celular|fono|whatsapp)\s*(?:es|:|n[uú]mero)?\s*((?:\+?\s?56\s?)?(?:\d[\s.-]?){8,9})/iu.exec(text);
-  if (!match) return null;
-  const digits = match[1].replace(/\D/g, "");
-  return digits.length >= 8 ? (match[1].trim().startsWith("+") ? `+${digits}` : digits) : null;
+  if (match) {
+    const digits = match[1].replace(/\D/g, "");
+    if (digits.length >= 8) return match[1].trim().startsWith("+") ? `+${digits}` : digits;
+  }
+
+  // Algunos dictados conservan el teléfono como palabras separadas: «nueve uno…».
+  const cue = /(?:tel[eé]fono|celular|fono|whatsapp)\s*(?:es|:|n[uú]mero)?\s*/giu;
+  for (const marker of text.matchAll(cue)) {
+    const rest = text.slice((marker.index ?? 0) + marker[0].length).split(/[.!?;\n]/, 1)[0];
+    const digits: string[] = [];
+    for (const token of rest.trim().split(/[\s,.-]+/).slice(0, 15)) {
+      const word = fold(token);
+      if (/^\d+$/.test(word)) digits.push(word);
+      else if (Object.prototype.hasOwnProperty.call(SPOKEN_PHONE_DIGITS, word)) digits.push(SPOKEN_PHONE_DIGITS[word]);
+      else break;
+    }
+    const joined = digits.join("");
+    if (joined.length >= 8 && joined.length <= 12) return joined;
+  }
+  return null;
 }
 
 function extractEmail(text: string): string | null {

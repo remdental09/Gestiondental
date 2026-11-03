@@ -52,6 +52,9 @@ export const DENTAL_DICTIONARY = {
     "sondaje periodontal", "profundidad de sondaje", "recesión gingival",
     "sangrado al sondaje", "supuración", "movilidad dentaria", "pérdida de inserción",
     "nivel de inserción clínica", "furcación", "periodontograma", "EPB",
+    "grupo periodontal", "grupo 1", "grupo 2", "grupo 3", "grupo 4", "grupo 5", "grupo 6",
+    "seis grupos periodontales", "destartraje supra y subgingival", "detartraje supra y subgingival",
+    "destartraje supragingival y subgingival", "detartraje supragingival y subgingival",
   ],
   restauradora_y_protesis: [
     "obturación", "restauración", "empaste", "tapadura", "resina", "resina compuesta",
@@ -82,7 +85,9 @@ export const DENTAL_DICTIONARY = {
     "informe radiológico", "imagen periapical",
   ],
   variantes_chile: [
-    "destartraje", "tapadura", "tratamiento de conducto", "pieza dental",
+    "destartraje", "destartraje supra y subgingival", "destartraje supragingival y subgingival",
+    "tapadura", "tratamiento de conducto", "pieza dental", "grupo periodontal",
+    "grupo 1", "grupo 2", "grupo 3", "grupo 4", "grupo 5", "grupo 6",
     "radiografía panorámica", "diente temporal", "molar",
   ],
   variantes_latinoamerica: [
@@ -99,6 +104,8 @@ export const DENTAL_SPEECH_HINTS = [
   { phrase: "destartraje", boost: 9 },
   { phrase: "destartraje supragingival", boost: 10 },
   { phrase: "destartraje subgingival", boost: 10 },
+  { phrase: "destartraje supra y subgingival", boost: 10 },
+  { phrase: "destartraje supragingival y subgingival", boost: 10 },
   { phrase: "detartraje", boost: 8 },
   { phrase: "tartrectomía", boost: 8 },
   { phrase: "pulpa dental", boost: 7 },

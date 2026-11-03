@@ -7,7 +7,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { createAudioTranscription, AUDIO_DICTATION_NOTICE } from "@/lib/dictation/audio-transcription";
-import type { PatientDecision } from "@/lib/dictation/patient-identify";
+import { validRut } from "@/lib/dictation/patient-check";
+import type { DictatedIdentity, PatientDecision } from "@/lib/dictation/patient-identify";
 import { hasFourNameParts } from "@/app/patient-identity";
 import { WordDiffView, useTextCorrection } from "@/components/text-correction";
 import { VoiceCommandCard, type AnnulReplacement, type RemovalMode } from "@/components/evolution-annul";
@@ -15,7 +16,7 @@ import { chileTodayIso, parseVoiceCommand, type CommandNote } from "@/lib/dictat
 
 const fourNames = (value: string): boolean => hasFourNameParts(value);
 
-type PatientOption = { id: number; name: string; rut?: string | null };
+type PatientOption = { id: number; name: string; rut?: string | null; birthDate?: string | null; phone?: string | null; email?: string | null };
 export type NewPatientFields = { name: string; rut: string; birthDate: string; phone: string; email: string };
 
 
@@ -27,7 +28,7 @@ export function GlobalDictation({ patients, notes = [], onUsePatient, onCreatePa
   patients: PatientOption[];
   /** Evoluciones (con su paciente) para proponer qué anular cuando se dicta una orden. */
   notes?: (CommandNote & { patientId: number })[];
-  onUsePatient: (patientId: number, transcript: string, options?: { ignoreCommand?: boolean; incorporate?: boolean }) => void;
+  onUsePatient: (patientId: number, transcript: string, options?: { ignoreCommand?: boolean; incorporate?: boolean; identity?: DictatedIdentity }) => void | Promise<void>;
   onCreatePatient: (fields: NewPatientFields) => Promise<number>;
   onAnnul?: (patientId: number, evolutionId: number, mode: RemovalMode, reason: string, replacement: AnnulReplacement | null) => Promise<void>;
 }) {
@@ -137,12 +138,22 @@ export function GlobalDictation({ patients, notes = [], onUsePatient, onCreatePa
 
   const finalText = () => transcript.trim();
 
-  const continueWith = (patientId: number, incorporate = incorporateAsked) => {
+  const continueWith = async (patientId: number, incorporate = incorporateAsked, carryIdentity = true) => {
     const text = finalText();
     const ignoreCommand = commandDismissed;
-    close();
-    const options = { ...(ignoreCommand ? { ignoreCommand } : {}), ...(incorporate ? { incorporate } : {}) };
-    onUsePatient(patientId, text, Object.keys(options).length ? options : undefined);
+    const identity = carryIdentity && !command ? decision?.identity : undefined;
+    const options = {
+      ...(ignoreCommand ? { ignoreCommand } : {}),
+      ...(incorporate ? { incorporate: true } : {}),
+      ...(identity ? { identity } : {}),
+    };
+    setError("");
+    try {
+      await onUsePatient(patientId, text, Object.keys(options).length ? options : undefined);
+      close();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "No se pudo abrir la ficha.");
+    }
   };
 
   const create = async () => {
@@ -150,7 +161,7 @@ export function GlobalDictation({ patients, notes = [], onUsePatient, onCreatePa
     setError("");
     try {
       const id = await onCreatePatient(fields);
-      continueWith(id);
+      await continueWith(id, incorporateAsked, false);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "No se pudo crear el paciente.");
     } finally {
@@ -164,7 +175,30 @@ export function GlobalDictation({ patients, notes = [], onUsePatient, onCreatePa
     : [];
   const chosenId = choice && choice !== "new" ? Number(choice) : null;
   const chosenName = chosenId ? (candidates.find((c) => c.id === chosenId)?.name ?? patients.find((p) => p.id === chosenId)?.name ?? "") : "";
-  const canCreate = fourNames(fields.name) && /^\d{4}-\d{2}-\d{2}$/.test(fields.birthDate);
+  const chosenPatient = chosenId ? patients.find((p) => p.id === chosenId) : undefined;
+  const validPhoneValue = (value: string) => !value || (/^[+\d()\s.-]{7,24}$/.test(value) && value.replace(/\D/g, "").length >= 8);
+  const validEmailValue = (value: string) => !value || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+  const validBirthDate = /^\d{4}-\d{2}-\d{2}$/.test(fields.birthDate);
+  const canCreate = fourNames(fields.name) && validBirthDate
+    && (!fields.rut.trim() || validRut(fields.rut))
+    && validPhoneValue(fields.phone.trim())
+    && validEmailValue(fields.email.trim());
+  const missingRequired = [
+    ...(!fourNames(fields.name) ? ["nombre completo (dos nombres y dos apellidos)"] : []),
+    ...(!validBirthDate ? ["fecha de nacimiento"] : []),
+  ];
+  const missingOptional = [
+    ...(!fields.rut.trim() ? ["RUT"] : []),
+    ...(!fields.phone.trim() ? ["teléfono"] : []),
+    ...(!fields.email.trim() ? ["correo"] : []),
+  ];
+  const identity = decision?.identity;
+  const profileRows = chosenPatient && identity ? [
+    { label: "RUT", proposed: identity.rut ?? "", current: chosenPatient.rut ?? "", valid: !identity.rut || identity.rutValid, normalize: (value: string) => value.replace(/[^0-9kK]/g, "").toUpperCase() },
+    { label: "Fecha de nacimiento", proposed: identity.birthDate ?? "", current: chosenPatient.birthDate ?? "", valid: true, normalize: (value: string) => value },
+    { label: "Teléfono", proposed: identity.phone ?? "", current: chosenPatient.phone ?? "", valid: validPhoneValue(identity.phone ?? ""), normalize: (value: string) => value.replace(/\D/g, "") },
+    { label: "Correo", proposed: identity.email ?? "", current: chosenPatient.email ?? "", valid: validEmailValue(identity.email ?? ""), normalize: (value: string) => value.trim().toLowerCase() },
+  ] : [];
 
   /** Lleva el texto a la ficha elegida y abre ahí el resumen «Se incorporará a la ficha». */
   const incorporate = () => {
@@ -240,21 +274,52 @@ export function GlobalDictation({ patients, notes = [], onUsePatient, onCreatePa
               <Input className="bg-white text-base sm:text-sm" value={otherSearch} onChange={(event) => setOtherSearch(event.target.value)} placeholder="Nombre o RUT" data-testid="global-dictation-search" />
             </label>
             {others.length > 0 && <ul className="space-y-1">{others.map((item) => <li key={item.id}><button type="button" className="min-h-11 w-full rounded-lg border border-[#dbe7e8] bg-white px-3 py-2 text-left hover:border-[#087f83]" onClick={() => { setChoice(String(item.id)); setOtherSearch(""); }}>{item.name}{item.rut ? <span className="text-xs text-[#60757a]"> · RUT {item.rut}</span> : null}</button></li>)}</ul>}
+            {choice !== "new" && chosenId && chosenPatient && identity && <section className="space-y-2 rounded-lg border border-[#dbe7e8] bg-white p-3" aria-label="Datos identificados automáticamente">
+              <p className="text-sm font-semibold text-[#20343b]">Datos detectados para esta ficha</p>
+              <p className="text-xs leading-5 text-[#60757a]">Al continuar, se completarán automáticamente los campos vacíos. Los datos existentes se conservan; las diferencias quedan marcadas en rojo.</p>
+              <ul className="space-y-1 text-xs">
+                {profileRows.map((row) => {
+                  const same = Boolean(row.proposed && row.current && row.normalize(row.proposed) === row.normalize(row.current));
+                  const missing = !row.current && !row.proposed;
+                  const conflict = Boolean(row.current && row.proposed && !same);
+                  const problem = !row.valid || conflict || missing;
+                  return <li key={row.label} className={problem ? "rounded-md bg-rose-50 px-2 py-1.5 text-rose-800" : "rounded-md bg-emerald-50 px-2 py-1.5 text-emerald-800"}>
+                    <strong>{row.label}:</strong> {!row.valid ? "revisar dato dictado" : conflict ? "el dato existente no coincide; no se sobrescribirá" : missing ? "falta en la ficha y no se dictó" : same ? "coincide con la ficha" : row.proposed ? "se completará automáticamente" : "ya registrado"}
+                    {row.proposed && <span> · Dictado: {row.proposed}</span>}
+                  </li>;
+                })}
+              </ul>
+            </section>}
             {choice === "new" && <div className="space-y-2 rounded-lg border border-[#dbe7e8] bg-white p-3" data-testid="global-dictation-new-patient">
               <p className="text-xs leading-5 text-[#60757a]">Para crear la ficha la app pide los dos nombres y los dos apellidos y la fecha de nacimiento. Lo demás es opcional y se puede completar después.</p>
-              <label className="block space-y-1 font-medium">Nombre completo *<Input className="text-base sm:text-sm" value={fields.name} onChange={(event) => setFields((current) => ({ ...current, name: event.target.value }))} autoCapitalize="words" data-testid="global-dictation-new-name" /></label>
-              {fields.name.trim() && !fourNames(fields.name) && <p className="text-xs text-amber-900">Faltan nombres o apellidos (se dictó «{fields.name.trim()}»).</p>}
+              <p className="text-xs leading-5 text-[#60757a]">El dictado ya se distribuyó en los campos detectados. Los datos marcados en rojo quedan pendientes; el RUT, teléfono y correo se pueden completar después.</p>
+              <label className="block space-y-1 font-medium">Nombre completo *
+                <Input aria-invalid={!fourNames(fields.name)} className={fourNames(fields.name) ? "text-base sm:text-sm" : "border-rose-400 text-base text-rose-900 ring-1 ring-rose-300 sm:text-sm"} value={fields.name} onChange={(event) => setFields((current) => ({ ...current, name: event.target.value }))} autoCapitalize="words" data-testid="global-dictation-new-name" />
+              </label>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                <label className="block space-y-1 font-medium">Fecha de nacimiento *<Input type="date" className="text-base sm:text-sm" value={fields.birthDate} onChange={(event) => setFields((current) => ({ ...current, birthDate: event.target.value }))} data-testid="global-dictation-new-birth" /></label>
-                <label className="block space-y-1 font-medium">RUT<Input className="text-base sm:text-sm" inputMode="text" value={fields.rut} onChange={(event) => setFields((current) => ({ ...current, rut: event.target.value }))} /></label>
-                <label className="block space-y-1 font-medium">Teléfono<Input className="text-base sm:text-sm" inputMode="tel" value={fields.phone} onChange={(event) => setFields((current) => ({ ...current, phone: event.target.value }))} /></label>
-                <label className="block space-y-1 font-medium">Correo<Input className="text-base sm:text-sm" inputMode="email" value={fields.email} onChange={(event) => setFields((current) => ({ ...current, email: event.target.value }))} /></label>
+                <label className="block space-y-1 font-medium">Fecha de nacimiento *
+                  <Input type="date" aria-invalid={!validBirthDate} className={validBirthDate ? "text-base sm:text-sm" : "border-rose-400 text-base text-rose-900 ring-1 ring-rose-300 sm:text-sm"} value={fields.birthDate} onChange={(event) => setFields((current) => ({ ...current, birthDate: event.target.value }))} data-testid="global-dictation-new-birth" />
+                </label>
+                <label className="block space-y-1 font-medium">RUT
+                  <Input aria-invalid={Boolean(fields.rut.trim() && !validRut(fields.rut)) || !fields.rut.trim()} className={fields.rut.trim() && validRut(fields.rut) ? "text-base sm:text-sm" : "border-rose-300 text-base text-rose-900 sm:text-sm"} inputMode="text" value={fields.rut} onChange={(event) => setFields((current) => ({ ...current, rut: event.target.value }))} />
+                </label>
+                <label className="block space-y-1 font-medium">Teléfono
+                  <Input aria-invalid={!fields.phone.trim() || !validPhoneValue(fields.phone.trim())} className={fields.phone.trim() && validPhoneValue(fields.phone.trim()) ? "text-base sm:text-sm" : "border-rose-300 text-base text-rose-900 sm:text-sm"} inputMode="tel" value={fields.phone} onChange={(event) => setFields((current) => ({ ...current, phone: event.target.value }))} />
+                </label>
+                <label className="block space-y-1 font-medium">Correo
+                  <Input aria-invalid={!fields.email.trim() || !validEmailValue(fields.email.trim())} className={fields.email.trim() && validEmailValue(fields.email.trim()) ? "text-base sm:text-sm" : "border-rose-300 text-base text-rose-900 sm:text-sm"} inputMode="email" value={fields.email} onChange={(event) => setFields((current) => ({ ...current, email: event.target.value }))} />
+                </label>
               </div>
+              {(missingRequired.length > 0 || missingOptional.length > 0 || (fields.rut.trim() && !validRut(fields.rut)) || (fields.phone.trim() && !validPhoneValue(fields.phone.trim())) || (fields.email.trim() && !validEmailValue(fields.email.trim()))) && <p role="alert" className="rounded-md bg-rose-50 px-3 py-2 text-xs leading-5 text-rose-800">
+                Pendiente en rojo: {[...missingRequired, ...missingOptional.filter((field) => !fields[field === "RUT" ? "rut" : field === "teléfono" ? "phone" : "email"].trim())].join(", ")}
+                {(fields.rut.trim() && !validRut(fields.rut)) || (fields.phone.trim() && !validPhoneValue(fields.phone.trim())) || (fields.email.trim() && !validEmailValue(fields.email.trim())) ? " Hay un dato dictado con formato inválido; corrígelo antes de continuar." : ""}
+                {missingRequired.length > 0 ? " Completa nombre y fecha para crear la ficha; el dictado clínico no se pierde." : ""}
+              </p>}
             </div>}
             {command && chosenId && onAnnul && <VoiceCommandCard key={`${chosenId}-${command.evidence}`} command={command} patientName={chosenName} notes={notes.filter((note) => note.patientId === chosenId)} onConfirm={(evolutionId, mode, reason, replacement) => onAnnul(chosenId, evolutionId, mode, reason, replacement)} onDismiss={() => setCommandDismissed(true)} />}
             {choice === "new"
               ? <Button type="button" size="lg" className="min-h-12 w-full bg-[#087f83] hover:bg-[#07676b]" disabled={!canCreate || creating} onClick={() => void create()} data-testid="global-dictation-create">{creating ? "Creando ficha…" : incorporateAsked ? "Crear paciente e incorporar el dictado" : "Crear paciente y revisar el dictado"}</Button>
-              : <Button type="button" size="lg" variant={command && chosenId && onAnnul ? "outline" : "default"} className={command && chosenId && onAnnul ? "h-auto min-h-12 w-full whitespace-normal bg-white" : "h-auto min-h-12 w-full whitespace-normal bg-[#087f83] hover:bg-[#07676b]"} disabled={!chosenId} onClick={() => chosenId && continueWith(chosenId)} data-testid="global-dictation-continue">{chosenId ? `${command && onAnnul ? "Solo abrir la ficha de" : incorporateAsked ? "Incorporar a la ficha de" : "Seguir con"} ${chosenName.split(" ").slice(0, 3).join(" ")}` : "Elige una ficha"}</Button>}
+              : <Button type="button" size="lg" variant={command && chosenId && onAnnul ? "outline" : "default"} className={command && chosenId && onAnnul ? "h-auto min-h-12 w-full whitespace-normal bg-white" : "h-auto min-h-12 w-full whitespace-normal bg-[#087f83] hover:bg-[#07676b]"} disabled={!chosenId} onClick={() => { if (chosenId) void continueWith(chosenId); }} data-testid="global-dictation-continue">{chosenId ? `${command && onAnnul ? "Solo abrir la ficha de" : incorporateAsked ? "Incorporar a la ficha de" : "Seguir con"} ${chosenName.split(" ").slice(0, 3).join(" ")}` : "Elige una ficha"}</Button>}
             <p className="text-xs leading-5 text-[#60757a]">Luego se abre la ficha: la IA corrige el texto, arma la nota por secciones y propone odontograma, citas, presupuesto y pagos. Revisas y aceptas cada cambio.</p>
           </section>}
         </div>
