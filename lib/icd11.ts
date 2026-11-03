@@ -144,6 +144,32 @@ const FAMILIES = ["DA09.6", "DA09.7", "NA0D.0", "DA07."];
 // El absceso fénix (DA09.3) es una periodontitis apical crónica reagudizada: no se agrega además DA09.7x.
 const family = (code: string) => (code === "DA09.3" ? "DA09.7" : FAMILIES.find((prefix) => code.startsWith(prefix)) ?? code);
 
+/**
+ * El catálogo completo de diagnósticos integrado también alimenta el reconocimiento del dictado:
+ * se comparan títulos OMS y sinónimos clínicos con frases explícitas, sin inferir diagnósticos semánticamente.
+ * La caries DA08.0 se mantiene en su flujo propio para conservar profundidad, pieza y superficies.
+ */
+type CatalogDiagnosisTerm = { code: string; title: string; term: string; re: RegExp; chars: number; residual: boolean; official: boolean };
+
+const CATALOG_DIAGNOSIS_TERMS: CatalogDiagnosisTerm[] = ICD11_CATALOG.flatMap((entry) => {
+  if (entry.kind !== "stem" || !entry.isLeaf || entry.code === "DA08.0") return [];
+  const title = ICD11[entry.code]?.title ?? entry.title;
+  const variants = [...new Set([title, entry.title, ...entry.synonyms].map((name) => name.trim()).filter(Boolean))];
+  return variants.flatMap((term) => {
+    const words = fold(term).trim().split(/[^a-z0-9]+/).filter(Boolean);
+    if (!words.length) return [];
+    return [{
+      code: entry.code,
+      title,
+      term,
+      re: new RegExp(`\\b${words.join("[^a-z0-9]+")}\\b`, "i"),
+      chars: words.join(" ").length,
+      residual: Boolean(entry.isResidual),
+      official: term === entry.title || term === title,
+    }];
+  });
+}).sort((a, b) => b.chars - a.chars || Number(a.residual) - Number(b.residual) || Number(b.official) - Number(a.official));
+
 /** «erosión» o «abrasión» solas son dentarias solo con contexto de pieza y sin palabras de mucosa (no lesiones orales). */
 const DENTAL_QUALIFIER = /\b(?:erosion|abrasion)\s+(?:dental|dentaria|acida|por\s+cepillado|cervical)\b|\bdesgaste\s+erosivo\b/;
 const TOOTH_CONTEXT = /\b(?:pieza|piezas|diente|dientes|incisiv\w*|canin\w*|premolar\w*|molar\w*|cervical|oclusal|incisal|esmalte|dentina)\b|\b[1-8]\.?[1-8]\b/;
@@ -179,6 +205,9 @@ export function diagnosisMatches(text: string): DiagnosisMatch[] {
   // El término se devuelve tal como se dijo (con tildes) cuando el texto plegado conserva las posiciones.
   const said = (match: RegExpExecArray) => (t.length === original.length ? original.slice(match.index, match.index + match[0].length) : match[0]);
   const found: DiagnosisMatch[] = [];
+  const matchedRanges: Array<[number, number]> = [];
+  const overlaps = (ranges: Array<[number, number]>, start: number, end: number) =>
+    ranges.some(([left, right]) => start < right && end > left);
   for (const rule of RULES) {
     const match = rule.re.exec(t);
     if (!match) continue;
@@ -186,12 +215,30 @@ export function diagnosisMatches(text: string): DiagnosisMatch[] {
     if (found.some((done) => done.code && family(done.code) === family(rule.code))) continue;
     const entry = ICD11[rule.code];
     found.push({ code: entry.code, title: entry.title, term: said(match), ...(rule.aae ? { suggested: { from: "AAE" as const, term: said(match) } } : {}) });
+    matchedRanges.push([match.index, match.index + match[0].length]);
   }
+
+  const uncoded: DiagnosisMatch[] = [];
+  const uncodedRanges: Array<[number, number]> = [];
   for (const rule of UNCODED) {
     const match = rule.re.exec(t);
-    if (match) found.push({ code: "", title: rule.title(match), term: said(match) });
+    if (!match) continue;
+    uncoded.push({ code: "", title: rule.title(match), term: said(match) });
+    uncodedRanges.push([match.index, match.index + match[0].length]);
   }
-  return found;
+
+  const catalogMatches: DiagnosisMatch[] = [];
+  for (const candidate of CATALOG_DIAGNOSIS_TERMS) {
+    const match = candidate.re.exec(t);
+    if (!match) continue;
+    const start = match.index, end = start + match[0].length;
+    // Si una regla clínica o una etiqueta sin código ya cubre la frase, conserva esa decisión más específica.
+    if (overlaps(matchedRanges, start, end) || overlaps(uncodedRanges, start, end)) continue;
+    if ([...found, ...catalogMatches].some((done) => done.code && family(done.code) === family(candidate.code))) continue;
+    catalogMatches.push({ code: candidate.code, title: candidate.title, term: candidate.term });
+    matchedRanges.push([start, end]);
+  }
+  return [...found, ...catalogMatches, ...uncoded];
 }
 
 /** Diagnósticos con código CIE-11 en un texto (sin las etiquetas sin código). */
