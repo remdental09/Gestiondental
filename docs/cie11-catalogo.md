@@ -9,10 +9,14 @@
 |---|---|---|
 | Tabulación simplificada (inglés) | https://icdcdn.who.int/static/releasefiles/2026-01/SimpleTabulation-ICD-11-MMS-en.zip | f1356588f40953a83e3af2b662deab47c5e269f944d1ea4ed0cfeb2007c7cd39 |
 | Tabulación simplificada (español) | https://icdcdn.who.int/static/releasefiles/2026-01/SimpleTabulation-ICD-11-MMS-es.zip | 7c7e5a02706aefd6ff2c95675ad4d33e3f2b2a518a1cabc8bf9f10c07b33113f |
+| Versiones impresas oficiales (PDF, español) | https://icdcdn.who.int/static/releasefiles/2026-01/print-ICD-11-MMS-es.zip | — |
 | Navegador OMS | https://icd.who.int/browse/2026-01/mms/es (latest-release redirige aquí) | — |
 
-Código, título ES/EN, URI lineal, URI de fundación y padre salen **solo** de esos archivos (se cruzó EN↔ES por URI). Ningún código fue escrito a mano.
-**Sinónimos (`synonyms_es`) y `record_separately` son PROPUESTAS clínicas para Chile, no contenido OMS.** Las inclusiones/índice de la OMS no se leyeron (requieren API con token).
+Código, título ES/EN, URI lineal, URI de fundación y padre salen **solo** de los archivos descargables de la OMS (se cruzó EN↔ES por URI). Ningún código fue escrito a mano.
+
+**La aplicación usa un catálogo local:** búsqueda y reconocimiento de dictado leen estos títulos y sinónimos; no hacen llamadas a la API de la OMS. La publicación oficial de versiones impresas en PDF está disponible en la URL indicada arriba, desde “Información > Versiones impresas” del navegador de la OMS.
+
+**Sinónimos (`synonyms_es`) y `record_separately` son propuestas clínicas para Chile, no contenido OMS.** Las notas de inclusión/exclusión y el índice alfabético de la publicación impresa no se importan como sinónimos del catálogo local.
 
 ## Archivos
 - `catalogo-cie11.json` — `{meta, entries[]}`. Campos por entrada: code, title_es, title_en, uri, foundation_uri, browser_url, parent, parent_title_es, group, kind (stem/extension), chapter, is_leaf, is_residual, fdi (solo extensiones de pieza), synonyms_es, synonyms_status, record_separately, notes, verified, release.
