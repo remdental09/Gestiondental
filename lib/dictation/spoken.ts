@@ -141,16 +141,46 @@ export function paymentMethodFrom(text: string): PaymentMethod | null {
   return null;
 }
 // Se aplican sobre fold(texto): sin tildes, para que \b funcione.
-const PAYMENT_CUE_FOLDED = /\b(?:abon[oa]|pag[oa]|pagado|cancel[oa]|deja(?:\s+un)?\s+abono|pago\s+de)\b/;
-const FUTURE_PAYMENT_FOLDED = /\b(?:debe|debera|tiene\s+que|va\s+a|pagara|abonara|cancelara|pagar|abonar|queda\s+pendiente|cobrar|cobra|(?:forma|medio|modalidad|plan)\s+de\s+pago|pago\s+en\s+cuotas)\b/;
+const PAYMENT_CUE_FOLDED = /\b(?:abon[oa]|pag[oa]|pagado|cancel[oa]|deja(?:n|\s+(?:(?:un\s+)?abono|(?:la\s+)?mitad|(?:el\s+)?50(?:\s*%|\s+por\s+ciento)|cincuenta\s+por\s+ciento))|dejo\s+(?:(?:la\s+)?mitad|(?:el\s+)?50(?:\s*%|\s+por\s+ciento)|cincuenta\s+por\s+ciento)|pago\s+de)(?=\b|[^a-z0-9])/;
+const FUTURE_PAYMENT_FOLDED = /\b(?:debera|dejara|dejaran|tiene\s+que|va\s+a|van\s+a\s+(?:dejar|pagar|abonar)|pagara|abonara|cancelara|pagar|abonar|dejar|queda\s+pendiente|cobrar|cobra|(?:forma|medio|modalidad|plan)\s+de\s+pago|pago\s+en\s+cuotas)\b/;
 export const isPaymentText = (text: string) => PAYMENT_CUE_FOLDED.test(fold(text));
-/** Monto pagado: el primero que aparece después de «abonó / pagó», para no tomar el total del presupuesto dicho antes. */
-export function paymentAmount(text: string): number | null {
+
+const HALF_PAYMENT_FOLDED = /(?:\b(?:la\s+mitad|mitad|cincuenta\s+por\s+ciento)\b|\b50\s*(?:%|por\s+ciento)(?=\s|$|[.,;]))/;
+export type PaymentAmountDetails = { amount: number; baseAmount?: number; percentage?: number };
+
+/**
+ * Interpreta un abono proporcional solo si la base es inequívoca. Para «la mitad de $1.490.000»
+ * calcula 745.000; si se dice «la mitad» sin monto, acepta una única base presupuestaria contextual.
+ */
+export function paymentAmountDetails(text: string, referenceAmounts: number[] = []): PaymentAmountDetails | null {
   const nfc = text.normalize("NFC");
   const folded = fold(nfc);
+  const half = HALF_PAYMENT_FOLDED.exec(folded);
+  if (half) {
+    const phraseEnd = (half.index ?? 0) + half[0].length;
+    const runs = numberRuns(nfc).filter((run) => run.value >= 1000 && run.value <= 1_000_000_000);
+    const linkedBase = runs.find((run) => {
+      if (run.start < phraseEnd) return false;
+      const between = fold(nfc.slice(phraseEnd, run.start)).replace(/[$]/g, " ").replace(/[,;:]/g, " ").replace(/\s+/g, " ").trim();
+      return /^(?:(?:de|del|sobre)\s+)*(?:(?:el|la|los|las|un|una|total|monto|presupuesto|valor|precio|costo|importe|es|son|equivale|corresponde)\s+)*(?:de\s+)?$/.test(between);
+    });
+    const candidates = linkedBase
+      ? [linkedBase.value]
+      : [...new Set(referenceAmounts.filter((amount) => Number.isSafeInteger(amount) && amount >= 1000 && amount <= 1_000_000_000))];
+    if (candidates.length !== 1) return null;
+    const baseAmount = candidates[0];
+    return { amount: Math.round(baseAmount / 2), baseAmount, percentage: 50 };
+  }
+
   const at = folded.search(PAYMENT_CUE_FOLDED);
-  const tail = at >= 0 && folded.length === nfc.length ? nfc.slice(at) : nfc;
-  return spokenAmounts(tail)[0]?.value ?? spokenAmounts(nfc)[0]?.value ?? null;
+  const tail = at >= 0 ? nfc.slice(at) : nfc;
+  const amount = spokenAmounts(tail)[0]?.value ?? spokenAmounts(nfc)[0]?.value ?? null;
+  return amount === null ? null : { amount };
+}
+
+/** Monto del abono; cuando se dicta una fracción devuelve el cálculo solo con una base clara. */
+export function paymentAmount(text: string, referenceAmounts: number[] = []): number | null {
+  return paymentAmountDetails(text, referenceAmounts)?.amount ?? null;
 }
 export const isFuturePayment = (text: string) => FUTURE_PAYMENT_FOLDED.test(fold(text));
 

@@ -26,7 +26,7 @@ import {
   isPaymentText,
   PAYMENT_METHOD_LABEL,
   PAYMENT_METHODS,
-  paymentAmount,
+  paymentAmountDetails,
   paymentMethodFrom,
   reconcileCorrection,
   spokenAmounts,
@@ -182,6 +182,11 @@ export type PaymentChange = {
   concept: string;
   evidence: string;
   origin: ItemOrigin;
+  /** Base y porcentaje cuando el pago se calculó desde una fracción explícita del presupuesto. */
+  baseAmount?: number;
+  percentage?: number;
+  /** ID de una prestación presupuestaria dictada en el mismo flujo. */
+  budgetRef?: string;
 };
 
 /** Próxima cita dictada. day en YYYY-MM-DD y time en HH:MM, ambos en hora de Chile. */
@@ -1239,9 +1244,28 @@ export function structureTranscript(transcript: string, options: { today?: strin
     }
 
     if (isPaymentText(sentence) && !isFuturePayment(sentence)) {
-      const value = paymentAmount(sentence);
-      if (value) payments.push({ id: nextId("pag"), amount: value, method: paymentMethodFrom(sentence), concept: paymentConcept(sentence), evidence: clip(sentence, 400), origin: "reglas" });
-      else clarifications.push(`Pago sin monto claro: «${clip(sentence)}». ¿Cuánto pagó?`);
+      const concept = paymentConcept(sentence);
+      const details = paymentAmountDetails(sentence, paymentContextAmounts(sentence, transcript));
+      if (details) payments.push({
+        id: nextId("pag"),
+        amount: details.amount,
+        method: paymentMethodFrom(sentence),
+        concept,
+        evidence: clip(sentence, 400),
+        origin: "reglas",
+        ...(details.baseAmount ? { baseAmount: details.baseAmount, percentage: details.percentage } : {}),
+      });
+      else clarifications.push(`Pago sin monto base inequívoco: «${clip(sentence)}». ¿Cuál es el monto total al que corresponde el abono?`);
+      const isBudget = isNewBudgetQuote(sentence);
+      if (isBudget) {
+        const budgetAmount = parseAmount(sentence) ?? spokenAmounts(sentence)[0]?.value ?? null;
+        const label = budgetLabel(sentence);
+        if (budgetAmount) budget.push({ id: nextId("pre"), title: "Presupuesto dictado", label, amount: budgetAmount, sourceText: clip(sentence) });
+        else {
+          budget.push({ id: nextId("pre"), title: "Presupuesto dictado", label, amount: 0, sourceText: clip(sentence) });
+          clarifications.push(`Falta el monto en pesos de «${label}». Complétalo antes de guardar.`);
+        }
+      }
       continue;
     }
     if (isAppointmentText(sentence)) {
@@ -1433,8 +1457,46 @@ function perioReading(sentence: string) {
 }
 
 function paymentConcept(sentence: string): string {
-  const match = sentence.match(/(?<!\p{L})(?:por|para|de\s+la|del|al|a\s+la)\s+((?:la\s+|el\s+)?(?:corona|endodoncia|obturaci\p{L}*|resina|implante|limpieza|destartraje|exodoncia|tratamiento|presupuesto|pr[oó]tesis|blanqueamiento|ortodoncia|consulta|control|urgencia|carilla|perno)[^,.;]*)/iu);
-  return match ? clip(match[1].trim(), 120) : "";
+  const termPattern = /\b(?:implante|exodoncia|endodoncia|destartraje|detartraje|corona|pr[oó]tesis|obturaci\p{L}*|resina|carilla|ortodoncia|limpieza|blanqueamiento|pulido coronario|tratamiento periodontal|tratamiento restaurador|cirug[ií]a bucal|cirug[ií]a oral|injerto [oó]seo|membrana|sutura|consulta|control|urgencia)\b/giu;
+  const terms = [...sentence.matchAll(termPattern)];
+  const cueAt = fold(sentence).search(/\b(?:abona|abono|paga|pago|pagado|deja|dejan|dejo|cancela|cancelo)\b/);
+  const prior = cueAt >= 0 ? terms.filter((match) => (match.index ?? -1) <= cueAt) : terms;
+  const match = prior[prior.length - 1] ?? terms[0];
+  return match ? capitalize(match[0]) : "";
+}
+
+function isNewBudgetQuote(sentence: string): boolean {
+  return /\b(?:presupuesto\s+(?:de|del|para)|cotizaci[oó]n\s+(?:de|del|para)|se\s+(?:presupuesta|cotiza)|(?:precio|valor|costo)\s+(?:total\s+)?(?:de|del))\b/i.test(sentence);
+}
+
+function paymentContextAmounts(evidence: string, transcript: string): number[] {
+  const conceptTokens = normalizeEvidence(paymentConcept(evidence)).split(" ").filter((word) => word.length > 3);
+  const rows = sentences(transcript).map((text) => ({
+    normalized: normalizeEvidence(text),
+    amounts: spokenAmounts(text).map((item) => item.value),
+  })).filter((row) => row.amounts.length > 0);
+  const priceCue = /\b(?:presupuesto|cotizaci[oó]n|honorarios?|costo|precio|valor|vale|cuesta|sale|total|importe)\b/;
+  const related = conceptTokens.length
+    ? rows.filter((row) => priceCue.test(row.normalized) && conceptTokens.some((token) => row.normalized.includes(token)))
+    : [];
+  const relatedValues = [...new Set(related.flatMap((row) => row.amounts))];
+  if (relatedValues.length) return relatedValues;
+  const priced = rows.filter((row) => priceCue.test(row.normalized));
+  return [...new Set(priced.flatMap((row) => row.amounts))];
+}
+
+function paymentBudgetMatch(payment: PaymentChange, budgets: BudgetChange[]): BudgetChange | undefined {
+  let candidates = budgets.filter((budget) => budget.amount > 0);
+  if (payment.baseAmount) candidates = candidates.filter((budget) => budget.amount === payment.baseAmount);
+  const conceptTokens = normalizeEvidence(payment.concept).split(" ").filter((word) => word.length > 3);
+  if (conceptTokens.length) {
+    const matches = candidates.filter((budget) => {
+      const haystack = normalizeEvidence([budget.title, budget.label, budget.evidence ?? "", budget.sourceText].join(" "));
+      return conceptTokens.some((token) => haystack.includes(token));
+    });
+    if (matches.length) candidates = matches;
+  }
+  return candidates.length === 1 ? candidates[0] : undefined;
 }
 
 function appointmentFrom(sentence: string, today: string, id: string, origin: ItemOrigin): AppointmentChange {
@@ -1470,11 +1532,18 @@ function originUnion(a: ItemOrigin, b: ItemOrigin): ItemOrigin {
 export function finishRouting(proposal: DictationProposal): DictationProposal {
   const payments: PaymentChange[] = [];
   for (const item of proposal.payments ?? []) {
-    const same = payments.find((done) => done.amount === item.amount);
+    const itemEvidence = normalizeEvidence(item.evidence);
+    const same = payments.find((done) => done.amount === item.amount && (
+      normalizeEvidence(done.evidence) === itemEvidence
+      || (itemEvidence.length > 24 && normalizeEvidence(done.evidence).includes(itemEvidence))
+      || (normalizeEvidence(done.evidence).length > 24 && itemEvidence.includes(normalizeEvidence(done.evidence)))
+    ));
     if (!same) { payments.push({ ...item }); continue; }
     same.origin = originUnion(same.origin, item.origin);
     if (!same.method && item.method) same.method = item.method;
     if (!same.concept && item.concept) same.concept = item.concept;
+    if (!same.baseAmount && item.baseAmount) same.baseAmount = item.baseAmount;
+    if (!same.percentage && item.percentage) same.percentage = item.percentage;
   }
   let appointments: AppointmentChange[] = [];
   for (const item of proposal.appointments ?? []) {
@@ -1524,12 +1593,16 @@ export function finishRouting(proposal: DictationProposal): DictationProposal {
     else questions.push(`¿En qué sitio se midió el sondaje de ${item.depth} mm en ${label} (mesial, distal o central; vestibular o palatino/lingual)? «${clip(item.evidence)}»`);
   }
   const kept = proposal.clarifications.filter((note) => !ROUTING_QUESTION.test(note));
+  const linkedPayments = payments.map((item) => {
+    const budget = paymentBudgetMatch(item, proposal.budget);
+    return budget ? { ...item, budgetRef: budget.id } : item;
+  });
   return {
     ...proposal,
     perio,
     perioPending: pending,
     mobility,
-    payments,
+    payments: linkedPayments,
     appointments,
     clarifications: [...new Set([...kept, ...questions])],
   };
@@ -1840,12 +1913,12 @@ La nota debe ordenar las ideas en una secuencia lógica y eliminar muletillas, r
 - "material" y "color" solo para corona, si se dijeron.
 - "evidencia": copia EXACTA y continua de la transcripción (mismas palabras, sin corregir) que contenga el número de la pieza y el hallazgo. Si no puedes citar, no incluyas el hallazgo.
 
-3) "procedimientos": lo realizado hoy, cada uno con "texto" y "evidencia" literal.
-4) "presupuesto": prestaciones presupuestadas con "prestacion", "monto" en pesos (0 si no se dijo) y "evidencia" literal.
+3) "procedimientos": lo realizado hoy, cada uno con "texto" y "evidencia" literal. En cirugía bucal, conserva exactamente la técnica, el material y la marca de sutura (por ejemplo, Vicryl / poliglactina 910, Monocryl, PDS, Prolene, nylon o seda), calibre, aguja, material hemostático, injerto, membrana, marca y dimensiones del implante, anestésico, concentración, cantidad de tubetes, dosis y duración de medicamentos, si fueron dictados. Corrige errores claros de reconocimiento y redacta profesionalmente, pero no sustituyas materiales ni completes dosis, calibres, marcas o técnicas por conocimiento general.
+4) "presupuesto": prestaciones presupuestadas con "prestacion", el precio total de cada prestación en pesos (0 si no se dijo) y "evidencia" literal. No sustituyas el precio total por el pago, el abono ni el saldo.
 5) "ficha": alergias, antecedentes médicos y medicamentos que toma el paciente, con "campo" (alergias | antecedentes | medicamentos), "texto" breve y "evidencia" literal. «Niega alergias» también se registra. Si una frase trae alergia y medicamento («alérgica a la penicilina toma losartán»), son dos elementos separados.
 6) "texto_corregido": la misma transcripción con SOLO errores de reconocimiento de voz corregidos (palabras mal oídas: «mecial» → «mesial», «caris» → «caries», «periodo de autograma» → «periodontograma», «de estar traje» → «destartraje», «sub gingival» → «subgingival», «supra gingival» → «supragingival» y «root» → «RUT» solo cuando se pregunta por el RUN/RUT) y números dictados en palabras pasados a cifras («dos cuatro» → «2.4», «cuatro milímetros» → «4 mm», «cincuenta mil» → «50.000»; en implantes: «Flappers» → «flapless», medida «33 × 8» → «3,3 × 8 mm» con coma decimal). Una marca de implante dudosa («Arcis», ¿Arcsys?) no la cambies: pregúntala en dudas. Mantén el orden y las demás palabras; no resumas, no agregues datos, no cambies piezas, caras, cifras, negaciones ni términos clínicos correctos. Si no hay nada que corregir, repite el texto.
 7) "periodonto": cada sondaje, sangrado o supuración dictado, con "pieza", "sistema", "sitio" (MV, V, DV, ML, L, DL o "" si no se dijo), "profundidad" en mm (-1 si no se dijo), "sangrado", "supuracion" (true solo si se dijo) y "evidencia" literal.
-8) "pagos": dinero que el paciente pagó o abonó HOY (no lo presupuestado ni lo que debe), con "monto" en pesos, "medio" (efectivo | debito | credito | transferencia | otro | "" si no se dijo), "concepto" ("" si no se dijo) y "evidencia" literal.
+8) "pagos": dinero que el paciente pagó o abonó HOY (no lo que debe). Si dice «la mitad», «50 %» o una fracción equivalente de un monto total único e inequívoco, calcula el monto abonado en "monto" y conserva la cita literal en "evidencia". El presupuesto mantiene su monto total original; el pago se registra como abono asociado. Si hay más de un total posible, no adivines: deja el pago pendiente de aclaración. Completa "medio" solo si se dictó (efectivo | debito | credito | transferencia | otro | ""), y "concepto" solo si aparece en la cita. No inventes método ni monto.
 9) "citas": la próxima cita o control que se dictó, con "motivo" ("" si no se dijo) y "evidencia" literal que contenga la fecha u hora tal como se dijo. No calcules la fecha.
 10) "diagnosticos": cada diagnóstico que el PROFESIONAL dictó hoy (no lo que el paciente relata, ni lo sospechado, probable, a descartar, negado o planificado), con "termino" (el diagnóstico tal como se dijo, p. ej. «pulpitis irreversible sintomática», «absceso apical crónico», «gingivitis inducida por placa», «periodontitis estadio III grado B»), "pieza" ("" si no se dijo) y "evidencia" literal que contenga el término. No pongas códigos: el sistema los asigna desde el catálogo CIE-11. Las caries ya van en hallazgos: no las repitas aquí.
 11) "dudas": solo dudas reales que el odontólogo deba resolver (un número que no es pieza válida, una autocorrección confusa, una cara que no corresponde). Pregunta por la pieza solo si el número no es válido en ningún sistema (sin etiqueta: 1 a 32 es chilena, 33 a 48 y 51 a 85 es FDI; p. ej. «pieza 39» o «pieza 50»): pregunta «¿Qué pieza?» sin suponer ninguna. «pieza 30» es chilena (FDI 3.6): no es una duda. No preguntes por lo que ya falta en pagos, citas o sondajes (medio de pago, hora, sitio): eso se pregunta aparte.
@@ -2248,7 +2321,8 @@ export function validateAiExtraction(input: unknown, transcript: string, options
     if (labelWords.length && !labelWords.some((word) => quoted.includes(word.slice(0, Math.max(4, word.length - 2))))) { reject(`Presupuesto «${label}»: la prestación no está en la cita. No se propuso.`); continue; }
     const said = amountsIn(evidence);
     const aiAmount = Number(item.monto);
-    if (isPaymentText(evidence) && !isFuturePayment(evidence) && aiAmount && aiAmount === paymentAmount(evidence)) { clarifications.push(`«${clip(evidence)}» es un pago, no una prestación del presupuesto. Va en pagos.`); continue; }
+    const paymentDetails = paymentAmountDetails(evidence, paymentContextAmounts(evidence, transcript));
+    if (isPaymentText(evidence) && !isFuturePayment(evidence) && aiAmount && aiAmount === paymentDetails?.amount) { clarifications.push(`«${clip(evidence)}» es un pago, no una prestación del presupuesto. Va en pagos.`); continue; }
     let amount = 0;
     if (Number.isSafeInteger(aiAmount) && aiAmount > 0 && said.includes(aiAmount)) amount = aiAmount;
     else if (said.length === 1) amount = said[0];
@@ -2313,16 +2387,25 @@ export function validateAiExtraction(input: unknown, transcript: string, options
     if (!evidence || !evidenceInTranscript(evidence, transcript)) { reject("Pago propuesto sin cita literal del dictado. No se anotó."); continue; }
     evidence = answerContext(evidence, transcript);
     if (!isPaymentText(evidence) || isFuturePayment(evidence)) { reject(`La cita no dice que pagó hoy: «${clip(evidence)}». No se anotó como pago.`); continue; }
-    const said = paymentAmount(evidence);
+    const details = paymentAmountDetails(evidence, paymentContextAmounts(evidence, transcript));
+    const said = details?.amount ?? null;
     const aiAmount = Number(item.monto);
-    if (!said) { reject(`Pago sin monto claro: «${clip(evidence)}». ¿Cuánto pagó?`); continue; }
-    if (aiAmount && aiAmount !== said) clarifications.push(`Pago: la IA indicó ${money(aiAmount)} y el dictado dice ${money(said)}. Se usó lo dictado.`);
+    if (!said) { reject(`Pago sin monto base inequívoco: «${clip(evidence)}». ¿Cuál es el monto total al que corresponde el abono?`); continue; }
+    if (aiAmount && aiAmount !== said) clarifications.push(`Pago: la IA indicó ${money(aiAmount)} y el cálculo desde el dictado da ${money(said)}. Se usó el dictado.`);
     const aiMethod = str(item.medio) as PaymentMethod | "";
     const method = paymentMethodFrom(evidence);
     if (aiMethod && aiMethod !== method) clarifications.push(`Pago de ${money(said)}: la IA indicó «${aiMethod}», que no está en la cita.`);
     const concept = str(item.concepto, 120);
     const conceptOk = concept && normalizeEvidence(concept).split(" ").filter((word) => word.length > 3).every((word) => normalizeEvidence(evidence).includes(word.slice(0, Math.max(4, word.length - 2))));
-    payments.push({ id: nextId("pag"), amount: said, method, concept: conceptOk ? capitalize(concept) : paymentConcept(evidence), evidence: clip(evidence, 400), origin: "ia" });
+    payments.push({
+      id: nextId("pag"),
+      amount: said,
+      method,
+      concept: conceptOk ? capitalize(concept) : paymentConcept(evidence),
+      evidence: clip(evidence, 400),
+      origin: "ia",
+      ...(details?.baseAmount ? { baseAmount: details.baseAmount, percentage: details.percentage } : {}),
+    });
   }
 
   // Citas: la fecha y la hora se calculan desde la cita literal, no desde la IA.
@@ -2538,7 +2621,13 @@ function mergeProposals(ai: AiExtraction, local: DictationProposal, transcript: 
       const text = normalizeEvidence(item.evidence ?? item.sourceText);
       return Boolean(text) && (ruleText.includes(text) || text.includes(ruleText));
     };
-    const same = budget.find((item) => (rule.amount > 0 && item.amount === rule.amount) || (rule.amount === 0 && (overlaps(item) || (item.amount === 0 && ruleText.includes(normalizeEvidence(rule.label).split(" ")[0] ?? "")))));
+    const ruleLabelText = normalizeEvidence(rule.label);
+    const same = budget.find((item) => {
+      if (rule.amount === 0) return overlaps(item) || (item.amount === 0 && ruleText.includes(ruleLabelText.split(" ")[0] ?? ""));
+      if (item.amount !== rule.amount) return false;
+      const itemLabelText = normalizeEvidence(item.label);
+      return overlaps(item) || itemLabelText === ruleLabelText || itemLabelText.includes(ruleLabelText) || ruleLabelText.includes(itemLabelText);
+    });
     // La IA dejó en 0 un monto dicho en palabras que las reglas sí leyeron: se completa en vez de duplicar.
     const zero = rule.amount > 0 ? budget.find((item) => item.amount === 0 && overlaps(item)) : undefined;
     if (!same && zero) {
@@ -2602,12 +2691,17 @@ function mergeProposals(ai: AiExtraction, local: DictationProposal, transcript: 
     payments: [...(ai.payments ?? []), ...(local.payments ?? [])],
     appointments: [...(ai.appointments ?? []), ...(local.appointments ?? [])],
   });
+  const finalBudget = renumber(routed.budget, "pre");
+  const finalPayments = renumber(routed.payments ?? [], "pag").map((item) => {
+    const budget = paymentBudgetMatch(item, finalBudget);
+    return budget ? { ...item, budgetRef: budget.id } : { ...item, budgetRef: undefined };
+  });
   return {
     ...routed,
-    budget: renumber(routed.budget, "pre"),
+    budget: finalBudget,
     perio: renumber(routed.perio, "per"),
     perioPending: renumber(routed.perioPending ?? [], "pen"),
-    payments: renumber(routed.payments ?? [], "pag"),
+    payments: finalPayments,
     appointments: renumber(routed.appointments ?? [], "cit"),
     mobility: renumber(routed.mobility ?? [], "mov"),
   };

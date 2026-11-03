@@ -20,7 +20,7 @@ export async function transcribeDentalAudio(audio: Blob, apiKey: string, options
   form.append("file", audio, `dictado.${extension}`);
   form.append("model", model);
   form.append("response_format", "json");
-  form.append("prompt", "Consulta odontológica en español de Chile. Dictado del profesional con procedimientos, hallazgos, piezas dentales, superficies, medidas y presupuestos. Terminología: destartraje, detartraje, tartrectomía, supragingival, subgingival, pulpa, encía, pulpectomía, pulpotomía, ligamento periodontal, sondaje, sextantes, pulido coronario.");
+  form.append("prompt", "Consulta odontológica en español de Chile. Dictado del profesional con procedimientos, hallazgos, piezas dentales, superficies, medidas, presupuestos y pagos. Terminología: destartraje, detartraje, tartrectomía, supragingival, subgingival, pulpa, encía, pulpectomía, pulpotomía, ligamento periodontal, sondaje, seis grupos periodontales, pulido coronario, cirugía bucal, flapless, colgajo mucoperióstico, odontosección, alveoloplastia, sutura Vicryl o poliglactina 910, Vicryl Rapide, Monocryl, PDS, Prolene, nylon, poliamida, seda quirúrgica, calibres 3-0 y 4-0, injerto óseo, membrana, hemostasia, tubete anestésico, lidocaína, articaína, paciente abonó, dejó la mitad, 50 por ciento del presupuesto, monto pagado. Conserva nombres de materiales y cifras tal como se dictaron; no completes dosis ni calibres.");
   if (model === "gpt-transcribe") {
     form.append("languages[]", "es");
     for (const { phrase } of DENTAL_SPEECH_HINTS) form.append("keywords[]", phrase);

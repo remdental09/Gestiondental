@@ -77,6 +77,48 @@ type Decided = "accepted" | "rejected";
 type ReviewPerio = { id: string; toothText: string; site: PerioSite | ""; depthText: string; bleeding: boolean; suppuration: boolean; decision: Decided; evidence?: string; origin?: ItemOrigin; pending: boolean };
 type ReviewMobility = MobilityChange & { decision: Decided; toothText: string };
 type ReviewPayment = PaymentChange & { decision: Decided; amountText: string; methodValue: PaymentMethod | ""; budgetId: string };
+const normalizeBudgetMatch = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
+function suggestedPaymentBudget(
+  payment: PaymentChange,
+  proposed: ReviewBudget[],
+  existing: { id: number; title: string }[],
+): string {
+  const byId = proposed.find((budget) => budget.id === payment.budgetRef && budget.decision === "accepted");
+  if (byId) return "proposal:" + byId.id;
+
+  const concepts = normalizeBudgetMatch(payment.concept).split(/[^a-z0-9]+/).filter((word) => word.length > 3 && !["presupuesto", "tratamiento"].includes(word));
+  const proposedCandidates = proposed.filter((budget) => budget.decision === "accepted");
+  if (payment.baseAmount) {
+    const exact = proposedCandidates.filter((budget) => budget.amount === payment.baseAmount);
+    if (exact.length === 1) return "proposal:" + exact[0].id;
+    if (exact.length > 1 && concepts.length) {
+      const matched = exact.filter((budget) => concepts.some((word) => normalizeBudgetMatch(budget.title + " " + budget.label).includes(word)));
+      if (matched.length === 1) return "proposal:" + matched[0].id;
+    }
+  }
+
+  if (concepts.length) {
+    const candidates = [
+      ...proposedCandidates.map((budget) => ({ value: "proposal:" + budget.id, text: budget.title + " " + budget.label })),
+      ...existing.map((budget) => ({ value: "existing:" + budget.id, text: budget.title })),
+    ].filter((budget) => concepts.some((word) => normalizeBudgetMatch(budget.text).includes(word)));
+    if (candidates.length === 1) return candidates[0].value;
+    if (candidates.length > 1) return "";
+    const onlyAvailable = [
+      ...proposedCandidates.map((budget) => "proposal:" + budget.id),
+      ...existing.map((budget) => "existing:" + budget.id),
+    ];
+    return onlyAvailable.length === 1 ? onlyAvailable[0] : "";
+  }
+
+  const all = [
+    ...proposedCandidates.map((budget) => "proposal:" + budget.id),
+    ...existing.map((budget) => "existing:" + budget.id),
+  ];
+  return all.length === 1 ? all[0] : "";
+}
+
 type ReviewAppointment = AppointmentChange & { decision: Decided; dayValue: string; timeValue: string };
 /** Etiqueta de diagnóstico en revisión: la sugerida (AAE o caries pulpar) parte sin aceptar. */
 type ReviewDiagnosis = DiagnosisItem & { decision: Decided; toothText: string; findingsText: string; codeSearch: string };
@@ -367,7 +409,13 @@ export function ClinicalDictation({
         ...(data.proposal.perioPending ?? []).map((item) => ({ id: item.id, toothText: formatFdi(item.tooth), site: item.site ?? "" as const, depthText: item.depth === null ? "" : String(item.depth), bleeding: item.bleeding, suppuration: item.suppuration, decision: "rejected" as const, evidence: item.evidence, origin: item.origin, pending: true })),
       ]);
       setMobilityItems((data.proposal.mobility ?? []).map((item) => ({ ...item, decision: "accepted", toothText: formatFdi(item.tooth) })));
-      setPaymentItems((data.proposal.payments ?? []).map((item) => ({ ...item, decision: "accepted", amountText: String(item.amount), methodValue: item.method ?? "", budgetId: "" })));
+      setPaymentItems((data.proposal.payments ?? []).map((item) => ({
+        ...item,
+        decision: "accepted",
+        amountText: String(item.amount),
+        methodValue: item.method ?? "",
+        budgetId: suggestedPaymentBudget(item, (data.proposal.budget ?? []).map((budget) => ({ ...budget, decision: "accepted" as const, amountText: String(budget.amount) })), budgetOptions),
+      })));
       // Las caries se derivan en vivo de lo aceptado en el odontograma; el resto se revisa una por una.
       setDxItems((data.proposal.diagnoses ?? []).filter((item) => !item.code.startsWith("DA08.0")).map((item) => ({ ...item, decision: item.suggested ? "rejected" as const : "accepted" as const, toothText: item.tooth ? formatFdi(item.tooth) : "", findingsText: item.findings ?? "", codeSearch: "" })));
       setDxSearch("");
@@ -503,13 +551,23 @@ export function ClinicalDictation({
       }
       acceptedBudgets.push({ ...item, label: item.label.trim(), amount });
     }
-    const acceptedPayments: { key: string; amount: number; method: PaymentMethod; concept: string; budgetId: number | null }[] = [];
+    const acceptedPayments: { key: string; amount: number; method: PaymentMethod; concept: string; budgetSelection: string }[] = [];
     for (const item of paymentItems) {
       if (item.decision !== "accepted") continue;
       const amount = Number(item.amountText.replace(/\./g, ""));
       if (!Number.isSafeInteger(amount) || amount < 1) { setFormError("Revisa el monto del pago en pesos, sin decimales."); return; }
-      if (!item.methodValue) { setFormError(`Elige el medio de pago de $${amount.toLocaleString("es-CL")}.`); return; }
-      acceptedPayments.push({ key: `pay:${item.id}:${amount}:${item.methodValue}:${item.budgetId}`, amount, method: item.methodValue, concept: item.concept.trim(), budgetId: item.budgetId ? Number(item.budgetId) : null });
+      if (!item.methodValue) { setFormError("Elige el medio de pago de $" + amount.toLocaleString("es-CL") + "."); return; }
+      const proposalMatch = /^proposal:(.+)$/.exec(item.budgetId);
+      if (proposalMatch && !acceptedBudgets.some((budget) => budget.id === proposalMatch[1])) {
+        setFormError("El pago de $" + amount.toLocaleString("es-CL") + " está vinculado a un presupuesto dictado que no aceptaste. Acepta ese presupuesto o cambia la asociación.");
+        return;
+      }
+      const existingMatch = /^existing:(\d+)$/.exec(item.budgetId);
+      if (existingMatch && !budgetOptions.some((budget) => budget.id === Number(existingMatch[1]))) {
+        setFormError("El presupuesto seleccionado ya no está disponible. Revisa la asociación del pago.");
+        return;
+      }
+      acceptedPayments.push({ key: "pay:" + item.id + ":" + amount + ":" + item.methodValue + ":" + item.budgetId, amount, method: item.methodValue, concept: item.concept.trim(), budgetSelection: item.budgetId });
     }
     const acceptedAppointments: { key: string; day: string; time: string; reason: string }[] = [];
     for (const item of appointmentItems) {
@@ -552,6 +610,7 @@ export function ClinicalDictation({
     let after = odontogram;
     let savedNote: { id?: number; title: string; body: string } | null = null;
     const savedBudgetIds: number[] = [];
+    const savedBudgetByProposal = new Map<string, number>();
     const savedPayments: { amount: number; method: string; savedId?: number }[] = [];
     const savedAppointments: { day: string; time: string; reason: string; savedId?: number }[] = [];
     let examId: number | undefined;
@@ -575,11 +634,17 @@ export function ClinicalDictation({
       }
       for (const action of planChartWrites(patientId, before, after, acceptedTeeth)) await persist(action);
       for (const item of acceptedBudgets) {
-        const id = await once(`budget:${item.id}:${item.label}:${item.amount}`, async () => (await persist({ action: "addBudget", patientId, title: item.title, label: item.label, amount: item.amount })).budget?.id);
-        if (id) savedBudgetIds.push(id);
+        const id = await once("budget:" + item.id + ":" + item.label + ":" + item.amount, async () => (await persist({ action: "addBudget", patientId, title: item.title, label: item.label, amount: item.amount })).budget?.id);
+        if (id) {
+          savedBudgetIds.push(id);
+          savedBudgetByProposal.set(item.id, id);
+        }
       }
       for (const item of acceptedPayments) {
-        const savedId = await once(item.key, async () => (await persist({ action: "addPayment", patientId, amount: item.amount, method: item.method, concept: item.concept, budgetId: item.budgetId, requestId: `${session.current}:${item.key}`.slice(0, 80) })).payment?.id);
+        const proposalMatch = /^proposal:(.+)$/.exec(item.budgetSelection);
+        const existingMatch = /^existing:(\d+)$/.exec(item.budgetSelection);
+        const budgetId = proposalMatch ? savedBudgetByProposal.get(proposalMatch[1]) ?? null : existingMatch ? Number(existingMatch[1]) : null;
+        const savedId = await once(item.key, async () => (await persist({ action: "addPayment", patientId, amount: item.amount, method: item.method, concept: item.concept, budgetId, requestId: (session.current + ":" + item.key).slice(0, 80) })).payment?.id);
         savedPayments.push({ amount: item.amount, method: item.method, savedId });
       }
       for (const item of acceptedAppointments) {
@@ -934,14 +999,14 @@ export function ClinicalDictation({
               {paymentItems.length === 0 && <p className="rounded-lg border border-dashed border-[#dce5e7] p-3 text-[#71858b]">Sin pagos en el dictado.</p>}
               {paymentItems.map((item, index) => <article key={item.id} className={`rounded-xl border p-4 ${item.decision === "accepted" ? "border-emerald-200" : "border-[#e4ebed] opacity-70"}`} data-testid="dictation-payment">
                 <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div><p><span className="text-[#71858b]">Pago de hoy: </span><span className="font-medium">${Number(item.amountText || 0).toLocaleString("es-CL")}</span> · {item.methodValue ? PAYMENT_METHOD_LABEL[item.methodValue] : <span className="text-amber-800">medio sin indicar</span>}<OriginBadge origin={item.origin} /></p><Evidence text={item.evidence} /></div>
+                  <div><p><span className="text-[#71858b]">Pago de hoy: </span><span className="font-medium">${Number(item.amountText || 0).toLocaleString("es-CL")}</span> · {item.methodValue ? PAYMENT_METHOD_LABEL[item.methodValue] : <span className="text-amber-800">medio sin indicar</span>}<OriginBadge origin={item.origin} /></p><Evidence text={item.evidence} />{item.baseAmount && item.percentage === 50 && <p className="mt-1 text-sm font-medium text-[#0a7779]">Cálculo detectado: 50 % de {item.baseAmount.toLocaleString("es-CL")} = {Number(item.amountText || 0).toLocaleString("es-CL")}</p>}</div>
                   <Decision value={item.decision} onChange={(decision) => setPaymentItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, decision } : entry))} />
                 </div>
                 {item.decision === "accepted" && <div className="mt-3 grid gap-2 sm:grid-cols-2">
                   <label className="space-y-1">Monto CLP<input className="flex h-10 w-full rounded-md border px-3 text-base sm:h-9 sm:text-sm" inputMode="numeric" value={item.amountText} onChange={(event) => setPaymentItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, amountText: event.target.value } : entry))} /></label>
                   <label className="space-y-1">Medio de pago<select className="h-10 w-full rounded-md border px-2 text-base sm:h-9 sm:text-sm" value={item.methodValue} onChange={(event) => setPaymentItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, methodValue: event.target.value as PaymentMethod | "" } : entry))}><option value="">Elegir…</option>{PAYMENT_METHODS.map((method) => <option key={method} value={method}>{PAYMENT_METHOD_LABEL[method]}</option>)}</select></label>
                   <label className="space-y-1">Concepto<input className="flex h-10 w-full rounded-md border px-3 text-base sm:h-9 sm:text-sm" value={item.concept} onChange={(event) => setPaymentItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, concept: event.target.value } : entry))} /></label>
-                  {budgetOptions.length > 0 && <label className="space-y-1">Abona al presupuesto<select className="h-10 w-full rounded-md border px-2 text-base sm:h-9 sm:text-sm" value={item.budgetId} onChange={(event) => setPaymentItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, budgetId: event.target.value } : entry))}><option value="">Sin asociar</option>{budgetOptions.map((budget) => <option key={budget.id} value={budget.id}>{budget.title}</option>)}</select></label>}
+                  {(budgetOptions.length > 0 || budgets.length > 0) && <label className="space-y-1">Abona al presupuesto<select className="h-10 w-full rounded-md border px-2 text-base sm:h-9 sm:text-sm" value={item.budgetId} onChange={(event) => setPaymentItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, budgetId: event.target.value } : entry))}><option value="">Sin asociar</option>{budgetOptions.map((budget) => <option key={"existing:" + budget.id} value={"existing:" + budget.id}>{budget.title}</option>)}{budgets.map((budget) => <option key={"proposal:" + budget.id} value={"proposal:" + budget.id} disabled={budget.decision !== "accepted"}>{budget.label} · {"$" + Number(budget.amountText || 0).toLocaleString("es-CL")}{budget.decision !== "accepted" ? " (rechazado)" : " (dictado)"}</option>)}</select></label>}
                 </div>}
               </article>)}
             </section>
