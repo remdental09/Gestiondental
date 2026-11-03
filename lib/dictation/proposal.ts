@@ -2383,7 +2383,7 @@ function collides(a: OdontogramChange, b: OdontogramChange): boolean {
 
 /** Une IA y reglas. Coincidencias suben de confianza; diferencias en la misma pieza quedan en conflicto para que decida el odontólogo. */
 export const PROCEDURE_SECTION = "Procedimientos realizados";
-const NOTE_SECTION_HEADINGS = new Set(NOTE_SECTIONS.map(([, label]) => label));
+const NOTE_SECTION_HEADINGS = new Set([...NOTE_SECTIONS.map(([, label]) => label), "Condición al egreso"]);
 
 function noteSectionLines(body: string, heading: string): string[] {
   const lines = body.replace(/\r\n/g, "\n").split("\n");
@@ -2477,6 +2477,20 @@ function completeProcedureSection(noteBody: string, aiProcedures: ProcedureItem[
   return insertProcedureLines(noteBody, additions);
 }
 
+function completeDischargeCondition(body: string, localBody: string): string {
+  const localOthers = noteSectionLines(localBody, "Otros dichos");
+  const explicitGoodEgress = localOthers.some((line) => {
+    const normalized = normalizeEvidence(line);
+    return /^(?:paciente )?(?:se va|se retira|egresa)(?: bien| en buenas condiciones(?: generales)?)$/.test(normalized);
+  });
+  if (!explicitGoodEgress) return body;
+  const normalizedBody = body.replace(/\b(?:el )?paciente se va bien\b/giu, "Finaliza la atención en buenas condiciones");
+  const alreadyRecorded = /\b(?:finaliza|concluye)\b.{0,60}\b(?:bien|buenas condiciones)\b|\b(?:egresa|se retira|se va)\b.{0,60}\b(?:bien|buenas condiciones)\b/iu.test(normalizedBody);
+  if (alreadyRecorded) return normalizedBody.trim();
+  const section = "Condición al egreso\nFinaliza la atención en buenas condiciones.";
+  return normalizedBody.trim() ? normalizedBody.trim() + "\n\n" + section : section;
+}
+
 function mergeProposals(ai: AiExtraction, local: DictationProposal, transcript: string): DictationProposal {
   const odontogram: OdontogramChange[] = ai.odontogram.map((item) => ({ ...item }));
   const clarifications = [...ai.clarifications];
@@ -2561,8 +2575,9 @@ function mergeProposals(ai: AiExtraction, local: DictationProposal, transcript: 
     noteBody,
     exam.length ? `\n${EXAM_REGISTRY_HEADER}\n${exam.join("\n")}` : "",
   ].join("\n").trim();
+  const completedBody = completeDischargeCondition(body, local.evolution?.body ?? "");
   const routed = finishRouting({
-    evolution: body ? { title: "Evolución dictada", body } : local.evolution,
+    evolution: completedBody ? { title: "Evolución dictada", body: completedBody } : local.evolution,
     odontogram: renumber(odontogram, "odo"),
     budget,
     perio: [...(ai.perio ?? []), ...local.perio.map((item) => ({ ...item, origin: item.origin ?? ("reglas" as const) }))],
