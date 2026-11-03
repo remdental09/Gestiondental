@@ -1,6 +1,6 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import app from "vinext/server/fetch-handler";
-import { resolveOwner } from "./app/access-owners";
+import { resolveOwner, resolveOwnerWithRegistration } from "./app/access-owners";
 
 type AccessIdentity = { email?: string | null };
 type AccessContext = {
@@ -76,7 +76,7 @@ export default {
     const audience = env.ACCESS_POLICY_AUD?.trim();
     if (configuredIssuerValue && !configuredIssuer) return notReady();
     // Configuración de cuentas antes de verificar la identidad: si falta o está mal, nadie entra.
-    const ownerConfig = { CLINIC_OWNERS: env.CLINIC_OWNERS, ACCESS_ALLOWED_EMAIL: env.ACCESS_ALLOWED_EMAIL, CLINIC_OWNER_ID: env.CLINIC_OWNER_ID };
+    const ownerConfig = { CLINIC_OWNERS: env.CLINIC_OWNERS, ACCESS_ALLOWED_EMAIL: env.ACCESS_ALLOWED_EMAIL, CLINIC_OWNER_ID: env.CLINIC_OWNER_ID, CLINIC_OPEN_REGISTRATION: env.CLINIC_OPEN_REGISTRATION };
     const configCheck = resolveOwner("", ownerConfig);
     if (!configCheck.ok && configCheck.status === 503) return notReady();
 
@@ -108,7 +108,7 @@ export default {
     }
 
     // Cada correo autorizado tiene su propio owner_id; un correo desconocido no hereda el del titular.
-    const resolved = resolveOwner(email, ownerConfig);
+    const resolved = await resolveOwnerWithRegistration(email, ownerConfig);
     if (!resolved.ok) return resolved.status === 503 ? notReady() : denied();
 
     const headers = new Headers(request.headers);
