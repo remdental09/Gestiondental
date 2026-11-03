@@ -2477,6 +2477,17 @@ function completeProcedureSection(noteBody: string, aiProcedures: ProcedureItem[
   return insertProcedureLines(noteBody, additions);
 }
 
+function vagueSurfaceClarifications(transcript: string): string[] {
+  const explicitSurface = /(?<!\p{L})(?:oclusal|incisal|vestibular|bucal|palatin[ao]|lingual|mesial|distal)(?!\p{L})/iu;
+  return sentences(transcript)
+    .filter((sentence) =>
+      /(?<!\p{L})(?:por arriba|parte de arriba|por encima)(?!\p{L})/iu.test(sentence)
+      && /(?<!\p{L})(?:caries|lesi[oó]n|cavidad)(?!\p{L})/iu.test(sentence)
+      && !explicitSurface.test(sentence),
+    )
+    .map((sentence) => "¿Qué superficie clínica quiso indicar con «por arriba»? «" + clip(sentence, 180) + "»");
+}
+
 function completeDischargeCondition(body: string, localBody: string): string {
   const localOthers = noteSectionLines(localBody, "Otros dichos");
   const explicitGoodEgress = localOthers.some((line) => {
@@ -2873,7 +2884,7 @@ export async function proposeFromTranscript(
   const withText = (proposal: DictationProposal, text: string, corrections: TranscriptCorrection[], aiDiagnoses: DiagnosisItem[] = []): DictationProposal => {
     // En la nota solo entran los diagnósticos no sugeridos; las equivalencias sugeridas esperan confirmación.
     const diagnoses = mergeDiagnoses(cariesDiagnoses(proposal.odontogram), textDiagnoses(text), aiDiagnoses);
-    const doubts = [...lexiconDoubts(text), ...numberingDoubts(text, input.chart ?? [])];
+    const doubts = [...lexiconDoubts(text), ...numberingDoubts(text, input.chart ?? []), ...vagueSurfaceClarifications(text)];
     const clarifications = tidyClarifications([...proposal.clarifications, ...doubts.filter((item) => !proposal.clarifications.includes(item))], proposal.odontogram);
     const evolution = proposal.evolution ? { ...proposal.evolution, body: withDiagnosesSection(proposal.evolution.body, diagnoses.filter((item) => !item.suggested)) } : null;
     const typed = applyEvolutionPolicy({ ...proposal, evolution, clarifications, diagnoses }, input.chart ?? [], text);
