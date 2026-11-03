@@ -19,6 +19,7 @@ import { installedImplantTeeth } from "@/app/implant-evidence";
 import { cariesDetail } from "@/lib/caries";
 import { cementedCrownFromEvolution } from "@/app/crown-evidence";
 import { bestStoredNameMatches, hasFourNameParts, normalizePatientName } from "@/app/patient-identity";
+import { nameSimilarity, type DictatedIdentity } from "@/lib/dictation/patient-identify";
 import { agendaWeekDays, agendaWeekRangeLabel, mondayOfAgendaWeek, santiagoDateISO, shiftAgendaWeek } from "@/app/agenda-week";
 
 type Patient = { id:number; name:string; birthDate:string; rut:string; phone:string; email:string; reason:string; status:string; allergies:string; history:string };
@@ -196,7 +197,46 @@ export default function Home(){
   const openSection=(destination:string)=>destination==="Inicio"?goHome():navigateTo(destination);
   const openPatient=(id:number,tab="evoluciones")=>navigateTo("Ficha clínica",id,tab);
   // Dictado desde Inicio: la ficha ya fue elegida (o creada) y confirmada; se abre y la IA corrige el texto allí.
-  const openDictatedPatient=(id:number,text:string,options?:{ignoreCommand?:boolean;incorporate?:boolean})=>{
+  const openDictatedPatient=async(id:number,text:string,options?:{ignoreCommand?:boolean;incorporate?:boolean;identity?:DictatedIdentity})=>{
+    const identity=options?.identity;
+    const selected=patients.find(item=>item.id===id);
+    const notices:string[]=[];
+    if(identity&&selected){
+      const nameMatches=!identity.name||nameSimilarity(identity.name,selected.name)>=0.5;
+      if(!nameMatches)notices.push("El nombre dictado no coincide con la ficha. No se completaron datos personales.");
+      else{
+        const updates:Record<string,string>={};
+        const cleanRutValue=(value:string)=>value.toUpperCase().replace(/[^0-9K]/g,"");
+        if(identity.rut&&identity.rutValid&&validRut(identity.rut)){
+          if(selected.rut&&cleanRutValue(selected.rut)!==cleanRutValue(identity.rut))notices.push("El RUT dictado difiere del RUT registrado; no se sobrescribió.");
+          else if(!selected.rut&&!patients.some(item=>item.id!==id&&cleanRutValue(item.rut||"")===cleanRutValue(identity.rut)))updates.rut=identity.rut;
+          else if(!selected.rut)notices.push("Ese RUT ya está asociado a otra ficha; no se guardó.");
+        }
+        if(identity.birthDate&&ageFromBirthDate(identity.birthDate)!==null){
+          if(selected.birthDate&&selected.birthDate!==identity.birthDate)notices.push("La fecha de nacimiento dictada difiere de la registrada; no se sobrescribió.");
+          else if(!selected.birthDate)updates.birthDate=identity.birthDate;
+        }
+        if(identity.phone&&validPhone(identity.phone)){
+          const same=selected.phone.replace(/\D/g,"")===identity.phone.replace(/\D/g,"");
+          if(selected.phone&&!same)notices.push("El teléfono dictado difiere del registrado; no se sobrescribió.");
+          else if(!selected.phone)updates.phone=identity.phone;
+        }
+        if(identity.email&&validEmail(identity.email)){
+          const same=selected.email.trim().toLowerCase()===identity.email.trim().toLowerCase();
+          if(selected.email&&!same)notices.push("El correo dictado difiere del registrado; no se sobrescribió.");
+          else if(!selected.email)updates.email=identity.email;
+        }
+        if(Object.keys(updates).length){
+          try{
+            const saved=await persist({action:"updatePatient",patientId:id,...updates});
+            if(saved.patient)setPatients(previous=>previous.map(item=>item.id===id?saved.patient:item));
+          }catch{
+            notices.push("No se pudieron completar automáticamente todos los datos personales. La atención seguirá y nada del dictado se pierde.");
+          }
+        }
+      }
+    }
+    if(notices.length)setChartMessage(notices.join(" "));
     setNavigationHistory(previous=>[...previous.slice(-19),{section,patientId:selectedId,tab:activeTab}]);
     setSelectedId(id);setActiveTab("evoluciones");setSection("Ficha clínica");setMobileNav(false);
     if(text.trim().length>=3)setDictationRequest({nonce:Date.now(),text:text.trim(),patientId:id,...(options?.ignoreCommand?{ignoreCommand:true}:{}),...(options?.incorporate?{incorporate:true}:{})});
