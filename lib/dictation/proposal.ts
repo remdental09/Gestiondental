@@ -3166,7 +3166,7 @@ function cariesBeforeRestoration(item: OdontogramChange): SurfaceFinding | null 
 function surfaceHistoryTitle(item: OdontogramChange, finding: SurfaceFinding): string {
   const detail = describeFinding(item.tooth, finding, item.surface ? [item.surface] : []);
   const kind = finding.condition === "caries" ? "Diagnóstico" : finding.condition === "restored" ? "Tratamiento" : "Hallazgo";
-  return kind + " · " + detail + " · FDI " + formatFdi(item.tooth);
+  return kind + " · " + detail;
 }
 
 export function planChartWrites(patientId: number, before: ChartSnapshot, after: ChartSnapshot, accepted: OdontogramChange[]): ChartAction[] {
