@@ -97,14 +97,14 @@ export async function listDriveBackupQueue(ownerId: string, afterPatientId: numb
   };
 }
 
-export async function confirmDriveSnapshot(ownerId: string, patientId: number, documentId: string, digest: string, folderId: string | null) {
+export async function confirmDriveSnapshot(ownerId: string, patientId: number, documentId: string, digest: string, folderId: string | null, allowReplacement = false) {
   const snapshot = await getDriveSnapshot(ownerId, patientId);
   if (!snapshot) return { saved: false, error: "Ficha no encontrada." };
   if (snapshot.digest !== digest) return { saved: false, stale: true, message: "La ficha cambió durante el respaldo. Vuelve a copiar la versión actual." };
-  if (snapshot.previousDocumentId && snapshot.previousDocumentId !== documentId) {
+  if (snapshot.previousDocumentId && snapshot.previousDocumentId !== documentId && !allowReplacement) {
     return { saved: false, error: "El documento no coincide con el respaldo anterior de esta ficha." };
   }
-  if (snapshot.driveFolderId && folderId && snapshot.driveFolderId !== folderId) {
+  if (snapshot.driveFolderId && folderId && snapshot.driveFolderId !== folderId && !allowReplacement) {
     return { saved: false, error: "La carpeta no coincide con la ficha." };
   }
   const db = getDb(), verifiedAt = new Date().toISOString();
