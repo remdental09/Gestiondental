@@ -241,7 +241,7 @@ export async function POST(request: Request) {
       }
     }
     if (!Number.isSafeInteger(patientId) || patientId <= 0) return error("Selecciona un paciente válido.");
-    const [patient] = await db.select({ id: patients.id, name: patients.name }).from(patients).where(and(eq(patients.id, patientId), eq(patients.ownerId, ownerId)));
+    const [patient] = await db.select({ id: patients.id, name: patients.name, rut: patients.rut, birthDate: patients.birthDate, phone: patients.phone, email: patients.email, allergies: patients.allergies, history: patients.history }).from(patients).where(and(eq(patients.id, patientId), eq(patients.ownerId, ownerId)));
     if (!patient) return error("Paciente no encontrado.", 404);
     if (action === "updatePatient") {
       const nameInput = typeof input.name === "string" ? input.name.trim() : patient.name;
@@ -252,8 +252,15 @@ export async function POST(request: Request) {
         const otherPatients = await db.select({ id: patients.id, name: patients.name }).from(patients).where(eq(patients.ownerId, ownerId));
         if (otherPatients.some(other => other.id !== patientId && normalizePatientName(other.name) === normalizedName)) return error("Ya hay otra ficha con ese nombre. Verifica la identidad antes de actualizar.", 409);
       }
-      const phone = string(input.phone, 24), email = string(input.email, 254);
+      const hasPhone = Object.prototype.hasOwnProperty.call(input, "phone");
+      const hasEmail = Object.prototype.hasOwnProperty.call(input, "email");
+      const phone = hasPhone && typeof input.phone === "string" ? string(input.phone, 24) : patient.phone;
+      const email = hasEmail && typeof input.email === "string" ? string(input.email, 254) : patient.email;
+      const hasBirthDate = Object.prototype.hasOwnProperty.call(input, "birthDate");
+      const birthDateCandidate = typeof input.birthDate === "string" ? input.birthDate.trim() : "";
+      const birthDate = birthDateCandidate ? string(birthDateCandidate, 10) : patient.birthDate;
       if (!validPhone(phone) || !validEmail(email)) return error("Revisa el teléfono y el correo electrónico.");
+      if (hasBirthDate && birthDateCandidate && (birthDateCandidate.length > 10 || !validDate(birthDate) || birthDate > dateInChile() || Number(birthDate.slice(0, 4)) < Number(dateInChile().slice(0, 4)) - 125)) return error("Revisa la fecha de nacimiento.");
       const hasRut = Object.prototype.hasOwnProperty.call(input, "rut");
       const rutRaw = hasRut ? string(input.rut, 20).trim() : "";
       if (hasRut && rutRaw && !validRut(rutRaw)) return error("Revisa el RUN / RUT y su dígito verificador.");
@@ -262,9 +269,11 @@ export async function POST(request: Request) {
         const [duplicate] = await db.select({ id: patients.id }).from(patients).where(and(eq(patients.ownerId, ownerId), eq(patients.rut, rut), ne(patients.id, patientId))).limit(1);
         if (duplicate) return error("Ya existe otro paciente con ese RUN / RUT.", 409);
       }
-      const allergies = string(input.allergies, 2000) || "Sin registrar";
-      const history = string(input.history, 10000) || "Sin registrar";
-      const changes = { name: nameInput, phone, email, allergies, history, updatedAt: now(), ...(hasRut ? { rut } : {}) };
+      const hasAllergies = Object.prototype.hasOwnProperty.call(input, "allergies");
+      const hasHistory = Object.prototype.hasOwnProperty.call(input, "history");
+      const allergies = hasAllergies ? string(input.allergies, 2000) || "Sin registrar" : patient.allergies;
+      const history = hasHistory ? string(input.history, 10000) || "Sin registrar" : patient.history;
+      const changes = { name: nameInput, birthDate, phone, email, allergies, history, updatedAt: now(), ...(hasRut ? { rut } : {}) };
       const [updated] = await db.update(patients).set(changes).where(and(eq(patients.id, patientId), eq(patients.ownerId, ownerId))).returning();
       return Response.json({ patient: { ...updated, rut: updated.rut || "" } });
     }
