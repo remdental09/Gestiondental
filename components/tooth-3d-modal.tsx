@@ -1,6 +1,7 @@
 "use client";
 
 import { lazy, Suspense, useLayoutEffect, useRef, useState } from "react";
+import { FullArch3DStage } from "@/components/full-arch-3d-stage";
 import { Eye, EyeOff, X } from "lucide-react";
 import { formatFdi, type OdontogramSurface, type PerioSiteKey, type PerioTooth, type SurfaceFinding } from "@/app/clinical-data";
 import { cariesDetail } from "@/lib/caries";
@@ -44,6 +45,7 @@ export function Tooth3DModal({
   const [reducedMotion, setReducedMotion] = useState(() => window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   const [grown, setGrown] = useState(reducedMotion);
   const [showPeriodontium, setShowPeriodontium] = useState(true);
+  const [fullArch, setFullArch] = useState(false);
   const naturalTooth = status !== "Ausente" && status !== "Implante" && status !== "Implante con pilar";
   useLayoutEffect(() => {
     if (focusFrame.current !== null) cancelAnimationFrame(focusFrame.current);
@@ -121,10 +123,11 @@ export function Tooth3DModal({
         {periodontalSites ? <div className="mb-3 grid grid-cols-3 gap-1.5 text-center text-xs sm:gap-2" aria-label="Seis sitios periodontales">
           {(["MV", "V", "DV", "ML", "L", "DL"] as PerioSiteKey[]).map(key => { const reading = periodontalSites[key]; const depth = reading?.depth; const measured = depth !== null && depth !== undefined; const color = !measured ? "#94a3b8" : depth >= 6 ? "#be123c" : depth >= 4 ? "#b45309" : "#047857"; return <div key={key} className="rounded-lg border border-[#e2eaeb] bg-white px-1 py-1.5"><span className="font-semibold">{key}</span><span className="ml-1 font-medium" style={{color}}>{measured ? `${depth} mm` : "sin medir"}</span>{reading?.bleeding && <span className="block text-red-700">Sangrado</span>}{reading?.suppuration && <span className="block text-violet-700">Supuración</span>}</div>; })}
         </div> : findings.length > 0 ? <ul className="mb-3 flex flex-wrap gap-2">{findings.map((line) => <li key={line} className="rounded-full bg-[#f3f7f7] px-3 py-1 text-xs font-medium text-[#31575b]">{line}</li>)}</ul> : <p className="mb-3 text-sm text-[#71858b]">Sin hallazgos registrados en esta pieza.</p>}
-        <Suspense fallback={<p className="grid h-[min(52vh,420px)] min-h-64 place-items-center text-sm text-[#71858b]" role="status">Preparando el diente…</p>}>
+        <div className="mb-2 flex gap-2" role="group" aria-label="Vista del odontograma 3D"><button type="button" onClick={() => setFullArch(false)} aria-pressed={!fullArch} className={`rounded-lg border px-3 py-1.5 text-sm ${!fullArch ? "border-[#087f83] bg-[#e7f5f3] text-[#075b60]" : "border-[#d8e3e3] bg-white text-[#52666c]"}`}>Pieza seleccionada</button><button type="button" onClick={() => setFullArch(true)} aria-pressed={fullArch} className={`rounded-lg border px-3 py-1.5 text-sm ${fullArch ? "border-[#087f83] bg-[#e7f5f3] text-[#075b60]" : "border-[#d8e3e3] bg-white text-[#52666c]"}`}>Todas las piezas en hueso</button></div>
+        {fullArch ? <FullArch3DStage reducedMotion={reducedMotion} /> : <Suspense fallback={<p className="grid h-[min(52vh,420px)] min-h-64 place-items-center text-sm text-[#71858b]" role="status">Preparando el diente…</p>}>
           {placed && <Tooth3DStage tooth={tooth} status={status} surfaces={surfaces} hasCrown={hasCrown} reducedMotion={reducedMotion} periodontalSites={periodontalSites} showPeriodontium={showPeriodontium} />}
-        </Suspense>
-        <p className="mt-2 text-xs leading-5 text-[#71858b]">{reducedMotion ? "Arrastra para girar. Acerca con la rueda o con dos dedos. La rotación automática está desactivada." : "El diente gira solo. Arrastra para orientarlo y acerca con la rueda o con dos dedos."}</p>
+        </Suspense>}
+        <p className="mt-2 text-xs leading-5 text-[#71858b]">{reducedMotion ? "Arrastra para girar. Acerca con la rueda o con dos dedos. La rotación automática está desactivada." : "Las piezas giran juntas con la arcada. Arrastra para orientarlas y acerca con la rueda o con dos dedos."}</p>
         <ul className="mt-3 flex flex-wrap gap-2 text-xs text-[#52666c]" aria-label="Leyenda de colores">
           {([
             ["Lesión de caries", surfaceMarkColor("caries")],
