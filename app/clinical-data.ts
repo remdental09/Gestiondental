@@ -42,6 +42,7 @@ export type PerioExam = {
 };
 
 export type OdontogramSurface = "V" | "P" | "M" | "D" | "O";
+export type RestorationMaterial = "Resina compuesta" | "Vidrio ionómero" | "Amalgama" | "Cavit" | "IRM" | "Otro";
 export type SurfaceFinding = {
   condition: "not_examined" | "sound" | "caries" | "restored" | "sealant" | "other_restoration";
   /** Profundidad de la caries (esmalte, dentina superficial, dentina profunda, compromiso pulpar). Opcional. */
@@ -49,6 +50,9 @@ export type SurfaceFinding = {
   /** Registros anteriores: ICDAS 1–6. Se conservan y se muestran como registro anterior; ya no se piden. */
   icdas?: 1 | 2 | 3 | 4 | 5 | 6 | null;
   activity?: "active" | "inactive" | "uncertain" | null;
+  /** Tipo y material de restauración, solo cuando se dictaron expresamente. */
+  restorationStage?: "provisional" | "definitive" | null;
+  restorationMaterial?: RestorationMaterial | null;
 };
 export type CrownDetails = {
   material: string;
@@ -72,6 +76,8 @@ export type ToothHistoryEvent = {
   eventType: "status" | "surface" | "crown" | "missing_reason" | "evolution" | "diagnosis";
   source?: "manual" | "evolution";
   sourceEvolutionId?: number;
+  /** Clave idempotente de la acción clínica que originó este hito. */
+  sourceActionId?: string;
   surface?: OdontogramSurface;
   title?: string;
   detail?: string;
