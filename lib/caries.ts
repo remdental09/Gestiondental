@@ -30,20 +30,20 @@ const fold = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/
 export type DepthReading = { depth: CariesDepth | null; ambiguous?: string };
 
 /**
- * Lee la profundidad dicha: «caries de esmalte», «dentina superficial», «caries profunda»,
- * «penetrante» o «compromiso pulpar». «Caries de dentina» o «caries superficial» solas quedan ambiguas.
+ * Lee la profundidad dicha: «caries de esmalte», «dentina superficial/dentinaria superficial»,
+ * «caries profunda» o «compromiso pulpar». «Caries de dentina/dentinaria» o «caries superficial» solas quedan ambiguas.
  */
 export function cariesDepthFrom(text: string): DepthReading {
   const t = fold(text);
   const found: CariesDepth[] = [];
   if (/\b(?:compromiso|exposicion|comunicacion)\s+(?:de\s+(?:la\s+)?)?pulp(?:ar|a)\b|\bpulpa\s+expuesta\b|\bpenetrante\b|\bcaries\s+pulpar\b/.test(t)) found.push("pulpar");
-  if (/\bdentina\s+profunda\b|\bcaries\s+(?:\w+\s+){0,3}?profunda\b|\bprofunda\s+en\s+dentina\b/.test(t)) found.push("dentina_profunda");
-  if (/\bdentina\s+(?:superficial|media|externa)\b|\bcaries\s+(?:\w+\s+){0,3}?(?:media|mediana)\b/.test(t)) found.push("dentina_superficial");
+  if (/\bdentina(?:ria)?\s+profunda\b|\bcaries\s+(?:\w+\s+){0,3}?profunda\b|\bprofunda\s+en\s+dentina(?:ria)?\b/.test(t)) found.push("dentina_profunda");
+  if (/\bdentina(?:ria)?\s+(?:superficial|media|externa)\b|\bcaries\s+(?:\w+\s+){0,3}?(?:media|mediana)\b/.test(t)) found.push("dentina_superficial");
   if (/\besmalte\b|\bmancha\s+blanca\b|\bincipiente\b/.test(t)) found.push("esmalte");
   const unique = [...new Set(found)];
   if (unique.length === 1) return { depth: unique[0] };
   if (unique.length > 1) return { depth: null, ambiguous: "Se dijo más de una profundidad" };
-  if (/\bdentina\b/.test(t)) return { depth: null, ambiguous: "Caries de dentina sin decir si es superficial o profunda" };
+  if (/\bdentina(?:ria)?\b/.test(t)) return { depth: null, ambiguous: "Caries dentinaria sin decir si es superficial o profunda" };
   if (/\bcaries\s+(?:\w+\s+){0,3}?superficial\b/.test(t)) return { depth: null, ambiguous: "«Superficial» puede ser esmalte o dentina superficial" };
   return { depth: null };
 }

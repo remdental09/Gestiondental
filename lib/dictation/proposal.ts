@@ -1892,7 +1892,7 @@ export const NOTE_SECTIONS = [
 export const AI_SYSTEM_PROMPT = `${DENTAL_DICTIONARY_HINTS}\n\nEres asistente de un odontólogo chileno. Recibes la transcripción literal de un dictado por voz (puede venir sin puntuación y con errores de reconocimiento). Devuelves SOLO JSON con el esquema pedido.
 
 1) "nota": redacta una evolución odontológica profesional, clara y concisa, en español clínico de Chile y en tercera persona. Esta es una RE-REDACCIÓN CLÍNICA, no una transcripción corregida palabra por palabra: transforma activamente el habla cotidiana, las abreviaciones y las expresiones coloquiales en lenguaje odontológico natural. La nota final no debe sonar a dictado ni conservar frases como «muela», «bien grande», «arreglarla», «capaz», «se ve» o «se va bien» cuando exista una formulación clínica inequívoca. Conserva todos los hechos, su temporalidad, negaciones y grado de certeza; profesionalizar la expresión no autoriza a inventar hallazgos ni diagnósticos.
-Equivalencias de estilo: «le duele con frío» → «refiere dolor provocado por frío» (sin inferir diagnóstico pulpar); «muela 3.6» → «pieza 3.6» (sin cambiar su numeración); «caries bien grande» → «lesión cariosa extensa»; «parece profunda» → «aparentemente profunda» (sin afirmar compromiso pulpar); «arreglarla» → «realizar tratamiento restaurador» solo cuando ese plan se desprenda claramente del dictado; «capaz va a endodoncia» → «se considerará tratamiento endodóntico», manteniendo el carácter condicional; «se hace destartraje supra y subgingival en los seis grupos» → «Se realiza destartraje supragingival y subgingival en los seis grupos»; «se va bien» → «finaliza la atención en buenas condiciones» si eso es lo que expresa el contexto. Usa «se observa» en lugar de «se ve» cuando se trate de un hallazgo clínico.
+Equivalencias de estilo: «le duele con frío» → «refiere dolor provocado por frío» (sin inferir diagnóstico pulpar); «muela 3.6» → «pieza 3.6» (sin cambiar su numeración); «caries bien grande» → «lesión cariosa extensa»; «caries dentinaria superficial» → «lesión cariosa dentinaria superficial» (conserva esa profundidad; nunca la conviertas en «terminal superficial» ni agregues una cara no dictada); «parece profunda» → «aparentemente profunda» (sin afirmar compromiso pulpar); «arreglarla» → «realizar tratamiento restaurador» solo cuando ese plan se desprenda claramente del dictado; «capaz va a endodoncia» → «se considerará tratamiento endodóntico», manteniendo el carácter condicional; «se hace destartraje supra y subgingival en los seis grupos» → «Se realiza destartraje supragingival y subgingival en los seis grupos»; «se va bien» → «finaliza la atención en buenas condiciones» si eso es lo que expresa el contexto. Usa «se observa» en lugar de «se ve» cuando se trate de un hallazgo clínico.
 Si la ubicación se expresa con palabras ambiguas como «por arriba», no la conviertas automáticamente en cara oclusal ni en otra superficie: redacta el hallazgo sin asignar una cara y pregunta en «dudas» si esa ubicación es clínicamente relevante.
 Ejemplo de estilo para este tipo de dictado:
 Dictado informal: «Paciente viene a control. Le duele con frío la muela 3.6. Se ve una caries bien grande por arriba y parece que está profunda. Se conversa que primero hay que arreglarla y ver si aguanta; si no, capaz va a endodoncia. Se hace destartraje supra y subgingival en los seis grupos. Paciente se va bien».
@@ -2188,6 +2188,15 @@ function answerContext(evidence: string, transcript: string): string {
   return answers.length ? `${evidence.replace(/[.;\s]+$/, "")}, ${answers.map((answer) => answer.replace(/[.;]+/g, ",")).join(", ")}` : evidence;
 }
 
+/** Si el odontólogo dijo «dentinaria superficial», repara la sustitución inválida del modelo por «terminal». */
+function preserveDentinariaSuperficial(text: string, transcript: string): string {
+  if (!/\b(?:dentina|dentinaria)\s+superficial\b/u.test(normalizeEvidence(transcript))) return text;
+  return text
+    .replace(/\blesi[oó]n\s+cariosa\s+terminal[\s,]+superficial\b/giu, "lesión cariosa dentinaria superficial")
+    .replace(/\bcaries?\s+terminal[\s,]+superficial\b/giu, "caries dentinaria superficial")
+    .replace(/\bcaries?\s+superficial\b/giu, "caries dentinaria superficial");
+}
+
 export function validateAiExtraction(input: unknown, transcript: string, options: { today?: string } = {}): AiExtraction {
   const today = options.today ?? santiagoToday();
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("La IA no devolvió un objeto JSON.");
@@ -2203,6 +2212,9 @@ export function validateAiExtraction(input: unknown, transcript: string, options
 
   // Nota
   const nota = record.nota as Record<string, unknown>;
+  for (const [key, value] of Object.entries(nota)) {
+    if (typeof value === "string") nota[key] = preserveDentinariaSuperficial(value, transcript);
+  }
   // Una negación explícita de un procedimiento pendiente no puede desaparecer en la redacción.
   // Se repone literalmente desde el dictado, sin inferir fecha, pieza ni motivo.
   const notDone = transcript.match(/\b(?:la\s+cirug[ií]a|el\s+tratamiento|el\s+procedimiento|la\s+exodoncia|la\s+endodoncia)\s+(?:(?:a[uú]n|todav[ií]a)\s+)?no\s+(?:se\s+)?(?:(?:ha|hab[ií]a)\s+)?(?:realizad[oa]|efectuad[oa]|iniciad[oa])\b/iu);
