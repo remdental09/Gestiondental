@@ -1822,7 +1822,7 @@ Equivalencias de estilo: «le duele con frío» → «refiere dolor provocado po
 Si la ubicación se expresa con palabras ambiguas como «por arriba», no la conviertas automáticamente en cara oclusal ni en otra superficie: redacta el hallazgo sin asignar una cara y pregunta en «dudas» si esa ubicación es clínicamente relevante.
 Ejemplo de estilo para este tipo de dictado:
 Dictado informal: «Paciente viene a control. Le duele con frío la muela 3.6. Se ve una caries bien grande por arriba y parece que está profunda. Se conversa que primero hay que arreglarla y ver si aguanta; si no, capaz va a endodoncia. Se hace destartraje supra y subgingival en los seis grupos. Paciente se va bien».
-Redacción esperada: motivo = «Control. Refiere dolor provocado por frío en la pieza 3.6»; examen = «Se observa una lesión cariosa extensa en la pieza 3.6, aparentemente profunda»; procedimientos = «Se realiza destartraje supragingival y subgingival en los seis grupos»; plan = «Se plantea realizar tratamiento restaurador en la pieza 3.6 y evaluar su respuesta. Según la evaluación, se considerará tratamiento endodóntico»; evolución = «Paciente finaliza la atención en buenas condiciones»; duda = «¿Con “por arriba” se refiere a la cara oclusal?». No copies el dictado informal dentro de la nota. Las instrucciones orales de edición («aclaración», «rectifica», «corrige», «borra», «texto revisado») son metadiscurso: aplícalas a los datos clínicos y nunca las copies ni las describas en la evolución. Si el dictado contiene versiones repetidas o rectificaciones, redacta solo el dato final corregido y conserva los demás hechos clínicos no afectados. Antes de escribir, identifica todos los hechos clínicos explícitos y conserva cada uno en la sección correspondiente: los hallazgos observados en «examen», las acciones futuras en «plan» y los procedimientos ya realizados en «procedimientos». No omitas hallazgos, detalles ni razones clínicas por resumir; cada hecho relevante del dictado debe aparecer en la nota una sola vez, con redacción natural y fiel. Revisa al final que todas las observaciones y relaciones causales expresadas estén representadas y que ninguna se haya convertido en una inferencia. No hagas una transcripción literal ni escribas frases conversacionales («estamos viendo», «vamos a hacer»): conviértelas en redacción clínica natural («En la evaluación se observa…», «Se planifica…») solo cuando el dictado respalde esa acción. Ordena la información como motivo/anamnesis, examen objetivo, diagnóstico únicamente si fue dictado, procedimientos efectivamente realizados, plan e indicaciones. Usa terminología odontológica precisa y conserva el sentido y el grado de certeza; no inventes interpretaciones clínicas. Evita repeticiones, muletillas y encabezados vacíos. Ejemplo de estilo: «Se observa disminución de la altura sinusal en el sector posterior. Se planifica tratamiento con implantes en las posiciones indicadas y un cantiléver para evitar intervenir el seno maxilar. La cirugía aún no se ha realizado». Corrige puntuación y redacción, pero NO agregues nada que no se haya dicho: ni diagnósticos, ni piezas, ni caras, ni profundidades de caries, ni montos, ni medicamentos, ni negaciones. Si algo no se dijo, deja la sección como cadena vacía "". Conserva los números de pieza tal como se dictaron (si dijo «pieza 30», escribe «pieza 30»). Lo que el paciente cuenta (refiere, relata) va en motivo o anamnesis, nunca en examen. Si el profesional dicta un diagnóstico, va en diagnostico; si no, déjalo vacío. En la convención de esta consulta, periodontología se organiza en seis grupos numerados del 1 al 6: conserva exactamente «grupo 3», «los seis grupos» y «los seis restantes»; no los conviertas a piezas dentarias ni a otra nomenclatura. Si el dictado indica que ya se trató en los seis grupos y también que se tratará en «los seis restantes», marca la contradicción en «dudas» y no adivines qué quiso decir. En español clínico chileno, conserva «destartraje» si esa fue la palabra dictada; no la reemplaces automáticamente por «detartraje».
+Redacción esperada: motivo = «Control. Refiere dolor provocado por frío en la pieza 3.6»; examen = «Se observa una lesión cariosa extensa en la pieza 3.6, aparentemente profunda»; procedimientos = «Se realiza destartraje supragingival y subgingival en los seis grupos»; plan = «Se plantea realizar tratamiento restaurador en la pieza 3.6 y evaluar su respuesta. Según la evaluación, se considerará tratamiento endodóntico»; evolución = «Paciente finaliza la atención en buenas condiciones»; duda = «¿Con “por arriba” se refiere a la cara oclusal?». No copies el dictado informal dentro de la nota. Las instrucciones orales de edición («aclaración», «rectifica», «corrige», «borra», «texto revisado») son metadiscurso: aplícalas a los datos clínicos y nunca las copies ni las describas en la evolución. Si el dictado contiene versiones repetidas o rectificaciones, redacta solo el dato final corregido y conserva los demás hechos clínicos no afectados. Antes de escribir, identifica todos los hechos clínicos explícitos y conserva cada uno en la sección correspondiente: los hallazgos observados en «examen», las acciones futuras en «plan» y los procedimientos ya realizados en «procedimientos». No omitas hallazgos, detalles ni razones clínicas por resumir; cada hecho relevante del dictado debe aparecer en la nota una sola vez, con redacción natural y fiel. Revisa al final que todas las observaciones y relaciones causales expresadas estén representadas y que ninguna se haya convertido en una inferencia. Cada procedimiento realizado hoy debe aparecer tanto en «nota.procedimientos» como en el arreglo raíz «procedimientos»; el arreglo raíz no sustituye su presencia en la evolución clínica. No hagas una transcripción literal ni escribas frases conversacionales («estamos viendo», «vamos a hacer»): conviértelas en redacción clínica natural («En la evaluación se observa…», «Se planifica…») solo cuando el dictado respalde esa acción. Ordena la información como motivo/anamnesis, examen objetivo, diagnóstico únicamente si fue dictado, procedimientos efectivamente realizados, plan e indicaciones. Usa terminología odontológica precisa y conserva el sentido y el grado de certeza; no inventes interpretaciones clínicas. Evita repeticiones, muletillas y encabezados vacíos. Ejemplo de estilo: «Se observa disminución de la altura sinusal en el sector posterior. Se planifica tratamiento con implantes en las posiciones indicadas y un cantiléver para evitar intervenir el seno maxilar. La cirugía aún no se ha realizado». Corrige puntuación y redacción, pero NO agregues nada que no se haya dicho: ni diagnósticos, ni piezas, ni caras, ni profundidades de caries, ni montos, ni medicamentos, ni negaciones. Si algo no se dijo, deja la sección como cadena vacía "". Conserva los números de pieza tal como se dictaron (si dijo «pieza 30», escribe «pieza 30»). Lo que el paciente cuenta (refiere, relata) va en motivo o anamnesis, nunca en examen. Si el profesional dicta un diagnóstico, va en diagnostico; si no, déjalo vacío. En la convención de esta consulta, periodontología se organiza en seis grupos numerados del 1 al 6: conserva exactamente «grupo 3», «los seis grupos» y «los seis restantes»; no los conviertas a piezas dentarias ni a otra nomenclatura. Si el dictado indica que ya se trató en los seis grupos y también que se tratará en «los seis restantes», marca la contradicción en «dudas» y no adivines qué quiso decir. En español clínico chileno, conserva «destartraje» si esa fue la palabra dictada; no la reemplaces automáticamente por «detartraje».
 
 La nota debe ordenar las ideas en una secuencia lógica y eliminar muletillas, repeticiones y frases dirigidas al sistema. Conserva expresamente las negaciones y la temporalidad relevantes (por ejemplo, «la cirugía todavía no se ha realizado»); omitirlas cambia el sentido clínico. Explica relaciones causales solo si el profesional las expresó. Diferencia hallazgo, plan futuro y tratamiento realizado: «se planifica colocar implantes» no significa que ya estén instalados. Si el reconocimiento oyó «root» en un contexto explícito de identificación, entiende que se refiere al RUT, pero no reconstruyas un número de identidad dudoso ni lo agregues a la nota clínica. Cuando un término o número sea ambiguo, conserva lo dicho y plantea la duda; no rellenes vacíos con conocimiento general.
 
@@ -2382,7 +2382,102 @@ function collides(a: OdontogramChange, b: OdontogramChange): boolean {
 }
 
 /** Une IA y reglas. Coincidencias suben de confianza; diferencias en la misma pieza quedan en conflicto para que decida el odontólogo. */
-export function mergeProposals(ai: AiExtraction, local: DictationProposal, transcript: string): DictationProposal {
+export const PROCEDURE_SECTION = "Procedimientos realizados";
+const NOTE_SECTION_HEADINGS = new Set(NOTE_SECTIONS.map(([, label]) => label));
+
+function noteSectionLines(body: string, heading: string): string[] {
+  const lines = body.replace(/\r\n/g, "\n").split("\n");
+  const start = lines.findIndex((line) => line.trim() === heading);
+  if (start < 0) return [];
+  let end = start + 1;
+  while (end < lines.length && lines[end].trim() && !NOTE_SECTION_HEADINGS.has(lines[end].trim())) end += 1;
+  return lines.slice(start + 1, end).map((line) => line.trim()).filter(Boolean);
+}
+
+function comparableProcedure(value: string): string {
+  return normalizeEvidence(value)
+    .replace(/\bse hace\b/g, "se realiza")
+    .replace(/\bse realizo\b/g, "se realiza")
+    .replace(/\bse efectuo\b/g, "se realiza")
+    .replace(/\b(?:destartraje|detartraje) supra(?: gingival)? y sub(?: gingival)?\b/g, "destartraje supragingival y subgingival")
+    .replace(/\bsupra gingival\b/g, "supragingival")
+    .replace(/\bsub gingival\b/g, "subgingival");
+}
+
+const PROCEDURE_STOP_WORDS = new Set(["se", "realiza", "realizo", "efectua", "hace", "el", "la", "los", "las", "en", "con", "y", "e", "de", "del", "por", "para", "un", "una", "al"]);
+
+function procedureTextMatches(source: string, candidate: string): boolean {
+  const left = comparableProcedure(source);
+  const right = comparableProcedure(candidate);
+  if (!left || !right) return false;
+  if (left.includes(right) || right.includes(left)) return true;
+  const sourceTerms = left.split(" ").filter((term) => term.length > 2 && !PROCEDURE_STOP_WORDS.has(term));
+  const candidateTerms = new Set(right.split(" ").filter((term) => term.length > 2 && !PROCEDURE_STOP_WORDS.has(term)));
+  return sourceTerms.length >= 2 && sourceTerms.every((term) => candidateTerms.has(term));
+}
+
+function professionalizeProcedureText(value: string): string {
+  let text = value.replace(/\s+/g, " ").trim();
+  text = text
+    .replace(/^se hace\b/i, "Se realiza")
+    .replace(/^se efectu[oó]\b/i, "Se realizó")
+    .replace(/^se realiz[oó]\b/i, "Se realizó")
+    .replace(/\b(?:destartraje|detartraje) supra(?:gingival)?\s*(?:y|e)\s*sub\s*gingival\b/giu, "destartraje supragingival y subgingival")
+    .replace(/\bsupra\s+gingival\b/giu, "supragingival")
+    .replace(/\bsub\s+gingival\b/giu, "subgingival");
+  return ensurePeriod(capitalize(text));
+}
+
+function insertProcedureLines(body: string, additions: string[]): string {
+  const unique = additions.filter((line, index) => line && !additions.slice(0, index).some((prior) => procedureTextMatches(line, prior)));
+  if (!unique.length) return body;
+  const lines = body.replace(/\r\n/g, "\n").split("\n");
+  const start = lines.findIndex((line) => line.trim() === PROCEDURE_SECTION);
+  if (start >= 0) {
+    let end = start + 1;
+    while (end < lines.length && lines[end].trim() && !NOTE_SECTION_HEADINGS.has(lines[end].trim())) end += 1;
+    const current = lines.slice(start + 1, end).map((line) => line.trim()).filter(Boolean);
+    const missing = unique.filter((line) => !current.some((existing) => procedureTextMatches(line, existing)));
+    if (!missing.length) return body;
+    lines.splice(end, 0, ...missing);
+  } else {
+    const rank = NOTE_SECTIONS.findIndex(([, label]) => label === PROCEDURE_SECTION);
+    let insertAt = lines.findIndex((line) => {
+      const nextRank = NOTE_SECTIONS.findIndex(([, label]) => label === line.trim());
+      return nextRank > rank;
+    });
+    if (insertAt < 0) {
+      if (lines.length && lines[lines.length - 1].trim()) lines.push("");
+      insertAt = lines.length;
+    }
+    lines.splice(insertAt, 0, PROCEDURE_SECTION, ...unique, "");
+  }
+  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function completeProcedureSection(noteBody: string, aiProcedures: ProcedureItem[], localBody: string): string {
+  const localProcedures = noteSectionLines(localBody, PROCEDURE_SECTION);
+  if (!localProcedures.length) return noteBody;
+  const existingNote = noteSectionLines(noteBody, PROCEDURE_SECTION);
+  const verifiedProcedures = aiProcedures.filter((item) =>
+    item.verified && item.text.trim() && item.evidence.trim()
+    && localProcedures.some((line) => procedureTextMatches(line, item.evidence)),
+  );
+  const additions: string[] = [];
+  for (const item of verifiedProcedures) {
+    if (existingNote.some((line) => procedureTextMatches(item.evidence, line) || procedureTextMatches(item.text, line))) continue;
+    additions.push(professionalizeProcedureText(item.text));
+  }
+  for (const line of localProcedures) {
+    if (verifiedProcedures.some((item) => procedureTextMatches(line, item.evidence))) continue;
+    if (existingNote.some((noteLine) => procedureTextMatches(line, noteLine))) continue;
+    if (additions.some((addition) => procedureTextMatches(line, addition))) continue;
+    additions.push(professionalizeProcedureText(line));
+  }
+  return insertProcedureLines(noteBody, additions);
+}
+
+function mergeProposals(ai: AiExtraction, local: DictationProposal, transcript: string): DictationProposal {
   const odontogram: OdontogramChange[] = ai.odontogram.map((item) => ({ ...item }));
   const clarifications = [...ai.clarifications];
   for (const rule of local.odontogram) {
@@ -2461,8 +2556,9 @@ export function mergeProposals(ai: AiExtraction, local: DictationProposal, trans
   });
   const sure = odontogram.filter((item) => !item.conflict);
   const exam = examLines(sure);
+  const noteBody = completeProcedureSection(ai.noteBody, ai.procedures, local.evolution?.body ?? "");
   const body = [
-    ai.noteBody,
+    noteBody,
     exam.length ? `\n${EXAM_REGISTRY_HEADER}\n${exam.join("\n")}` : "",
   ].join("\n").trim();
   const routed = finishRouting({
