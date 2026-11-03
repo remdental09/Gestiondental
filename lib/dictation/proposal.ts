@@ -78,6 +78,8 @@ export type CrownMaterial = (typeof CROWN_MATERIALS)[number];
 export type OdontogramSurface = (typeof ODONTOGRAM_SURFACES)[number];
 export type PerioSite = (typeof PERIO_SITES)[number];
 export type ToothNumbering = "FDI" | "chilena" | "universal";
+export type RestorationMaterial = "Resina compuesta" | "Vidrio ionómero" | "Amalgama" | "Cavit" | "IRM" | "Otro";
+
 export type SurfaceFinding = {
   condition: "not_examined" | "sound" | "caries" | "restored" | "sealant" | "other_restoration";
   /** Profundidad de la caries (opcional): esmalte, dentina superficial, dentina profunda o compromiso pulpar. */
@@ -85,6 +87,8 @@ export type SurfaceFinding = {
   /** Registros anteriores con ICDAS; ya no se pide. */
   icdas?: 1 | 2 | 3 | 4 | 5 | 6 | null;
   activity?: "active" | "inactive" | "uncertain" | null;
+  restorationStage?: "provisional" | "definitive" | null;
+  restorationMaterial?: RestorationMaterial | null;
 };
 
 /** Diagnóstico con código CIE-11 verificado (OMS, MMS 2026-01). */
@@ -239,6 +243,8 @@ export type ChartSurface = {
   depth?: SurfaceFinding["depth"];
   icdas?: SurfaceFinding["icdas"];
   activity?: SurfaceFinding["activity"];
+  restorationStage?: SurfaceFinding["restorationStage"];
+  restorationMaterial?: SurfaceFinding["restorationMaterial"];
 };
 
 export type ChartSnapshot = {
@@ -272,11 +278,13 @@ export type StructureOutcome = {
   aiNote?: string;
 };
 
+type ChartActionMetadata = { sourceEvolutionId?: number; sourceActionId?: string; historyTitle?: string };
+
 export type ChartAction =
-  | { action: "setToothStatus"; patientId: number; tooth: number; status: string }
-  | { action: "setToothMissingReason"; patientId: number; tooth: number; reason: "caries" | "other" | "unknown" }
-  | { action: "setCrownDetails"; patientId: number; tooth: number; material: string; shade: string; foundation?: "tooth" | "implant" }
-  | { action: "setToothSurface"; patientId: number; tooth: number; surface: OdontogramSurface; finding: SurfaceFinding };
+  | ({ action: "setToothStatus"; patientId: number; tooth: number; status: string } & ChartActionMetadata)
+  | ({ action: "setToothMissingReason"; patientId: number; tooth: number; reason: "caries" | "other" | "unknown" } & ChartActionMetadata)
+  | ({ action: "setCrownDetails"; patientId: number; tooth: number; material: string; shade: string; foundation?: "tooth" | "implant" } & ChartActionMetadata)
+  | ({ action: "setToothSurface"; patientId: number; tooth: number; surface: OdontogramSurface; finding: SurfaceFinding } & ChartActionMetadata);
 
 const LOCAL_NOTICE = "Workers AI no está enlazado en este entorno. La propuesta salió del estructurador local, sin costo por dictado, y no se guarda sola.";
 const AI_NOTICE = "La IA redactó la nota y propuso los cambios. Cada pieza, cara, profundidad de caries y monto se contrastó con una cita literal del dictado y con las reglas locales; revisa y acepta antes de guardar.";
@@ -739,6 +747,24 @@ export function depthQuestion(heading: string, ambiguous: string | undefined, qu
 /** Restauración hecha en la sesión (no una obturación existente). */
 const TREATED_RESTORATION = /(?<!\p{L})(?:se\s+(?:realiz[aó]|hace|hizo|efect[uú]a|efectu[oó]|obtur[aó]|restaur[aó])|(?:obturad[oa]|restaurad[oa])\s+hoy)(?!\p{L})/iu;
 
+function restorationDetailsFrom(sentence: string): Pick<SurfaceFinding, "restorationStage" | "restorationMaterial"> {
+  const restorationStage = /\bprovisori[oa]\b/iu.test(sentence)
+    ? "provisional"
+    : /\b(?:definitiv[oa]|permanent[ae])\b/iu.test(sentence) ? "definitive" : null;
+  let restorationMaterial: RestorationMaterial | null = null;
+  if (/\b(?:composite|resina\s+compuesta|resina)\b/iu.test(sentence)) restorationMaterial = "Resina compuesta";
+  else if (/\b(?:vidrio\s+ion[oó]mero|ion[oó]mero\s+de\s+vidrio|\bgic\b)/iu.test(sentence)) restorationMaterial = "Vidrio ionómero";
+  else if (/\bamalgama\b/iu.test(sentence)) restorationMaterial = "Amalgama";
+  else if (/\bcavit\b/iu.test(sentence)) restorationMaterial = "Cavit";
+  else if (/\birm\b/iu.test(sentence)) restorationMaterial = "IRM";
+  else if (/\botro\s+material\b/iu.test(sentence)) restorationMaterial = "Otro";
+  return { restorationStage, restorationMaterial };
+}
+
+function restoredFinding(sentence: string): SurfaceFinding {
+  return { condition: "restored", depth: null, icdas: null, activity: null, ...restorationDetailsFrom(sentence) };
+}
+
 function findingFrom(sentence: string): FindingResult {
   const deniesCaries = /\b(?:sin|no)\s+(?:se\s+observa\s+)?caries\b/i.test(sentence);
   const hasCaries = /\bcaries\b/i.test(sentence) && !deniesCaries;
@@ -749,7 +775,7 @@ function findingFrom(sentence: string): FindingResult {
   const sound = /\b(?:sana|sano|sin\s+lesi[oó]n)\b/i.test(sentence) || deniesCaries;
   // «Se realiza obturación … por caries de dentina»: la caries es el motivo; la cara queda obturada.
   if (hasCaries && restored && !sealant && !other && !sound && TREATED_RESTORATION.test(sentence)) {
-    return { finding: { condition: "restored", depth: null, icdas: null, activity: null } };
+    return { finding: restoredFinding(sentence) };
   }
   const kinds = [hasCaries, restored, sealant, other, sound].filter(Boolean).length;
   if (kinds > 1) return { error: `La frase mezcla hallazgos de superficie y no se eligió uno: «${clip(sentence)}».` };
@@ -759,7 +785,7 @@ function findingFrom(sentence: string): FindingResult {
     const finding: SurfaceFinding = { condition: "caries", depth: reading.depth, icdas: (icdasFrom(sentence) ?? null) as SurfaceFinding["icdas"], activity: activityFrom(sentence) };
     return reading.depth ? { finding } : { finding, depthNote: reading.ambiguous ?? "" };
   }
-  if (restored) return { finding: { condition: "restored", depth: null, icdas: null, activity: null } };
+  if (restored) return { finding: restoredFinding(sentence) };
   if (sealant) return { finding: { condition: "sealant", depth: null, icdas: null, activity: null } };
   if (other) return { finding: { condition: "other_restoration", depth: null, icdas: null, activity: null } };
   if (sound) return { finding: { condition: "sound", depth: null, icdas: null, activity: null } };
@@ -813,7 +839,13 @@ function describeFinding(tooth: number, finding: SurfaceFinding, surfaces: Odont
     const activity = finding.activity === "active" ? ", activa" : finding.activity === "inactive" ? ", inactiva" : "";
     return `${name} ${faces}${legacy}${activity} (${icd11Label(cariesIcd11(finding.depth, root))})`;
   }
-  if (finding.condition === "restored") return `obturación ${faces}`;
+  if (finding.condition === "restored") {
+    const details = [
+      finding.restorationStage === "provisional" ? "provisoria" : finding.restorationStage === "definitive" ? "definitiva" : "",
+      finding.restorationMaterial ?? "",
+    ].filter(Boolean);
+    return "obturación " + faces + (details.length ? " (" + details.join(" · ") + ")" : "");
+  }
   if (finding.condition === "sealant") return `sellante ${faces}`;
   if (finding.condition === "sound") return `sin lesión visible ${faces}`;
   return `otra restauración ${faces}`;
@@ -3107,6 +3139,36 @@ function readTeeth(chart: ChartSnapshot): Map<number, string> {
   return teeth;
 }
 
+function cariesBeforeRestoration(item: OdontogramChange): SurfaceFinding | null {
+  if (item.kind !== "surface" || !item.surface || item.finding?.condition !== "restored") return null;
+  const source = item.sourceText;
+  const treatmentAt = source.search(TREATED_RESTORATION);
+  if (treatmentAt < 0 || !/\bcaries\b/i.test(source)) return null;
+  const mentions = fdiMentionsWithIndex(source);
+  if (mentions.length !== 1 || mentions[0].tooth !== item.tooth) return null;
+  const beforeTreatment = source.slice(0, treatmentAt);
+  const treatment = source.slice(treatmentAt);
+  const diagnosisSurfaces = resolveDictatedSurfaces(beforeTreatment, item.tooth).surfaces;
+  const treatmentSurfaces = resolveDictatedSurfaces(treatment, item.tooth).surfaces;
+  const allSurfaces = resolveDictatedSurfaces(source, item.tooth).surfaces;
+  if (diagnosisSurfaces.length && !diagnosisSurfaces.includes(item.surface)) return null;
+  if (treatmentSurfaces.length && !treatmentSurfaces.includes(item.surface)) return null;
+  if (!diagnosisSurfaces.length && !allSurfaces.includes(item.surface)) return null;
+  const reading = cariesDepthFrom(source);
+  return {
+    condition: "caries",
+    depth: reading.depth ?? null,
+    icdas: (icdasFrom(source) ?? null) as SurfaceFinding["icdas"],
+    activity: activityFrom(source),
+  };
+}
+
+function surfaceHistoryTitle(item: OdontogramChange, finding: SurfaceFinding): string {
+  const detail = describeFinding(item.tooth, finding, item.surface ? [item.surface] : []);
+  const kind = finding.condition === "caries" ? "Diagnóstico" : finding.condition === "restored" ? "Tratamiento" : "Hallazgo";
+  return kind + " · " + detail + " · FDI " + formatFdi(item.tooth);
+}
+
 export function planChartWrites(patientId: number, before: ChartSnapshot, after: ChartSnapshot, accepted: OdontogramChange[]): ChartAction[] {
   const actions: ChartAction[] = [];
   const acceptedGeneral = new Map<number, string>();
@@ -3165,7 +3227,11 @@ export function planChartWrites(patientId: number, before: ChartSnapshot, after:
         // Se restaura tal cual, incluida una caries antigua con ICDAS.
         const finding: SurfaceFinding = prior.condition === "caries"
           ? { condition: "caries", depth: prior.depth ?? null, icdas: prior.icdas ?? null, activity: prior.activity ?? null }
-          : { condition: prior.condition, depth: null, icdas: null, activity: null };
+          : {
+              condition: prior.condition, depth: null, icdas: null, activity: null,
+              ...(prior.restorationStage ? { restorationStage: prior.restorationStage } : {}),
+              ...(prior.restorationMaterial ? { restorationMaterial: prior.restorationMaterial } : {}),
+            };
         actions.push({ action: "setToothSurface", patientId, tooth, surface, finding });
       }
     }
@@ -3173,7 +3239,23 @@ export function planChartWrites(patientId: number, before: ChartSnapshot, after:
 
   for (const item of accepted) {
     if (item.kind === "surface" && item.surface && item.finding && !blocksSurfaces(item.tooth)) {
-      actions.push({ action: "setToothSurface", patientId, tooth: item.tooth, surface: item.surface, finding: item.finding });
+      const priorCaries = cariesBeforeRestoration(item);
+      if (priorCaries) {
+        actions.push({
+          action: "setToothSurface", patientId, tooth: item.tooth, surface: item.surface, finding: priorCaries,
+          sourceActionId: item.id + ":diagnosis", historyTitle: surfaceHistoryTitle(item, priorCaries),
+        });
+      }
+      const details = item.finding.condition === "restored" ? restorationDetailsFrom(item.sourceText) : null;
+      const finalFinding: SurfaceFinding = item.finding.condition === "restored" ? {
+        ...item.finding,
+        restorationStage: details?.restorationStage ?? null,
+        restorationMaterial: details?.restorationMaterial ?? null,
+      } : item.finding;
+      actions.push({
+        action: "setToothSurface", patientId, tooth: item.tooth, surface: item.surface, finding: finalFinding,
+        sourceActionId: item.id + ":state", historyTitle: surfaceHistoryTitle(item, finalFinding),
+      });
     }
   }
   return actions;
