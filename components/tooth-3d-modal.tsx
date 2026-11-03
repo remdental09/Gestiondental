@@ -104,7 +104,15 @@ export function Tooth3DModal({
   if (status && status !== "Sin hallazgos") findings.unshift((status === "Implante" || status === "Implante con pilar") && hasCrown ? "Implante con corona" : status === "Implante con pilar" ? "Implante con pilar (sin corona)" : status === "Corona" ? "Corona" : status === "Ausente" ? "Ausente / extraído" : status);
   const sortedToothHistory = [...toothHistory].filter(event => event.tooth === tooth).sort((a,b) => new Date(b.clinicalDate ? `${b.clinicalDate}T12:00:00` : b.recordedAt).getTime() - new Date(a.clinicalDate ? `${a.clinicalDate}T12:00:00` : a.recordedAt).getTime());
   const sortedPerioHistory = [...(periodontalHistory ?? [])].filter(exam => exam.teeth?.[tooth]).sort((a,b) => b.recordedAt.localeCompare(a.recordedAt));
-  const findingLabel = (finding?: SurfaceFinding) => finding ? `${CONDITION_LABEL[finding.condition]}${finding.condition === "caries" ? ` · ${cariesDetail(finding)}` : ""}` : "Sin registro";
+  const findingLabel = (finding?: SurfaceFinding) => {
+    if (!finding) return "Sin registro";
+    const caries = finding.condition === "caries" ? " · " + cariesDetail(finding) : "";
+    const restoration = finding.condition === "restored" ? [
+      finding.restorationStage === "provisional" ? "provisoria" : finding.restorationStage === "definitive" ? "definitiva" : "",
+      finding.restorationMaterial ?? "",
+    ].filter(Boolean) : [];
+    return CONDITION_LABEL[finding.condition] + caries + (restoration.length ? " · " + restoration.join(" · ") : "");
+  };
   const eventDescription = (event: ToothHistoryEvent) => {
     const after = event.after;
     if (event.eventType === "diagnosis") return [event.title ? `Diagnóstico: ${event.title}` : "Diagnóstico consignado", event.detail].filter(Boolean).join(" · ");
@@ -176,6 +184,7 @@ export function Tooth3DModal({
           {([
             ["Lesión de caries", surfaceMarkColor("caries")],
             ["Obturación", surfaceMarkColor("restored")],
+            ["Restauración provisoria", "#e6a14a"],
             ["Sellante", surfaceMarkColor("sealant")],
             ["Sin lesión visible", surfaceMarkColor("sound")],
             ["Sin examinar", surfaceMarkColor("not_examined")],
