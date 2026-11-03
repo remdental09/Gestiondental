@@ -404,25 +404,25 @@ function mountTooth(THREE: ThreeModule, room: RoomEnvironmentModule, canvas: HTM
     textures.push(boneMap);
     const ligamentMaterial = track(new THREE.MeshPhysicalMaterial({
       vertexColors: true, color: 0xffffff, roughness: 0.42, metalness: 0,
-      clearcoat: 0.12, transparent: true, opacity: 0.56, depthWrite: false, side: THREE.DoubleSide,
+      clearcoat: 0.12, transparent: true, opacity: 0.78, depthWrite: false, side: THREE.DoubleSide,
     }));
     const boneMaterial = track(new THREE.MeshPhysicalMaterial({
       vertexColors: true, color: 0xffffff, map: boneMap, roughness: 0.92, metalness: 0,
-      transparent: true, opacity: 0.24, depthWrite: false, side: THREE.DoubleSide,
+      transparent: true, opacity: 0.38, depthWrite: false, side: THREE.DoubleSide,
     }));
     const fiberMaterial = track(new THREE.MeshBasicMaterial({
-      color: 0xffeee4, transparent: true, opacity: 0.72, depthWrite: false,
+      color: 0xffeee4, transparent: true, opacity: 0.9, depthWrite: false,
     }));
     for (const root of periodontalRoots) {
       const ligament = new THREE.Mesh(
-        toGeometry(root, () => linear(0xe59a9d), () => 0.25, noTint, 0.024),
+        toGeometry(root, () => linear(0xe59a9d), () => 0.25, noTint, 0.05),
         ligamentMaterial,
       );
       ligament.renderOrder = 2;
       inner.add(ligament);
 
       const socket = new THREE.Mesh(
-        toGeometry(root, () => linear(0xe8d7b8), () => 0.08, noTint, 0.055),
+        toGeometry(root, () => linear(0xe8d7b8), () => 0.08, noTint, 0.12),
         boneMaterial,
       );
       socket.renderOrder = 3;
@@ -430,9 +430,9 @@ function mountTooth(THREE: ThreeModule, room: RoomEnvironmentModule, canvas: HTM
 
       // Fine oblique bundles bridge cementum and socket bone; they rotate with the tooth.
       if (root.normals) {
-        const stride = Math.max(1, Math.floor(root.level.length / 54));
+        const stride = Math.max(1, Math.floor(root.level.length / 100));
         let fibers = 0;
-        for (let vertex = 0; vertex < root.level.length && fibers < 28; vertex += stride) {
+        for (let vertex = 0; vertex < root.level.length && fibers < 50; vertex += stride) {
           const level = root.level[vertex];
           if (level > -0.08 || level < -0.88) continue;
           const offset = vertex * 3;
