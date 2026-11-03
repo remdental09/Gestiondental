@@ -16,6 +16,8 @@ type StageProps = {
   hasCrown: boolean;
   reducedMotion: boolean;
   periodontalSites?: PerioTooth["sites"];
+  /** Shows the translucent periodontal ligament and alveolar socket around natural roots. */
+  showPeriodontium?: boolean;
   /** Optional starting orientation (radians) — used for static previews. */
   view?: { x: number; y: number };
 };
@@ -117,6 +119,44 @@ function rootTexture(THREE: ThreeModule) {
   return texture;
 }
 
+/** Subtle porous pattern for the translucent alveolar bone shell. */
+function alveolarBoneTexture(THREE: ThreeModule) {
+  const size = 256;
+  const data = new Uint8Array(size * size * 4);
+  let seed = 23;
+  const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (let y = 0; y < size; y += 1) for (let x = 0; x < size; x += 1) {
+    const grain = (rand() - 0.5) * 8;
+    const value = Math.round(248 + grain);
+    const o = (y * size + x) * 4;
+    data[o] = data[o + 1] = data[o + 2] = value;
+    data[o + 3] = 255;
+  }
+  for (let pore = 0; pore < 72; pore += 1) {
+    const cx = Math.floor(rand() * size), cy = Math.floor(rand() * size);
+    const radiusX = 2 + Math.floor(rand() * 7), radiusY = 2 + Math.floor(rand() * 7);
+    for (let dy = -radiusY; dy <= radiusY; dy += 1) for (let dx = -radiusX; dx <= radiusX; dx += 1) {
+      const edge = Math.hypot(dx / radiusX, dy / radiusY);
+      if (edge > 1) continue;
+      const x = (cx + dx + size) % size, y = (cy + dy + size) % size;
+      const o = (y * size + x) * 4;
+      const shade = Math.round(248 - 56 * (1 - smooth(0.52, 1, edge)));
+      data[o] = Math.min(data[o], shade);
+      data[o + 1] = Math.min(data[o + 1], Math.round(shade * 0.94));
+      data[o + 2] = Math.min(data[o + 2], Math.round(shade * 0.82));
+    }
+  }
+  const texture = new THREE.DataTexture(data, size, size);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.magFilter = THREE.LinearFilter;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.generateMipmaps = true;
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.needsUpdate = true;
+  return texture;
+}
+
 /** Soft radial contact shadow under the tooth. */
 function shadowTexture(THREE: ThreeModule) {
   const size = 64;
@@ -150,7 +190,7 @@ function glossyMaterial(THREE: ThreeModule, params: ConstructorParameters<ThreeM
   return material;
 }
 
-export function Tooth3DStage({ tooth, status, surfaces, hasCrown, reducedMotion, view, periodontalSites }: StageProps) {
+export function Tooth3DStage({ tooth, status, surfaces, hasCrown, reducedMotion, view, periodontalSites, showPeriodontium = true }: StageProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [error, setError] = useState("");
   const surfaceKey = (["O", "V", "P", "M", "D"] as OdontogramSurface[]).map((surface) => `${surface}:${surfaces[surface]?.condition ?? ""}`).join("|");
@@ -165,11 +205,11 @@ export function Tooth3DStage({ tooth, status, surfaces, hasCrown, reducedMotion,
     setError("");
     Promise.all([import("three"), import("three/examples/jsm/environments/RoomEnvironment.js")]).then(([THREE, room]) => {
       if (disposed) return;
-      try { release = mountTooth(THREE, room, canvas, { tooth, status, surfaces, hasCrown, reducedMotion, view, periodontalSites }); }
+      try { release = mountTooth(THREE, room, canvas, { tooth, status, surfaces, hasCrown, reducedMotion, view, periodontalSites, showPeriodontium }); }
       catch (cause) { setError(cause instanceof Error ? cause.message : "No se pudo abrir el diente en 3D."); }
     }).catch(() => { if (!disposed) setError("No se pudo cargar la vista 3D."); });
     return () => { disposed = true; release(); };
-  }, [tooth, status, surfaces, hasCrown, reducedMotion, surfaceKey, viewKey, periodontalKey]);
+  }, [tooth, status, surfaces, hasCrown, reducedMotion, surfaceKey, viewKey, periodontalKey, showPeriodontium]);
 
   return <div className="relative h-[min(52vh,420px)] min-h-64 w-full overflow-hidden rounded-xl bg-[#eef5f4]">
     <canvas ref={canvasRef} className="h-full w-full touch-none" aria-label="Diente tridimensional. Arrastra para girar." />
@@ -178,7 +218,7 @@ export function Tooth3DStage({ tooth, status, surfaces, hasCrown, reducedMotion,
 }
 
 function mountTooth(THREE: ThreeModule, room: RoomEnvironmentModule, canvas: HTMLCanvasElement, props: StageProps): () => void {
-  const { tooth, status, surfaces, hasCrown, reducedMotion, view, periodontalSites } = props;
+  const { tooth, status, surfaces, hasCrown, reducedMotion, view, periodontalSites, showPeriodontium = true } = props;
   const missing = status === "Ausente";
   const implant = status === "Implante" || status === "Implante con pilar";
   // Pilar protésico de titanio sobre el implante, sin corona.
@@ -233,7 +273,7 @@ function mountTooth(THREE: ThreeModule, room: RoomEnvironmentModule, canvas: HTM
    * odontogram tint is applied per triangle so the border between two surfaces stays crisp.
    * Root UVs wrap around the long axis for the longitudinal streak texture.
    */
-  const toGeometry = (mesh: AnatomyMesh, colorAt: (level: number, stain: number) => RGB, glossAt: (level: number) => number, tintOf: (zone: ToothZone) => { color: RGB; strength: number } | null) => {
+  const toGeometry = (mesh: AnatomyMesh, colorAt: (level: number, stain: number) => RGB, glossAt: (level: number) => number, tintOf: (zone: ToothZone) => { color: RGB; strength: number } | null, offset = 0) => {
     let normals = mesh.normals;
     if (!normals) {
       const indexed = new THREE.BufferGeometry();
@@ -268,7 +308,7 @@ function mountTooth(THREE: ThreeModule, room: RoomEnvironmentModule, canvas: HTM
         const v = mesh.indices[t * 3 + c];
         const o = (t * 3 + c);
         for (let k = 0; k < 3; k += 1) {
-          out.position[o * 3 + k] = mesh.positions[v * 3 + k];
+          out.position[o * 3 + k] = mesh.positions[v * 3 + k] + normals[v * 3 + k] * offset;
           out.normal[o * 3 + k] = normals[v * 3 + k];
         }
         let color = base[v];
@@ -296,8 +336,10 @@ function mountTooth(THREE: ThreeModule, room: RoomEnvironmentModule, canvas: HTM
     sheen: 0.2, sheenColor: new THREE.Color(0xffffff), sheenRoughness: 0.4,
   }, 0.16);
 
+  let periodontalRoots: AnatomyMesh[] = [];
   if (!missing && !implant) {
     const anatomy = buildToothAnatomy(tooth, endodontic ? "stump" : "full");
+    periodontalRoots = anatomy.meshes.filter((mesh) => mesh.part === "root");
     const texture = rootTexture(THREE);
     textures.push(texture);
     const toothMat = track(glossyMaterial(THREE, {
@@ -355,6 +397,62 @@ function mountTooth(THREE: ThreeModule, room: RoomEnvironmentModule, canvas: HTM
     const marker = new THREE.Mesh(track(new THREE.TorusGeometry(0.52, 0.055, 8, 32)), track(new THREE.MeshBasicMaterial({ color: 0x75858b })));
     marker.rotation.x = Math.PI / 2;
     inner.add(marker);
+  }
+
+  if (showPeriodontium && !missing && !implant && periodontalRoots.length) {
+    const boneMap = alveolarBoneTexture(THREE);
+    textures.push(boneMap);
+    const ligamentMaterial = track(new THREE.MeshPhysicalMaterial({
+      vertexColors: true, color: 0xffffff, roughness: 0.42, metalness: 0,
+      clearcoat: 0.12, transparent: true, opacity: 0.56, depthWrite: false, side: THREE.DoubleSide,
+    }));
+    const boneMaterial = track(new THREE.MeshPhysicalMaterial({
+      vertexColors: true, color: 0xffffff, map: boneMap, roughness: 0.92, metalness: 0,
+      transparent: true, opacity: 0.24, depthWrite: false, side: THREE.DoubleSide,
+    }));
+    const fiberMaterial = track(new THREE.MeshBasicMaterial({
+      color: 0xffeee4, transparent: true, opacity: 0.72, depthWrite: false,
+    }));
+    for (const root of periodontalRoots) {
+      const ligament = new THREE.Mesh(
+        toGeometry(root, () => linear(0xe59a9d), () => 0.25, noTint, 0.024),
+        ligamentMaterial,
+      );
+      ligament.renderOrder = 2;
+      inner.add(ligament);
+
+      const socket = new THREE.Mesh(
+        toGeometry(root, () => linear(0xe8d7b8), () => 0.08, noTint, 0.055),
+        boneMaterial,
+      );
+      socket.renderOrder = 3;
+      inner.add(socket);
+
+      // Fine oblique bundles bridge cementum and socket bone; they rotate with the tooth.
+      if (root.normals) {
+        const stride = Math.max(1, Math.floor(root.level.length / 54));
+        let fibers = 0;
+        for (let vertex = 0; vertex < root.level.length && fibers < 28; vertex += stride) {
+          const level = root.level[vertex];
+          if (level > -0.08 || level < -0.88) continue;
+          const offset = vertex * 3;
+          const from = new THREE.Vector3(root.positions[offset], root.positions[offset + 1], root.positions[offset + 2]);
+          const normal = new THREE.Vector3(root.normals[offset], root.normals[offset + 1], root.normals[offset + 2]).normalize();
+          const sign = fibers % 2 ? 1 : -1;
+          from.addScaledVector(normal, 0.006);
+          const to = new THREE.Vector3(root.positions[offset], root.positions[offset + 1], root.positions[offset + 2])
+            .addScaledVector(normal, 0.05);
+          to.y += sign * 0.012;
+          const middle = from.clone().lerp(to, 0.5);
+          middle.y += sign * 0.004;
+          const curve = new THREE.CatmullRomCurve3([from, middle, to]);
+          const fiber = new THREE.Mesh(track(new THREE.TubeGeometry(curve, 5, 0.0032, 3, false)), fiberMaterial);
+          fiber.renderOrder = 4;
+          inner.add(fiber);
+          fibers += 1;
+        }
+      }
+    }
   }
 
   if (periodontalSites && !missing && !implant) {
