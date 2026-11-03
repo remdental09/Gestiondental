@@ -617,7 +617,7 @@ export function ClinicalDictation({
     setResult(null);
     const before = odontogram;
     let after = odontogram;
-    let savedNote: { id?: number; title: string; body: string } | null = null;
+    let savedNote: { id?: number; title: string; body: string; clinicalDate?: string } | null = null;
     const savedBudgetIds: number[] = [];
     const savedBudgetByProposal = new Map<string, number>();
     const savedPayments: { amount: number; method: string; savedId?: number }[] = [];
@@ -634,13 +634,18 @@ export function ClinicalDictation({
       if (saveEvolution) {
         requestId.current ||= crypto.randomUUID();
         const saved = await persist({ action: "addNote", patientId, title: evolutionTitle.trim() || "Evolución dictada", body: finalBody, requestId: requestId.current });
-        savedNote = { id: saved.note?.id, title: evolutionTitle.trim() || "Evolución dictada", body: saved.note?.body ?? finalBody };
+        savedNote = { id: saved.note?.id, title: evolutionTitle.trim() || "Evolución dictada", body: saved.note?.body ?? finalBody, clinicalDate: saved.note?.clinicalDate };
         if (saved.note?.id && dxTags.length) await persist({ action: "setEvolutionDiagnoses", patientId, evolutionId: saved.note.id, tags: dxTags });
         const readBack = await reload();
         after = readBack.toothStatuses[patientId] ?? before;
         onApplied(readBack);
       }
-      for (const action of planChartWrites(patientId, before, after, acceptedTeeth)) await persist(action);
+      for (const [index, action] of planChartWrites(patientId, before, after, acceptedTeeth).entries()) {
+        const linkedAction = savedNote?.id
+          ? { ...action, sourceEvolutionId: savedNote.id, sourceActionId: (savedNote.id + ":" + (action.sourceActionId || "chart-" + index)).slice(0, 180) }
+          : action;
+        await persist(linkedAction);
+      }
       for (const item of acceptedBudgets) {
         const id = await once("budget:" + item.id + ":" + item.label + ":" + item.amount, async () => (await persist({ action: "addBudget", patientId, title: item.title, label: item.label, amount: item.amount })).budget?.id);
         if (id) {
