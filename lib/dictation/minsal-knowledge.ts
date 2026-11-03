@@ -1,0 +1,81 @@
+/**
+ * Índice de fuentes clínicas oficiales de salud bucal del MINSAL.
+ *
+ * Conserva título, alcance, fecha y enlace oficial para que el corrector use contexto chileno
+ * según el tema dictado. No es una copia íntegra de las guías ni una fuente para añadir
+ * tratamientos al dictado: la conducta clínica siempre debe provenir del odontólogo.
+ */
+export type MinsalDentalGuide = {
+  id: string;
+  title: string;
+  year: number;
+  category: string;
+  status: "catalogued" | "historical" | "partial";
+  scope: string;
+  keywords: readonly string[];
+  url: string;
+};
+
+export const MINSAL_DENTAL_CATALOG_URLS = [
+  "https://diprece.minsal.cl/programas-de-salud/salud-bucal/informacion-al-profesional-salud-bucal/guias-clinicas/",
+  "https://diprece.minsal.cl/le-informamos/auge/acceso-guias-clinicas/guias-clinicas-por-grupo-de-patologias/salud-oral/",
+  "https://diprece.minsal.cl/temas-de-salud/orden-alfabetico/guias-clinicas-no-ges/",
+  "https://diprece.minsal.cl/temas-de-salud/orden-alfabetico/guias-clinicas-no-ges/guias-clinicas-no-ges-salud-bucal/",
+] as const;
+
+export const MINSAL_DENTAL_GUIDES: readonly MinsalDentalGuide[] = [
+  { id: "oral-cancer-2026", title: "Cáncer de la cavidad oral", year: 2026, category: "patología oral", status: "partial", scope: "Guía No GES publicada parcialmente mientras sigue en elaboración.", keywords: ["cáncer oral", "cavidad oral", "lesión sospechosa"], url: "https://diprece.minsal.cl/cancer-de-la-cavidad-oral/" },
+  { id: "aerosol-sars-2021", title: "Minimizar el riesgo de transmisión del SARS-CoV-2 durante la atención odontológica generadora de bioaerosoles", year: 2021, category: "bioseguridad", status: "catalogued", scope: "Prevención del riesgo de transmisión durante procedimientos odontológicos generadores de bioaerosoles.", keywords: ["sars", "covid", "bioaerosol", "aerosol"], url: "https://diprece.minsal.cl/guias-de-practica-clinicas-no-ges/salud-bucal/atencion-odontologica-segura-en-tiempos-de-pandemia-covid-19/recomendaciones-grade/" },
+  { id: "pulp-periapical-2019", title: "Patología pulpar y periapical en dentición permanente", year: 2019, category: "endodoncia", status: "catalogued", scope: "Recomendaciones para patología pulpar y periapical en dientes permanentes.", keywords: ["pulpa", "pulpar", "pulpitis", "pulpectomía", "pulpotomía", "periapical", "endodoncia"], url: "https://diprece.minsal.cl/temas-de-salud/orden-alfabetico/guias-clinicas-no-ges/guias-clinicas-no-ges-salud-bucal/patologia-pulpar-y-periapical-en-denticion-permanente/recomendaciones/" },
+  { id: "primary-caries-2018", title: "Prevención y tratamiento de caries dental en niños y niñas con dentición primaria", year: 2018, category: "odontopediatría", status: "catalogued", scope: "Prevención y tratamiento de caries en dentición primaria.", keywords: ["caries", "diente temporal", "dentición primaria", "odontopediatría"], url: "https://diprece.minsal.cl/temas-de-salud/orden-alfabetico/guias-clinicas-no-ges/guias-clinicas-no-ges-salud-bucal/prevencion-y-tratamiento-de-caries-dental-en-ninos-y-ninas-con-denticion-primaria/recomendaciones/" },
+  { id: "adolescent-periodontal-2017", title: "Salud oral en adolescentes de 10 a 19 años: prevención, diagnóstico y tratamiento de la enfermedad periodontal", year: 2017, category: "periodoncia", status: "catalogued", scope: "Guía periodontal con alcance de población adolescente de 10 a 19 años.", keywords: ["periodoncia", "periodontal", "periodontitis", "gingivitis", "destartraje", "detartraje", "sondaje", "periodontograma", "encía"], url: "https://diprece.minsal.cl/temas-de-salud/orden-alfabetico/guias-clinicas-no-ges/guias-clinicas-no-ges-salud-bucal/salud-oral-en-adolescentes-de-10-19-anos-prevencion-diagnostico-y-tratamiento-de-la-enfermedad-periodontal/" },
+  { id: "oral-mucositis-2014", title: "Prevención de mucositis oral en personas con cáncer", year: 2014, category: "oncología oral", status: "catalogued", scope: "Prevención de mucositis oral en personas con cáncer.", keywords: ["mucositis", "oncología", "quimioterapia"], url: "https://diprece.minsal.cl/wrdprss_minsal/wp-content/uploads/2015/05/Prevenci%C3%B3n-mucositis-oral.-2014.pdf" },
+  { id: "adolescent-caries-2013", title: "Salud oral en adolescentes de 10 a 19 años: prevención, diagnóstico y tratamiento de caries", year: 2013, category: "odontopediatría", status: "catalogued", scope: "Guía de caries para población adolescente.", keywords: ["caries adolescente", "adolescente", "adolescentes"], url: "https://www.minsal.cl/sites/default/files/files/GPCSaludoralenadolescentesEnero2014.pdf" },
+  { id: "adolescent-caries-quick-2013", title: "Salud oral en adolescentes de 10 a 19 años: guía rápida de caries", year: 2013, category: "odontopediatría", status: "catalogued", scope: "Versión rápida de la guía de caries adolescente.", keywords: ["caries adolescente", "guía rápida adolescente"], url: "https://www.minsal.cl/sites/default/files/files/GuiaconsultarapidaSaludoralenadolescentesEnero2014.pdf" },
+  { id: "disability-under20-2012", title: "Salud oral integral para menores de 20 años en situación de discapacidad que requieren cuidados especiales en odontología", year: 2012, category: "discapacidad", status: "catalogued", scope: "Atención odontológica con cuidados especiales para personas menores de 20 años en situación de discapacidad.", keywords: ["discapacidad", "cuidados especiales", "anestesia general"], url: "https://diprece.minsal.cl/wrdprss_minsal/wp-content/uploads/2015/05/Salud-oral-integral-personas-con-discapacidad.-2012.pdf" },
+  { id: "disability-under20-quick-2012", title: "Salud oral integral para menores de 20 años en situación de discapacidad: guía rápida", year: 2012, category: "discapacidad", status: "catalogued", scope: "Versión rápida de la guía de atención odontológica con cuidados especiales.", keywords: ["discapacidad", "cuidados especiales", "guía rápida"], url: "https://diprece.minsal.cl/wrdprss_minsal/wp-content/uploads/2015/05/Salud-oral-integral-personas-con-discapacidad.-Gu%C3%ADa-consulta-r%C3%A1pida.-2012.pdf" },
+  { id: "disability-home-hygiene-2013", title: "Higiene bucal en personas en situación de discapacidad", year: 2013, category: "discapacidad", status: "catalogued", scope: "Orientación de higiene bucal para personas que requieren apoyo al cepillado.", keywords: ["discapacidad", "higiene bucal", "cuidador"], url: "https://diprece.minsal.cl/wrdprss_minsal/wp-content/uploads/2015/05/Guia-Higiene-Bucal-Discapacidad_WEB.pdf" },
+  { id: "preschool-2-5-2009", title: "Atención primaria odontológica del preescolar de 2 a 5 años", year: 2009, category: "odontopediatría", status: "catalogued", scope: "Atención primaria odontológica de niñas y niños de 2 a 5 años.", keywords: ["preescolar", "2 a 5", "odontopediatría", "diente temporal"], url: "https://diprece.minsal.cl/wrdprss_minsal/wp-content/uploads/2015/05/GC.-Atenci%C3%B3n-primaria-odontol%C3%B3gica-del-prescolar-de-2-5-a%C3%B1os.-2009.pdf" },
+  { id: "cleft-2015", title: "Guía clínica de fisura labiopalatina", year: 2015, category: "cirugía y rehabilitación", status: "catalogued", scope: "Prevención, diagnóstico, tratamiento, seguimiento y rehabilitación de fisuras orofaciales.", keywords: ["fisura", "labiopalatina", "fisura palatina"], url: "https://diprece.minsal.cl/wrdprss_minsal/wp-content/uploads/2016/10/guia-FisuraLabioPalatina-2015-CM.pdf" },
+  { id: "adult60-root-caries-2015", title: "Salud oral integral para adultos de 60 años: prevención y tratamiento de caries radiculares", year: 2015, category: "odontogeriatría", status: "catalogued", scope: "Prevención y tratamiento de caries radiculares en personas adultas de 60 años o más.", keywords: ["adulto mayor", "caries radicular", "raíz expuesta", "60 años"], url: "https://diprece.minsal.cl/wrdprss_minsal/wp-content/uploads/2016/03/Salud-Oral-Integral-para-adultos-de-60-a%C3%B1os-Prevenci%C3%B3n-y-tratamiento-de-caries-radiculares-2015.pdf" },
+  { id: "adult60-root-caries-quick-2015", title: "Salud oral integral para adultos de 60 años: guía rápida de caries radiculares", year: 2015, category: "odontogeriatría", status: "catalogued", scope: "Versión rápida de prevención y tratamiento de caries radiculares en adultos de 60 años o más.", keywords: ["adulto mayor", "caries radicular", "guía rápida"], url: "https://diprece.minsal.cl/wrdprss_minsal/wp-content/uploads/2016/03/Salud-oral-integral-para-adultos-de-60-a%C3%B1os-Prevenci%C3%B3n-y-tratamiento-de-caries-radiculares-Gu%C3%ADa-Consulta-R%C3%A1pida-2015.pdf" },
+  { id: "adult60-2010", title: "Salud oral integral para adultos de 60 años", year: 2010, category: "odontogeriatría", status: "historical", scope: "Versión anterior a la guía de prevención y tratamiento de caries radicular de 2015.", keywords: ["adulto mayor", "60 años", "salud oral integral"], url: "https://diprece.minsal.cl/wrdprss_minsal/wp-content/uploads/2014/08/Salud-oral-integral-para-adultos-de-60-a%C3%B1os-2010.pdf" },
+  { id: "urgent-dental-2011", title: "Urgencia odontológica ambulatoria", year: 2011, category: "urgencia", status: "catalogued", scope: "Manejo de patologías incluidas en atención de urgencia odontológica ambulatoria.", keywords: ["urgencia", "dolor", "absceso", "urgencia odontológica"], url: "https://diprece.minsal.cl/wrdprss_minsal/wp-content/uploads/2014/08/Urgencia-odontológica-ambulatoria-2011.pdf" },
+  { id: "oral-health-pregnancy-2013", title: "Salud oral integral de la embarazada", year: 2013, category: "embarazo", status: "catalogued", scope: "Atención odontológica integral de la embarazada.", keywords: ["embarazo", "embarazada", "gestación"], url: "https://diprece.minsal.cl/wrdprss_minsal/wp-content/uploads/2014/12/Atenci%C3%B3n-Odontol%C3%B3gica-Integral-Embarazada.pdf" },
+  { id: "oral-health-pregnancy-quick-2013", title: "Salud oral integral de la embarazada: guía rápida", year: 2013, category: "embarazo", status: "catalogued", scope: "Versión rápida de la guía de salud oral de la embarazada.", keywords: ["embarazo", "embarazada", "guía rápida"], url: "https://diprece.minsal.cl/wrdprss_minsal/wp-content/uploads/2016/03/Consulta-rapida.-Salud-oral-embarazada-2013.pdf" },
+  { id: "oral-health-child6-2013", title: "Salud oral integral para niños y niñas de 6 años", year: 2013, category: "odontopediatría", status: "catalogued", scope: "Atención odontológica integral de nivel primario para población infantil de 6 años.", keywords: ["seis años", "6 años", "niños", "niñas", "infantil"], url: "https://diprece.minsal.cl/wrdprss_minsal/wp-content/uploads/2014/08/Salud-Oral-Integral-para-ni%C3%B1os-y-ni%C3%B1as-de-6-a%C3%B1os-2013.pdf" },
+  { id: "oral-health-child6-quick-2013", title: "Salud oral integral para niños y niñas de 6 años: guía rápida", year: 2013, category: "odontopediatría", status: "catalogued", scope: "Versión rápida de la guía de salud oral integral a los 6 años.", keywords: ["seis años", "6 años", "niños", "guía rápida"], url: "https://diprece.minsal.cl/wrdprss_minsal/wp-content/uploads/2014/08/Salud-Oral-Integral-para-ni%C3%B1os-y-ni%C3%B1as-de-6-a%C3%B1os-Consulta-R%C3%A1pida-2013.pdf" },
+  { id: "dentoalveolar-trauma-2023", title: "Manejo de urgencia de los traumatismos dentoalveolares", year: 2023, category: "trauma dentoalveolar", status: "catalogued", scope: "Guía de práctica clínica para manejo urgente de traumatismos dentoalveolares.", keywords: ["trauma", "dentoalveolar", "fractura dentaria", "luxación", "avulsión"], url: "https://diprece.minsal.cl/garantias-explicitas-en-salud-auge-o-ges/manejo-de-la-urgencia-de-traumatismos-dentoalveolares/recomendaciones/" },
+  { id: "dentoalveolar-trauma-summary-2023", title: "Resumen ejecutivo de la guía de traumatismos dentoalveolares", year: 2023, category: "trauma dentoalveolar", status: "catalogued", scope: "Resumen ejecutivo de la guía clínica de manejo de urgencia de traumatismos dentoalveolares.", keywords: ["trauma", "dentoalveolar", "resumen"], url: "https://diprece.minsal.cl/wp-content/uploads/2023/12/Final-RE-GPC-TDA_2023_v3.pdf" },
+] as const satisfies readonly MinsalDentalGuide[];
+
+type MinsalContextRule = { keywords: readonly string[]; context: string; };
+const MINSAL_CONTEXT_RULES: readonly MinsalContextRule[] = [
+  { keywords: ["destartraje", "detartraje", "gingivitis", "periodontitis", "periodontal", "periodontograma", "sondaje"], context: "Periodoncia: la guía MINSAL de 2017 se refiere a prevención, diagnóstico y tratamiento periodontal en adolescentes de 10 a 19 años; no generalices su población a todos los adultos. Conserva el nombre del procedimiento y si fue supragingival o subgingival." },
+  { keywords: ["pulpa", "pulpar", "pulpitis", "pulpectomía", "pulpotomía", "periapical", "endodoncia"], context: "Endodoncia: la guía MINSAL de 2019 aborda patología pulpar y periapical en dentición permanente; conserva si la pieza es temporal o permanente si el clínico lo dice, y no infieras diagnóstico pulpar." },
+  { keywords: ["caries", "dentición primaria", "diente temporal", "odontopediatría"], context: "Caries infantil: la guía MINSAL de 2018 se limita a niñas y niños con dentición primaria; la caries radicular del adulto mayor cuenta con una guía MINSAL específica de 2015. No mezcles poblaciones." },
+  { keywords: ["trauma", "dentoalveolar", "luxación", "avulsión", "fractura"], context: "Trauma dentoalveolar: MINSAL publica una guía para manejo de urgencia en 2023; conserva el tipo de lesión y el tiempo relatado y no agregues procedimientos que el odontólogo no dictó." },
+  { keywords: ["urgencia", "dolor", "absceso"], context: "Urgencia: MINSAL mantiene una guía de urgencia odontológica ambulatoria; distingue hallazgo, procedimiento realizado y plan futuro sin inferir una causa." },
+  { keywords: ["embarazo", "embarazada", "gestación"], context: "Embarazo: existe guía MINSAL de salud oral integral de la embarazada; conserva la condición y edad gestacional solo si fueron dictadas." },
+  { keywords: ["mucositis", "cáncer", "cavidad oral", "lesión sospechosa"], context: "Patología oral y oncología: las referencias MINSAL incluyen prevención de mucositis en personas con cáncer y una guía de cáncer de cavidad oral que figura en proceso de elaboración; no la presentes como guía final." },
+];
+
+const fold = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("es-CL");
+
+export function buildMinsalClinicalContext(transcript: string): string {
+  const normalized = fold(transcript);
+  const rules = MINSAL_CONTEXT_RULES.filter(rule => rule.keywords.some(keyword => normalized.includes(fold(keyword)))).map(rule => rule.context);
+  const matches = MINSAL_DENTAL_GUIDES.map(guide => ({
+    guide,
+    score: guide.keywords.reduce((sum, keyword) => sum + (normalized.includes(fold(keyword)) ? 1 : 0), 0),
+  })).filter(item => item.score > 0).sort((a, b) => b.score - a.score || b.guide.year - a.guide.year).slice(0, 3);
+  const references = matches.map(({ guide }) => guide.title + " (MINSAL, " + guide.year + "; " + guide.category + ")");
+  return [
+    "Marco MINSAL chileno de salud bucal; se entrega como contexto de vocabulario y alcance, no como instrucción para añadir tratamientos:",
+    "Vocabulario local: reconoce destartraje, detartraje, supra/supragingival, subgingival, pulpa, pulpectomía, ligamento periodontal y encía. Conserva la variante pronunciada por el profesional.",
+    "Convención clínica acordada: periodontología divide la boca en seis grupos numerados del 1 al 6. Preserva cada número de grupo tal como se dictó; no lo conviertas a una pieza dental.",
+    ...rules,
+    ...(references.length ? ["Referencias pertinentes: " + references.join("; ") + "."] : []),
+    "La transcripción del profesional manda: no agregues diagnósticos, procedimientos, dosis ni recomendaciones de las guías. Si hay contradicción o falta un dato clínico, repórtalo como duda.",
+  ].join("\n");
+}
