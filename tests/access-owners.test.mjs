@@ -86,7 +86,7 @@ test('el nombre viaja codificado en la cabecera y se decodifica con tildes', () 
 
 test('worker y pantalla usan la cuenta por correo, sin nombre ni correo del titular fijos', () => {
   const worker = readFileSync(new URL('../worker.ts', import.meta.url), 'utf8');
-  assert.match(worker, /resolveOwner\(email, ownerConfig\)/);
+  assert.match(worker, /resolveOwnerWithRegistration\(email, ownerConfig\)/);
   assert.match(worker, /headers\.delete\(ACCESS_NAME_HEADER\)/);
   assert.doesNotMatch(worker, /email !== allowedEmail/);
   assert.doesNotMatch(worker, /headers\.set\(ACCESS_OWNER_ID_HEADER, ownerId\)/);

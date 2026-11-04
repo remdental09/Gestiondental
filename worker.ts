@@ -123,6 +123,11 @@ export default {
     headers.set(ACCESS_EMAIL_HEADER, email);
     headers.set(ACCESS_OWNER_ID_HEADER, resolved.owner.ownerId);
     headers.set(ACCESS_NAME_HEADER, encodeURIComponent(resolved.owner.name));
+    // El endpoint MCP existente usa la identidad del Site. Solo el Worker, después
+    // de validar Access y descartar cabeceras entrantes, puede establecerla aquí.
+    if (new URL(request.url).pathname === "/mcp") {
+      headers.set("oai-authenticated-user-id", resolved.owner.ownerId);
+    }
 
     return app.fetch(new Request(request, { headers }), env, context);
   },
