@@ -1,9 +1,9 @@
 "use client";
 
-import { lazy, Suspense, useLayoutEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { FullArch3DStage } from "@/components/full-arch-3d-stage";
 import { Eye, EyeOff, X } from "lucide-react";
-import { formatFdi, type OdontogramSurface, type PerioExam, type PerioSiteKey, type PerioTooth, type SurfaceFinding, type ToothHistoryEvent } from "@/app/clinical-data";
+import { formatFdi, type CrownDetails, type OdontogramSurface, type PerioExam, type PerioSiteKey, type PerioTooth, type SurfaceFinding, type ToothHistoryEvent } from "@/app/clinical-data";
 import { cariesDetail } from "@/lib/caries";
 import { bitingFaceName, chileLabel, innerFaceName, surfaceMarkColor, toothKind, toothKindLabel } from "@/app/tooth-3d-map";
 
@@ -37,6 +37,8 @@ export function Tooth3DModal({
   periodontalSites,
   toothHistory = [],
   periodontalHistory,
+  crown,
+  onSetCrownDetails,
 }: {
   tooth: number;
   status: string;
@@ -48,6 +50,8 @@ export function Tooth3DModal({
   periodontalSites?: PerioTooth["sites"];
   toothHistory?: ToothHistoryEvent[];
   periodontalHistory?: PerioExam[];
+  crown?: CrownDetails;
+  onSetCrownDetails?: (tooth: number, material: string, shade: string, foundation: "tooth" | "implant") => Promise<void>;
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -56,6 +60,23 @@ export function Tooth3DModal({
   const [grown, setGrown] = useState(reducedMotion);
   const [showPeriodontium, setShowPeriodontium] = useState(true);
   const [fullArch, setFullArch] = useState(false);
+  const [crownFoundation, setCrownFoundation] = useState<"tooth" | "implant">(crown?.foundation === "implant" ? "implant" : "tooth");
+  const [savingCrown, setSavingCrown] = useState(false);
+  const [crownMessage, setCrownMessage] = useState("");
+  useEffect(() => setCrownFoundation(crown?.foundation === "implant" ? "implant" : "tooth"), [crown?.foundation, tooth]);
+  const saveCrownFoundation = async () => {
+    if (!onSetCrownDetails || !crown) return;
+    setSavingCrown(true);
+    setCrownMessage("");
+    try {
+      await onSetCrownDetails(tooth, crown.material, crown.shade ?? "", crownFoundation);
+      setCrownMessage("Corrección guardada y releída en el odontograma.");
+    } catch (error) {
+      setCrownMessage(error instanceof Error ? error.message : "No se pudo guardar la corrección.");
+    } finally {
+      setSavingCrown(false);
+    }
+  };
   const naturalTooth = status !== "Ausente" && status !== "Implante" && status !== "Implante con pilar";
   useLayoutEffect(() => {
     if (focusFrame.current !== null) cancelAnimationFrame(focusFrame.current);
@@ -156,7 +177,7 @@ export function Tooth3DModal({
       <div className="flex items-start justify-between gap-3 border-b border-[#e4eeed] px-4 py-3 sm:px-5">
         <div>
           <p id="tooth-3d-title" className="text-lg font-semibold text-[#16343a]">FDI {formatFdi(tooth)} · {chileLabel(tooth)}</p>
-          <p className="mt-0.5 text-sm text-[#5d7579]">{toothKindLabel(toothKind(tooth))} · {periodontalSites ? "seis sitios periodontales · solo lectura" : "solo lectura"}</p>
+          <p className="mt-0.5 text-sm text-[#5d7579]">{toothKindLabel(toothKind(tooth))} · {periodontalSites ? "seis sitios periodontales · solo lectura" : onSetCrownDetails ? "vista 3D · odontograma editable" : "solo lectura"}</p>
         </div>
         <button ref={closeRef} type="button" className="rounded-lg p-2 text-[#31575b] hover:bg-[#e7f3f1]" onClick={onClose} aria-label="Cerrar"><X className="size-5" /></button>
       </div>
@@ -204,6 +225,20 @@ export function Tooth3DModal({
               </li>)}
             </ol> : <p className="mt-3 rounded-lg bg-white px-3 py-2 text-sm text-[#71858b]">Aún no hay cambios históricos registrados para esta pieza.</p>}
           </section>
+          {onSetCrownDetails && hasCrown && crown && <section className="rounded-xl border border-amber-200 bg-amber-50 p-3 sm:p-4" aria-label="Corregir soporte de la corona">
+            <h3 className="text-sm font-semibold text-amber-950">¿La corona está clasificada incorrectamente?</h3>
+            <p className="mt-1 text-xs leading-5 text-amber-900">Puedes corregir si va sobre un diente natural o sobre un implante. La aplicación conserva el material y registra la corrección en el historial.</p>
+            <label className="mt-3 block text-xs font-medium text-amber-950">Soporte de la corona
+              <select value={crownFoundation} disabled={savingCrown} onChange={event => setCrownFoundation(event.target.value === "implant" ? "implant" : "tooth")} className="mt-1 block h-10 w-full rounded-lg border border-amber-300 bg-white px-3 text-sm text-[#26474d]">
+                <option value="tooth">Diente natural</option>
+                <option value="implant">Implante</option>
+              </select>
+            </label>
+            <button type="button" disabled={savingCrown || (crownFoundation === (crown.foundation === "implant" ? "implant" : "tooth") && crown.source !== "evolution")} onClick={() => void saveCrownFoundation()} className="mt-3 min-h-9 rounded-lg bg-amber-900 px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">
+              {savingCrown ? "Guardando corrección…" : "Guardar corrección"}
+            </button>
+            {crownMessage && <p role="status" className="mt-2 text-xs text-amber-950">{crownMessage}</p>}
+          </section>}
           {periodontalHistory !== undefined && <section className="rounded-xl border border-[#dbe8e7] bg-[#f8fbfb] p-3 sm:p-4">
             <h3 className="text-sm font-semibold text-[#16343a]">Mediciones periodontales</h3>
             <p className="mt-1 text-xs leading-5 text-[#71858b]">Sondaje y hallazgos por sitio, conservados por fecha.</p>

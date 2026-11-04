@@ -342,9 +342,10 @@ export default function Home(){
     const data=await persist({action:"setToothStatus",patientId:selectedId,tooth,status});
     setToothStatuses(previous=>({...previous,[selectedId]:data.odontogram}));
   };
-  const updateCrownDetails=async(tooth:number,material:string,shade:string)=>{
-    if(!await reviewChange({patientId:selectedId,heading:"Detalle de corona",details:[`Pieza FDI ${formatFdi(tooth)}: corona de ${material}${shade?`, color ${shade}`:""}.`]}))throw new Error("Cambio cancelado; no se guardó.");
-    const data=await persist({action:"setCrownDetails",patientId:selectedId,tooth,material,shade});
+  const updateCrownDetails=async(tooth:number,material:string,shade:string,foundation?:"tooth"|"implant")=>{
+    const support=foundation==="implant"?"sobre implante":"sobre diente natural";
+    if(!await reviewChange({patientId:selectedId,heading:"Corregir soporte de corona",details:[`Pieza FDI ${formatFdi(tooth)}: corona de ${material||"material sin consignar"} ${support}${shade?`, color ${shade}`:""}.`]}))throw new Error("Cambio cancelado; no se guardó.");
+    const data=await persist({action:"setCrownDetails",patientId:selectedId,tooth,material,shade,foundation});
     setToothStatuses(previous=>({...previous,[selectedId]:data.odontogram}));
   };
   const updateMissingReason=async(tooth:number,reason:"caries"|"other"|"unknown")=>{
