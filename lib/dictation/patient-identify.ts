@@ -4,6 +4,7 @@
  * solo el texto dictado va a la IA, en un paso posterior y ya dentro de la ficha elegida.
  */
 import { BLOCK_BEFORE, fold, normalizeRut, RUT_PATTERN, validRut } from "./patient-check.ts";
+import { normalizeIdentityNumbers } from "./identity-numbers.ts";
 
 export type DictatedIdentity = {
   name: string | null;
@@ -159,7 +160,7 @@ function extractEmail(text: string): string | null {
 }
 
 export function extractIdentity(transcript: string): DictatedIdentity {
-  const text = spokenSymbols(transcript);
+  const text = normalizeIdentityNumbers(spokenSymbols(transcript)).text;
   const name = extractName(text);
   const rut = extractRut(text);
   const quotes = [name?.quote, rut?.quote].filter((item): item is string => Boolean(item));

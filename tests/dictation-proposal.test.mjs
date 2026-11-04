@@ -28,6 +28,14 @@ test('FDI con punto y equivalencias chilena y universal no se cruzan', () => {
   assert.equal(formatFdi(chileToFdi(19)), '4.6');
 });
 
+test('la propuesta local entrega RUN/RUT y fecha de nacimiento en cifras', async () => {
+  const transcript = 'RUN ocho millones cero treinta y uno cuatrocientos quince guion nueve. Fecha de nacimiento el veintitrés 23 de mayo de mil novecientos ochenta y cuatro.';
+  const outcome = await proposeFromTranscript({ transcript, chart: [] }, null, () => {});
+  assert.equal(outcome.proposal.corrected?.text, 'RUN 8.031.415-9. Fecha de nacimiento el 23/05/1984.');
+  assert.match(outcome.proposal.evolution?.body ?? '', /RUN 8\.031\.415-9/);
+  assert.match(outcome.proposal.evolution?.body ?? '', /23\/05\/1984/);
+});
+
 test('un diagnóstico sospechado no se codifica y pide confirmación clínica para reinterpretarlo', () => {
   const proposal = structureTranscript('Se sospecha una posible pulpitis en pieza 20, pero no están todos los requisitos para confirmarla.');
   assert.deepEqual(proposal.odontogram, []);

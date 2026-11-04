@@ -32,6 +32,7 @@ test("nombres de doctores, piezas y palabras clínicas no alarman", () => {
 test("un RUT distinto al de la ficha alarma; el mismo RUT no", () => {
   assert.equal(warns("RUT 12.345.678-5 paciente acude a control").length, 1);
   assert.deepEqual(warns("RUT 11.111.111-1 acude a control"), []);
+  assert.deepEqual(warns("RUN once millones ciento once mil ciento once guion uno acude a control"), []);
   assert.deepEqual(warns("paciente acude a control", { name: "Camila Fuentes Araya", rut: null }), []);
 });
 

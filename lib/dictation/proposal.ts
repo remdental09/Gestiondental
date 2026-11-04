@@ -1,6 +1,7 @@
 import { DENTAL_DICTIONARY_HINTS } from "./dental-lexicon.ts";
 import { buildMinsalClinicalContext } from "./minsal-knowledge.ts";
 import { buildEndoPerioContext } from "./endoperio-knowledge.ts";
+import { normalizeIdentityNumbers } from "./identity-numbers.ts";
 /**
  * Propuesta estructurada de un dictado clínico.
  * La validación es pura: sirve para la salida de Workers AI y para el
@@ -1976,7 +1977,7 @@ La nota debe ordenar las ideas en una secuencia lógica y eliminar muletillas, r
 3) "procedimientos": lo realizado hoy, cada uno con "texto" y "evidencia" literal. En cirugía bucal, conserva exactamente la técnica, el material y la marca de sutura (por ejemplo, Vicryl / poliglactina 910, Monocryl, PDS, Prolene, nylon o seda), calibre, aguja, material hemostático, injerto, membrana, marca y dimensiones del implante, anestésico, concentración, cantidad de tubetes, dosis y duración de medicamentos, si fueron dictados. Corrige errores claros de reconocimiento y redacta profesionalmente, pero no sustituyas materiales ni completes dosis, calibres, marcas o técnicas por conocimiento general.
 4) "presupuesto": prestaciones presupuestadas con "prestacion", el precio total de cada prestación en pesos (0 si no se dijo) y "evidencia" literal. No sustituyas el precio total por el pago, el abono ni el saldo.
 5) "ficha": alergias, antecedentes médicos y medicamentos que toma el paciente, con "campo" (alergias | antecedentes | medicamentos), "texto" breve y "evidencia" literal. «Niega alergias» también se registra. Si una frase trae alergia y medicamento («alérgica a la penicilina toma losartán»), son dos elementos separados.
-6) "texto_corregido": la misma transcripción con SOLO errores de reconocimiento de voz corregidos (palabras mal oídas: «mecial» → «mesial», «caris» → «caries», «periodo de autograma» → «periodontograma», «de estar traje» → «destartraje», «sub gingival» → «subgingival», «supra gingival» → «supragingival» y «root» → «RUT» solo cuando se pregunta por el RUN/RUT) y números dictados en palabras pasados a cifras («dos cuatro» → «2.4», «cuatro milímetros» → «4 mm», «cincuenta mil» → «50.000»; en implantes: «Flappers» → «flapless», medida «33 × 8» → «3,3 × 8 mm» con coma decimal). Una marca de implante dudosa («Arcis», ¿Arcsys?) no la cambies: pregúntala en dudas. Mantén el orden y las demás palabras; no resumas, no agregues datos, no cambies piezas, caras, cifras, negaciones ni términos clínicos correctos. Si no hay nada que corregir, repite el texto.
+6) "texto_corregido": la misma transcripción con SOLO errores de reconocimiento de voz corregidos (palabras mal oídas: «mecial» → «mesial», «caris» → «caries», «periodo de autograma» → «periodontograma», «de estar traje» → «destartraje», «sub gingival» → «subgingival», «supra gingival» → «supragingival» y «root» → «RUT» solo cuando se pregunta por el RUN/RUT) y números dictados en palabras pasados a cifras («dos cuatro» → «2.4», «cuatro milímetros» → «4 mm», «cincuenta mil» → «50.000»; en implantes: «Flappers» → «flapless», medida «33 × 8» → «3,3 × 8 mm» con coma decimal). En un RUN/RUT explícitamente identificado, escribe cuerpo y dígito verificador en cifras, con puntos de miles y guion, solo si se pueden interpretar sin ambigüedad; para fecha de nacimiento explícita, usa DD/MM/AAAA y acepta números dichos en palabras. Una marca de implante dudosa («Arcis», ¿Arcsys?) no la cambies: pregúntala en dudas. Mantén el orden y las demás palabras; no resumas, no agregues datos, no cambies piezas, caras, cifras, negaciones ni términos clínicos correctos. Si no hay nada que corregir, repite el texto.
 7) "periodonto": cada sondaje, sangrado o supuración dictado, con "pieza", "sistema", "sitio" (MV, V, DV, ML, L, DL o "" si no se dijo), "profundidad" en mm (-1 si no se dijo), "sangrado", "supuracion" (true solo si se dijo) y "evidencia" literal.
 8) "pagos": dinero que el paciente pagó o abonó HOY (no lo que debe). Si dice «la mitad», «50 %» o una fracción equivalente de un monto total único e inequívoco, calcula el monto abonado en "monto" y conserva la cita literal en "evidencia". El presupuesto mantiene su monto total original; el pago se registra como abono asociado. Si hay más de un total posible, no adivines: deja el pago pendiente de aclaración. Completa "medio" solo si se dictó (efectivo | debito | credito | transferencia | otro | ""), y "concepto" solo si aparece en la cita. No inventes método ni monto.
 9) "citas": la próxima cita o control que se dictó, con "motivo" ("" si no se dijo) y "evidencia" literal que contenga la fecha u hora tal como se dijo. No calcules la fecha.
@@ -3114,7 +3115,15 @@ export async function proposeFromTranscript(
     const clarifications = tidyClarifications([...proposal.clarifications, ...doubts.filter((item) => !proposal.clarifications.includes(item))], proposal.odontogram);
     const evolution = proposal.evolution ? { ...proposal.evolution, body: withDiagnosesSection(proposal.evolution.body, diagnoses.filter((item) => !item.suggested)) } : null;
     const typed = applyEvolutionPolicy({ ...proposal, evolution, clarifications, diagnoses }, input.chart ?? [], text);
-    return { ...typed, transcript, corrected: { text, corrections }, ...(frame.spokenName ? { spokenName: frame.spokenName } : {}) };
+    const normalizedText = normalizeIdentityNumbers(text);
+    const normalizedEvolution = typed.evolution ? normalizeIdentityNumbers(typed.evolution.body) : null;
+    return {
+      ...typed,
+      ...(normalizedEvolution ? { evolution: { ...typed.evolution!, body: normalizedEvolution.text } } : {}),
+      transcript,
+      corrected: { text: normalizedText.text, corrections: [...corrections, ...normalizedText.corrections] },
+      ...(frame.spokenName ? { spokenName: frame.spokenName } : {}),
+    };
   };
   if (!model) return { engine: "reglas-locales", model: null, notice: LOCAL_NOTICE, proposal: withText(localOnly, fixed, lexicon.corrections) };
   const started = Date.now();

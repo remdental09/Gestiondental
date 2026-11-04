@@ -6,6 +6,7 @@
  */
 
 import { stripDictationFrame } from "./spoken.ts";
+import { normalizeIdentityNumbers } from "./identity-numbers.ts";
 
 export type PatientMention = { kind: "name" | "rut"; mentioned: string; quote: string };
 /** variants: nombre del saludo que no es idéntico pero es una variante plausible del reconocimiento de voz (no alerta). */
@@ -122,7 +123,7 @@ export function validRut(rut: string): boolean {
   return dv === (expected === 11 ? "0" : expected === 10 ? "K" : String(expected));
 }
 
-export const RUT_PATTERN = /(?<![\d.])(\d{1,2}[.\s]?\d{3}[.\s]?\d{3}\s?-\s?[\dkK])(?![\dkK])|(?:\brut\b|\bR\.?U\.?T\.?)\s*(?:es|n[uú]mero|:)?\s*([\d.\s]{7,12}(?:\s?-?\s?[\dkK])?)/giu;
+export const RUT_PATTERN = /(?<![\d.])(\d{1,2}[.\s]?\d{3}[.\s]?\d{3}\s?-\s?[\dkK])(?![\dkK])|(?:\b(?:rut|run)\b|\bR\.?U\.?[TN]\.?)\s*(?:es|n[uú]mero|:)?\s*([\d.\s]{7,12}(?:\s?-?\s?[\dkK])?)/giu;
 
 function clip(text: string, index: number, length: number): string {
   const from = Math.max(0, index - 20);
@@ -135,38 +136,39 @@ function clip(text: string, index: number, length: number): string {
  * Un nombre que no coincide (sin acentos ni mayúsculas; basta parte del nombre, pero cada palabra dicha debe estar en la ficha) es una alerta.
  */
 export function checkPatientMentions(text: string, patient: { name: string; rut?: string | null }): PatientCheck {
+  const normalizedText = normalizeIdentityNumbers(text).text;
   const mismatches: PatientMention[] = [];
   const matches: PatientMention[] = [];
   const variants: PatientMention[] = [];
   const seen = new Set<string>();
   // «Quiero evolucionar la ficha de <nombre>»: el nombre del saludo se compara con tolerancia a errores de voz.
-  const frame = stripDictationFrame(text);
+  const frame = stripDictationFrame(normalizedText);
   if (frame.spokenName && patient.name) {
-    const mention: PatientMention = { kind: "name", mentioned: frame.spokenName, quote: clip(text, 0, frame.nameEnd) };
+    const mention: PatientMention = { kind: "name", mentioned: frame.spokenName, quote: clip(normalizedText, 0, frame.nameEnd) };
     const verdict = nameVariantOf(frame.spokenName, patient.name);
     (verdict === "same" ? matches : verdict === "variant" ? variants : mismatches).push(mention);
   }
-  for (const match of text.matchAll(TRIGGER)) {
+  for (const match of normalizedText.matchAll(TRIGGER)) {
     const index = match.index ?? 0;
     if (index < frame.nameEnd) continue;
-    if (BLOCK_BEFORE.test(text.slice(Math.max(0, index - 25), index))) continue;
-    const { tokens, raw } = nameTokensAfter(text, index + match[0].length);
+    if (BLOCK_BEFORE.test(normalizedText.slice(Math.max(0, index - 25), index))) continue;
+    const { tokens, raw } = nameTokensAfter(normalizedText, index + match[0].length);
     if (!tokens.length) continue;
     const key = `name:${tokens.join(" ")}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    const mention: PatientMention = { kind: "name", mentioned: raw, quote: clip(text, index, match[0].length + raw.length) };
+    const mention: PatientMention = { kind: "name", mentioned: raw, quote: clip(normalizedText, index, match[0].length + raw.length) };
     (matchesPatient(tokens, patient.name) ? matches : mismatches).push(mention);
   }
   const own = normalizeRut(patient.rut ?? "");
-  for (const match of text.matchAll(RUT_PATTERN)) {
+  for (const match of normalizedText.matchAll(RUT_PATTERN)) {
     const value = (match[1] ?? match[2] ?? "").trim();
     const clean = normalizeRut(value);
     if (clean.length < 7) continue;
     const key = `rut:${clean}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    const mention: PatientMention = { kind: "rut", mentioned: value, quote: clip(text, match.index ?? 0, match[0].length) };
+    const mention: PatientMention = { kind: "rut", mentioned: value, quote: clip(normalizedText, match.index ?? 0, match[0].length) };
     // Sin el dígito verificador dictado se compara solo el cuerpo.
     const same = own && (own === clean || (match[2] && own.slice(0, -1) === clean));
     (same ? matches : mismatches).push(mention);

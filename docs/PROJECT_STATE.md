@@ -100,6 +100,7 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 
 ## Redacción visible tras el dictado (2 de noviembre de 2026)
 - La vista previa de Inicio presenta por separado la transcripción corregida palabra por palabra y una nota clínica redactada por secciones mediante la ruta de estructuración. La ficha vuelve a generar la propuesta con su contexto y exige revisión antes de guardar.
+- Si el dictado identifica explícitamente un RUN/RUT o una fecha de nacimiento, los números hablados se convierten a formato chileno (`12.345.678-5` y `DD/MM/AAAA`) en la transcripción corregida y en la propuesta. La fecha se entrega como `AAAA-MM-DD` al campo de ficha; los datos incompletos o ambiguos quedan sin modificar para revisión.
 - Si existe `OPENAI_API_KEY`, la estructuración intenta primero el modelo configurado en `OPENAI_STRUCTURE_MODEL` (por defecto `gpt-4o-mini`); Workers AI es respaldo. El texto original se conserva. La redacción ordena lo dictado sin convertir planes en procedimientos realizados ni completar números de identidad inciertos.
 
 - La revisión de una frase ficticia detectó que el modelo omitía «la cirugía todavía no se ha realizado». La validación repone literalmente esa negación en el plan si la nota no expresa que el procedimiento sigue pendiente; no modifica D1 ni registra actos clínicos.
