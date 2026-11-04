@@ -7,9 +7,13 @@
   "vars": {
     "OPENAI_TRANSCRIPTION_MODEL": "gpt-4o-transcribe",
     "CLINIC_OPEN_REGISTRATION": "true",
-    "MCP_OAUTH_ALLOWED_EMAIL": "remdental09@gmail.com"
+    "MCP_OAUTH_ALLOWED_EMAIL": "remdental09@gmail.com",
+    "GCAL_CALENDAR_ID": "lpaulr@gmail.com"
   },
   "workers_dev": true,
+  // Cron Triggers (UTC). Chile UTC-3: calendar 08/13/18 h, Drive backup 23:00-23:50 h.
+  // Must match CALENDAR_CRON / BACKUP_CRON in app/scheduled.ts.
+  "triggers": { "crons": ["0 11,16,21 * * *", "*/10 2 * * *"] },
   "preview_urls": false,
   "observability": { "enabled": true },
   "assets": {

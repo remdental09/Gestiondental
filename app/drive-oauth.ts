@@ -401,7 +401,7 @@ async function replaceDocumentText(accessToken: string, documentId: string, text
   if (!textInDocument(verified).includes(text)) throw new Error("No se pudo verificar el contenido guardado en Drive.");
 }
 
-async function backupPatient(user: ChatGPTUser, patientId: number) {
+async function backupPatient(user: ChatGPTUser, patientId: number, tokenCache?: Map<string, string>) {
   const config = configuration();
   if (!config.configured) return { saved: false, configured: false, connected: false, message: "Google Drive requiere configuración." };
   const connection = await connectionFor(user.userId);
@@ -411,7 +411,8 @@ async function backupPatient(user: ChatGPTUser, patientId: number) {
   if (!snapshot) return { saved: false, configured: true, connected: true, message: "No se encontró la ficha de este usuario." };
   if (!snapshot.pending) return { saved: true, skipped: true, patientId };
 
-  const accessToken = await getAccessToken(user, connection, config.clientSecret);
+  const accessToken = tokenCache?.get(user.userId) || await getAccessToken(user, connection, config.clientSecret);
+  tokenCache?.set(user.userId, accessToken);
   const rootFolderId = await ensureRootFolder(connection, accessToken, user.userId);
   const patientFolder = await ensurePatientFolder(
     accessToken, rootFolderId, patientId, snapshot.name, snapshot.driveFolderId,
@@ -485,4 +486,43 @@ export async function syncGoogleDrive(user: ChatGPTUser, body: unknown) {
     nextAfterPatientId: queue.nextAfterPatientId,
     complete: queue.nextAfterPatientId === null,
   };
+}
+
+/**
+ * Nightly Cron Trigger backup for every owner that connected Google Drive in the app.
+ * Each ficha costs ~6 Google subrequests, so a run handles at most `maxPatients`
+ * (Workers Free allows 50 subrequests per invocation); the cron repeats every 10 minutes.
+ */
+export async function runScheduledDriveBackup(maxPatients = 6) {
+  const config = configuration();
+  if (!config.configured) return { configured: false, results: [] as Array<Record<string, unknown>> };
+  await ensureConnectionTable();
+  const { results: connections } = await database().prepare(
+    "SELECT owner_id, google_email FROM google_drive_connections ORDER BY owner_id"
+  ).all<{ owner_id: string; google_email: string }>();
+  const tokens = new Map<string, string>();
+  const results: Array<Record<string, unknown>> = [];
+  let budget = maxPatients;
+  for (const connection of connections) {
+    const user: ChatGPTUser = { userId: connection.owner_id, displayName: "", email: connection.google_email, fullName: null };
+    let after = 0;
+    let ownerFailed = false;
+    while (budget > 0 && !ownerFailed) {
+      const queue = await listDriveBackupQueue(user.userId, after, 20);
+      for (const item of queue.pending) {
+        if (budget <= 0) break;
+        budget--;
+        try {
+          const result = await backupPatient(user, item.patientId, tokens);
+          results.push({ ownerId: user.userId, patientId: item.patientId, saved: Boolean(result.saved) });
+        } catch (error) {
+          results.push({ ownerId: user.userId, patientId: item.patientId, saved: false, error: error instanceof Error ? error.message : "error" });
+          if (!tokens.has(user.userId)) { ownerFailed = true; break; } // token refresh failed: skip owner
+        }
+      }
+      if (queue.nextAfterPatientId === null) break;
+      after = queue.nextAfterPatientId;
+    }
+  }
+  return { configured: true, owners: connections.length, results, budgetLeft: budget };
 }

@@ -1,0 +1,21 @@
+// Cron Trigger entry (see "triggers" in wrangler.cloudflare.jsonc). Times are UTC.
+import { syncCalendarFromIcs, type CalendarSyncEnv } from "./calendar-sync";
+
+export const CALENDAR_CRON = "0 11,16,21 * * *"; // 08/13/18 Chile (UTC-3)
+export const BACKUP_CRON = "*/10 2 * * *"; // 23:00-23:50 Chile (UTC-3), a few fichas per run
+
+export async function runScheduled(cron: string, env: CalendarSyncEnv) {
+  if (cron === CALENDAR_CRON) {
+    const result = await syncCalendarFromIcs(env);
+    console.log("calendar-sync", JSON.stringify(result));
+    return result;
+  }
+  if (cron === BACKUP_CRON) {
+    const { runScheduledDriveBackup } = await import("./drive-oauth");
+    const result = await runScheduledDriveBackup();
+    console.log("drive-backup", JSON.stringify(result));
+    return result;
+  }
+  console.warn("cron sin tarea", cron);
+  return null;
+}

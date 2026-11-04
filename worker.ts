@@ -323,4 +323,8 @@ export default {
   fetch(request: Request, env: OAuthEnv, context: ExecutionContext) {
     return oauthProvider.fetch(request, env, context);
   },
+  async scheduled(controller: ScheduledController, env: OAuthEnv, context: ExecutionContext) {
+    const { runScheduled } = await import("./app/scheduled");
+    context.waitUntil(runScheduled(controller.cron, env as unknown as Parameters<typeof runScheduled>[1]));
+  },
 };
