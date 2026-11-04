@@ -3,10 +3,11 @@
   "name": "gestion-dental-luis-rodriguez",
   "main": "worker.ts",
   "compatibility_date": "2026-10-30",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "vars": {
     "OPENAI_TRANSCRIPTION_MODEL": "gpt-4o-transcribe",
-    "CLINIC_OPEN_REGISTRATION": "true"
+    "CLINIC_OPEN_REGISTRATION": "true",
+    "MCP_OAUTH_ALLOWED_EMAIL": "remdental09@gmail.com"
   },
   "workers_dev": true,
   "preview_urls": false,
@@ -16,6 +17,12 @@
     "binding": "ASSETS",
     "run_worker_first": ["/*", "!/_next/static/*", "!/*/_next/static/*"]
   },
+  "kv_namespaces": [
+    {
+      "binding": "OAUTH_KV",
+      "id": "58aa206b7fc646428e95b6cd115dc7fa"
+    }
+  ],
   "d1_databases": [
     {
       "binding": "DB",
