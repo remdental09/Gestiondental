@@ -120,3 +120,6 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 - El Site privado es un segundo destino de producción con historial propio. Para mantenerlo alineado, se publica desde el mismo árbol de archivos del commit de GitHub `main` y se conserva su audiencia actual. Su SHA interno puede ser distinto porque Sites guarda el origen en un repositorio separado; se compara y registra el SHA de GitHub que alimentó esa versión.
 - Tras un cambio se comprueban por separado el resultado de la acción de Cloudflare y la versión/despliegue del Site privado. La publicación del código no migra ni copia fichas.
 - D1/R2 contienen datos de producción; GitHub contiene código. Los respaldos de Drive son un flujo aparte y se confirman por separado.
+
+## Sesiones en la historia clínica (4 de noviembre de 2026)
+- La interfaz agrupa en un único bloque visual las evoluciones con la misma fecha clínica, tratándolas como una sesión según la convención de la consulta. Conserva cada evolución como registro independiente en D1 y mantiene sus controles por registro; la agrupación no fusiona ni elimina datos. Los registros sin fecha consignada permanecen separados.
