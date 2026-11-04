@@ -509,6 +509,7 @@ export async function POST(request: Request) {
       // El soporte elegido por el clínico corrige también el estado general que proyectó la evolución.
       if (foundation === "tooth" && ["Implante", "Implante con pilar"].includes(data.teeth[tooth] ?? "")) data.teeth[tooth] = "Corona";
       if (foundation === "implant" && data.teeth[tooth] === "Corona") data.teeth[tooth] = "Implante";
+      if (foundation === "implant" && data.teeth[tooth] === "Implante con pilar") data.teeth[tooth] = "Implante";
       if (foundation === "implant" && data.teeth[tooth] !== "Implante") return error("Primero registra el implante en la pieza indicada.");
       if (foundation === "tooth" && data.teeth[tooth] !== "Corona") return error("Primero registra una corona en la pieza indicada.");
       if (!material && foundation !== "implant") return error("Revisa la pieza y el material de la corona.");
