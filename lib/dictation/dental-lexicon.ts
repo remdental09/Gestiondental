@@ -133,6 +133,12 @@ export const DENTAL_DICTIONARY = {
 } as const;
 
 export const DENTAL_SPEECH_HINTS = [
+  { phrase: "RUN", boost: 8 },
+  { phrase: "RUT", boost: 8 },
+  { phrase: "dígito verificador", boost: 8 },
+  { phrase: "fecha de nacimiento", boost: 8 },
+  { phrase: "correo electrónico", boost: 7 },
+  { phrase: "número de teléfono", boost: 7 },
   { phrase: "destartraje", boost: 9 },
   { phrase: "destartraje supragingival", boost: 10 },
   { phrase: "destartraje subgingival", boost: 10 },

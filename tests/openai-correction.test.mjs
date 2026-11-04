@@ -20,6 +20,23 @@ test('usa OpenAI para corregir texto clínico y valida cambios seguros', async (
   assert.equal(result.corrections[0].applied, true);
 });
 
+test('normaliza identidad antes de enviar el texto al prompt compartido de OpenAI', async () => {
+  const source = 'RUN ocho millones cero treinta y uno cuatrocientos quince guion nueve. Fecha de nacimiento el dos de marzo de mil novecientos ochenta ¿y uno.';
+  const expected = 'RUN 8.031.415-9. Fecha de nacimiento el 02/03/1981.';
+  const result = await correctWithOpenAi(source, 'test-secret', {
+    fetcher: async (_url, init) => {
+      const request = JSON.parse(init.body);
+      assert.match(request.messages[0].content, /Normalización de identidad/);
+      assert.match(request.messages[0].content, /La única excepción de formato/);
+      assert.equal(request.messages[1].content, expected);
+      return Response.json({ choices: [{ message: { content: JSON.stringify({ text: expected }) } }] });
+    },
+  });
+
+  assert.equal(result.text, expected);
+  assert.equal(result.corrections.filter((item) => item.applied).length, 2);
+});
+
 test('rechaza la respuesta de OpenAI si altera el número de pieza', async () => {
   const result = await correctWithOpenAi('Caries mesial en pieza FDI 3.6.', 'test-secret', {
     fetcher: async () => Response.json({ choices: [{ message: { content: JSON.stringify({ text: 'Caries mesial en pieza FDI 3.5.' }) } }] }),

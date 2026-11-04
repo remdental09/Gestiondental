@@ -2,6 +2,14 @@ import { fold, isNumberWord, numberRuns, type TranscriptCorrection } from "./spo
 
 type Edit = { start: number; end: number; replacement: string; reason: string };
 
+/** Instrucción compartida por los modelos de corrección y estructuración clínica. */
+export const IDENTITY_NORMALIZATION_PROMPT = [
+  "Normalización de identidad: cambia solo el formato, nunca el valor dictado.",
+  "RUN/RUT: convierte a cifras únicamente cuando esté identificado explícitamente como RUN o RUT. Conserva el orden, todos los ceros y el dígito verificador dictado después de «guion»; presenta puntos de miles y guion antes del dígito verificador. No calcules, corrijas ni completes dígitos.",
+  "Fecha de nacimiento: conviértela a DD/MM/AAAA únicamente cuando esté identificada como fecha de nacimiento. Une el año pronunciado como un número español. La puntuación automática entre sus componentes puede ser ruido: «mil novecientos ochenta ¿y uno» significa 1981 si no hay una autocorrección o alternativa explícita. Si persiste una ambigüedad real, conserva el dato y márcalo para confirmar; no elijas un año.",
+  "No apliques esta conversión a fechas de atención, edades, piezas dentales, montos, dosis ni otros números. La identidad no es un hallazgo ni un diagnóstico; si aparece en la narración dictada, conserva su contenido y aplica solo el formato indicado.",
+].join("\n");
+
 const MONTHS: Record<string, number> = {
   enero: 1, febrero: 2, marzo: 3, abril: 4, mayo: 5, junio: 6,
   julio: 7, agosto: 8, septiembre: 9, setiembre: 9,
@@ -102,7 +110,10 @@ function dateParts(dayText: string, month: number, yearText: string): { start: n
   if (dayTokens.length < 1 || dayTokens.length > 2) return null;
   const day = numberValue(dayTokens[0]);
   const repeatedDay = dayTokens.length === 2 ? numberValue(dayTokens[1]) : day;
-  const yearRuns = numberRuns(yearText.trim());
+  // ASR may insert ¿, ?, ¡ or ! inside a spoken year. Replacing each mark with
+  // one space preserves offsets while allowing numberRuns to join e.g. "sesenta ¿y uno".
+  const yearForParsing = yearText.trim().replace(/[¿?¡!]/gu, " ");
+  const yearRuns = numberRuns(yearForParsing);
   const year = yearRuns[0];
   if (day === null || day !== repeatedDay || day < 1 || day > 31 || !year || year.start !== 0 || year.value < 1000 || year.value > 9999) return null;
   const date = new Date(Date.UTC(year.value, month - 1, day));
@@ -115,7 +126,7 @@ function dateEdits(text: string, folded: string): Edit[] {
   for (const cue of folded.matchAll(DATE_CUE)) {
     const cueStart = cue.index ?? 0;
     const afterCue = cueStart + cue[0].length;
-    const remainder = folded.slice(afterCue, afterCue + 100).split(/[.!?;\n]/u, 1)[0];
+    const remainder = folded.slice(afterCue, afterCue + 100).split(/[.;\n]/u, 1)[0];
     const prefix = /^\s*(?:(?:es|el)\b\s*|:\s*)?(?:el\b\s*)?/u.exec(remainder)?.[0] ?? "";
     const content = remainder.slice(prefix.length).replace(/^\s+/u, "");
     const leading = remainder.slice(prefix.length).length - remainder.slice(prefix.length).trimStart().length;

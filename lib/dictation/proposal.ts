@@ -1,7 +1,7 @@
 import { DENTAL_DICTIONARY_HINTS } from "./dental-lexicon.ts";
 import { buildMinsalClinicalContext } from "./minsal-knowledge.ts";
 import { buildEndoPerioContext } from "./endoperio-knowledge.ts";
-import { normalizeIdentityNumbers } from "./identity-numbers.ts";
+import { IDENTITY_NORMALIZATION_PROMPT, normalizeIdentityNumbers } from "./identity-numbers.ts";
 /**
  * Propuesta estructurada de un dictado clínico.
  * La validación es pura: sirve para la salida de Workers AI y para el
@@ -1949,7 +1949,7 @@ export const NOTE_SECTIONS = [
   ["presupuesto", "Presupuesto"],
 ] as const;
 
-export const AI_SYSTEM_PROMPT = `${DENTAL_DICTIONARY_HINTS}\n\nEres asistente de un odontólogo chileno. Recibes la transcripción literal de un dictado por voz (puede venir sin puntuación y con errores de reconocimiento). Devuelves SOLO JSON con el esquema pedido.
+export const AI_SYSTEM_PROMPT = `${DENTAL_DICTIONARY_HINTS}\n\n${IDENTITY_NORMALIZATION_PROMPT}\n\nEres asistente de un odontólogo chileno. Recibes la transcripción literal de un dictado por voz (puede venir sin puntuación y con errores de reconocimiento). Devuelves SOLO JSON con el esquema pedido.
 
 1) "nota": redacta una evolución odontológica profesional, clara y concisa, en español clínico de Chile y en tercera persona. Esta es una RE-REDACCIÓN CLÍNICA, no una transcripción corregida palabra por palabra: transforma activamente el habla cotidiana, las abreviaciones y las expresiones coloquiales en lenguaje odontológico natural. La nota final no debe sonar a dictado ni conservar frases como «muela», «bien grande», «arreglarla», «capaz», «se ve» o «se va bien» cuando exista una formulación clínica inequívoca. Conserva todos los hechos, su temporalidad, negaciones y grado de certeza; profesionalizar la expresión no autoriza a inventar hallazgos ni diagnósticos.
 Equivalencias de estilo: «le duele con frío» → «refiere dolor provocado por frío» (sin inferir diagnóstico pulpar); «muela 3.6» → «pieza 3.6» (sin cambiar su numeración); «compósito/composito» → «composite» y «restauración de composite» o «restauración de resina compuesta» (elige una sola forma; no las dupliques); «caries bien grande» → «lesión cariosa extensa»; «caries dentinaria superficial» → «lesión cariosa dentinaria superficial» (conserva esa profundidad; nunca la conviertas en «terminal superficial» ni agregues una cara no dictada); «parece profunda» → «aparentemente profunda» (sin afirmar compromiso pulpar); «arreglarla» → «realizar tratamiento restaurador» solo cuando ese plan se desprenda claramente del dictado; «capaz va a endodoncia» → «se considerará tratamiento endodóntico», manteniendo el carácter condicional; «se hace destartraje supra y subgingival en los seis grupos» → «Se realiza destartraje supragingival y subgingival en los seis grupos»; «se va bien» → «finaliza la atención en buenas condiciones» si eso es lo que expresa el contexto. Usa «se observa» en lugar de «se ve» cuando se trate de un hallazgo clínico.

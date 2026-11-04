@@ -13,6 +13,8 @@ test('server sends audio with dental context and Spanish hints, never the secret
   assert.equal(request.init.body.get('model'), 'gpt-transcribe');
   assert.deepEqual(request.init.body.getAll('languages[]'), ['es']);
   assert.ok(request.init.body.getAll('keywords[]').includes('destartraje subgingival'));
+  assert.ok(request.init.body.getAll('keywords[]').includes('dígito verificador'));
+  assert.match(request.init.body.get('prompt'), /RUN\/RUT, dígito verificador, fecha de nacimiento/);
   assert.equal(request.init.body.get('file').name, 'dictado.webm');
   assert.equal([...request.init.body.values()].some(v => String(v).includes('test-secret')), false);
 });

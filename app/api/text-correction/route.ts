@@ -3,6 +3,7 @@ import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { createWorkersAiModel } from "@/lib/dictation/workers-ai";
 import { proposeFromTranscript } from "@/lib/dictation/proposal";
 import { correctWithOpenAi } from "@/lib/dictation/openai-correction";
+import { normalizeIdentityNumbers } from "@/lib/dictation/identity-numbers";
 import { applyLexicon, applySelfCorrections } from "@/lib/dictation/spoken";
 
 export const runtime = "edge";
@@ -28,7 +29,8 @@ export async function POST(request: Request) {
 
   const dictionary = applyLexicon(transcript);
   const selfCorrected = applySelfCorrections(dictionary.text);
-  const local = { text: selfCorrected.text, corrections: [...dictionary.corrections, ...selfCorrected.corrections] };
+  const identity = normalizeIdentityNumbers(selfCorrected.text);
+  const local = { text: identity.text, corrections: [...dictionary.corrections, ...selfCorrected.corrections, ...identity.corrections] };
   const localCorrections = local.corrections;
 
   if (env.OPENAI_API_KEY?.trim()) {

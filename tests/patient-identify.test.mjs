@@ -40,6 +40,13 @@ test('convierte RUN hablado y fecha de nacimiento hablada para la identificació
   assert.equal(identity.birthDate, '1984-05-23');
 });
 
+test('une la puntuación espuria dentro del año de nacimiento sin perder la unidad dictada', () => {
+  const transcript = 'RUN ocho millones cero treinta y uno cuatrocientos quince guion nueve. Fecha de nacimiento el dos de marzo de mil novecientos ochenta ¿y uno.';
+  const normalized = normalizeIdentityNumbers(transcript);
+  assert.equal(normalized.text, 'RUN 8.031.415-9. Fecha de nacimiento el 02/03/1981.');
+  assert.equal(normalized.corrections.length, 2);
+});
+
 test('no adivina un RUN/RUT ni fecha de nacimiento incompletos', () => {
   const transcript = 'RUN cerca de ocho millones guion nueve. Fecha de nacimiento probablemente en mil novecientos ochenta.';
   assert.equal(normalizeIdentityNumbers(transcript).text, transcript);

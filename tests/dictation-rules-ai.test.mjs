@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  AI_SYSTEM_PROMPT,
   finalizeEvolution,
   planFichaUpdate,
   structureTranscript,
@@ -10,6 +11,12 @@ import {
 import { createWebSpeechTranscription } from '../lib/dictation/transcription.ts';
 
 const pick = (proposal) => proposal.odontogram.map((item) => [item.tooth, item.kind === 'surface' ? `${item.surface}:${item.finding.condition}` : item.status]);
+
+test('el prompt clínico comparte las reglas de formato de identidad', () => {
+  assert.match(AI_SYSTEM_PROMPT, /Normalización de identidad/);
+  assert.match(AI_SYSTEM_PROMPT, /fecha de nacimiento/);
+  assert.match(AI_SYSTEM_PROMPT, /no elijas un año/);
+});
 
 test('pieza 30 con obturación oclusal pieza 19 ausente se separa sin puntuación', () => {
   const proposal = structureTranscript('pieza 30 con obturación oclusal pieza 19 ausente');
