@@ -40,6 +40,10 @@ function createHandler(record, duplicates = []) {
   const exports = {};
   const imports = {
     'drizzle-orm': { and, desc: () => null, eq, ne, gt: () => null, inArray: () => null },
+    '@/app/mcp-chart-read': { readDentalChart() {} },
+    '@/app/mcp-periodontal': { periodontalExamTool: { name: 'save_periodontal_exam' }, savePeriodontalExam() {} },
+    '@/app/mcp-tooth-status': { persistMcpToothStatus() {} },
+    '@/app/mcp-tooth-surface': { persistMcpToothSurface() {} },
     '@/app/clinical-import': { ClinicalImportError: class ClinicalImportError extends Error {}, runDriveRecordImport: async () => ({}) },
     '@/app/drive-backup': { confirmDriveSnapshot: async () => ({}), getDriveSnapshot: async () => ({}), listDriveBackupQueue: async () => ({}) },
     '@/app/sync-odontogram': { syncInstalledImplants: async () => ({ updatedTeeth: [] }) },

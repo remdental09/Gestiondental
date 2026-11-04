@@ -1,11 +1,14 @@
 import { and, desc, eq, gt, inArray, ne } from "drizzle-orm";
-import { formatFdi } from "@/app/clinical-data";
+import { readDentalChart } from "@/app/mcp-chart-read";
+import { periodontalExamTool, savePeriodontalExam } from "@/app/mcp-periodontal";
+import { persistMcpToothStatus } from "@/app/mcp-tooth-status";
+import { persistMcpToothSurface } from "@/app/mcp-tooth-surface";
 import { ClinicalImportError, runDriveRecordImport } from "@/app/clinical-import";
 import { confirmDriveSnapshot, getDriveSnapshot, listDriveBackupQueue } from "@/app/drive-backup";
 import { getDb } from "@/db";
 import { syncInstalledImplants } from "@/app/sync-odontogram";
 import { bestStoredNameMatches, hasFourNameParts, normalizePatientName, storedNameMatchScore } from "@/app/patient-identity";
-import { calendarEvents, evolutions, patients, toothStatuses } from "@/db/schema";
+import { calendarEvents, evolutions, patients } from "@/db/schema";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -69,6 +72,14 @@ const tools = [
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
   },
   {
+    name: "get_dental_chart",
+    title: "Leer odontograma y periodontograma",
+    description: "Lee el odontograma y hasta diez exámenes periodontales de una ficha identificada, limitados al propietario autenticado. Úsala para comprobar cambios guardados.",
+    inputSchema: { type: "object", properties: { patientId: { type: "integer", description: "ID de la ficha identificada" } }, required: ["patientId"], additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+  },
+  { ...periodontalExamTool, annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false } },
+  {
     name: "create_patient",
     title: "Crear ficha de paciente",
     description: "Crea una ficha en la base de Gestión Dental después de buscar primero en la app y Google Drive y solo tras la confirmación expresa del clínico. Al registrar pacientes nuevos, solicita los dos nombres y los dos apellidos cuando estén disponibles; no inventes ni infieras nombres. Si Drive ya tiene una carpeta de esa persona, vincúlala en vez de crear otra. Si el nombre ya existe y no hay RUT, aclara si es otra persona antes de usar confirmDifferentPatient=true.",
@@ -101,6 +112,27 @@ const tools = [
     title: "Actualizar estado general de una pieza",
     description: "Actualiza el estado general de una pieza del odontograma de una ficha ya identificada. Envía todos los componentes del nombre que el clínico conozca junto con el ID; permite coincidencia con nombres registrados incompletos y solicita RUT o fecha de nacimiento ante empate. La interfaz muestra FDI con punto (1.2, 1.3, 2.1); el almacenamiento usa el entero compacto (1.2 se guarda como 12). En esta aplicación, una referencia dictada como 'pieza 12' sin etiqueta FDI usa numeración nacional chilena y corresponde a FDI 2.4; no la interpretes como FDI 1.2. Modifica solo la pieza indicada y conserva las superficies y demás datos del odontograma. Llama solo después de que el clínico haya confirmado explícitamente el registro.",
     inputSchema: { type: "object", properties: { patientId: { type: "integer", description: "ID de la ficha clínica ya identificada" }, fullName: { type: "string", description: "Nombre registrado o nombre dictado con todos los componentes conocidos; la ficha puede tener menos componentes" }, identityBirthDate: { type: "string", description: "Fecha de nacimiento para distinguir homónimos, si hace falta" }, identityRut: { type: "string", description: "RUT para distinguir homónimos, si hace falta" }, toothFDI: { type: "integer", description: "Código FDI compacto para almacenamiento (por ejemplo, entero 12 representa FDI 1.2); no es numeración nacional chilena" }, status: { type: "string", enum: ["Sin hallazgos", "Implante", "Implante con pilar", "Corona", "Ausente", "Indicación de exodoncia", "Resto radicular con endodoncia"] }, confirmed: { type: "boolean", description: "true solo tras confirmación expresa del clínico" } }, required: ["patientId", "fullName", "toothFDI", "status", "confirmed"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+  },
+  {
+    name: "set_tooth_surface",
+    title: "Actualizar hallazgo por superficie dental",
+    description: "Registra un hallazgo en una sola cara de una pieza identificada y relee el odontograma. La pieza usa FDI compacto; P representa palatina o lingual según la arcada y O representa oclusal o incisal según la pieza. La caries se registra por profundidad; no se infieren datos omitidos. Requiere autorización expresa del clínico.",
+    inputSchema: { type: "object", properties: {
+      patientId: { type: "integer", description: "ID de la ficha identificada" },
+      fullName: { type: "string", description: "Nombre registrado o dictado completo" },
+      identityBirthDate: { type: "string", description: "Fecha de nacimiento para distinguir homónimos, si hace falta" },
+      identityRut: { type: "string", description: "RUT para distinguir homónimos, si hace falta" },
+      toothFDI: { type: "integer", description: "FDI compacto: por ejemplo, 36 corresponde a FDI 3.6" },
+      surface: { type: "string", enum: ["V", "P", "M", "D", "O"] },
+      finding: { type: "object", properties: {
+        condition: { type: "string", enum: ["not_examined", "sound", "caries", "restored", "sealant", "other_restoration"] },
+        depth: { type: ["string", "null"], enum: ["esmalte", "dentina_superficial", "dentina_profunda", "pulpar", null] },
+        restorationStage: { type: "string", enum: ["provisional", "definitive"] },
+        restorationMaterial: { type: "string", enum: ["Resina compuesta", "Vidrio ionómero", "Amalgama", "Cavit", "IRM", "Otro"] },
+      }, required: ["condition"], additionalProperties: false },
+      confirmed: { type: "boolean", description: "true solo tras autorización expresa del clínico" },
+    }, required: ["patientId", "fullName", "toothFDI", "surface", "finding", "confirmed"], additionalProperties: false },
     annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
   },
   {
@@ -401,20 +433,22 @@ async function setToothStatus(ownerId: string, args: JsonRecord) {
   if (!patient) return { saved: false, error: "No encontré esa ficha. Busca al paciente antes de guardar." };
   const identityError = await verifyWriteIdentity(ownerId, patientId, patient.name, args, db);
   if (identityError) return { saved: false, ...identityError, patient };
-  const [old] = await db.select().from(toothStatuses).where(and(eq(toothStatuses.ownerId, ownerId), eq(toothStatuses.patientId, patientId))).limit(1);
-  let raw: unknown = {};
-  try { raw = old ? JSON.parse(old.data) : {}; } catch { return { saved: false, error: "El odontograma existente no se pudo leer con seguridad; no se modificó." }; }
-  const source = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as JsonRecord : {};
-  const teeth = source.teeth && typeof source.teeth === "object" && !Array.isArray(source.teeth) ? { ...(source.teeth as Record<string, unknown>) } : {};
-  const surfaces = source.surfaces && typeof source.surfaces === "object" && !Array.isArray(source.surfaces) ? source.surfaces : {};
-  const missingReason = source.missingReason && typeof source.missingReason === "object" && !Array.isArray(source.missingReason) ? source.missingReason : {};
-  teeth[String(tooth)] = status;
-  const crowns = source.crowns && typeof source.crowns === "object" && !Array.isArray(source.crowns) ? { ...(source.crowns as Record<string, unknown>) } : {};
-  if (status !== "Corona") delete crowns[String(tooth)];
-  const data = { teeth, surfaces, missingReason, crowns };
-  const savedAt = now();
-  await db.insert(toothStatuses).values({ ownerId, patientId, data: JSON.stringify(data), updatedAt: savedAt }).onConflictDoUpdate({ target: toothStatuses.patientId, set: { data: JSON.stringify(data), updatedAt: savedAt } });
-  return { saved: true, patientId, toothFDI: tooth, toothFDILabel: formatFdi(tooth), status, odontogram: data };
+  return persistMcpToothStatus(ownerId, patientId, tooth, status);
+}
+
+async function setToothSurface(ownerId: string, args: JsonRecord) {
+  if (args.confirmed !== true) return { saved: false, needsConfirmation: true, message: "Confirma el hallazgo antes de modificar el odontograma." };
+  const patientId = Number(args.patientId), tooth = Number(args.toothFDI), surface = string(args.surface, 2);
+  const allowedTeeth = new Set([11,12,13,14,15,16,17,18,21,22,23,24,25,26,27,28,31,32,33,34,35,36,37,38,41,42,43,44,45,46,47,48,51,52,53,54,55,61,62,63,64,65,71,72,73,74,75,81,82,83,84,85]);
+  if (!Number.isSafeInteger(patientId) || patientId <= 0) return { saved: false, missingFields: ["Paciente"] };
+  const finding = safeArgs(args.finding);
+  if (!Number.isSafeInteger(tooth) || !allowedTeeth.has(tooth) || !["V", "P", "M", "D", "O"].includes(surface) || !finding || Object.keys(finding).some(key => !["condition", "depth", "restorationStage", "restorationMaterial"].includes(key))) return { saved: false, invalidFields: ["Pieza, superficie o hallazgo"] };
+  const db = getDb();
+  const [patient] = await db.select({ id: patients.id, name: patients.name }).from(patients).where(and(eq(patients.id, patientId), eq(patients.ownerId, ownerId))).limit(1);
+  if (!patient) return { saved: false, error: "No encontré esa ficha. Busca al paciente antes de guardar." };
+  const identityError = await verifyWriteIdentity(ownerId, patientId, patient.name, args, db);
+  if (identityError) return { saved: false, ...identityError, patient };
+  return persistMcpToothSurface(ownerId, patientId, tooth, surface, args.finding);
 }
 
 async function linkDriveBackup(ownerId: string, args: JsonRecord) {
@@ -451,11 +485,14 @@ async function callTool(ownerId: string, name: unknown, args: unknown) {
   if (!input) throw new Error("Los argumentos de la herramienta deben ser un objeto.");
   if (name === "find_patient") return findPatient(ownerId, input.query);
   if (name === "get_patient_record") return getPatientRecord(ownerId, input.patientId);
+  if (name === "get_dental_chart") return readDentalChart(ownerId, input.patientId);
+  if (name === "save_periodontal_exam") return savePeriodontalExam(ownerId, input, verifyWriteIdentity);
   if (name === "create_patient") return createPatient(ownerId, input);
   if (name === "update_patient_contact") return updatePatientContact(ownerId, input);
   if (name === "append_clinical_evolution") return appendEvolution(ownerId, input);
   if (name === "evolve_patient_by_name") return evolvePatientByName(ownerId, input);
   if (name === "set_tooth_status") return setToothStatus(ownerId, input);
+  if (name === "set_tooth_surface") return setToothSurface(ownerId, input);
   if (name === "link_drive_backup") return linkDriveBackup(ownerId, input);
   if (name === "list_drive_backup_queue") {
     const cursor = input.afterPatientId === undefined ? 0 : Number(input.afterPatientId);
@@ -523,6 +560,19 @@ export async function POST(request: Request) {
   }
   const id = (typeof body.id === "string" || typeof body.id === "number" || body.id === null) ? body.id as JsonRpcId : null;
   if (body.jsonrpc !== "2.0" || typeof body.method !== "string") return rpcError(id, -32600, "Solicitud JSON-RPC no válida.");
+  if (body.method === "initialize") {
+    const params = safeArgs(body.params);
+    if ((typeof body.id !== "string" && typeof body.id !== "number") || !params || typeof params.protocolVersion !== "string" || !params.protocolVersion) {
+      return rpcError(id, -32600, "Solicitud de inicialización MCP no válida.");
+    }
+    const supported = ["2025-06-18", "2025-03-26"];
+    const protocolVersion = supported.includes(params.protocolVersion) ? params.protocolVersion : supported[0];
+    return rpcResponse(id, { protocolVersion, capabilities: { tools: { listChanged: false } }, serverInfo: { name: "gestion-dental", version: "1.0.0" } });
+  }
+  if (body.method === "notifications/initialized") {
+    if (Object.prototype.hasOwnProperty.call(body, "id")) return rpcError(id, -32600, "La notificación MCP no debe incluir id.");
+    return new Response(null, { status: 202 });
+  }
   if (body.method === "server/discover") return rpcResponse(id, { supportedVersions: ["2026-07-28"], capabilities: { tools: {} } });
   if (body.method === "tools/list") return rpcResponse(id, { tools });
   if (body.method !== "tools/call") return rpcError(id, -32601, "Método JSON-RPC no reconocido.");

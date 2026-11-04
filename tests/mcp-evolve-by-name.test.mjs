@@ -45,6 +45,10 @@ runInNewContext(compiled, {
   exports,
   require: name => ({
     'drizzle-orm': { eq: (column, value) => [{ op: 'eq', column, value }], gt: (column, value) => [{ op: 'gt', column, value }], and: (...parts) => parts.flat(), desc: value => value, inArray: () => [] },
+    '@/app/mcp-chart-read': { readDentalChart() {} },
+    '@/app/mcp-periodontal': { periodontalExamTool: { name: 'save_periodontal_exam' }, savePeriodontalExam() {} },
+    '@/app/mcp-tooth-status': { persistMcpToothStatus() {} },
+    '@/app/mcp-tooth-surface': { persistMcpToothSurface() {} },
     '@/app/clinical-import': { ClinicalImportError: class extends Error {}, runDriveRecordImport() {} },
     '@/app/drive-backup': { confirmDriveSnapshot() {}, getDriveSnapshot() {}, listDriveBackupQueue() {} },
     '@/app/sync-odontogram': { syncInstalledImplants: async () => ({ updatedTeeth: [] }) },
