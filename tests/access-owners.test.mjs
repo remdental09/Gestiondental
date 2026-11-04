@@ -84,11 +84,13 @@ test('el nombre viaja codificado en la cabecera y se decodifica con tildes', () 
   assert.match(encodeURIComponent('Dr. Luis Rodríguez'), /^[\x20-\x7e]+$/);
 });
 
-test('worker y pantalla usan la cuenta por correo, sin nombre ni correo del titular fijos', () => {
+test('worker y pantalla usan identidad configurada y limitan OAuth al correo autorizado', () => {
   const worker = readFileSync(new URL('../worker.ts', import.meta.url), 'utf8');
-  assert.match(worker, /resolveOwnerWithRegistration\(email, ownerConfig\)/);
-  assert.match(worker, /headers\.delete\(ACCESS_NAME_HEADER\)/);
-  assert.doesNotMatch(worker, /email !== allowedEmail/);
+  assert.match(worker, /resolveOwnerWithRegistration\(email, config\)/);
+  assert.match(worker, /ACCESS_NAME_HEADER,[\s\S]*?headers\.delete\(name\)/);
+  assert.match(worker, /const allowedEmail = env\.MCP_OAUTH_ALLOWED_EMAIL/);
+  assert.match(worker, /identity\.email !== allowedEmail/);
+  assert.doesNotMatch(worker, /MCP_OAUTH_ALLOWED_EMAIL\s*[:=]\s*["']remdental09@gmail\.com/);
   assert.doesNotMatch(worker, /headers\.set\(ACCESS_OWNER_ID_HEADER, ownerId\)/);
   const page = readFileSync(new URL('../app/page.tsx', import.meta.url), 'utf8');
   const layout = readFileSync(new URL('../app/layout.tsx', import.meta.url), 'utf8');

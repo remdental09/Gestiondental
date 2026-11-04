@@ -321,5 +321,7 @@ export function searchDiagnoses(query: string, limit = 12): DiagnosisSearchResul
     const s = score(title);
     if (s > 0) add("", title, title, "Sin código CIE-11", s - 1);
   }
+  // The score is used for ranking only and is deliberately omitted from the public result.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   return scored.sort((a, b) => b.score - a.score || a.code.localeCompare(b.code)).slice(0, limit).map(({ score: _score, ...rest }) => rest);
 }

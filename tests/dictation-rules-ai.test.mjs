@@ -6,7 +6,6 @@ import {
   structureTranscript,
   validateAiExtraction,
   EXAM_REGISTRY_HEADER,
-  TRANSCRIPT_HEADER,
 } from '../lib/dictation/proposal.ts';
 import { createWebSpeechTranscription } from '../lib/dictation/transcription.ts';
 
@@ -54,19 +53,19 @@ test('alergias, antecedentes y medicamentos van a la ficha y no al odontograma',
   assert.equal(planFichaUpdate({ allergies: 'Alérgico a la penicilina.', history: '' }, proposal.ficha.slice(0, 1)), null);
 });
 
-test('al guardar, el registro del odontograma se rehace con lo aceptado y se agrega la transcripción', () => {
+test('al guardar, el registro del odontograma se rehace con lo aceptado y no agrega el dictado original', () => {
   const transcript = 'pieza 30 con obturación oclusal pieza 19 ausente';
   const proposal = structureTranscript(transcript);
   const edited = `Motivo de consulta\nControl.\n\n${EXAM_REGISTRY_HEADER}\nFDI 9.9: texto viejo.\n\nIndicaciones\nControl en 6 meses.`;
-  const body = finalizeEvolution(edited, proposal.odontogram.slice(0, 1), transcript);
+  const body = finalizeEvolution(edited, proposal.odontogram.slice(0, 1), []);
   assert.match(body, /Examen \(odontograma\)\nFDI 3\.6 \(Chile 30\): obturación oclusal\./);
   assert.equal(body.includes('9.9'), false);
   assert.equal(body.includes('FDI 4.6'), false);
   assert.match(body, /Indicaciones\nControl en 6 meses\./);
-  assert.ok(body.endsWith(`${TRANSCRIPT_HEADER}\n${transcript}`));
-  // Idempotente: guardar dos veces no duplica la transcripción.
-  const again = finalizeEvolution(body, proposal.odontogram.slice(0, 1), transcript);
-  assert.equal(again.split(TRANSCRIPT_HEADER).length, 2);
+  assert.equal(body.includes(transcript), false);
+  // Idempotente: guardar dos veces no cambia la nota ni agrega el dictado.
+  const again = finalizeEvolution(body, proposal.odontogram.slice(0, 1), []);
+  assert.equal(again, body);
 });
 
 test('la cita de la IA tiene que estar en el dictado, incluso sin puntuación', () => {

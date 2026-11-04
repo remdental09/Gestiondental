@@ -4,14 +4,14 @@ import { createRequire } from 'node:module';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 // esbuild is a transitive dependency of vite (not a direct one).
 const viteRequire = createRequire(createRequire(import.meta.url).resolve('vite'));
 const { buildSync } = viteRequire('esbuild');
 const out = join(mkdtempSync(join(tmpdir(), 'gd-ics-')), 'bundle.mjs');
 writeFileSync(out, buildSync({
-  stdin: { contents: "export * from './app/calendar-ics.ts'; export * from './app/calendar-sync.ts'; export * from './app/scheduled.ts';", resolveDir: new URL('..', import.meta.url).pathname, loader: 'ts' },
+  stdin: { contents: "export * from './app/calendar-ics.ts'; export * from './app/calendar-sync.ts'; export * from './app/scheduled.ts';", resolveDir: fileURLToPath(new URL('..', import.meta.url)), loader: 'ts' },
   bundle: true, format: 'esm', platform: 'neutral', write: false, external: ['./drive-oauth'], mainFields: ['module', 'main'],
 }).outputFiles[0].text);
 const m = await import(pathToFileURL(out).href);

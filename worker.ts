@@ -319,7 +319,7 @@ const oauthProvider = new OAuthProvider<OAuthEnv>({
   clientIdMetadataDocumentEnabled: true,
 });
 
-export default {
+const worker = {
   fetch(request: Request, env: OAuthEnv, context: ExecutionContext) {
     return oauthProvider.fetch(request, env, context);
   },
@@ -328,3 +328,5 @@ export default {
     context.waitUntil(runScheduled(controller.cron, env as unknown as Parameters<typeof runScheduled>[1]));
   },
 };
+
+export default worker;

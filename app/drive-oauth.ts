@@ -418,7 +418,7 @@ async function backupPatient(user: ChatGPTUser, patientId: number, tokenCache?: 
     accessToken, rootFolderId, patientId, snapshot.name, snapshot.driveFolderId,
   );
 
-  let documentId = snapshot.previousDocumentId;
+  let documentId: string | null = snapshot.previousDocumentId;
   let replacedDocument = false;
   if (documentId) {
     try {

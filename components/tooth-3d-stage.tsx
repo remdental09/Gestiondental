@@ -216,6 +216,8 @@ export function Tooth3DStage({ tooth, status, surfaces, hasCrown, reducedMotion,
       catch (cause) { setError(cause instanceof Error ? cause.message : "No se pudo abrir el diente en 3D."); }
     }).catch(() => { if (!disposed) setError("No se pudo cargar la vista 3D."); });
     return () => { disposed = true; release(); };
+    // The serialized keys cover the nested values while avoiding WebGL remounts on referential-only changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tooth, status, surfaces, hasCrown, reducedMotion, surfaceKey, viewKey, periodontalKey, showPeriodontium]);
 
   return <div className="relative h-[min(42vh,360px)] min-h-56 w-full overflow-hidden rounded-xl bg-[#eef5f4]">

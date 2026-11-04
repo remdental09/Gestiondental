@@ -56,14 +56,18 @@ export function Tooth3DModal({
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const focusFrame = useRef<number | null>(null);
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
   const [reducedMotion, setReducedMotion] = useState(() => window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   const [grown, setGrown] = useState(reducedMotion);
   const [showPeriodontium, setShowPeriodontium] = useState(true);
   const [fullArch, setFullArch] = useState(false);
-  const [crownFoundation, setCrownFoundation] = useState<"tooth" | "implant">(crown?.foundation === "implant" ? "implant" : "tooth");
+  const propCrownFoundation = crown?.foundation === "implant" ? "implant" : "tooth";
+  const crownFoundationKey = `${tooth}|${propCrownFoundation}|${crown?.material ?? ""}|${crown?.shade ?? ""}|${crown?.source ?? ""}`;
+  const [crownFoundationDraft, setCrownFoundationDraft] = useState<{ key: string; value: "tooth" | "implant" } | null>(null);
+  const crownFoundation = crownFoundationDraft?.key === crownFoundationKey ? crownFoundationDraft.value : propCrownFoundation;
   const [savingCrown, setSavingCrown] = useState(false);
   const [crownMessage, setCrownMessage] = useState("");
-  useEffect(() => setCrownFoundation(crown?.foundation === "implant" ? "implant" : "tooth"), [crown?.foundation, tooth]);
   const saveCrownFoundation = async () => {
     if (!onSetCrownDetails || !crown) return;
     setSavingCrown(true);
@@ -93,7 +97,7 @@ export function Tooth3DModal({
     media.addEventListener("change", apply);
     closeRef.current?.focus();
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") { event.preventDefault(); onClose(); }
+      if (event.key === "Escape") { event.preventDefault(); onCloseRef.current(); }
       if (event.key === "Tab") {
         const items = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>("button, [tabindex]:not([tabindex='-1'])") ?? []);
         if (!items.length) return;
@@ -229,7 +233,7 @@ export function Tooth3DModal({
             <h3 className="text-sm font-semibold text-amber-950">¿La corona está clasificada incorrectamente?</h3>
             <p className="mt-1 text-xs leading-5 text-amber-900">Puedes corregir si va sobre un diente natural o sobre un implante. La aplicación conserva el material y registra la corrección en el historial.</p>
             <label className="mt-3 block text-xs font-medium text-amber-950">Soporte de la corona
-              <select value={crownFoundation} disabled={savingCrown} onChange={event => setCrownFoundation(event.target.value === "implant" ? "implant" : "tooth")} className="mt-1 block h-10 w-full rounded-lg border border-amber-300 bg-white px-3 text-sm text-[#26474d]">
+              <select value={crownFoundation} disabled={savingCrown} onChange={event => setCrownFoundationDraft({ key: crownFoundationKey, value: event.target.value === "implant" ? "implant" : "tooth" })} className="mt-1 block h-10 w-full rounded-lg border border-amber-300 bg-white px-3 text-sm text-[#26474d]">
                 <option value="tooth">Diente natural</option>
                 <option value="implant">Implante</option>
               </select>

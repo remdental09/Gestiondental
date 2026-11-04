@@ -39,11 +39,11 @@ test('provider failure and silence are explicit; provider body is not leaked', a
   await assert.rejects(transcribeDentalAudio(audio(), 'secret', { fetcher: async () => Response.json({ text: '' }) }), /No se reconoció voz/);
 });
 
-let recorder;
 let clock = 1000;
 class Recorder {
+  static current;
   static isTypeSupported(type) { return type.startsWith('audio/mp4'); }
-  constructor(_stream, options) { recorder = this; this.mimeType = options.mimeType; this.state = 'inactive'; }
+  constructor(_stream, options) { Recorder.current = this; this.mimeType = options.mimeType; this.state = 'inactive'; }
   start() { this.state = 'recording'; }
   stop() { this.state = 'inactive'; clock += 1000; queueMicrotask(() => { this.ondataavailable?.({ data: new Blob([new Uint8Array(500)], { type: this.mimeType }) }); this.onstop?.(); }); }
 }
@@ -61,7 +61,7 @@ test('recording waits for audio transcription before ending and preserves the ex
   globalThis.fetch = async (url, init) => url === '/api/audio-transcription' && !init.method ? Response.json({ available: true }) : new Promise(resolve => { release = resolve; });
   const engine = createAudioTranscription();
   engine.start('Nota previa.', { onStatus: s => events.push(s), onTranscript: text => events.push(text), onError: e => events.push(e), onEnd: () => events.push('ended') });
-  await tick(); assert.equal(recorder.mimeType, 'audio/mp4');
+  await tick(); assert.equal(Recorder.current.mimeType, 'audio/mp4');
   engine.stop(); await tick(); assert.ok(stops() > 0); assert.ok(events.includes('transcribing')); assert.ok(!events.includes('ended'));
   release(Response.json({ text: 'Pulpectomía.' })); await tick();
   assert.deepEqual(events.slice(-3), ['Nota previa. Pulpectomía.', 'idle', 'ended']); engine.abort();
