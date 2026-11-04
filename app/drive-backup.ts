@@ -110,7 +110,7 @@ export async function confirmDriveSnapshot(ownerId: string, patientId: number, d
   const db = getDb(), verifiedAt = new Date().toISOString();
   await db.insert(driveBackups).values({ patientId, ownerId, documentId, snapshotDigest: digest, verifiedAt })
     .onConflictDoUpdate({ target: driveBackups.patientId, set: { documentId, snapshotDigest: digest, verifiedAt } });
-  if (folderId && !snapshot.driveFolderId) {
+  if (folderId && (!snapshot.driveFolderId || (allowReplacement && snapshot.driveFolderId !== folderId))) {
     await db.update(patients).set({ driveFolderId: folderId })
       .where(and(eq(patients.id, patientId), eq(patients.ownerId, ownerId)));
   }
