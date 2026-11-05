@@ -8,6 +8,7 @@ import { cementedCrownFromEvolution } from "@/app/crown-evidence";
 import { fullNameRequiredMessage, hasFourNameParts } from "@/app/patient-identity";
 import { getDb } from "@/db";
 import { appointments, budgets, calendarEvents, clinicalImages, evolutionDiagnoses, evolutions, patients, payments, periodontalExams, toothStatuses } from "@/db/schema";
+import { normalizeBudgetItems } from "@/lib/budget-plans";
 import { sanitizeDiagnosisTags } from "@/lib/evolution-diagnoses";
 import type { OdontogramData, OdontogramSurface, SurfaceFinding } from "@/app/clinical-data";
 import { appendToothHistory, toothHistorySnapshot } from "@/app/odontogram-history";
@@ -415,18 +416,21 @@ export async function POST(request: Request) {
       return Response.json({ chart });
     }
     if (action === "addBudget") {
-      const title = string(input.title, 180), label = string(input.label, 180), amount = Number(input.amount);
-      if (!title || !label || !Number.isSafeInteger(amount) || amount < 1 || amount > 1000000000) return error("Revisa el plan, la prestación y su valor.");
-      const t = now(), items = [{ label, amount }];
+      const title = string(input.title, 180);
+      const rawItems = input.items === undefined ? [{ label: string(input.label, 180), amount: Number(input.amount) }] : input.items;
+      const items = normalizeBudgetItems(rawItems);
+      if (!title || !items) return error("Revisa el nombre del plan y cada prestación, su fase, valor y descuento.");
+      const t = now();
       const [b] = await db.insert(budgets).values({ ownerId, patientId, title, items: JSON.stringify(items), status: "Borrador", createdAt: t }).returning();
       return Response.json({ budget: { id: b.id, patientId, title, items, status: b.status, date: displayDate(t.slice(0, 10)) } }, { status: 201 });
     }
     if (action === "updateBudget") {
-      const budgetId = Number(input.budgetId), title = string(input.title, 180), label = string(input.label, 180), amount = Number(input.amount);
-      if (!Number.isSafeInteger(budgetId) || budgetId < 1 || !title || !label || !Number.isSafeInteger(amount) || amount < 1 || amount > 1000000000) return error("Revisa el plan, la prestación y su valor.");
+      const budgetId = Number(input.budgetId), title = string(input.title, 180);
+      const rawItems = input.items === undefined ? [{ label: string(input.label, 180), amount: Number(input.amount) }] : input.items;
+      const items = normalizeBudgetItems(rawItems);
+      if (!Number.isSafeInteger(budgetId) || budgetId < 1 || !title || !items) return error("Revisa el nombre del plan y cada prestación, su fase, valor y descuento.");
       const [existing] = await db.select().from(budgets).where(and(eq(budgets.id, budgetId), eq(budgets.patientId, patientId), eq(budgets.ownerId, ownerId)));
       if (!existing) return error("Presupuesto no encontrado.", 404);
-      const items = [{ label, amount }];
       const [b] = await db.update(budgets).set({ title, items: JSON.stringify(items) }).where(and(eq(budgets.id, budgetId), eq(budgets.patientId, patientId), eq(budgets.ownerId, ownerId))).returning();
       return Response.json({ budget: { id: b.id, patientId, title, items, status: b.status, date: displayDate(b.createdAt.slice(0, 10)) } });
     }

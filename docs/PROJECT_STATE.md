@@ -97,6 +97,11 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 - La sección global «Presupuestos» es un selector de fichas; cada fila abre directamente la pestaña «Presupuestos» del paciente elegido. No reúne ítems de varias personas en una misma lista.
 - Los presupuestos y pagos se consultan, crean y editan desde la ficha correspondiente. La API y la base de datos ya vinculan cada presupuesto a su paciente, por lo que el cambio no requiere migración ni modifica registros existentes.
 
+## Planes de tratamiento por fases (5 de noviembre de 2026)
+- Cada presupuesto admite varias prestaciones en fases, descuento porcentual por prestación, subtotal y total calculados. En la ficha se muestra el total abonado vinculado a ese plan y el saldo pendiente; el pago sin vínculo sigue dentro del resumen general del paciente y no se imputa a un plan por inferencia.
+- Los planes anteriores de una prestación siguen leyéndose como antes. Las prestaciones y fases se guardan en el JSON ya existente, sin migración D1; actualizar el plan requiere editarlo y confirmarlo manualmente.
+- El porcentaje de descuento se aplica a la línea, se expresa como entero entre 0 y 100, y los importes se guardan en pesos enteros. Un presupuesto no actualiza automáticamente el odontograma ni registra un tratamiento clínico.
+
 
 ## Redacción visible tras el dictado (2 de noviembre de 2026)
 - La vista previa de Inicio presenta por separado la transcripción corregida palabra por palabra y una nota clínica redactada por secciones mediante la ruta de estructuración. La ficha vuelve a generar la propuesta con su contexto y exige revisión antes de guardar.
