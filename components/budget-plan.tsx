@@ -5,7 +5,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { budgetItemTotal, budgetPhases, budgetTotals, type BudgetItem } from "@/lib/budget-plans";
 
-export type BudgetPlan = { id: number; patientId: number; title: string; items: BudgetItem[]; status: string; date: string };
+export type BudgetPlan = {
+  id: number;
+  patientId: number;
+  title: string;
+  items: BudgetItem[];
+  status: string;
+  date: string;
+  isAlternative: boolean;
+  parentBudgetId: number | null;
+};
 
 const money = (amount: number) => "$" + amount.toLocaleString("es-CL");
 
@@ -36,13 +45,40 @@ export function BudgetItemsEditor({ items, onChange }: { items: BudgetItem[]; on
   </div>;
 }
 
-export function BudgetCard({ budget, patientName, paid = 0, onEdit }: { budget: BudgetPlan; patientName?: string; paid?: number; onEdit?: () => void }) {
+export function BudgetCard({
+  budget, patientName, parentTitle, paid = 0, onEdit, onPrint, onCreateAlternative, onSelectPrimary,
+}: {
+  budget: BudgetPlan;
+  patientName?: string;
+  parentTitle?: string;
+  paid?: number;
+  onEdit?: () => void;
+  onPrint?: () => void;
+  onCreateAlternative?: () => void;
+  onSelectPrimary?: () => void;
+}) {
   const totals = budgetTotals(budget.items);
   const balance = Math.max(0, totals.total - paid);
   return <article className="rounded-xl border border-[#e4ebed] p-5 transition hover:border-[#9accca]">
     <div className="flex flex-wrap items-start justify-between gap-3">
-      <div><strong>{budget.title}</strong>{patientName && <p className="mt-1 text-sm text-[#71858b]">{patientName}</p>}<p className="mt-1 text-xs text-[#8aa0a5]">{budget.date} · {budget.status}</p></div>
-      <div className="flex items-center gap-3"><span className="font-semibold text-[#087f83]">{money(totals.total)}</span>{onEdit && <Button type="button" variant="outline" size="sm" onClick={onEdit}>Editar</Button>}</div>
+      <div>
+        <div className="flex flex-wrap items-center gap-2">
+          <strong>{budget.title}</strong>
+          <span className={"rounded-full px-2.5 py-1 text-xs font-semibold " + (budget.isAlternative ? "bg-amber-50 text-amber-800" : "bg-[#e9f5f1] text-[#2b7764]")}>
+            {budget.isAlternative ? "Alternativa" : "Plan principal"}
+          </span>
+        </div>
+        {parentTitle && <p className="mt-1 text-sm text-[#71858b]">Alternativa de «{parentTitle}»</p>}
+        {patientName && <p className="mt-1 text-sm text-[#71858b]">{patientName}</p>}
+        <p className="mt-1 text-xs text-[#8aa0a5]">{budget.date} · {budget.status}</p>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-semibold text-[#087f83]">{money(totals.total)}</span>
+        {onPrint && <Button type="button" variant="outline" size="sm" onClick={onPrint}>Vista previa / PDF</Button>}
+        {onCreateAlternative && <Button type="button" variant="outline" size="sm" onClick={onCreateAlternative}>Crear alternativa</Button>}
+        {onSelectPrimary && <Button type="button" variant="outline" size="sm" onClick={onSelectPrimary}>Establecer como principal</Button>}
+        {onEdit && <Button type="button" variant="outline" size="sm" onClick={onEdit}>Editar</Button>}
+      </div>
     </div>
     <div className="mt-4 space-y-4 border-t border-[#edf1f2] pt-3">
       {budgetPhases(budget.items).map(phase => <section key={phase.name}>
@@ -50,10 +86,12 @@ export function BudgetCard({ budget, patientName, paid = 0, onEdit }: { budget: 
         <ul className="space-y-2">{phase.items.map((item, index) => <li key={`${item.label}-${index}`} className="flex flex-wrap justify-between gap-x-4 gap-y-1 text-sm text-[#60757a]"><span>{item.label}{item.discountPercent ? <span className="ml-2 text-xs text-[#2b7764]">−{item.discountPercent}%</span> : null}</span><span>{money(budgetItemTotal(item))}</span></li>)}</ul>
       </section>)}
     </div>
-    <div className="mt-4 grid gap-2 border-t border-[#edf1f2] pt-3 text-sm sm:grid-cols-3">
-      <p><span className="text-[#71858b]">Total</span><strong className="ml-2">{money(totals.total)}</strong></p>
-      <p><span className="text-[#71858b]">Abonado</span><strong className="ml-2">{money(paid)}</strong></p>
-      <p><span className="text-[#71858b]">Saldo</span><strong className="ml-2">{money(balance)}</strong></p>
-    </div>
+    {budget.isAlternative
+      ? <p className="mt-4 border-t border-[#edf1f2] pt-3 text-xs text-[#71858b]">Esta opción es solo una cotización. Para asociarle pagos, primero establécela como plan principal.</p>
+      : <div className="mt-4 grid gap-2 border-t border-[#edf1f2] pt-3 text-sm sm:grid-cols-3">
+        <p><span className="text-[#71858b]">Total</span><strong className="ml-2">{money(totals.total)}</strong></p>
+        <p><span className="text-[#71858b]">Abonado</span><strong className="ml-2">{money(paid)}</strong></p>
+        <p><span className="text-[#71858b]">Saldo</span><strong className="ml-2">{money(balance)}</strong></p>
+      </div>}
   </article>;
 }

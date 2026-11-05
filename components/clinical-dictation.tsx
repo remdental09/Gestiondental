@@ -61,7 +61,7 @@ import { sameDiagnosisTags, sanitizeDiagnosisTags, type EvolutionDiagnosisTag } 
 type Reload = {
   patients: { id: number; name: string; birthDate: string; rut: string; phone: string; email: string; reason: string; status: string; allergies: string; history: string }[];
   notes: { id: number; patientId: number; date: string; title: string; body: string; backupStatus?: string; sourceDocumentId?: string | null; recordedAt?: string; diagnoses?: (EvolutionDiagnosisTag & { id?: number })[] }[];
-  budgets: { id: number; patientId: number; title: string; items: { label: string; amount: number }[]; status: string; date: string }[];
+  budgets: { id: number; patientId: number; title: string; items: { label: string; amount: number }[]; status: string; date: string; isAlternative: boolean; parentBudgetId: number | null }[];
   appointments: { id: number; patientId: number; day: string; time: string; reason: string }[];
   calendarEvents: { id: number; title: string; startAt: string; endAt: string; sourceTimeZone: string; htmlLink: string | null; status: string; allDay: boolean; patientId: number | null }[];
   calendarSnapshotAt?: string | null;

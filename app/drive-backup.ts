@@ -4,6 +4,7 @@ import {
   appointments, budgets, clinicalImages, driveBackups, evolutions,
   patients, periodontalExams, toothStatuses,
 } from "@/db/schema";
+import { decodeBudgetData } from "@/lib/budget-plans";
 
 const hex = (bytes: ArrayBuffer) => Array.from(new Uint8Array(bytes))
   .map(byte => byte.toString(16).padStart(2, "0")).join("");
@@ -44,10 +45,14 @@ export async function getDriveSnapshot(ownerId: string, patientId: number) {
       ...(n.status === "anulada" ? { status: "anulada", annulledAt: n.annulledAt, annulledBy: n.annulledBy, annulReason: n.annulReason } : {}),
       ...(n.replacesId ? { replacesId: n.replacesId } : {}),
     })),
-    budgets: plans.map(b => ({
-      id: b.id, title: b.title, items: JSON.parse(b.items),
-      status: b.status, createdAt: b.createdAt,
-    })),
+    budgets: plans.map(b => {
+      const data = decodeBudgetData(b.items);
+      return {
+        id: b.id, title: b.title, items: data.items,
+        ...(data.isAlternative ? { isAlternative: true, parentBudgetId: data.parentBudgetId } : {}),
+        status: b.status, createdAt: b.createdAt,
+      };
+    }),
     appointments: visits.map(v => ({
       id: v.id, day: v.day, time: v.time, reason: v.reason,
       createdAt: v.createdAt,

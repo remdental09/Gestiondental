@@ -7,6 +7,47 @@ export type BudgetItem = {
 
 export type BudgetTotals = { subtotal: number; discount: number; total: number };
 
+export type BudgetRelationship = {
+  isAlternative: boolean;
+  parentBudgetId: number | null;
+};
+
+export type BudgetRecordData = BudgetRelationship & { items: BudgetItem[] };
+
+/**
+ * Supports both the original JSON array and the versioned envelope used for
+ * alternatives. The database column remains unchanged, so existing plans and
+ * both deployment targets keep the same D1 schema.
+ */
+export function decodeBudgetData(value: string): BudgetRecordData {
+  const parsed: unknown = JSON.parse(value);
+  if (Array.isArray(parsed)) {
+    const items = normalizeBudgetItems(parsed);
+    if (!items) throw new Error("Presupuesto almacenado con prestaciones inválidas.");
+    return { items, isAlternative: false, parentBudgetId: null };
+  }
+  if (!parsed || typeof parsed !== "object") throw new Error("Presupuesto almacenado con formato inválido.");
+  const record = parsed as Record<string, unknown>;
+  const items = normalizeBudgetItems(record.items);
+  if (!items) throw new Error("Presupuesto almacenado con prestaciones inválidas.");
+  const parentId = Number(record.parentBudgetId);
+  const isAlternative = record.version === 1 && record.isAlternative === true
+    && Number.isSafeInteger(parentId) && parentId > 0;
+  return { items, isAlternative, parentBudgetId: isAlternative ? parentId : null };
+}
+
+export function encodeBudgetData(items: BudgetItem[], relationship: BudgetRelationship): string {
+  const isAlternative = relationship.isAlternative
+    && Number.isSafeInteger(relationship.parentBudgetId)
+    && Number(relationship.parentBudgetId) > 0;
+  return JSON.stringify({
+    version: 1,
+    items,
+    isAlternative,
+    parentBudgetId: isAlternative ? relationship.parentBudgetId : null,
+  });
+}
+
 export function normalizeBudgetItems(value: unknown): BudgetItem[] | null {
   if (!Array.isArray(value) || value.length < 1 || value.length > 30) return null;
   const items: BudgetItem[] = [];

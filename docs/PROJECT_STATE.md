@@ -102,6 +102,11 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 - Los planes anteriores de una prestación siguen leyéndose como antes. Las prestaciones y fases se guardan en el JSON ya existente, sin migración D1; actualizar el plan requiere editarlo y confirmarlo manualmente.
 - El porcentaje de descuento se aplica a la línea, se expresa como entero entre 0 y 100, y los importes se guardan en pesos enteros. Un presupuesto no actualiza automáticamente el odontograma ni registra un tratamiento clínico.
 
+## Alternativas y entrega de presupuestos (5 de noviembre de 2026)
+- La columna JSON existente de prestaciones admite tanto el arreglo legado como un sobre versionado con relación de alternativa. GET y los respaldos de Drive normalizan los ítems y conservan el vínculo; no cambia el esquema D1 ni requiere migración.
+- Cada plan principal puede tener hasta 12 alternativas. Para conservar el historial financiero, no se crea una alternativa después de registrar pagos al plan principal, no se permite abonar una alternativa y tampoco cambiar de principal mientras el plan actual tenga pagos asociados. Al seleccionar una alternativa, el plan anterior y sus demás opciones quedan vinculados al nuevo principal mediante un lote D1; no se trasladan pagos.
+- La ficha ofrece vista previa en tres formatos: completo con valores por prestación y totales, solo total, y prestaciones sin valores. La impresión del navegador permite guardar un PDF para compartir manualmente. No se envía correo ni WhatsApp desde la aplicación. Imprimir, seleccionar o cambiar el plan no actualiza el odontograma ni registra prestaciones clínicas.
+
 
 ## Redacción visible tras el dictado (2 de noviembre de 2026)
 - La vista previa de Inicio presenta por separado la transcripción corregida palabra por palabra y una nota clínica redactada por secciones mediante la ruta de estructuración. La ficha vuelve a generar la propuesta con su contexto y exige revisión antes de guardar.

@@ -8,7 +8,7 @@ import { cementedCrownFromEvolution } from "@/app/crown-evidence";
 import { fullNameRequiredMessage, hasFourNameParts } from "@/app/patient-identity";
 import { getDb } from "@/db";
 import { appointments, budgets, calendarEvents, clinicalImages, evolutionDiagnoses, evolutions, patients, payments, periodontalExams, toothStatuses } from "@/db/schema";
-import { normalizeBudgetItems } from "@/lib/budget-plans";
+import { decodeBudgetData, encodeBudgetData, normalizeBudgetItems } from "@/lib/budget-plans";
 import { sanitizeDiagnosisTags } from "@/lib/evolution-diagnoses";
 import type { OdontogramData, OdontogramSurface, SurfaceFinding } from "@/app/clinical-data";
 import { appendToothHistory, toothHistorySnapshot } from "@/app/odontogram-history";
@@ -111,6 +111,20 @@ function paymentView(p: typeof payments.$inferSelect) {
   return { id: p.id, patientId: p.patientId, budgetId: p.budgetId, amount: p.amount, method: p.method, concept: p.concept, paidOn: p.paidOn, date: displayDate(p.paidOn) };
 }
 
+function budgetView(b: typeof budgets.$inferSelect) {
+  const data = decodeBudgetData(b.items);
+  return {
+    id: b.id,
+    patientId: b.patientId,
+    date: displayDate(b.createdAt.slice(0, 10)),
+    title: b.title,
+    status: b.status,
+    items: data.items,
+    isAlternative: data.isAlternative,
+    parentBudgetId: data.parentBudgetId,
+  };
+}
+
 /** Datos de anulación de una evolución (solo si está anulada o reemplaza a otra). */
 function annulView(n: typeof evolutions.$inferSelect) {
   return {
@@ -172,7 +186,7 @@ export async function GET() {
     return Response.json({
       patients: ps.map(p => ({ ...p, rut: p.rut || "" })),
       notes: ns.map(n => ({ id: n.id, patientId: n.patientId, date: displayDate(n.clinicalDate), clinicalDate: n.clinicalDate, recordedAt: n.recordedAt, title: n.title, body: n.body, sourceDocumentId: n.sourceDocumentId, backupStatus: n.backupStatus, diagnoses: diagnosesByNote.get(n.id) ?? [], ...annulView(n) })),
-      budgets: bs.map(b => ({ id: b.id, patientId: b.patientId, date: displayDate(b.createdAt.slice(0, 10)), title: b.title, status: b.status, items: JSON.parse(b.items) })),
+      budgets: bs.map(budgetView),
       appointments: as.map(a => ({ id: a.id, patientId: a.patientId, day: a.day.split("-").reverse().join("-"), time: a.time, reason: a.reason })),
       payments: pays.map(paymentView),
       calendarEvents: [...ces.filter(e => e.status !== "cancelled").map(e => ({ id: e.id, title: e.title, startAt: e.startAt, endAt: e.endAt, sourceTimeZone: e.sourceTimeZone, htmlLink: e.htmlLink, status: e.status, allDay: e.allDay, patientId: e.patientId })), ...snapshot.events],
@@ -420,9 +434,26 @@ export async function POST(request: Request) {
       const rawItems = input.items === undefined ? [{ label: string(input.label, 180), amount: Number(input.amount) }] : input.items;
       const items = normalizeBudgetItems(rawItems);
       if (!title || !items) return error("Revisa el nombre del plan y cada prestación, su fase, valor y descuento.");
+      const parentBudgetId = input.parentBudgetId === undefined || input.parentBudgetId === null || input.parentBudgetId === "" ? null : Number(input.parentBudgetId);
+      if (parentBudgetId !== null) {
+        if (!Number.isSafeInteger(parentBudgetId) || parentBudgetId < 1) return error("Plan principal inválido.");
+        const [parent] = await db.select().from(budgets).where(and(eq(budgets.id, parentBudgetId), eq(budgets.patientId, patientId), eq(budgets.ownerId, ownerId))).limit(1);
+        if (!parent) return error("Plan principal no encontrado en esta ficha.", 404);
+        const parentData = decodeBudgetData(parent.items);
+        if (parentData.isAlternative) return error("Una alternativa debe vincularse a un plan principal.", 409);
+        const [linkedPayment] = await db.select({ id: payments.id }).from(payments).where(and(eq(payments.ownerId, ownerId), eq(payments.patientId, patientId), eq(payments.budgetId, parent.id))).limit(1);
+        if (linkedPayment) return error("No se pueden crear alternativas después de registrar abonos en el plan principal.", 409);
+        const patientBudgets = await db.select().from(budgets).where(and(eq(budgets.ownerId, ownerId), eq(budgets.patientId, patientId)));
+        const alternativeCount = patientBudgets.filter(row => {
+          const data = decodeBudgetData(row.items);
+          return data.isAlternative && data.parentBudgetId === parent.id;
+        }).length;
+        if (alternativeCount >= 12) return error("Este plan ya tiene el máximo de 12 alternativas.", 409);
+      }
       const t = now();
-      const [b] = await db.insert(budgets).values({ ownerId, patientId, title, items: JSON.stringify(items), status: "Borrador", createdAt: t }).returning();
-      return Response.json({ budget: { id: b.id, patientId, title, items, status: b.status, date: displayDate(t.slice(0, 10)) } }, { status: 201 });
+      const itemsData = encodeBudgetData(items, { isAlternative: parentBudgetId !== null, parentBudgetId });
+      const [b] = await db.insert(budgets).values({ ownerId, patientId, title, items: itemsData, status: "Borrador", createdAt: t }).returning();
+      return Response.json({ budget: budgetView(b) }, { status: 201 });
     }
     if (action === "updateBudget") {
       const budgetId = Number(input.budgetId), title = string(input.title, 180);
@@ -431,8 +462,40 @@ export async function POST(request: Request) {
       if (!Number.isSafeInteger(budgetId) || budgetId < 1 || !title || !items) return error("Revisa el nombre del plan y cada prestación, su fase, valor y descuento.");
       const [existing] = await db.select().from(budgets).where(and(eq(budgets.id, budgetId), eq(budgets.patientId, patientId), eq(budgets.ownerId, ownerId)));
       if (!existing) return error("Presupuesto no encontrado.", 404);
-      const [b] = await db.update(budgets).set({ title, items: JSON.stringify(items) }).where(and(eq(budgets.id, budgetId), eq(budgets.patientId, patientId), eq(budgets.ownerId, ownerId))).returning();
-      return Response.json({ budget: { id: b.id, patientId, title, items, status: b.status, date: displayDate(b.createdAt.slice(0, 10)) } });
+      const relationship = decodeBudgetData(existing.items);
+      const [b] = await db.update(budgets).set({ title, items: encodeBudgetData(items, relationship) }).where(and(eq(budgets.id, budgetId), eq(budgets.patientId, patientId), eq(budgets.ownerId, ownerId))).returning();
+      return Response.json({ budget: budgetView(b) });
+    }
+    if (action === "selectBudgetAlternative") {
+      const budgetId = Number(input.budgetId);
+      if (!Number.isSafeInteger(budgetId) || budgetId < 1) return error("Alternativa inválida.");
+      const patientBudgets = await db.select().from(budgets).where(and(eq(budgets.ownerId, ownerId), eq(budgets.patientId, patientId)));
+      const selected = patientBudgets.find(row => row.id === budgetId);
+      if (!selected) return error("Alternativa no encontrada en esta ficha.", 404);
+      const selectedData = decodeBudgetData(selected.items);
+      if (!selectedData.isAlternative || !selectedData.parentBudgetId) return error("Este presupuesto no es una alternativa seleccionable.", 409);
+      const currentPrimary = patientBudgets.find(row => row.id === selectedData.parentBudgetId);
+      if (!currentPrimary) return error("El plan principal asociado ya no existe.", 409);
+      const primaryData = decodeBudgetData(currentPrimary.items);
+      if (primaryData.isAlternative) return error("El grupo de alternativas requiere revisión antes de cambiar el plan principal.", 409);
+      const [linkedPayment] = await db.select({ id: payments.id }).from(payments).where(and(eq(payments.ownerId, ownerId), eq(payments.patientId, patientId), eq(payments.budgetId, currentPrimary.id))).limit(1);
+      if (linkedPayment) return error("Este plan principal tiene abonos asociados. No se cambió el plan para conservar el historial de pagos.", 409);
+
+      const siblings = patientBudgets.filter(row => row.id !== selected.id && row.id !== currentPrimary.id).filter(row => {
+        const data = decodeBudgetData(row.items);
+        return data.isAlternative && data.parentBudgetId === currentPrimary.id;
+      });
+      const updates = [
+        db.update(budgets).set({ items: encodeBudgetData(primaryData.items, { isAlternative: true, parentBudgetId: selected.id }) }).where(and(eq(budgets.id, currentPrimary.id), eq(budgets.patientId, patientId), eq(budgets.ownerId, ownerId))),
+        db.update(budgets).set({ items: encodeBudgetData(selectedData.items, { isAlternative: false, parentBudgetId: null }) }).where(and(eq(budgets.id, selected.id), eq(budgets.patientId, patientId), eq(budgets.ownerId, ownerId))),
+        ...siblings.map(row => {
+          const data = decodeBudgetData(row.items);
+          return db.update(budgets).set({ items: encodeBudgetData(data.items, { isAlternative: true, parentBudgetId: selected.id }) }).where(and(eq(budgets.id, row.id), eq(budgets.patientId, patientId), eq(budgets.ownerId, ownerId)));
+        }),
+      ];
+      await db.batch(updates as [typeof updates[number], ...Array<typeof updates[number]>]);
+      const refreshed = await db.select().from(budgets).where(and(eq(budgets.ownerId, ownerId), eq(budgets.patientId, patientId))).orderBy(desc(budgets.id));
+      return Response.json({ budgets: refreshed.map(budgetView) });
     }
     if (action === "addAppointment") {
       const day = string(input.day, 10), time = string(input.time, 5), reason = string(input.reason, 500);
@@ -447,8 +510,9 @@ export async function POST(request: Request) {
       if (!Number.isSafeInteger(amount) || amount < 1 || amount > 1000000000 || !PAYMENT_METHODS.has(method) || !validDate(paidOn) || paidOn > dateInChile()) return error("Revisa el monto, el medio de pago y la fecha.");
       if (budgetId !== null) {
         if (!Number.isSafeInteger(budgetId) || budgetId < 1) return error("Presupuesto inválido.");
-        const [budget] = await db.select({ id: budgets.id }).from(budgets).where(and(eq(budgets.id, budgetId), eq(budgets.patientId, patientId), eq(budgets.ownerId, ownerId)));
+        const [budget] = await db.select({ id: budgets.id, items: budgets.items }).from(budgets).where(and(eq(budgets.id, budgetId), eq(budgets.patientId, patientId), eq(budgets.ownerId, ownerId)));
         if (!budget) return error("Presupuesto no encontrado en esta ficha.", 404);
+        if (decodeBudgetData(budget.items).isAlternative) return error("No se pueden asociar pagos a una alternativa. Establécela primero como plan principal.", 409);
       }
       const requestId = string(input.requestId, 80) || null;
       if (requestId) {

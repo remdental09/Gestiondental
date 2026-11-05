@@ -3305,7 +3305,7 @@ export function planChartWrites(patientId: number, before: ChartSnapshot, after:
 }
 
 export type SavedNote = { id?: number; patientId: number; title: string; body: string };
-export type SavedBudget = { id?: number; patientId: number; title: string; items: { label: string; amount: number }[] };
+export type SavedBudget = { id?: number; patientId: number; title: string; items: { label: string; amount: number }[]; isAlternative?: boolean; parentBudgetId?: number | null };
 
 export function verifyDictationSave(input: {
   patientId: number;
@@ -3377,7 +3377,7 @@ export function verifyDictationSave(input: {
   }
   input.budgets.forEach((item, index) => {
     const savedId = input.savedBudgetIds?.[index];
-    const found = snapshot.budgets.find((budget) => budget.patientId === input.patientId && (savedId ? budget.id === savedId : budget.title === item.title && budget.items.some((line) => line.label === item.label && line.amount === item.amount)));
+    const found = snapshot.budgets.find((budget) => !budget.isAlternative && budget.patientId === input.patientId && (savedId ? budget.id === savedId : budget.title === item.title && budget.items.some((line) => line.label === item.label && line.amount === item.amount)));
     const line = found?.items.find((entry) => entry.label === item.label && entry.amount === item.amount);
     if (!found || !line) errors.push(`El presupuesto «${item.label}» no aparece al releer.`);
     else messages.push(`Presupuesto «${item.label}» releído.`);
