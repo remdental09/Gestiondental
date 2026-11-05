@@ -8,7 +8,7 @@ import { cementedCrownFromEvolution } from "@/app/crown-evidence";
 import { fullNameRequiredMessage, hasFourNameParts } from "@/app/patient-identity";
 import { getDb } from "@/db";
 import { appointments, budgets, calendarEvents, clinicalImages, evolutionDiagnoses, evolutions, patients, payments, periodontalExams, toothStatuses } from "@/db/schema";
-import { decodeBudgetData, encodeBudgetData, normalizeBudgetItems } from "@/lib/budget-plans";
+import { budgetTotals, decodeBudgetData, encodeBudgetData, normalizeBudgetItems } from "@/lib/budget-plans";
 import { sanitizeDiagnosisTags } from "@/lib/evolution-diagnoses";
 import type { OdontogramData, OdontogramSurface, SurfaceFinding } from "@/app/clinical-data";
 import { appendToothHistory, toothHistorySnapshot } from "@/app/odontogram-history";
@@ -463,6 +463,12 @@ export async function POST(request: Request) {
       const [existing] = await db.select().from(budgets).where(and(eq(budgets.id, budgetId), eq(budgets.patientId, patientId), eq(budgets.ownerId, ownerId)));
       if (!existing) return error("Presupuesto no encontrado.", 404);
       const relationship = decodeBudgetData(existing.items);
+      const updatedTotal = budgetTotals(items).total;
+      if (updatedTotal < budgetTotals(relationship.items).total) {
+        const linkedPayments = await db.select({ amount: payments.amount }).from(payments).where(and(eq(payments.ownerId, ownerId), eq(payments.patientId, patientId), eq(payments.budgetId, budgetId)));
+        const paid = linkedPayments.reduce((sum, payment) => sum + payment.amount, 0);
+        if (updatedTotal < paid) return error("El total del plan no puede quedar por debajo de los pagos ya registrados. Revisa los abonos antes de reducirlo.", 409);
+      }
       const [b] = await db.update(budgets).set({ title, items: encodeBudgetData(items, relationship) }).where(and(eq(budgets.id, budgetId), eq(budgets.patientId, patientId), eq(budgets.ownerId, ownerId))).returning();
       return Response.json({ budget: budgetView(b) });
     }
@@ -508,17 +514,26 @@ export async function POST(request: Request) {
       const paidOn = string(input.paidOn, 10) || dateInChile();
       const budgetId = input.budgetId === undefined || input.budgetId === null || input.budgetId === "" ? null : Number(input.budgetId);
       if (!Number.isSafeInteger(amount) || amount < 1 || amount > 1000000000 || !PAYMENT_METHODS.has(method) || !validDate(paidOn) || paidOn > dateInChile()) return error("Revisa el monto, el medio de pago y la fecha.");
+      let budgetTotal: number | null = null;
       if (budgetId !== null) {
         if (!Number.isSafeInteger(budgetId) || budgetId < 1) return error("Presupuesto inválido.");
         const [budget] = await db.select({ id: budgets.id, items: budgets.items }).from(budgets).where(and(eq(budgets.id, budgetId), eq(budgets.patientId, patientId), eq(budgets.ownerId, ownerId)));
         if (!budget) return error("Presupuesto no encontrado en esta ficha.", 404);
-        if (decodeBudgetData(budget.items).isAlternative) return error("No se pueden asociar pagos a una alternativa. Establécela primero como plan principal.", 409);
+        const budgetData = decodeBudgetData(budget.items);
+        if (budgetData.isAlternative) return error("No se pueden asociar pagos a una alternativa. Establécela primero como plan principal.", 409);
+        budgetTotal = budgetTotals(budgetData.items).total;
       }
       const requestId = string(input.requestId, 80) || null;
       if (requestId) {
         const [existing] = await db.select().from(payments).where(and(eq(payments.ownerId, ownerId), eq(payments.requestId, requestId)));
         if (existing && existing.patientId !== patientId) return error("Esta solicitud pertenece a otra ficha.", 409);
         if (existing) return Response.json({ payment: paymentView(existing) });
+      }
+      if (budgetId !== null && budgetTotal !== null) {
+        const existingPayments = await db.select({ amount: payments.amount }).from(payments).where(and(eq(payments.ownerId, ownerId), eq(payments.patientId, patientId), eq(payments.budgetId, budgetId)));
+        const paid = existingPayments.reduce((sum, payment) => sum + payment.amount, 0);
+        const balance = Math.max(0, budgetTotal - paid);
+        if (amount > balance) return error("El monto supera el saldo pendiente del tratamiento. Revisa el total y los abonos ya registrados.", 409);
       }
       const [p] = await db.insert(payments).values({ ownerId, patientId, budgetId, amount, method, concept, paidOn, requestId, createdAt: now() }).returning();
       return Response.json({ payment: paymentView(p) }, { status: 201 });

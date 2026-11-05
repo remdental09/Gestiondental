@@ -1,6 +1,6 @@
 "use client";
 
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { budgetItemTotal, budgetPhases, budgetTotals, type BudgetItem } from "@/lib/budget-plans";
@@ -16,7 +16,16 @@ export type BudgetPlan = {
   parentBudgetId: number | null;
 };
 
+export type BudgetPaymentEntry = {
+  id: number;
+  amount: number;
+  method: string;
+  concept: string;
+  date: string;
+};
+
 const money = (amount: number) => "$" + amount.toLocaleString("es-CL");
+const paymentMethodLabel: Record<string, string> = { efectivo: "Efectivo", debito: "Débito", credito: "Crédito", transferencia: "Transferencia", otro: "Otro" };
 
 export function BudgetItemsEditor({ items, onChange }: { items: BudgetItem[]; onChange: (items: BudgetItem[]) => void }) {
   const update = (index: number, patch: Partial<BudgetItem>) => onChange(items.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item));
@@ -46,16 +55,18 @@ export function BudgetItemsEditor({ items, onChange }: { items: BudgetItem[]; on
 }
 
 export function BudgetCard({
-  budget, patientName, parentTitle, paid = 0, onEdit, onPrint, onCreateAlternative, onSelectPrimary,
+  budget, patientName, parentTitle, paid = 0, payments = [], onEdit, onPrint, onCreateAlternative, onSelectPrimary, onRegisterPayment,
 }: {
   budget: BudgetPlan;
   patientName?: string;
   parentTitle?: string;
   paid?: number;
+  payments?: BudgetPaymentEntry[];
   onEdit?: () => void;
   onPrint?: () => void;
   onCreateAlternative?: () => void;
   onSelectPrimary?: () => void;
+  onRegisterPayment?: () => void;
 }) {
   const totals = budgetTotals(budget.items);
   const balance = Math.max(0, totals.total - paid);
@@ -88,10 +99,22 @@ export function BudgetCard({
     </div>
     {budget.isAlternative
       ? <p className="mt-4 border-t border-[#edf1f2] pt-3 text-xs text-[#71858b]">Esta opción es solo una cotización. Para asociarle pagos, primero establécela como plan principal.</p>
-      : <div className="mt-4 grid gap-2 border-t border-[#edf1f2] pt-3 text-sm sm:grid-cols-3">
-        <p><span className="text-[#71858b]">Total</span><strong className="ml-2">{money(totals.total)}</strong></p>
-        <p><span className="text-[#71858b]">Abonado</span><strong className="ml-2">{money(paid)}</strong></p>
-        <p><span className="text-[#71858b]">Saldo</span><strong className="ml-2">{money(balance)}</strong></p>
-      </div>}
+      : <>
+        <div className="mt-4 grid gap-2 border-t border-[#edf1f2] pt-3 text-sm sm:grid-cols-3">
+          <p><span className="text-[#71858b]">Total</span><strong className="ml-2">{money(totals.total)}</strong></p>
+          <p><span className="text-[#71858b]">Abonado</span><strong className="ml-2">{money(paid)}</strong></p>
+          <p><span className="text-[#71858b]">Saldo pendiente</span><strong className="ml-2">{money(balance)}</strong></p>
+        </div>
+        <div className="mt-4 border-t border-[#edf1f2] pt-4" data-testid={"budget-payment-panel-" + budget.id}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h4 className="font-semibold">Pagos y abonos de este tratamiento</h4>
+            {balance > 0 && onRegisterPayment && <Button type="button" size="sm" className="bg-[#087f83] hover:bg-[#07676b]" onClick={onRegisterPayment}><Wallet className="mr-2 size-4"/>Registrar pago o abono</Button>}
+            {balance === 0 && <span className="rounded-full bg-[#e9f5f1] px-3 py-1 text-xs font-semibold text-[#2b7764]">Plan pagado</span>}
+          </div>
+          {payments.length
+            ? <ul className="mt-3 space-y-2">{payments.map(payment => <li key={payment.id} className="flex flex-wrap justify-between gap-2 rounded-lg bg-[#f7fafb] px-3 py-2 text-sm"><span><strong>{money(payment.amount)}</strong> · {paymentMethodLabel[payment.method] ?? payment.method}{payment.concept ? " · " + payment.concept : ""}</span><span className="text-[#71858b]">{payment.date}</span></li>)}</ul>
+            : <p className="mt-2 text-xs leading-5 text-[#71858b]">Sin abonos asociados. El dictado no modifica este saldo por sí solo; confirma cada pago o regístralo manualmente aquí.</p>}
+        </div>
+      </>}
   </article>;
 }
