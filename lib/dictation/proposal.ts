@@ -2,6 +2,7 @@ import { DENTAL_DICTIONARY_HINTS } from "./dental-lexicon.ts";
 import { buildMinsalClinicalContext } from "./minsal-knowledge.ts";
 import { buildEndoPerioContext } from "./endoperio-knowledge.ts";
 import { IDENTITY_NORMALIZATION_PROMPT, normalizeIdentityNumbers } from "./identity-numbers.ts";
+import { CLINICAL_WRITING_PROMPT, TOOTH_NUMBERING_PROMPT, procedureCovered, deduplicateProcedureSentences } from "./clinical-writing.ts";
 /**
  * Propuesta estructurada de un dictado clínico.
  * La validación es pura: sirve para la salida de Workers AI y para el
@@ -1949,7 +1950,7 @@ export const NOTE_SECTIONS = [
   ["presupuesto", "Presupuesto"],
 ] as const;
 
-export const AI_SYSTEM_PROMPT = `${DENTAL_DICTIONARY_HINTS}\n\n${IDENTITY_NORMALIZATION_PROMPT}\n\nEres asistente de un odontólogo chileno. Recibes la transcripción literal de un dictado por voz (puede venir sin puntuación y con errores de reconocimiento). Devuelves SOLO JSON con el esquema pedido.
+export const AI_SYSTEM_PROMPT = `${DENTAL_DICTIONARY_HINTS}\n\n${IDENTITY_NORMALIZATION_PROMPT}\n\n${TOOTH_NUMBERING_PROMPT}\n\n${CLINICAL_WRITING_PROMPT}\n\nEres asistente de un odontólogo chileno. Recibes la transcripción literal de un dictado por voz (puede venir sin puntuación y con errores de reconocimiento). Devuelves SOLO JSON con el esquema pedido.
 
 1) "nota": redacta una evolución odontológica profesional, clara y concisa, en español clínico de Chile y en tercera persona. Esta es una RE-REDACCIÓN CLÍNICA, no una transcripción corregida palabra por palabra: transforma activamente el habla cotidiana, las abreviaciones y las expresiones coloquiales en lenguaje odontológico natural. La nota final no debe sonar a dictado ni conservar frases como «muela», «bien grande», «arreglarla», «capaz», «se ve» o «se va bien» cuando exista una formulación clínica inequívoca. Conserva todos los hechos, su temporalidad, negaciones y grado de certeza; profesionalizar la expresión no autoriza a inventar hallazgos ni diagnósticos.
 Equivalencias de estilo: «le duele con frío» → «refiere dolor provocado por frío» (sin inferir diagnóstico pulpar); «muela 3.6» → «pieza 3.6» (sin cambiar su numeración); «compósito/composito» → «composite» y «restauración de composite» o «restauración de resina compuesta» (elige una sola forma; no las dupliques); «caries bien grande» → «lesión cariosa extensa»; «caries dentinaria superficial» → «lesión cariosa dentinaria superficial» (conserva esa profundidad; nunca la conviertas en «terminal superficial» ni agregues una cara no dictada); «parece profunda» → «aparentemente profunda» (sin afirmar compromiso pulpar); «arreglarla» → «realizar tratamiento restaurador» solo cuando ese plan se desprenda claramente del dictado; «capaz va a endodoncia» → «se considerará tratamiento endodóntico», manteniendo el carácter condicional; «se hace destartraje supra y subgingival en los seis grupos» → «Se realiza destartraje supragingival y subgingival en los seis grupos»; «se va bien» → «finaliza la atención en buenas condiciones» si eso es lo que expresa el contexto. Usa «se observa» en lugar de «se ve» cuando se trate de un hallazgo clínico.
@@ -2110,7 +2111,8 @@ export function buildModelUserPrompt(input: StructureInput): string {
   const minsalContext = buildMinsalClinicalContext(input.transcript);
   const endoPerioContext = buildEndoPerioContext(input.transcript);
   const clinicalContext = [minsalContext, endoPerioContext].filter(Boolean).join("\n\n");
-  return `Transcripción literal del dictado:\n«${input.transcript.trim()}»${chart}\n\n${clinicalContext}\n\nDevuelve el JSON.`;
+  const toothContext = [...new Set(toothMentions(spokenPunctuation(input.transcript)).flatMap((item) => item.ok ? [item.numberingLabel] : []))];
+  return `Transcripción literal del dictado:\n«${input.transcript.trim()}»${chart}\n\nNumeración resuelta por la aplicación (conserva el sistema de origen): ${toothContext.join("; ") || "sin piezas identificadas"}.\n\n${clinicalContext}\n\nDevuelve el JSON.`;
 }
 
 /** Normaliza para comparar citas: sin tildes, minúsculas y solo letras o números. */
@@ -2283,6 +2285,24 @@ function preserveDentinariaSuperficial(text: string, transcript: string): string
     .replace(/\bcaries?\s+superficial\b/giu, "caries dentinaria superficial");
 }
 
+/** Repara únicamente equivalencias inequívocas, usando el sistema del dictado como autoridad. */
+function preserveNarrativeNumbering(text: string, transcript: string): string {
+  const source = toothMentions(spokenPunctuation(transcript)).filter((item): item is Extract<Mention, { ok: true }> => item.ok);
+  const national = source.filter((item) => item.numbering === "chilena" && /nacional chilena \d+/.test(item.numberingLabel));
+  return text.replace(/\b(?:(pieza|diente)\s+(?:(FDI|ISO)\s+)?|(FDI|ISO)\s+)(\d{1,2}(?:\.\d)?)(?!\d|\.\d)/gi, (whole, noun, system, bareSystem, raw) => {
+    const interpreted = interpretTooth(raw, system || bareSystem);
+    if (!interpreted.ok) return whole;
+    let original = national.find((item) => item.tooth === interpreted.tooth);
+    // No reinterpretar un FDI que también fue dictado explícitamente.
+    if (!original && !source.some((item) => item.tooth === interpreted.tooth) && raw.includes(".")) {
+      original = national.find((item) => item.numberingLabel.match(/nacional chilena (\d+)/)?.[1] === raw.replace(".", ""));
+    }
+    if (!original) return whole;
+    const number = original.numberingLabel.match(/nacional chilena (\d+)/)![1];
+    return `${noun || "pieza"} ${number}`;
+  });
+}
+
 export function validateAiExtraction(input: unknown, transcript: string, options: { today?: string } = {}): AiExtraction {
   const today = options.today ?? santiagoToday();
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("La IA no devolvió un objeto JSON.");
@@ -2299,8 +2319,14 @@ export function validateAiExtraction(input: unknown, transcript: string, options
   // Nota
   const nota = record.nota as Record<string, unknown>;
   for (const [key, value] of Object.entries(nota)) {
-    if (typeof value === "string") nota[key] = normalizeCompositeTerm(preserveDentinariaSuperficial(value, transcript));
+    if (typeof value === "string") nota[key] = preserveNarrativeNumbering(normalizeCompositeTerm(preserveDentinariaSuperficial(value, transcript)), transcript);
   }
+  // Un ejemplo del prompt no constituye un motivo informado para esta atención.
+  if (typeof nota.motivo === "string" && /^(?:control|evaluaci[oó]n)(?:\s+(?:dental|odontol[oó]gic[oa]|cl[ií]nic[oa]|de rutina))?[.!]?$/iu.test(nota.motivo.trim())
+    && !sentences(transcript).some((line) => /\b(?:control|evaluaci[oó]n)\b/iu.test(line) && !isAppointmentText(line) && !isPlan(line))) {
+    nota.motivo = "";
+  }
+  if (typeof nota.procedimientos === "string") nota.procedimientos = deduplicateProcedureSentences(nota.procedimientos);
   // Una negación explícita de un procedimiento pendiente no puede desaparecer en la redacción.
   // Se repone literalmente desde el dictado, sin inferir fecha, pieza ni motivo.
   const notDone = transcript.match(/\b(?:la\s+cirug[ií]a|el\s+tratamiento|el\s+procedimiento|la\s+exodoncia|la\s+endodoncia)\s+(?:(?:a[uú]n|todav[ií]a)\s+)?no\s+(?:se\s+)?(?:(?:ha|hab[ií]a)\s+)?(?:realizad[oa]|efectuad[oa]|iniciad[oa])\b/iu);
@@ -2402,7 +2428,7 @@ export function validateAiExtraction(input: unknown, transcript: string, options
   for (const raw of list(record.procedimientos, 24)) {
     if (!raw || typeof raw !== "object") continue;
     const item = raw as Record<string, unknown>;
-    const textValue = str(item.texto, 300);
+    const textValue = preserveNarrativeNumbering(str(item.texto, 300), transcript);
     const evidence = str(item.evidencia, 400);
     if (!textValue) continue;
     procedures.push({ id: nextId("proc"), text: textValue, evidence, verified: Boolean(evidence) && evidenceInTranscript(evidence, transcript) });
@@ -2582,27 +2608,7 @@ function noteSectionLines(body: string, heading: string): string[] {
   return lines.slice(start + 1, end).map((line) => line.trim()).filter(Boolean);
 }
 
-function comparableProcedure(value: string): string {
-  return normalizeEvidence(value)
-    .replace(/\bse hace\b/g, "se realiza")
-    .replace(/\bse realizo\b/g, "se realiza")
-    .replace(/\bse efectuo\b/g, "se realiza")
-    .replace(/\b(?:destartraje|detartraje) supra(?: gingival)? y sub(?: gingival)?\b/g, "destartraje supragingival y subgingival")
-    .replace(/\bsupra gingival\b/g, "supragingival")
-    .replace(/\bsub gingival\b/g, "subgingival");
-}
-
-const PROCEDURE_STOP_WORDS = new Set(["se", "realiza", "realizo", "efectua", "hace", "el", "la", "los", "las", "en", "con", "y", "e", "de", "del", "por", "para", "un", "una", "al"]);
-
-function procedureTextMatches(source: string, candidate: string): boolean {
-  const left = comparableProcedure(source);
-  const right = comparableProcedure(candidate);
-  if (!left || !right) return false;
-  if (left.includes(right) || right.includes(left)) return true;
-  const sourceTerms = left.split(" ").filter((term) => term.length > 2 && !PROCEDURE_STOP_WORDS.has(term));
-  const candidateTerms = new Set(right.split(" ").filter((term) => term.length > 2 && !PROCEDURE_STOP_WORDS.has(term)));
-  return sourceTerms.length >= 2 && sourceTerms.every((term) => candidateTerms.has(term));
-}
+const procedureTextMatches = procedureCovered;
 
 function professionalizeProcedureText(value: string): string {
   let text = normalizeCompositeTerm(value.replace(/\s+/g, " ").trim());
@@ -2643,13 +2649,13 @@ function insertProcedureLines(body: string, additions: string[]): string {
   return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
-function completeProcedureSection(noteBody: string, aiProcedures: ProcedureItem[], localBody: string): string {
+function completeProcedureSection(noteBody: string, aiProcedures: ProcedureItem[], localBody: string, clarifications: string[]): string {
   const localProcedures = noteSectionLines(localBody, PROCEDURE_SECTION);
   if (!localProcedures.length) return noteBody;
   const existingNote = noteSectionLines(noteBody, PROCEDURE_SECTION);
   const verifiedProcedures = aiProcedures.filter((item) =>
     item.verified && item.text.trim() && item.evidence.trim()
-    && localProcedures.some((line) => procedureTextMatches(line, item.evidence)),
+    && localProcedures.some((line) => procedureTextMatches(item.evidence, line)),
   );
   const additions: string[] = [];
   for (const item of verifiedProcedures) {
@@ -2660,7 +2666,8 @@ function completeProcedureSection(noteBody: string, aiProcedures: ProcedureItem[
     if (verifiedProcedures.some((item) => procedureTextMatches(line, item.evidence))) continue;
     if (existingNote.some((noteLine) => procedureTextMatches(line, noteLine))) continue;
     if (additions.some((addition) => procedureTextMatches(line, addition))) continue;
-    additions.push(professionalizeProcedureText(line));
+    // La comparación léxica no demuestra que falte un hecho: no pegar dictado crudo en una nota redactada.
+    clarifications.push(`Revisa que la evolución incluya este procedimiento y sus detalles: «${line}». No se añadió automáticamente para evitar duplicaciones.`);
   }
   return insertProcedureLines(noteBody, additions);
 }
@@ -2803,7 +2810,7 @@ function mergeProposals(ai: AiExtraction, local: DictationProposal, transcript: 
   });
   const sure = odontogram.filter((item) => !item.conflict);
   const exam = examLines(sure);
-  const noteBody = completeProcedureSection(ai.noteBody, ai.procedures, local.evolution?.body ?? "");
+  const noteBody = completeProcedureSection(ai.noteBody, ai.procedures, local.evolution?.body ?? "", clarifications);
   const body = [
     noteBody,
     exam.length ? `\n${EXAM_REGISTRY_HEADER}\n${exam.join("\n")}` : "",
@@ -2994,9 +3001,9 @@ export function numberingDoubts(text: string, chart: StructureInput["chart"] = [
 /** Pieza principal de la evolución para el título: la primera del odontograma o la primera dictada. */
 function mainToothLabel(text: string, odontogram: OdontogramChange[]): string | null {
   const first = odontogram[0];
-  if (first) return `FDI ${formatFdi(first.tooth)}`;
+  if (first) return first.numberingLabel || `FDI ${formatFdi(first.tooth)}`;
   const mention = toothMentions(text).find((item): item is Extract<Mention, { ok: true }> => item.ok);
-  return mention ? `FDI ${formatFdi(mention.tooth)}` : null;
+  return mention ? mention.numberingLabel : null;
 }
 
 /**

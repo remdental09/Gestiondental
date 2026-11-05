@@ -123,3 +123,9 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 
 ## Sesiones en la historia clínica (4 de noviembre de 2026)
 - La interfaz agrupa en un único bloque visual las evoluciones con la misma fecha clínica, tratándolas como una sesión según la convención de la consulta. Conserva cada evolución como registro independiente en D1 y mantiene sus controles por registro; la agrupación no fusiona ni elimina datos. Los registros sin fecha consignada permanecen separados.
+
+## Redacción y nomenclatura del dictado (4 de noviembre de 2026)
+- Audio, corrección y redacción comparten la política de numeración de `lib/dictation/clinical-writing.ts`. Los cardinales sin etiqueta de 1 a 32 conservan la numeración nacional chilena. El prompt recibe las equivalencias resueltas por código; la narrativa conserva el sistema de origen y el título muestra la equivalencia FDI. La validación repara puntos añadidos por el modelo solo cuando la correspondencia con el dictado es inequívoca.
+- La nota usa párrafos clínicos por sección, conserva certeza y temporalidad y omite motivos de relleno. Se retira «Control»/«Evaluación» genérico si no está respaldado por el dictado de la atención.
+- La combinación de IA y reglas recupera procedimientos desde su redacción con evidencia verificada. No pega frases crudas del dictado por una diferencia léxica: los detalles cuya cobertura no se puede comprobar quedan como revisión visible. La deduplicación conserva números, materiales y negaciones distintos. Estos cambios afectan propuestas nuevas; no reescriben evoluciones guardadas.
+- Regresión sintética: 309 pruebas aprobadas. Las pruebas con respuestas simuladas verifican las reglas; la calidad de un nuevo dictado también requiere revisión de la propuesta del modelo.
