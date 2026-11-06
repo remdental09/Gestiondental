@@ -1,5 +1,7 @@
 // Avisos hablados: lo que falta o genera duda, en frases cortas para leer en voz alta.
 
+// El dinero se maneja aparte y a mano: nunca se dice en voz alta, aunque llegue en un aviso.
+const MONEY = /presupuest|\bmonto|\bpag(?:o|os|ar|aron|ó|ado)\b|\babon|\bcobr|\bvalor(?:es)?\b|pesos|\$/i;
 const MAX_SPOKEN = 4;
 const MAX_LENGTH = 150;
 
@@ -21,6 +23,7 @@ export function spokenAlerts(clarifications: string[], missing: string[]): strin
   const seen = new Set<string>();
   const phrases: string[] = [];
   for (const raw of [...clarifications, ...missing]) {
+    if (MONEY.test(raw)) continue;
     const phrase = spoken(raw);
     const key = phrase.toLowerCase();
     if (phrase.length < 6 || seen.has(key)) continue;

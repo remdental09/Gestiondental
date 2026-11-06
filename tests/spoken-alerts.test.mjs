@@ -17,3 +17,7 @@ test("avisos hablados: nada que avisar, sin repetidos y máximo cuatro más el r
   assert.equal(many.length, 5);
   assert.equal(many[4], "Y 2 avisos más en pantalla.");
 });
+
+test("avisos hablados: nunca dicen nada de dinero", () => {
+  assert.deepEqual(spokenAlerts(["¿Con qué medio se pagaron $50.000?", "Falta el monto en pesos del tratamiento.", "¿En qué cara es la caries?"], ["Valores: ¿hubo presupuesto o pago?"]), ["¿En qué cara es la caries?"]);
+});
