@@ -58,6 +58,7 @@ import {
 import { searchDiagnoses } from "@/lib/icd11";
 import { sameDiagnosisTags, sanitizeDiagnosisTags, type EvolutionDiagnosisTag } from "@/lib/evolution-diagnoses";
 import { evolutionNotices, type EvolutionNoticeKey } from "@/lib/dictation/evolution-notices";
+import { buildFeedback, type ReviewGroup } from "@/lib/dictation/feedback";
 
 type Reload = {
   patients: { id: number; name: string; birthDate: string; rut: string; phone: string; email: string; reason: string; status: string; allergies: string; history: string }[];
@@ -211,6 +212,8 @@ export function ClinicalDictation({
   const answerEngine = useRef(createAudioTranscription());
   const requestId = useRef("");
   const session = useRef("");
+  // Lo que propuso el sistema, para registrar después qué corrigió el profesional.
+  const originalProposal = useRef<{ text: string; proposal: StructureOutcome["proposal"] } | null>(null);
   // Lo ya guardado en este dictado no se repite si hay que reintentar tras un error.
   const savedOnce = useRef(new Map<string, number>());
   const [open, setOpen] = useState(false);
@@ -384,6 +387,7 @@ export function ClinicalDictation({
       const data = await response.json() as StructureOutcome & { error?: string };
       if (!response.ok) throw new Error(data.error || "No se pudo corregir el dictado.");
       setOutcome(data);
+      originalProposal.current = { text, proposal: data.proposal };
       setEvolutionTitle(data.proposal.evolution?.title ?? "");
       setEvolutionBody(data.proposal.evolution?.body ?? "");
       // Lo que IA y reglas no comparten, o un hallazgo incompleto, parte rechazado. La caries sin profundidad sí se propone.
@@ -618,6 +622,31 @@ export function ClinicalDictation({
       setFormError("No hay una evolución ni cambios estructurados listos para guardar. Revisa la nota o los campos opcionales.");
       return;
     }
+    const logFeedback = async () => {
+      // Registro de correcciones: nunca debe interferir con el guardado clínico.
+      try {
+        const original = originalProposal.current;
+        if (!original) return;
+        const p = original.proposal;
+        const groups: ReviewGroup[] = [
+          { category: "odontograma", proposed: [...p.odontogram, ...(p.incomplete ?? [])] as ReviewGroup["proposed"], final: teeth as ReviewGroup["final"] },
+          { category: "presupuesto", proposed: p.budget as ReviewGroup["proposed"], final: budgets.map((item) => ({ ...item, amount: Number(item.amountText) || 0 })) as ReviewGroup["final"] },
+          { category: "ficha", proposed: (p.ficha ?? []) as ReviewGroup["proposed"], final: fichaItems as ReviewGroup["final"] },
+          { category: "periodontal", proposed: [...p.perio, ...(p.perioPending ?? [])].map((item) => ({ id: item.id, site: item.site ?? "", depth: item.depth ?? null, bleeding: Boolean(item.bleeding), suppuration: Boolean(item.suppuration), origin: item.origin })), final: perioItems.map((item) => ({ id: item.id, decision: item.decision, site: item.site, depth: item.depthText === "" ? null : Number(item.depthText), bleeding: item.bleeding, suppuration: item.suppuration, origin: item.origin })) },
+          { category: "movilidad", proposed: (p.mobility ?? []) as ReviewGroup["proposed"], final: mobilityItems as ReviewGroup["final"] },
+          { category: "pago", proposed: (p.payments ?? []) as ReviewGroup["proposed"], final: paymentItems.map((item) => ({ ...item, amount: Number(item.amountText) || 0, method: item.methodValue })) as ReviewGroup["final"] },
+          { category: "cita", proposed: (p.appointments ?? []) as ReviewGroup["proposed"], final: appointmentItems.map((item) => ({ ...item, day: item.dayValue, time: item.timeValue })) as ReviewGroup["final"] },
+          { category: "diagnostico", proposed: (p.diagnoses ?? []).filter((item) => !item.code.startsWith("DA08.0")) as ReviewGroup["proposed"], final: dxItems as ReviewGroup["final"] },
+        ];
+        const entries = buildFeedback(groups);
+        if (!entries.length) return;
+        await fetch("/api/dictation/feedback", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ patientId, session: session.current, transcript: original.text, correctedText: workingText, entries }),
+        });
+      } catch { /* el registro es opcional */ }
+    };
     setSaving(true);
     setFormError("");
     setResult(null);
@@ -716,6 +745,7 @@ export function ClinicalDictation({
       if (reviewWarnings.length) check = { ...check, messages: [...check.messages, `${saveEvolution ? "La evolución" : "La ficha"} quedó guardada; algunos campos opcionales siguen pendientes de revisión.`] };
       onApplied(finalRead);
       setResult(check);
+      void logFeedback();
       setNotRecorded([
         ...reviewWarnings,
         ...teeth.filter((item) => item.decision !== "accepted").map((item) => `${item.numberingLabel}${item.surface ? ` · ${surfaceLabel[item.surface]}` : ""}: ${item.kind === "surface" ? findingText(item.finding) : item.kind === "crown" ? "Corona" : item.status} — ${item.incompleteCaries ? "incompleto" : "rechazado"}.`),
