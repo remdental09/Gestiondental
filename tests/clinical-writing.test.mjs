@@ -76,3 +76,13 @@ test('la deduplicación conserva piezas, medidas, materiales y negaciones difere
   assert.equal(deduplicateProcedureSentences('Se realiza pulido con pasta y profilaxis. Se realiza profilaxis.'), 'Se realiza pulido con pasta y profilaxis.');
   assert.equal(deduplicateProcedureSentences('Se realiza profilaxis. Se realiza pulido con pasta y profilaxis.'), 'Se realiza pulido con pasta y profilaxis.');
 });
+
+import { CLINICAL_WRITING_PROMPT as WRITING_PROMPT_REGISTER } from "../lib/dictation/clinical-writing.ts";
+import { AI_SYSTEM_PROMPT as SYSTEM_PROMPT_REGISTER } from "../lib/dictation/proposal.ts";
+
+test("el prompt de redacción exige registro formal sin agregar pasos no dictados", () => {
+  assert.match(WRITING_PROMPT_REGISTER, /Registro formal/);
+  assert.match(WRITING_PROMPT_REGISTER, /Prohibido agregar/);
+  assert.match(WRITING_PROMPT_REGISTER, /remoción de tejido cariado/);
+  assert.match(SYSTEM_PROMPT_REGISTER, /Registro formal/);
+});
