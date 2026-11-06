@@ -32,6 +32,8 @@ import {
   PERIO_SITES,
   type AppointmentChange,
   type MobilityChange,
+  type PerioClassificationChange,
+  type RecessionChange,
   type PaymentChange,
   type PaymentMethod,
   type PerioSite,
@@ -78,6 +80,7 @@ type ReviewFicha = FichaChange & { decision: "accepted" | "rejected" };
 type Decided = "accepted" | "rejected";
 type ReviewPerio = { id: string; toothText: string; site: PerioSite | ""; depthText: string; bleeding: boolean; suppuration: boolean; decision: Decided; evidence?: string; origin?: ItemOrigin; pending: boolean };
 type ReviewMobility = MobilityChange & { decision: Decided; toothText: string };
+type ReviewRecession = RecessionChange & { decision: Decided; toothText: string; mmText: string };
 type ReviewPayment = PaymentChange & { decision: Decided; amountText: string; methodValue: PaymentMethod | ""; budgetId: string };
 const normalizeBudgetMatch = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 
@@ -238,6 +241,8 @@ export function ClinicalDictation({
   const [corrections, setCorrections] = useState<TranscriptCorrection[]>([]);
   const [perioItems, setPerioItems] = useState<ReviewPerio[]>([]);
   const [mobilityItems, setMobilityItems] = useState<ReviewMobility[]>([]);
+  const [recessionItems, setRecessionItems] = useState<ReviewRecession[]>([]);
+  const [classItem, setClassItem] = useState<(PerioClassificationChange & { decision: Decided }) | null>(null);
   const [paymentItems, setPaymentItems] = useState<ReviewPayment[]>([]);
   const [appointmentItems, setAppointmentItems] = useState<ReviewAppointment[]>([]);
   const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -284,6 +289,8 @@ export function ClinicalDictation({
     setCorrections([]);
     setPerioItems([]);
     setMobilityItems([]);
+    setClassItem(null);
+    setRecessionItems([]);
     setPaymentItems([]);
     setAppointmentItems([]);
     setDxItems([]);
@@ -409,6 +416,8 @@ export function ClinicalDictation({
         ...data.proposal.perio.map((item) => ({ id: item.id, toothText: formatFdi(item.tooth), site: item.site, depthText: String(item.depth), bleeding: item.bleeding ?? false, suppuration: item.suppuration ?? false, decision: "accepted" as const, evidence: item.evidence ?? item.sourceText, origin: item.origin, pending: false })),
         ...(data.proposal.perioPending ?? []).map((item) => ({ id: item.id, toothText: formatFdi(item.tooth), site: item.site ?? "" as const, depthText: item.depth === null ? "" : String(item.depth), bleeding: item.bleeding, suppuration: item.suppuration, decision: "rejected" as const, evidence: item.evidence, origin: item.origin, pending: true })),
       ]);
+      setRecessionItems((data.proposal.recession ?? []).map((item) => ({ ...item, decision: "accepted" as const, toothText: formatFdi(item.tooth), mmText: String(item.mm) })));
+      setClassItem(data.proposal.perioClassification ? { ...data.proposal.perioClassification, decision: "accepted" } : null);
       setMobilityItems((data.proposal.mobility ?? []).map((item) => ({ ...item, decision: "accepted", toothText: formatFdi(item.tooth) })));
       setPaymentItems((data.proposal.payments ?? []).map((item) => ({
         ...item,
@@ -599,7 +608,7 @@ export function ClinicalDictation({
       }
       perioReadings.push({ tooth, site: item.site, depth, bleeding: item.bleeding, suppuration: item.suppuration });
     }
-    const perioMobility: { tooth: number; grade: string }[] = [];
+    const perioMobility: { tooth: number; grade: string; kind?: "furcacion" }[] = [];
     for (const item of mobilityItems) {
       if (item.decision !== "accepted") continue;
       const tooth = parseDisplayedFdi(item.toothText);
@@ -607,9 +616,20 @@ export function ClinicalDictation({
         reviewWarnings.push(`Movilidad «${item.toothText}»: revisa la pieza FDI; no se incorporó al periodontograma.`);
         continue;
       }
-      perioMobility.push({ tooth, grade: item.grade });
+      perioMobility.push({ tooth, grade: item.grade, ...(item.kind ? { kind: item.kind } : {}) });
     }
-    const savePerio = perioReadings.length > 0 || perioMobility.length > 0;
+    const perioRecessions: { tooth: number; site: PerioSite; mm: number }[] = [];
+    for (const item of recessionItems) {
+      if (item.decision !== "accepted") continue;
+      const tooth = parseDisplayedFdi(item.toothText), mm = Number(item.mmText);
+      if (!tooth || !Number.isInteger(mm) || mm < 1 || mm > 10) {
+        reviewWarnings.push(`Recesión «${item.toothText} ${item.mmText}»: revisa la pieza y los milímetros (1 a 10); no se incorporó al periodontograma.`);
+        continue;
+      }
+      perioRecessions.push({ tooth, site: item.site, mm });
+    }
+    const perioClassification = classItem && classItem.decision === "accepted" && (classItem.stage || classItem.grade) ? { system: "AAP-EFP 2017" as const, ...(classItem.stage ? { stage: classItem.stage } : {}), ...(classItem.grade ? { grade: classItem.grade } : {}), ...(classItem.extent ? { extent: classItem.extent } : {}) } : null;
+    const savePerio = perioReadings.length > 0 || perioMobility.length > 0 || perioRecessions.length > 0 || perioClassification !== null;
     const diagnosis = diagnosisPlan(acceptedTeeth);
     const dxPlan = "error" in diagnosis ? null : diagnosis;
     if (!dxPlan) reviewWarnings.push((diagnosis as { error: string }).error + " Los datos estructurados de diagnóstico quedaron pendientes; la nota clínica se guarda.");
@@ -706,8 +726,8 @@ export function ClinicalDictation({
         savedAppointments.push({ day: item.day, time: item.time, reason: item.reason, savedId });
       }
       if (savePerio) {
-        const key = `perio:${JSON.stringify(perioReadings)}:${JSON.stringify(perioMobility)}`;
-        examId = await once(key, async () => (await persist({ action: "savePerio", patientId, teeth: buildDictatedPerio(perioReadings, perioMobility), ...(attentionDate ? { clinicalDate: attentionDate } : {}) })).exam?.id);
+        const key = `perio:${JSON.stringify(perioReadings)}:${JSON.stringify(perioMobility)}:${JSON.stringify(perioRecessions)}:${JSON.stringify(perioClassification)}`;
+        examId = await once(key, async () => (await persist({ action: "savePerio", patientId, teeth: buildDictatedPerio(perioReadings, perioMobility, perioRecessions), ...(perioClassification ? { classification: perioClassification } : {}), ...(attentionDate ? { clinicalDate: attentionDate } : {}) })).exam?.id);
       }
       if (fichaUpdate && patient) {
         await persist({ action: "updatePatient", patientId, name: patient.name, rut: patient.rut, phone: patient.phone, email: patient.email, allergies: fichaUpdate.allergies, history: fichaUpdate.history });
@@ -723,7 +743,7 @@ export function ClinicalDictation({
         savedBudgetIds: acceptedBudgets.map((entry) => savedBudgetByProposal.get(entry.id)),
         payments: savedPayments,
         appointments: savedAppointments,
-        perio: savePerio ? { examId, readings: perioReadings, mobility: perioMobility } : null,
+        perio: savePerio ? { examId, readings: perioReadings, mobility: perioMobility, recessions: perioRecessions } : null,
       }, {
         notes: finalRead.notes,
         budgets: finalRead.budgets,
@@ -1116,7 +1136,7 @@ export function ClinicalDictation({
             <section className="space-y-3">
               <h3 className="font-semibold">Periodontograma</h3>
               <p className="text-xs leading-5 text-[#60757a]">Lo aceptado se guarda como un examen nuevo con solo los sitios dictados; no reemplaza el examen completo ni infiere margen, furcación, EPB ni clasificación.</p>
-              {perioItems.length === 0 && mobilityItems.length === 0 && <p className="rounded-lg border border-dashed border-[#dce5e7] p-3 text-[#71858b]">Sin sondaje en el dictado.</p>}
+              {perioItems.length === 0 && mobilityItems.length === 0 && recessionItems.length === 0 && !classItem && <p className="rounded-lg border border-dashed border-[#dce5e7] p-3 text-[#71858b]">Sin sondaje en el dictado.</p>}
               {perioItems.map((item, index) => <article key={item.id} className={`rounded-xl border p-4 ${item.decision === "accepted" ? "border-emerald-200" : "border-[#e4ebed] opacity-70"}`} data-testid="dictation-perio">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
@@ -1134,14 +1154,30 @@ export function ClinicalDictation({
                   <label className="flex items-center gap-2 pt-6"><input type="checkbox" className="size-5" checked={item.suppuration} onChange={(event) => setPerioItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, suppuration: event.target.checked } : entry))} />Supuración</label>
                 </div>}
               </article>)}
+              {recessionItems.map((item, index) => <article key={item.id} className={`rounded-xl border p-4 ${item.decision === "accepted" ? "border-emerald-200" : "border-[#e4ebed] opacity-70"}`}>
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div><p className="font-medium">Recesión FDI {item.toothText} {item.site}: {item.mmText} mm desde la LAC<OriginBadge origin={item.origin} /></p><Evidence text={item.evidence} /></div>
+                  <Decision value={item.decision} onChange={(decision) => setRecessionItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, decision } : entry))} />
+                </div>
+                {item.decision === "accepted" && <div className="mt-3 grid grid-cols-2 gap-2">
+                  <label className="space-y-1">Pieza FDI<input className="flex h-10 w-full rounded-md border px-3 text-base sm:h-9 sm:text-sm" value={item.toothText} onChange={(event) => setRecessionItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, toothText: event.target.value } : entry))} /></label>
+                  <label className="space-y-1">Milímetros<input inputMode="numeric" className="flex h-10 w-full rounded-md border px-3 text-base sm:h-9 sm:text-sm" value={item.mmText} onChange={(event) => setRecessionItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, mmText: event.target.value } : entry))} /></label>
+                </div>}
+              </article>)}
+              {classItem && <article className={`rounded-xl border p-4 ${classItem.decision === "accepted" ? "border-emerald-200" : "border-[#e4ebed] opacity-70"}`}>
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div><p className="font-medium">Clasificación periodontal AAP-EFP 2017{classItem.stage ? `: estadio ${classItem.stage}` : ""}{classItem.grade ? `, grado ${classItem.grade}` : ""}<OriginBadge origin={classItem.origin} /></p><Evidence text={classItem.evidence} /></div>
+                  <Decision value={classItem.decision} onChange={(decision) => setClassItem((current) => current ? { ...current, decision } : current)} />
+                </div>
+              </article>}
               {mobilityItems.map((item, index) => <article key={item.id} className={`rounded-xl border p-4 ${item.decision === "accepted" ? "border-emerald-200" : "border-[#e4ebed] opacity-70"}`}>
                 <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div><p className="font-medium">Movilidad FDI {item.toothText}: grado {item.grade}<OriginBadge origin={item.origin} /></p><Evidence text={item.evidence} /></div>
+                  <div><p className="font-medium">{item.kind === "furcacion" ? "Furcación" : "Movilidad"} FDI {item.toothText}: grado {item.grade}<OriginBadge origin={item.origin} /></p><Evidence text={item.evidence} /></div>
                   <Decision value={item.decision} onChange={(decision) => setMobilityItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, decision } : entry))} />
                 </div>
                 {item.decision === "accepted" && <div className="mt-3 grid grid-cols-2 gap-2">
                   <label className="space-y-1">Pieza FDI<input className="flex h-10 w-full rounded-md border px-3 text-base sm:h-9 sm:text-sm" value={item.toothText} onChange={(event) => setMobilityItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, toothText: event.target.value } : entry))} /></label>
-                  <label className="space-y-1">Grado<select className="h-10 w-full rounded-md border px-2 text-base sm:h-9 sm:text-sm" value={item.grade} onChange={(event) => setMobilityItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, grade: event.target.value as MobilityChange["grade"] } : entry))}>{(["0", "I", "II", "III"] as const).map((grade) => <option key={grade} value={grade}>{grade}</option>)}</select></label>
+                  <label className="space-y-1">Grado<select className="h-10 w-full rounded-md border px-2 text-base sm:h-9 sm:text-sm" value={item.grade} onChange={(event) => setMobilityItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, grade: event.target.value as MobilityChange["grade"] } : entry))}>{(item.kind === "furcacion" ? ["I", "II", "III"] as const : ["0", "I", "II", "III"] as const).map((grade) => <option key={grade} value={grade}>{grade}</option>)}</select></label>
                 </div>}
               </article>)}
             </section>
