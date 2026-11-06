@@ -624,7 +624,6 @@ export function ClinicalDictation({
     const before = odontogram;
     let after = odontogram;
     let savedNote: { id?: number; title: string; body: string; clinicalDate?: string } | null = null;
-    const savedBudgetIds: number[] = [];
     const savedBudgetByProposal = new Map<string, number>();
     const savedPayments: { amount: number; method: string; savedId?: number }[] = [];
     const savedAppointments: { day: string; time: string; reason: string; savedId?: number }[] = [];
@@ -663,7 +662,6 @@ export function ClinicalDictation({
         const id = await once("budget:" + option + ":" + group.map((entry) => entry.id + ":" + entry.label + ":" + entry.amount).join("|"), async () => (await persist({ action: "addBudget", patientId, title, items, ...(parentBudgetId ? { parentBudgetId } : {}) })).budget?.id);
         if (id) {
           if (!mainBudgetId) mainBudgetId = id;
-          savedBudgetIds.push(id);
           for (const entry of group) savedBudgetByProposal.set(entry.id, id);
         }
       }
@@ -693,7 +691,7 @@ export function ClinicalDictation({
         note: savedNote,
         accepted: acceptedTeeth,
         budgets: acceptedBudgets,
-        savedBudgetIds,
+        savedBudgetIds: acceptedBudgets.map((entry) => savedBudgetByProposal.get(entry.id)),
         payments: savedPayments,
         appointments: savedAppointments,
         perio: savePerio ? { examId, readings: perioReadings, mobility: perioMobility } : null,

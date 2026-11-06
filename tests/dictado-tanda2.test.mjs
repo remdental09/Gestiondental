@@ -144,3 +144,21 @@ test("la IA no puede dejar un plan como procedimiento realizado", async () => {
   }, transcript);
   assert.equal(ai.procedures.length, 0);
 });
+
+test("la relectura reconoce planes con varias prestaciones y alternativas", async () => {
+  const { verifyDictationSave } = await import("../lib/dictation/proposal.ts");
+  const budgets = [
+    { id: "a", title: "Presupuesto dictado", label: "Implante con corona", amount: 900000, sourceText: "", phase: "Fase 1" },
+    { id: "b", title: "Presupuesto dictado", label: "Prótesis fija", amount: 450000, sourceText: "", option: "B" },
+    { id: "c", title: "Presupuesto dictado", label: "Control", amount: 20000, sourceText: "", phase: "Fase 1" },
+  ];
+  const snapshot = {
+    notes: [], toothStatuses: {},
+    budgets: [
+      { id: 10, patientId: 1, title: "Presupuesto dictado", items: [{ label: "Implante con corona", amount: 900000 }, { label: "Control", amount: 20000 }], status: "Borrador", date: "", isAlternative: false, parentBudgetId: null },
+      { id: 11, patientId: 1, title: "Presupuesto dictado · Opción B", items: [{ label: "Prótesis fija", amount: 450000 }], status: "Borrador", date: "", isAlternative: true, parentBudgetId: 10 },
+    ],
+  };
+  const r = verifyDictationSave({ patientId: 1, before: { teeth: {}, surfaces: {} }, note: null, accepted: [], budgets, savedBudgetIds: [10, 11, 10] }, snapshot);
+  assert.equal(r.ok, true, r.messages.join("\n"));
+});

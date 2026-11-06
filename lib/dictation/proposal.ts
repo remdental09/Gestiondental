@@ -3575,7 +3575,8 @@ export function verifyDictationSave(input: {
   note: { id?: number; title: string; body: string } | null;
   accepted: OdontogramChange[];
   budgets: BudgetChange[];
-  savedBudgetIds?: number[];
+  /** Id del plan guardado de cada presupuesto aceptado, en el mismo orden (varias prestaciones comparten plan). */
+  savedBudgetIds?: Array<number | undefined>;
   payments?: { amount: number; method: string; savedId?: number }[];
   appointments?: { day: string; time: string; reason: string; savedId?: number }[];
   perio?: { examId?: number; readings: { tooth: number; site: PerioSite; depth: number; bleeding: boolean; suppuration: boolean }[]; mobility: { tooth: number; grade: string }[] } | null;
@@ -3639,7 +3640,7 @@ export function verifyDictationSave(input: {
   }
   input.budgets.forEach((item, index) => {
     const savedId = input.savedBudgetIds?.[index];
-    const found = snapshot.budgets.find((budget) => !budget.isAlternative && budget.patientId === input.patientId && (savedId ? budget.id === savedId : budget.title === item.title && budget.items.some((line) => line.label === item.label && line.amount === item.amount)));
+    const found = snapshot.budgets.find((budget) => budget.patientId === input.patientId && (savedId ? budget.id === savedId : budget.title === item.title && budget.items.some((line) => line.label === item.label && line.amount === item.amount)));
     const line = found?.items.find((entry) => entry.label === item.label && entry.amount === item.amount);
     if (!found || !line) errors.push(`El presupuesto «${item.label}» no aparece al releer.`);
     else messages.push(`Presupuesto «${item.label}» releído.`);
