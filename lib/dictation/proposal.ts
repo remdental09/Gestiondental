@@ -3144,6 +3144,16 @@ function completeDischargeCondition(body: string, localBody: string): string {
   return normalizedBody.trim() ? normalizedBody.trim() + "\n\n" + section : section;
 }
 
+/** «Endodoncia en la pieza 3.6» y «Endodoncia en la 3.6 por 180»: misma prestación (mismo primer término y misma pieza, si ambas la nombran). */
+function sameTreatment(a: string, b: string): boolean {
+  const key = (text: string) => normalizeEvidence(text).split(" ").find((word) => word.length > 3);
+  if (!key(a) || key(a) !== key(b)) return false;
+  const teeth = (text: string) => new Set(text.match(/\b[1-8]\.[1-8]\b/g) ?? []);
+  const ta = teeth(a), tb = teeth(b);
+  if (!ta.size || !tb.size) return false;
+  return [...ta].some((tooth) => tb.has(tooth));
+}
+
 export function mergeProposals(ai: AiExtraction, local: DictationProposal, transcript: string): DictationProposal {
   const odontogram: OdontogramChange[] = [];
   const clarifications = [...ai.clarifications];
@@ -3241,7 +3251,7 @@ export function mergeProposals(ai: AiExtraction, local: DictationProposal, trans
       if (rule.amount === 0) return overlaps(item) || (item.amount === 0 && ruleText.includes(ruleLabelText.split(" ")[0] ?? ""));
       if (item.amount !== rule.amount) return false;
       const itemLabelText = normalizeEvidence(item.label);
-      return overlaps(item) || itemLabelText === ruleLabelText || itemLabelText.includes(ruleLabelText) || ruleLabelText.includes(itemLabelText);
+      return overlaps(item) || itemLabelText === ruleLabelText || itemLabelText.includes(ruleLabelText) || ruleLabelText.includes(itemLabelText) || sameTreatment(item.label, rule.label);
     });
     // La IA dejó en 0 un monto dicho en palabras que las reglas sí leyeron: se completa en vez de duplicar.
     const zero = rule.amount > 0 ? budget.find((item) => item.amount === 0 && overlaps(item)) : undefined;

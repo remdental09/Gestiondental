@@ -360,3 +360,16 @@ test("la IA decide y las reglas verifican: una pieza que solo vieron las reglas 
   const sinIa = mergeProposals({ ...ai, odontogram: [] }, { ...base, odontogram: [rule23] }, "texto");
   assert.ok(!sinIa.odontogram[0].advisory);
 });
+
+test("el mismo presupuesto dicho por la IA y por las reglas con otra redacción no se duplica", async () => {
+  const { mergeProposals } = await import("../lib/dictation/proposal.ts");
+  const base = await quick("Presupuesto de endodoncia en la 3.6 por 180 mil pesos.");
+  const rule = base.budget[0];
+  const aiBudget = { ...rule, id: "ai-b", label: "Endodoncia en la pieza 3.6", amount: 180000, origin: "ia", sourceText: "otra frase", evidence: "otra frase" };
+  const ai = { noteBody: "", odontogram: [], incomplete: [], budget: [aiBudget], ficha: [], procedures: [], clarifications: [], rejected: [], perio: [], perioPending: [], payments: [], appointments: [], diagnoses: [] };
+  const merged = mergeProposals(ai, { ...base, budget: [rule] }, "texto");
+  assert.equal(merged.budget.length, 1);
+  // Otra pieza con el mismo precio sí es otra prestación.
+  const otra = mergeProposals({ ...ai, budget: [{ ...aiBudget, label: "Endodoncia en la pieza 4.6" }] }, { ...base, budget: [rule] }, "texto");
+  assert.equal(otra.budget.length, 2);
+});
