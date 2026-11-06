@@ -1,14 +1,17 @@
 "use client";
+import { useState } from "react";
 import { PERIO_SITES, formatFdi, type PerioExam, type PerioSiteKey, type ToothHistoryEvent } from "@/app/clinical-data";
 
 const dayOf = (iso?: string, fallback = "") => (iso || fallback).slice(0, 10);
 const shown = (day: string) => (day ? day.split("-").reverse().join("-") : "sin fecha");
 
 /** Evolución de una pieza en el tiempo: hitos del odontograma y sondaje por sitio con su variación entre exámenes. */
-export function ToothTimeline({ tooth, history, exams, mode }: { tooth: number; history: ToothHistoryEvent[]; exams: PerioExam[]; mode: "odontograma" | "periodontograma" }) {
+export function ToothTimeline({ tooth, history, exams, mode, editableIds = [], onDeleteEvent, onDeleteReading }: { tooth: number; history: ToothHistoryEvent[]; exams: PerioExam[]; mode: "odontograma" | "periodontograma"; editableIds?: string[]; onDeleteEvent?: (tooth: number, eventId: string, title: string) => Promise<void>; onDeleteReading?: (tooth: number, examId: number, day: string) => Promise<void> }) {
+  const [message, setMessage] = useState("");
+  const run = async (task: () => Promise<void>) => { setMessage(""); try { await task(); } catch (error) { setMessage(error instanceof Error ? error.message : "No se pudo completar el cambio."); } };
   const events = history
     .filter((event) => event.tooth === tooth)
-    .map((event) => ({ day: dayOf(event.clinicalDate, event.recordedAt), title: event.title || event.eventType, detail: event.detail || "", manual: event.source === "manual" }))
+    .map((event) => ({ id: event.id, day: dayOf(event.clinicalDate, event.recordedAt), title: event.title || event.eventType, detail: event.detail || "", manual: event.source === "manual" }))
     .sort((a, b) => b.day.localeCompare(a.day));
   const measured = exams
     .filter((exam) => exam.teeth[tooth])
@@ -18,6 +21,7 @@ export function ToothTimeline({ tooth, history, exams, mode }: { tooth: number; 
   return (
     <section className="rounded-xl border border-[#dce5e7] bg-white p-4" aria-label={`Evolución de la pieza ${formatFdi(tooth)}`} data-testid="tooth-timeline">
       <h4 className="font-semibold">Evolución de la pieza FDI {formatFdi(tooth)}</h4>
+      {message ? <p role="alert" className="mt-2 text-sm text-rose-700">{message}</p> : null}
       {mode === "odontograma" && (
         <ul className="mt-3 space-y-2 text-sm text-[#31575b]">
           {events.length === 0 && <li className="text-[#71858b]">Sin cambios registrados para esta pieza.</li>}
@@ -26,6 +30,7 @@ export function ToothTimeline({ tooth, history, exams, mode }: { tooth: number; 
               <span className="font-semibold text-[#087f83]">{shown(event.day)}</span> · {event.title}
               {event.detail ? <span className="text-[#60757a]"> — {event.detail}</span> : null}
               {event.manual ? <span className="ml-2 text-xs text-[#71858b]">(manual)</span> : null}
+              {onDeleteEvent && editableIds.includes(event.id) ? <button type="button" className="ml-3 text-xs font-semibold text-rose-700 underline" aria-label={`Eliminar hito ${event.title}`} onClick={() => run(() => onDeleteEvent(tooth, event.id, event.title))}>Eliminar</button> : null}
             </li>
           ))}
         </ul>
@@ -34,7 +39,7 @@ export function ToothTimeline({ tooth, history, exams, mode }: { tooth: number; 
         measured.length === 0 ? <p className="mt-3 text-sm text-[#71858b]">Sin sondaje registrado para esta pieza.</p> : (
           <div className="mt-3 overflow-x-auto">
             <table className="w-full min-w-[520px] text-left text-sm">
-              <thead><tr className="text-xs text-[#60757a]"><th className="p-1.5">Fecha</th>{sites.map((site) => <th key={site} className="p-1.5">{site}</th>)}<th className="p-1.5">Mov.</th><th className="p-1.5">Furc.</th></tr></thead>
+              <thead><tr className="text-xs text-[#60757a]"><th className="p-1.5">Fecha</th>{sites.map((site) => <th key={site} className="p-1.5">{site}</th>)}<th className="p-1.5">Mov.</th><th className="p-1.5">Furc.</th>{onDeleteReading ? <th className="p-1.5"><span className="sr-only">Acciones</span></th> : null}</tr></thead>
               <tbody>
                 {measured.map((row, index) => {
                   const before = index > 0 ? measured[index - 1].data : undefined;
@@ -55,6 +60,7 @@ export function ToothTimeline({ tooth, history, exams, mode }: { tooth: number; 
                       })}
                       <td className="p-1.5">{row.data.mobility || "–"}</td>
                       <td className="p-1.5">{row.data.furcation || "–"}</td>
+                      {onDeleteReading ? <td className="p-1.5"><button type="button" className="text-xs font-semibold text-rose-700 underline" aria-label={`Eliminar medición del ${shown(row.day)}`} onClick={() => run(() => onDeleteReading(tooth, row.exam.id, shown(row.day)))}>Eliminar</button></td> : null}
                     </tr>
                   );
                 })}

@@ -568,6 +568,37 @@ export async function POST(request: Request) {
       const [e] = await db.insert(periodontalExams).values({ ownerId, patientId, recordedAt: examDate ? `${examDate}T15:00:00.000Z` : now(), teeth: JSON.stringify(savedData) }).returning();
       return Response.json({ exam: { id: e.id, recordedAt: e.recordedAt, ...savedData } }, { status: 201 });
     }
+    if (action === "deleteToothHistoryEvent") {
+      // Quita un hito de la línea de tiempo de la pieza. No cambia el estado actual: ese se corrige con los controles de la pieza.
+      const eventId = string(input.eventId, 200);
+      if (!eventId) return error("Hito inválido.");
+      const [old] = await db.select().from(toothStatuses).where(and(eq(toothStatuses.ownerId, ownerId), eq(toothStatuses.patientId, patientId)));
+      if (!old) return error("Hito no encontrado.", 404);
+      const data = normalizeOdontogram(JSON.parse(old.data));
+      const before = data.history?.length ?? 0;
+      data.history = (data.history ?? []).filter(event => event.id !== eventId);
+      if (data.history.length === before) return error("Hito no encontrado en esta ficha.", 404);
+      const updatedAt = now();
+      await db.update(toothStatuses).set({ data: JSON.stringify(data), updatedAt }).where(and(eq(toothStatuses.ownerId, ownerId), eq(toothStatuses.patientId, patientId)));
+      return Response.json({ odontogram: data });
+    }
+    if (action === "deletePerioToothReading") {
+      // Quita la medición de una pieza en un examen; si el examen queda sin piezas, se elimina completo.
+      const examId = Number(input.examId), tooth = Number(input.tooth);
+      if (!Number.isSafeInteger(examId) || examId <= 0 || !Number.isSafeInteger(tooth)) return error("Examen o pieza inválidos.");
+      const [exam] = await db.select().from(periodontalExams).where(and(eq(periodontalExams.id, examId), eq(periodontalExams.patientId, patientId), eq(periodontalExams.ownerId, ownerId))).limit(1);
+      if (!exam) return error("Examen no encontrado en esta ficha.", 404);
+      const saved = JSON.parse(exam.teeth) as { teeth?: Record<string, unknown>; epb?: unknown; classification?: unknown };
+      const teeth = { ...(saved.teeth ?? {}) };
+      if (!(String(tooth) in teeth)) return error("La pieza no tiene medición en ese examen.", 404);
+      delete teeth[String(tooth)];
+      if (Object.keys(teeth).length === 0) {
+        await db.delete(periodontalExams).where(and(eq(periodontalExams.id, examId), eq(periodontalExams.ownerId, ownerId)));
+        return Response.json({ examId, deleted: true });
+      }
+      await db.update(periodontalExams).set({ teeth: JSON.stringify({ ...saved, teeth }) }).where(and(eq(periodontalExams.id, examId), eq(periodontalExams.ownerId, ownerId)));
+      return Response.json({ examId, deleted: false, exam: { id: exam.id, recordedAt: exam.recordedAt, ...saved, teeth } });
+    }
     if (action === "setToothStatus") {
       const tooth = Number(input.tooth), status = string(input.status, 48);
       if (!Number.isSafeInteger(tooth) || !allowedTeeth.has(tooth) || !["Sin hallazgos", "Implante", "Implante con pilar", "Corona", "Ausente", "Indicación de exodoncia", "Resto radicular con endodoncia"].includes(status)) return error("Estado dental inválido.");
