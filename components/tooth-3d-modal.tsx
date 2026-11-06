@@ -3,6 +3,7 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { FullArch3DStage } from "@/components/full-arch-3d-stage";
 import { Eye, EyeOff, X } from "lucide-react";
+import { ToothTimeline } from "@/components/tooth-timeline";
 import { formatFdi, type CrownDetails, type OdontogramSurface, type PerioExam, type PerioSiteKey, type PerioTooth, type SurfaceFinding, type ToothHistoryEvent } from "@/app/clinical-data";
 import { cariesDetail } from "@/lib/caries";
 import { bitingFaceName, chileLabel, innerFaceName, surfaceMarkColor, toothKind, toothKindLabel } from "@/app/tooth-3d-map";
@@ -39,6 +40,11 @@ export function Tooth3DModal({
   periodontalHistory,
   crown,
   onSetCrownDetails,
+  editableEventIds,
+  onDeleteEvent,
+  onEditEvent,
+  onDeleteReading,
+  onEditReading,
 }: {
   tooth: number;
   status: string;
@@ -52,6 +58,11 @@ export function Tooth3DModal({
   periodontalHistory?: PerioExam[];
   crown?: CrownDetails;
   onSetCrownDetails?: (tooth: number, material: string, shade: string, foundation: "tooth" | "implant") => Promise<void>;
+  editableEventIds?: string[];
+  onDeleteEvent?: (tooth: number, eventId: string, title: string) => Promise<void>;
+  onEditEvent?: (tooth: number, eventId: string, fields: { title: string; detail: string; clinicalDate: string }) => Promise<void>;
+  onDeleteReading?: (tooth: number, examId: number, day: string) => Promise<void>;
+  onEditReading?: (tooth: number, examId: number, reading: PerioTooth, clinicalDate: string) => Promise<void>;
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -129,7 +140,6 @@ export function Tooth3DModal({
     });
   if (status && status !== "Sin hallazgos") findings.unshift((status === "Implante" || status === "Implante con pilar") && hasCrown ? "Implante con corona" : status === "Implante con pilar" ? "Implante con pilar (sin corona)" : status === "Corona" ? "Corona" : status === "Ausente" ? "Ausente / extraído" : status);
   const sortedToothHistory = [...toothHistory].filter(event => event.tooth === tooth).sort((a,b) => new Date(b.clinicalDate ? `${b.clinicalDate}T12:00:00` : b.recordedAt).getTime() - new Date(a.clinicalDate ? `${a.clinicalDate}T12:00:00` : a.recordedAt).getTime());
-  const sortedPerioHistory = [...(periodontalHistory ?? [])].filter(exam => exam.teeth?.[tooth]).sort((a,b) => b.recordedAt.localeCompare(a.recordedAt));
   const findingLabel = (finding?: SurfaceFinding) => {
     if (!finding) return "Sin registro";
     const caries = finding.condition === "caries" ? " · " + cariesDetail(finding) : "";
@@ -153,22 +163,6 @@ export function Tooth3DModal({
     const state = after?.status && after.status !== "Sin hallazgos" ? after.status : "Estado actualizado";
     return `${event.title ?? state}${after?.crown?.material ? ` · ${after.crown.material}` : ""}`;
   };
-  const perioDetails = (exam: PerioExam) => {
-    const record = exam.teeth?.[tooth];
-    if (!record) return [];
-    const sites: PerioSiteKey[] = ["MV", "V", "DV", "ML", "L", "DL"];
-    const readings = sites.flatMap(key => {
-      const reading = record.sites?.[key];
-      if (!reading) return [];
-      const parts = [`${key}: ${reading.depth === null || reading.depth === undefined ? "—" : `${reading.depth} mm`}`];
-      if (reading.margin !== null && reading.margin !== undefined) parts.push(`margen ${reading.margin} mm`);
-      if (reading.bleeding) parts.push("sangrado");
-      if (reading.suppuration) parts.push("supuración");
-      return [parts.join(" · ")];
-    });
-    const gingival = Object.entries(record.gingivalIndex ?? {}).map(([site,score]) => `IG ${site}: ${score}`);
-    return [...readings, ...gingival, record.mobility ? `Movilidad: ${record.mobility}` : "", record.furcation ? `Furcación: ${record.furcation}` : ""].filter(Boolean);
-  };
   return <div className="fixed inset-0 z-50" role="presentation">
     <button type="button" className="absolute inset-0 bg-[#10343a]/45" aria-label="Cerrar vista 3D" onClick={onClose} />
     <div
@@ -187,7 +181,7 @@ export function Tooth3DModal({
         <button ref={closeRef} type="button" className="rounded-lg p-2 text-[#31575b] hover:bg-[#e7f3f1]" onClick={onClose} aria-label="Cerrar"><X className="size-5" /></button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 sm:px-5">
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(18rem,0.9fr)]">
+        <div className={`grid grid-cols-1 gap-4 ${periodontalHistory !== undefined ? "lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]" : "lg:grid-cols-[minmax(0,1.1fr)_minmax(18rem,0.9fr)]"}`}>
         <div className="min-w-0">
         {naturalTooth && <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#e2d7d0] bg-[#fffaf7] px-3 py-2">
           <div className="text-xs leading-5 text-[#6b5550]">
@@ -227,7 +221,7 @@ export function Tooth3DModal({
           <section className="rounded-xl border border-[#dbe8e7] bg-[#f8fbfb] p-3 sm:p-4">
             <h3 className="text-sm font-semibold text-[#16343a]">Evolución de la pieza</h3>
             <p className="mt-1 text-xs leading-5 text-[#71858b]">Estado actual en 3D e hitos clínicos fechados registrados para esta pieza.</p>
-            {sortedToothHistory.length ? <ol className="relative mt-3 space-y-0 border-l border-[#b8d2cf] pl-4">
+            {periodontalHistory === undefined && onEditEvent ? <ToothTimeline tooth={tooth} history={toothHistory} exams={[]} mode="odontograma" editableIds={editableEventIds} onDeleteEvent={onDeleteEvent} onEditEvent={onEditEvent} /> : sortedToothHistory.length ? <ol className="relative mt-3 space-y-0 border-l border-[#b8d2cf] pl-4">
               {sortedToothHistory.map(event => <li key={event.id} className="relative pb-4 last:pb-0">
                 <span className="absolute -left-[1.31rem] top-1.5 size-2 rounded-full bg-[#087f83]" aria-hidden="true" />
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-[#087f83]">{formatHistoryDate(event.clinicalDate, event.recordedAt)}{event.source === "evolution" ? " · Evolución" : ""}</p>
@@ -249,20 +243,7 @@ export function Tooth3DModal({
             </button>
             {crownMessage && <p role="status" className="mt-2 text-xs text-amber-950">{crownMessage}</p>}
           </section>}
-          {periodontalHistory !== undefined && <section className="rounded-xl border border-[#dbe8e7] bg-[#f8fbfb] p-3 sm:p-4">
-            <h3 className="text-sm font-semibold text-[#16343a]">Mediciones periodontales</h3>
-            <p className="mt-1 text-xs leading-5 text-[#71858b]">Sondaje y hallazgos por sitio, conservados por fecha.</p>
-            {sortedPerioHistory.length ? <ol className="relative mt-3 space-y-0 border-l border-[#b8d2cf] pl-4">
-              {sortedPerioHistory.map(exam => {
-                const details = perioDetails(exam);
-                return <li key={exam.id} className="relative pb-4 last:pb-0">
-                  <span className="absolute -left-[1.31rem] top-1.5 size-2 rounded-full bg-[#c0784b]" aria-hidden="true" />
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-[#a25d36]">{formatHistoryDate(undefined, exam.recordedAt)}</p>
-                  {details.length ? <ul className="mt-1 space-y-1 text-xs leading-5 text-[#405a60]">{details.map((detail,index) => <li key={index}>{detail}</li>)}</ul> : <p className="mt-1 text-xs text-[#71858b]">Examen guardado sin mediciones consignadas para esta pieza.</p>}
-                </li>;
-              })}
-            </ol> : <p className="mt-3 rounded-lg bg-white px-3 py-2 text-sm text-[#71858b]">No hay exámenes guardados para esta pieza.</p>}
-          </section>}
+          {periodontalHistory !== undefined && <ToothTimeline tooth={tooth} history={toothHistory} exams={periodontalHistory} mode="periodontograma" onDeleteReading={onDeleteReading} onEditReading={onEditReading} />}
         </aside>
         </div>
       </div>
