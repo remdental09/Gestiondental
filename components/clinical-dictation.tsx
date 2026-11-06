@@ -61,6 +61,7 @@ import { searchDiagnoses } from "@/lib/icd11";
 import { sameDiagnosisTags, sanitizeDiagnosisTags, type EvolutionDiagnosisTag } from "@/lib/evolution-diagnoses";
 import { evolutionNotices, type EvolutionNoticeKey } from "@/lib/dictation/evolution-notices";
 import { buildFeedback, type ReviewGroup } from "@/lib/dictation/feedback";
+import { spokenAlerts } from "@/lib/dictation/spoken-alerts";
 
 type Reload = {
   patients: { id: number; name: string; birthDate: string; rut: string; phone: string; email: string; reason: string; status: string; allergies: string; history: string }[];
@@ -798,7 +799,35 @@ export function ClinicalDictation({
   };
 
   const proposal = outcome?.proposal;
-  const missing = proposal ? missingData(proposal) : [];
+  const missing = useMemo(() => proposal ? missingData(proposal) : [], [proposal]);
+  // Avisos en voz alta cuando algo falta o genera duda. Interruptor guardado en este navegador; por defecto activado.
+  const [speakAlerts, setSpeakAlerts] = useState(true);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { try { if (window.localStorage.getItem("dictation.speakAlerts") === "off") setSpeakAlerts(false); } catch { /* sin almacenamiento */ } }, []);
+  const toggleSpeak = () => {
+    const next = !speakAlerts;
+    setSpeakAlerts(next);
+    try { window.localStorage.setItem("dictation.speakAlerts", next ? "on" : "off"); } catch { /* sin almacenamiento */ }
+    if (!next && typeof window !== "undefined") window.speechSynthesis?.cancel();
+  };
+  const alertPhrases = useMemo(() => proposal ? spokenAlerts(proposal.clarifications, missing) : [], [proposal, missing]);
+  const speakNow = () => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window) || !alertPhrases.length) return;
+    window.speechSynthesis.cancel();
+    for (const phrase of alertPhrases) {
+      const utterance = new SpeechSynthesisUtterance(phrase);
+      utterance.lang = "es-CL";
+      window.speechSynthesis.speak(utterance);
+    }
+  };
+  const announced = useRef<unknown>(null);
+  useEffect(() => {
+    if (!speakAlerts || !proposal || listening || announced.current === proposal) return;
+    announced.current = proposal;
+    speakNow();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [proposal, speakAlerts, listening]);
+  useEffect(() => () => { if (typeof window !== "undefined") window.speechSynthesis?.cancel(); }, []);
   // Diagnósticos de la última evolución vigente de la ficha: se pueden vincular sin volver a dictarlos.
   const currentChartDiagnoses = useMemo(
     () => (notes.find((note) => (note.diagnoses?.length ?? 0) > 0 && !/anul/i.test(note.status ?? ""))?.diagnoses ?? [])
@@ -944,6 +973,10 @@ export function ClinicalDictation({
                 </div>
               </li>)}</ul>
             </section>}
+            <div className="flex flex-wrap items-center gap-2 text-sm" data-testid="dictation-speak-alerts">
+              <Button type="button" size="sm" variant="outline" className="bg-white" aria-pressed={speakAlerts} onClick={toggleSpeak}>{speakAlerts ? "🔊 Avisos en voz alta: sí" : "🔇 Avisos en voz alta: no"}</Button>
+              {alertPhrases.length > 0 && <Button type="button" size="sm" variant="outline" className="bg-white" onClick={speakNow}>Repetir avisos</Button>}
+            </div>
             {proposal.clarifications.length > 0 && <section className="rounded-xl bg-amber-50 p-4 text-amber-950" data-testid="dictation-clarifications">
               <h3 className="font-semibold">Aclaraciones opcionales ({proposal.clarifications.length})</h3>
               <p className="mt-1 text-xs leading-5">Responde escribiendo o con el micrófono y pulsa «Aplicar respuestas». Lo no respondido no se aplica.</p>
