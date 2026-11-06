@@ -902,3 +902,25 @@ export function searchPrestaciones(query: string, limit = 8): Prestacion[] {
   hits.sort((a, b) => Number(b.text.startsWith(text)) - Number(a.text.startsWith(text)) || a.text.length - b.text.length);
   return hits.slice(0, limit).map((entry) => entry.item);
 }
+
+const STOP = new Set(["de", "del", "la", "el", "los", "las", "un", "una", "por", "en", "con", "y", "a", "para", "al", "se", "pieza", "piezas", "diente", "dientes", "dental", "dentaria", "dentario", "peso", "pesos", "clp", "mil", "millon", "millones", "cien", "ciento", "uno", "dos", "tres", "cuatro", "cinco", "seis", "siete", "ocho", "nueve", "diez", "veinte", "treinta", "cuarenta", "cincuenta", "sesenta", "setenta", "ochenta", "noventa", "presupuesto", "presupuesta", "valor", "costo"]);
+const wordsOf = (value: string) => new Set(fold(value).replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((word) => word.length > 1 && !STOP.has(word) && !/^\d+$/.test(word)));
+const WORDS = PRESTACIONES.map((item) => ({ item, words: wordsOf(item.name) }));
+
+/**
+ * Prestación del catálogo que corresponde a un texto («exodoncia simple», «sellante por pieza definitiva»).
+ * Solo devuelve una si es clara: comparten casi todas las palabras (≥ 0,6) y la mejor le saca ventaja a la segunda.
+ * Si hay duda devuelve null: el texto del profesional manda y no se inventa un código.
+ */
+export function matchPrestacion(text: string): Prestacion | null {
+  const given = wordsOf(text);
+  if (given.size < 2) return null;
+  const scored = WORDS.map(({ item, words }) => {
+    let shared = 0;
+    for (const word of given) if (words.has(word)) shared += 1;
+    return { item, score: shared / (given.size + words.size - shared) };
+  }).sort((a, b) => b.score - a.score);
+  const [best, second] = scored;
+  if (!best || best.score < 0.6 || (second && best.score - second.score < 0.15)) return null;
+  return best.item;
+}
