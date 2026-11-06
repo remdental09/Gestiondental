@@ -234,6 +234,7 @@ const UNCODED: Uncoded[] = [
   { re: /\beritroleucoplasia\b/, title: () => "Eritroleucoplasia" , fallback: true },
   { re: /\bsinusitis\s+odontogenica\b/, title: () => "Sinusitis maxilar de origen odontogénico" , fallback: true },
   { re: /\bameloblastoma\b/, title: () => "Ameloblastoma" , fallback: true },
+  { re: /\bcaries\s+(?:secundaria|recurrente)\b/, title: () => "Caries secundaria (recurrente)", fallback: true },
   { re: /\bfisura\s+labio[\s-]*(?:alveolo[\s-]*)?palatina\b|\bfisura\s+(?:del\s+)?labio\s+y\s+(?:del\s+)?paladar\b/, title: () => "Fisura labiopalatina (la CIE-11 la separa en fisura labial/alveolar LA40-LA41 y fisura del paladar LA42)" , fallback: true },
   { re: /\bgingivitis\s+marginal(?:\s+simple)?\b/, title: () => "Gingivitis marginal simple" , fallback: true },
   { re: /\bgingivitis\s+hiperplasica\b/, title: () => "Gingivitis hiperplásica" , fallback: true },
