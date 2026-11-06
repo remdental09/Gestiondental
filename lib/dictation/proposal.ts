@@ -188,6 +188,8 @@ export type PerioPending = {
 };
 
 export type MobilityChange = { id: string; tooth: number; numberingLabel: string; grade: "0" | "I" | "II" | "III"; evidence: string; origin: ItemOrigin; /** Ausente = movilidad; «furcacion» = lesión de furca (grado I–III). */ kind?: "furcacion" };
+/** Recesión gingival dictada: milímetros desde la línea amelocementaria en un sitio (se guarda como margen negativo). */
+export type RecessionChange = { id: string; tooth: number; numberingLabel: string; site: PerioSite; mm: number; evidence: string; origin: ItemOrigin };
 /** Clasificación periodontal AAP-EFP 2017 dictada de forma explícita (nunca inferida). */
 export type PerioClassificationChange = { id: string; stage?: "I" | "II" | "III" | "IV"; grade?: "A" | "B" | "C"; extent?: "localized" | "generalized"; evidence: string; origin: ItemOrigin };
 
@@ -241,6 +243,7 @@ export type DictationProposal = {
   perioPending?: PerioPending[];
   mobility?: MobilityChange[];
   perioClassification?: PerioClassificationChange;
+  recession?: RecessionChange[];
   payments?: PaymentChange[];
   appointments?: AppointmentChange[];
   /** Tipo de evolución (control, obturación, higiene…): define el título y si se espera tocar el odontograma. */
@@ -1340,6 +1343,7 @@ export function structureTranscript(transcript: string, options: { today?: strin
   let lastPerioMention: ReturnType<typeof toothMentions>[number] | null = null;
   const mobility: MobilityChange[] = [];
   let perioClassification: PerioClassificationChange | undefined;
+  const recession: RecessionChange[] = [];
   const payments: PaymentChange[] = [];
   const appointments: AppointmentChange[] = [];
   const incomplete: OdontogramChange[] = [];
@@ -1396,6 +1400,13 @@ export function structureTranscript(transcript: string, options: { today?: strin
       for (const mention of own.length ? own : fallback ? [fallback] : []) {
         if (mention.ok) mobility.push({ id: nextId("mov"), tooth: mention.tooth, numberingLabel: mention.numberingLabel, grade: furcationGrade, evidence: clip(sentence, 400), origin: "reglas", kind: "furcacion" });
       }
+    }
+    for (const reading of recessionReadings(sentence)) {
+      const own = toothMentions(sentence);
+      const mention = own.find((item) => item.ok) ?? lastPerioMention ?? inheritedMention;
+      if (!mention?.ok) continue;
+      if (!reading.site) { clarifications.push(`¿En qué sitio está la recesión de ${reading.mm} mm en FDI ${mention.numberingLabel.replace(/^FDI\s*/, "")} (mesial o distal con vestibular o palatino/lingual)? «${clip(sentence, 120)}»`); continue; }
+      if (!recession.some((done) => done.tooth === mention.tooth && done.site === reading.site)) recession.push({ id: nextId("rec"), tooth: mention.tooth, numberingLabel: mention.numberingLabel, site: reading.site, mm: reading.mm, evidence: clip(sentence, 400), origin: "reglas" });
     }
     const classified = perioClassificationFrom(sentence);
     if (classified) perioClassification = { id: nextId("cla"), ...classified, evidence: clip(sentence, 400), origin: "reglas" };
@@ -1687,6 +1698,7 @@ export function structureTranscript(transcript: string, options: { today?: strin
     perioPending,
     mobility,
     ...(perioClassification ? { perioClassification } : {}),
+    ...(recession.length ? { recession } : {}),
     payments,
     appointments,
   });
@@ -1696,6 +1708,20 @@ export function structureTranscript(transcript: string, options: { today?: strin
 // ---------------------------------------------------------------------------
 // Rutas nuevas: periodontograma, pagos y próxima cita.
 // ---------------------------------------------------------------------------
+
+const SPOKEN_MM: Record<string, number> = { uno: 1, un: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8 };
+
+/** «Recesión de 3 mm por vestibular», «recesión gingival 2 mm en mesiovestibular»: una por fragmento. */
+function recessionReadings(sentence: string): Array<{ mm: number; site: PerioSite | null }> {
+  const out: Array<{ mm: number; site: PerioSite | null }> = [];
+  for (const part of sentence.split(/\s*[;,]\s*|\s+y\s+(?=recesi)/iu)) {
+    const match = fold(part).match(/\brecesi\w*\s+(?:gingival\s+)?(?:de\s+)?(\d{1,2}|uno|un|dos|tres|cuatro|cinco|seis|siete|ocho)\b/);
+    if (!match) continue;
+    const mm = /^\d/.test(match[1]) ? Number(match[1]) : SPOKEN_MM[match[1]];
+    if (mm >= 1 && mm <= 10) out.push({ mm, site: perioSite(part) });
+  }
+  return out;
+}
 
 const FURCATION_GRADES: Record<string, MobilityChange["grade"]> = { "1": "I", i: "I", uno: "I", "2": "II", ii: "II", dos: "II", "3": "III", iii: "III", tres: "III" };
 
@@ -3228,6 +3254,7 @@ export function mergeProposals(ai: AiExtraction, local: DictationProposal, trans
     perioPending: [...(ai.perioPending ?? []), ...(local.perioPending ?? [])],
     mobility: local.mobility ?? [],
     ...(local.perioClassification ? { perioClassification: local.perioClassification } : {}),
+    ...(local.recession?.length ? { recession: local.recession } : {}),
     payments: [...(ai.payments ?? []), ...(local.payments ?? [])],
     appointments: [...(ai.appointments ?? []), ...(local.appointments ?? [])],
   });
@@ -3751,14 +3778,14 @@ export function verifyDictationSave(input: {
   savedBudgetIds?: Array<number | undefined>;
   payments?: { amount: number; method: string; savedId?: number }[];
   appointments?: { day: string; time: string; reason: string; savedId?: number }[];
-  perio?: { examId?: number; readings: { tooth: number; site: PerioSite; depth: number; bleeding: boolean; suppuration: boolean }[]; mobility: { tooth: number; grade: string; kind?: "furcacion" }[] } | null;
+  perio?: { examId?: number; readings: { tooth: number; site: PerioSite; depth: number; bleeding: boolean; suppuration: boolean }[]; mobility: { tooth: number; grade: string; kind?: "furcacion" }[]; recessions?: { tooth: number; site: PerioSite; mm: number }[] } | null;
 }, snapshot: {
   notes: SavedNote[];
   budgets: SavedBudget[];
   toothStatuses: Record<number, ChartSnapshot | undefined>;
   payments?: { id: number; patientId: number; amount: number; method: string }[];
   appointments?: { id: number; patientId: number; day: string; time: string; reason: string }[];
-  periodontalExams?: Record<number, { id: number; teeth: Record<number, { sites?: Partial<Record<PerioSite, { depth: number | null; bleeding: boolean; suppuration: boolean }>>; mobility?: string; furcation?: string }> }[] | undefined>;
+  periodontalExams?: Record<number, { id: number; teeth: Record<number, { sites?: Partial<Record<PerioSite, { depth: number | null; margin?: number | null; bleeding: boolean; suppuration: boolean }>>; mobility?: string; furcation?: string }> }[] | undefined>;
 }): { ok: boolean; messages: string[] } {
   const messages: string[] = [];
   const errors: string[] = [];
@@ -3829,7 +3856,7 @@ export function verifyDictationSave(input: {
     if (!found || found.day !== shown || found.time !== item.time || found.reason !== item.reason) errors.push(`La cita del ${shown} ${item.time} no aparece al releer.`);
     else messages.push(`Cita del ${shown} a las ${item.time} releída.`);
   }
-  if (input.perio && (input.perio.readings.length || input.perio.mobility.length)) {
+  if (input.perio && (input.perio.readings.length || input.perio.mobility.length || (input.perio.recessions?.length ?? 0))) {
     const exams = snapshot.periodontalExams?.[input.patientId] ?? [];
     const exam = input.perio.examId ? exams.find((entry) => entry.id === input.perio?.examId) : exams[0];
     const okReadings = exam && input.perio.readings.every((reading) => {
@@ -3837,7 +3864,8 @@ export function verifyDictationSave(input: {
       return site && site.depth === reading.depth && site.bleeding === reading.bleeding && site.suppuration === reading.suppuration;
     });
     const okMobility = exam && input.perio.mobility.every((item) => ((item.kind === "furcacion" ? exam.teeth[item.tooth]?.furcation : exam.teeth[item.tooth]?.mobility) ?? "") === item.grade);
-    if (!okReadings || !okMobility) errors.push("El sondaje dictado no coincide al releer el periodontograma.");
+    const okRecession = exam && (input.perio.recessions ?? []).every((item) => exam.teeth[item.tooth]?.sites?.[item.site]?.margin === -item.mm);
+    if (!okReadings || !okMobility || !okRecession) errors.push("El sondaje dictado no coincide al releer el periodontograma.");
     else messages.push(`Periodontograma releído: ${input.perio.readings.length} sitio(s)${input.perio.mobility.length ? ` y ${input.perio.mobility.length} movilidad(es)` : ""}.`);
   }
   if (!errors.length && !messages.length) messages.push("No había cambios aceptados para guardar.");
@@ -3876,10 +3904,15 @@ export function withAnswers(text: string, lines: string[]): string {
 export function buildDictatedPerio(
   readings: { tooth: number; site: PerioSite; depth: number; bleeding: boolean; suppuration: boolean }[],
   mobility: { tooth: number; grade: string; kind?: "furcacion" }[],
-): Record<number, { sites: Partial<Record<PerioSite, { depth: number; margin: null; bleeding: boolean; suppuration: boolean }>>; mobility: string; furcation: string }> {
-  const teeth: Record<number, { sites: Partial<Record<PerioSite, { depth: number; margin: null; bleeding: boolean; suppuration: boolean }>>; mobility: string; furcation: string }> = {};
+  recessions: { tooth: number; site: PerioSite; mm: number }[] = [],
+): Record<number, { sites: Partial<Record<PerioSite, { depth: number | null; margin: number | null; bleeding: boolean; suppuration: boolean }>>; mobility: string; furcation: string }> {
+  const teeth: Record<number, { sites: Partial<Record<PerioSite, { depth: number | null; margin: number | null; bleeding: boolean; suppuration: boolean }>>; mobility: string; furcation: string }> = {};
   const entry = (tooth: number) => (teeth[tooth] ??= { sites: {}, mobility: "", furcation: "" });
   for (const reading of readings) entry(reading.tooth).sites[reading.site] = { depth: reading.depth, margin: null, bleeding: reading.bleeding, suppuration: reading.suppuration };
+  for (const item of recessions) {
+    const sites = entry(item.tooth).sites;
+    sites[item.site] = { depth: sites[item.site]?.depth ?? null, margin: -item.mm, bleeding: sites[item.site]?.bleeding ?? false, suppuration: sites[item.site]?.suppuration ?? false };
+  }
   for (const item of mobility) { if (item.kind === "furcacion") entry(item.tooth).furcation = item.grade; else entry(item.tooth).mobility = item.grade; }
   return teeth;
 }

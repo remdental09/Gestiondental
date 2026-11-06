@@ -303,3 +303,15 @@ test("el examen dictado guarda furcación aparte de la movilidad", async () => {
   assert.equal(teeth[16].mobility, "I");
   assert.equal(teeth[16].furcation, "II");
 });
+
+test("recesión gingival: milímetros por sitio, guardados como margen negativo", async () => {
+  const { buildDictatedPerio } = await import("../lib/dictation/proposal.ts");
+  const p = await quick("Pieza 2.6 recesión gingival de 3 mm por vestibular, recesión de 2 mm en distovestibular.");
+  assert.deepEqual(p.recession.map((r) => [r.tooth, r.site, r.mm]), [[26, "V", 3], [26, "DV", 2]]);
+  const sinSitio = await quick("Pieza 1.6 recesión de 2 mm en mesial.");
+  assert.equal(sinSitio.recession, undefined);
+  assert.ok(sinSitio.clarifications.some((q) => /sitio está la recesión/.test(q)));
+  const teeth = buildDictatedPerio([{ tooth: 26, site: "V", depth: 4, bleeding: true, suppuration: false }], [], [{ tooth: 26, site: "V", mm: 3 }, { tooth: 26, site: "DV", mm: 2 }]);
+  assert.deepEqual([teeth[26].sites.V.depth, teeth[26].sites.V.margin, teeth[26].sites.V.bleeding], [4, -3, true]);
+  assert.deepEqual([teeth[26].sites.DV.depth, teeth[26].sites.DV.margin], [null, -2]);
+});
