@@ -202,7 +202,7 @@ export function ClinicalDictation({
   /** Abre el dictado desde otro lugar (p. ej. «Nueva evolución») con un texto ya escrito o dictado, y lo corrige con IA. */
   request?: { nonce: number; text: string; ignoreCommand?: boolean; incorporate?: boolean } | null;
   /** Evoluciones del paciente, para resolver órdenes dictadas («elimina el último dictado…»). */
-  notes?: (CommandNote & { diagnoses?: Partial<EvolutionDiagnosisTag>[] })[];
+  notes?: (CommandNote & { diagnoses?: Array<{ id?: number; code: string; title: string; tooth: number | null; findings: string; suggestedFrom?: string | null }> })[];
   onAnnul?: AnnulHandler;
   /** Botón grande «Dictar en esta ficha» (barra fija de la ficha abierta). */
   prominent?: boolean;
@@ -746,7 +746,8 @@ export function ClinicalDictation({
   // Diagnósticos de la última evolución vigente de la ficha: se pueden vincular sin volver a dictarlos.
   const currentChartDiagnoses = useMemo(
     () => (notes.find((note) => (note.diagnoses?.length ?? 0) > 0 && !/anul/i.test(note.status ?? ""))?.diagnoses ?? [])
-      .filter((tag): tag is Partial<EvolutionDiagnosisTag> & { title: string } => typeof tag.title === "string" && tag.title.length > 0),
+      .filter((tag) => typeof tag.title === "string" && tag.title.length > 0)
+      .map((tag): Partial<EvolutionDiagnosisTag> & { title: string } => ({ ...tag, suggestedFrom: tag.suggestedFrom === "AAE" || tag.suggestedFrom === "caries-pulpar" ? tag.suggestedFrom : null })),
     [notes],
   );
   const noticeList = proposal ? evolutionNotices({
