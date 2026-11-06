@@ -18,6 +18,9 @@ type StageProps = {
   periodontalSites?: PerioTooth["sites"];
   /** Shows the translucent periodontal ligament and alveolar socket around natural roots. */
   showPeriodontium?: boolean;
+  /** Live opacity factor (0.1–1) applied to gingiva, ligament and bone without remounting the scene. */
+  periodontiumOpacity?: number;
+  opacityRef?: { current: number };
   /** Optional starting orientation (radians) — used for static previews. */
   view?: { x: number; y: number };
 };
@@ -40,12 +43,12 @@ const smooth = (a: number, b: number, v: number) => {
 
 // Natural tooth palette: warmer, more opaque enamel at the cervix, pinkish ivory body,
 // lighter bluish translucent cusp tips / incisal edge; tan root darkening to the apex.
-const ENAMEL_CERVICAL = linear(0xdcc6a2);
-const ENAMEL_BODY = linear(0xe6d2c6);
-const ENAMEL_TIP = linear(0xe4e4e2);
+const ENAMEL_CERVICAL = linear(0xe2cda8);
+const ENAMEL_BODY = linear(0xeddcc6);
+const ENAMEL_TIP = linear(0xe6e9e8);
 const PRIMARY_ENAMEL_BODY = linear(0xf0ebe6);
-const ROOT_CERVICAL = linear(0xcfa46c);
-const ROOT_APEX = linear(0x7c4c28);
+const ROOT_CERVICAL = linear(0xd9b982);
+const ROOT_APEX = linear(0xa87d4e);
 const DENTINE = linear(0xd9c19a);
 const FISSURE = linear(0x4e3220);
 // Ceramic (zirconia/porcelain) crown: whiter, more opaque, faint grey cervically.
@@ -197,8 +200,10 @@ function glossyMaterial(THREE: ThreeModule, params: ConstructorParameters<ThreeM
   return material;
 }
 
-export function Tooth3DStage({ tooth, status, surfaces, hasCrown, reducedMotion, view, periodontalSites, showPeriodontium = true }: StageProps) {
+export function Tooth3DStage({ tooth, status, surfaces, hasCrown, reducedMotion, view, periodontalSites, showPeriodontium = true, periodontiumOpacity = 1 }: StageProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const opacityRef = useRef(periodontiumOpacity);
+  useEffect(() => { opacityRef.current = periodontiumOpacity; }, [periodontiumOpacity]);
   const [error, setError] = useState("");
   const surfaceKey = (["O", "V", "P", "M", "D"] as OdontogramSurface[]).map((surface) => `${surface}:${surfaces[surface]?.condition ?? ""}`).join("|");
   const viewKey = view ? `${view.x},${view.y}` : "";
@@ -212,7 +217,7 @@ export function Tooth3DStage({ tooth, status, surfaces, hasCrown, reducedMotion,
     setError("");
     Promise.all([import("three"), import("three/examples/jsm/environments/RoomEnvironment.js")]).then(([THREE, room]) => {
       if (disposed) return;
-      try { release = mountTooth(THREE, room, canvas, { tooth, status, surfaces, hasCrown, reducedMotion, view, periodontalSites, showPeriodontium }); }
+      try { release = mountTooth(THREE, room, canvas, { tooth, status, surfaces, hasCrown, reducedMotion, view, periodontalSites, showPeriodontium, opacityRef }); }
       catch (cause) { setError(cause instanceof Error ? cause.message : "No se pudo abrir el diente en 3D."); }
     }).catch(() => { if (!disposed) setError("No se pudo cargar la vista 3D."); });
     return () => { disposed = true; release(); };
@@ -227,7 +232,7 @@ export function Tooth3DStage({ tooth, status, surfaces, hasCrown, reducedMotion,
 }
 
 function mountTooth(THREE: ThreeModule, room: RoomEnvironmentModule, canvas: HTMLCanvasElement, props: StageProps): () => void {
-  const { tooth, status, surfaces, hasCrown, reducedMotion, view, periodontalSites, showPeriodontium = true } = props;
+  const { tooth, status, surfaces, hasCrown, reducedMotion, view, periodontalSites, showPeriodontium = true, opacityRef } = props;
   const missing = status === "Ausente";
   const implant = status === "Implante" || status === "Implante con pilar";
   // Pilar protésico de titanio sobre el implante, sin corona.
@@ -408,6 +413,7 @@ function mountTooth(THREE: ThreeModule, room: RoomEnvironmentModule, canvas: HTM
     inner.add(marker);
   }
 
+  const fadeables: Array<{ material: InstanceType<ThreeModule["Material"]> & { opacity: number }; base: number }> = [];
   if (showPeriodontium && !missing && !implant && periodontalRoots.length) {
     const boneMap = alveolarBoneTexture(THREE);
     textures.push(boneMap);
@@ -422,6 +428,41 @@ function mountTooth(THREE: ThreeModule, room: RoomEnvironmentModule, canvas: HTM
     const fiberMaterial = track(new THREE.MeshBasicMaterial({
       color: 0xffeee4, transparent: true, opacity: 0.9, depthWrite: false,
     }));
+    const gingivaMaterial = track(new THREE.MeshPhysicalMaterial({
+      vertexColors: true, color: 0xffffff, roughness: 0.38, metalness: 0, clearcoat: 0.55, clearcoatRoughness: 0.22,
+      sheen: 0.5, sheenColor: new THREE.Color(0xff9aa5), sheenRoughness: 0.5,
+      transparent: true, opacity: 0.55, depthWrite: false, side: THREE.DoubleSide,
+    }));
+    fadeables.push({ material: ligamentMaterial, base: 0.78 }, { material: boneMaterial, base: 0.38 }, { material: fiberMaterial, base: 0.9 }, { material: gingivaMaterial, base: 0.55 });
+    // Free gingiva: only the cervical band of each root, pushed outward into a collar.
+    const collarOf = (root: AnatomyMesh): AnatomyMesh => {
+      const keep: number[] = [];
+      const zones: ToothZone[] = [];
+      for (let t = 0; t < root.indices.length / 3; t += 1) {
+        const a = root.indices[t * 3], b = root.indices[t * 3 + 1], c = root.indices[t * 3 + 2];
+        if (root.level[a] > -0.24 && root.level[b] > -0.24 && root.level[c] > -0.24) { keep.push(a, b, c); zones.push(root.zones[t]); }
+      }
+      return { ...root, indices: keep, zones };
+    };
+    for (const root of periodontalRoots) {
+      const collar = collarOf(root);
+      if (collar.indices.length) {
+        const gingivaGeo = toGeometry(collar, () => linear(0xee98a2), () => 0.3, noTint, 0.085);
+        const rgb = gingivaGeo.getAttribute("color");
+        const rgba = new Float32Array(rgb.count * 4);
+        for (let t = 0; t < collar.indices.length / 3; t += 1) {
+          for (let c = 0; c < 3; c += 1) {
+            const o = t * 3 + c;
+            rgba[o * 4] = rgb.getX(o); rgba[o * 4 + 1] = rgb.getY(o); rgba[o * 4 + 2] = rgb.getZ(o);
+            rgba[o * 4 + 3] = smooth(-0.24, -0.05, collar.level[collar.indices[t * 3 + c]]);
+          }
+        }
+        gingivaGeo.setAttribute("color", new THREE.BufferAttribute(rgba, 4));
+        const gingiva = new THREE.Mesh(gingivaGeo, gingivaMaterial);
+        gingiva.renderOrder = 5;
+        inner.add(gingiva);
+      }
+    }
     for (const root of periodontalRoots) {
       const ligament = new THREE.Mesh(
         toGeometry(root, () => linear(0xe59a9d), () => 0.25, noTint, 0.05),
@@ -579,6 +620,10 @@ function mountTooth(THREE: ThreeModule, room: RoomEnvironmentModule, canvas: HTM
   let frame = 0;
   const draw = () => {
     frame = requestAnimationFrame(draw);
+    if (opacityRef && fadeables.length) {
+      const factor = Math.min(1, Math.max(0.1, opacityRef.current));
+      for (const item of fadeables) item.material.opacity = item.base * factor;
+    }
     if (view && !dragging) { renderer.render(scene, camera); return; }
     if (!dragging && !reducedMotion) toothGroup.rotation.y += 0.01;
     camera.position.set(0, distance * 0.06, distance);
