@@ -652,11 +652,19 @@ export function ClinicalDictation({
           : action;
         await persist(linkedAction);
       }
-      for (const item of acceptedBudgets) {
-        const id = await once("budget:" + item.id + ":" + item.label + ":" + item.amount, async () => (await persist({ action: "addBudget", patientId, title: item.title, label: item.label, amount: item.amount, ...(item.catalogCode ? { code: item.catalogCode } : {}) })).budget?.id);
+      // Un plan por opción dictada (la primera es el principal, las demás son alternativas), con todas sus prestaciones y fases.
+      const budgetGroups = new Map<string, typeof acceptedBudgets>();
+      for (const item of acceptedBudgets) budgetGroups.set(item.option ?? "", [...(budgetGroups.get(item.option ?? "") ?? []), item]);
+      let mainBudgetId: number | undefined;
+      for (const [option, group] of budgetGroups) {
+        const items = group.map((entry) => ({ label: entry.label, amount: entry.amount, ...(entry.phase ? { phase: entry.phase } : {}), ...(entry.catalogCode ? { code: entry.catalogCode } : {}) }));
+        const title = option ? `${group[0].title} · Opción ${option}` : group[0].title;
+        const parentBudgetId = mainBudgetId;
+        const id = await once("budget:" + option + ":" + group.map((entry) => entry.id + ":" + entry.label + ":" + entry.amount).join("|"), async () => (await persist({ action: "addBudget", patientId, title, items, ...(parentBudgetId ? { parentBudgetId } : {}) })).budget?.id);
         if (id) {
+          if (!mainBudgetId) mainBudgetId = id;
           savedBudgetIds.push(id);
-          savedBudgetByProposal.set(item.id, id);
+          for (const entry of group) savedBudgetByProposal.set(entry.id, id);
         }
       }
       for (const item of acceptedPayments) {
@@ -1036,7 +1044,7 @@ export function ClinicalDictation({
                   <Decision value={item.decision} onChange={(decision) => setBudgets((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, decision } : entry))} />
                 </div>
                 {item.decision === "accepted" && <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                  <label className="space-y-1">Prestación{item.catalogCode && <span className="ml-2 rounded bg-[#e7f5f3] px-1.5 py-0.5 text-xs font-medium text-[#075b60]" title="Coincide con una prestación del catálogo">Catálogo {item.catalogCode}</span>}<input className="flex h-9 w-full rounded-md border px-3" value={item.label} onChange={(event) => setBudgets((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, label: event.target.value, catalogCode: undefined } : entry))} /></label>
+                  <label className="space-y-1">Prestación{item.phase && <span className="ml-2 rounded bg-[#eef1f8] px-1.5 py-0.5 text-xs font-medium text-[#33466f]">{item.phase}</span>}{item.option && <span className="ml-2 rounded bg-[#f8efe4] px-1.5 py-0.5 text-xs font-medium text-[#7a4a12]" title="La opción B y siguientes se guardan como alternativas del plan principal">Opción {item.option}</span>}{item.catalogCode && <span className="ml-2 rounded bg-[#e7f5f3] px-1.5 py-0.5 text-xs font-medium text-[#075b60]" title="Coincide con una prestación del catálogo">Catálogo {item.catalogCode}</span>}<input className="flex h-9 w-full rounded-md border px-3" value={item.label} onChange={(event) => setBudgets((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, label: event.target.value, catalogCode: undefined } : entry))} /></label>
                   <label className="space-y-1">Monto CLP<input className="flex h-9 w-full rounded-md border px-3" inputMode="numeric" value={item.amountText} onChange={(event) => setBudgets((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, amountText: event.target.value } : entry))} /></label>
                 </div>}
               </article>)}

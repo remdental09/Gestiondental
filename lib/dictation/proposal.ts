@@ -149,6 +149,10 @@ export type BudgetChange = {
   /** Código del catálogo de prestaciones cuando el texto coincide con una sola prestación. */
   catalogCode?: string;
   amount: number;
+  /** «Fase 1», «Fase 2»…: la fase del plan en que se dictó la prestación. */
+  phase?: string;
+  /** «A», «B»…: la opción de plan en que se dictó. La primera es el plan principal; las demás, alternativas. */
+  option?: string;
   sourceText: string;
   evidence?: string;
   origin?: ItemOrigin;
@@ -1730,13 +1734,37 @@ function originUnion(a: ItemOrigin, b: ItemOrigin): ItemOrigin {
 
 /** Une repetidos (lo dictado + la aclaración, o IA + reglas) y genera las preguntas de lo que falta. */
 /** Vincula con el catálogo las prestaciones del presupuesto dictado; sin coincidencia clara no se toca. */
+const ORDINAL_WORD: Record<string, number> = { uno: 1, una: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5 };
+
+/** Fase y opción del plan en que se dictó una prestación: la última mención («fase dos», «opción B») hasta su frase. */
+export function budgetContext(transcript: string, evidence: string): { phase?: string; option?: string } {
+  const probe = evidence.trim().slice(0, 40).toLowerCase();
+  const at = probe ? transcript.toLowerCase().indexOf(probe) : -1;
+  const upto = at >= 0 ? transcript.slice(0, at + evidence.length) : evidence;
+  const out: { phase?: string; option?: string } = {};
+  const phase = [...upto.matchAll(/(?<!\p{L})(?:fase|etapa)\s+(\d+|uno|una|dos|tres|cuatro|cinco)(?!\p{L})/giu)].pop();
+  if (phase) {
+    const number = /^\d+$/.test(phase[1]) ? Number(phase[1]) : ORDINAL_WORD[phase[1].toLowerCase()];
+    if (number >= 1 && number <= 9) out.phase = `Fase ${number}`;
+  }
+  const option = [...upto.matchAll(/(?<!\p{L})opci[oó]n\s+([abc]|\d|uno|una|dos|tres)(?!\p{L})/giu)].pop();
+  if (option) {
+    const raw = option[1].toLowerCase();
+    const index = /^\d$/.test(raw) ? Number(raw) : raw in ORDINAL_WORD ? ORDINAL_WORD[raw] : raw.charCodeAt(0) - 96;
+    if (index >= 1 && index <= 3) out.option = String.fromCharCode(64 + index);
+  }
+  return out;
+}
+
 function withCatalogCodes(proposal: DictationProposal): DictationProposal {
   return {
     ...proposal,
     budget: proposal.budget.map((item) => {
-      if (item.catalogCode) return item;
-      const found = matchPrestacion(item.label);
-      return found ? { ...item, catalogCode: found.code } : item;
+      const context = budgetContext(proposal.transcript ?? "", item.evidence || item.sourceText || "");
+      const withContext = { ...item, ...(item.phase ? {} : context.phase ? { phase: context.phase } : {}), ...(item.option ? {} : context.option ? { option: context.option } : {}) };
+      if (withContext.catalogCode) return withContext;
+      const found = matchPrestacion(withContext.label);
+      return found ? { ...withContext, catalogCode: found.code } : withContext;
     }),
   };
 }
@@ -2500,6 +2528,17 @@ export function validateAiExtraction(input: unknown, transcript: string, options
   // Una negación explícita de un procedimiento pendiente no puede desaparecer en la redacción.
   // Se repone literalmente desde el dictado, sin inferir fecha, pieza ni motivo.
   const notDone = transcript.match(/\b(?:la\s+cirug[ií]a|el\s+tratamiento|el\s+procedimiento|la\s+exodoncia|la\s+endodoncia)\s+(?:(?:a[uú]n|todav[ií]a)\s+)?no\s+(?:se\s+)?(?:(?:ha|hab[ií]a)\s+)?(?:realizad[oa]|efectuad[oa]|iniciad[oa])\b/iu);
+  // La IA a veces pone lo planificado bajo «procedimientos»: si el dictado no dice que algo se hizo, es plan.
+  if (typeof nota.procedimientos === "string" && nota.procedimientos.trim()) {
+    const plannedOnly = /(?<!\p{L})(?:se\s+(?:planifica|plantea|propone|indica|eval[uú]a)|plan\s+de\s+tratamiento)(?!\p{L})/iu.test(nota.procedimientos)
+      && !sentences(transcript).some((line) => PERFORMED_TODAY.test(line) && !isPlan(line) && !planContextOfSegment(line, transcript));
+    if (plannedOnly) {
+      const moved = nota.procedimientos.trim();
+      const plan = typeof nota.plan === "string" ? nota.plan.trim() : "";
+      nota.plan = normalizeEvidence(plan).includes(normalizeEvidence(moved)) ? plan : [plan, moved].filter(Boolean).join(" ");
+      nota.procedimientos = "";
+    }
+  }
   const noteText = Object.values(nota).filter((value): value is string => typeof value === "string").join(" ");
   if (notDone && !/\b(?:no\s+(?:(?:se\s+)?(?:ha\s+)?)?(?:realiz|efectu|inici)|sin\s+(?:realizar|efectuar|iniciar)|pendiente\s+de\s+(?:realizar|efectuar|iniciar))/iu.test(noteText)) {
     nota.plan = [typeof nota.plan === "string" ? nota.plan : "", ensurePeriod(capitalize(notDone[0]))].filter(Boolean).join(" ");
@@ -2605,6 +2644,8 @@ export function validateAiExtraction(input: unknown, transcript: string, options
     const textValue = preserveNarrativeNumbering(str(item.texto, 300), transcript);
     const evidence = str(item.evidencia, 400);
     if (!textValue) continue;
+    // Un plan o una indicación no es un procedimiento realizado.
+    if (evidence && (isPlan(evidence) || planContextOfSegment(evidence, transcript)) && !isPerformed(evidence) && !PERFORMED_TODAY.test(textValue)) continue;
     procedures.push({ id: nextId("proc"), text: textValue, evidence, verified: Boolean(evidence) && evidenceInTranscript(evidence, transcript) });
   }
 
