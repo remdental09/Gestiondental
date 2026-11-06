@@ -1482,7 +1482,14 @@ export function structureTranscript(transcript: string, options: { today?: strin
     const priced = isBudget || isPlan(sentence) || inPlanContext(allSentences, sentenceIndex) || /(?<!\p{L})(?:pesos|lucas?|lukas?)(?!\p{L})/iu.test(sentence);
     const amount = parseAmount(sentence) ?? (priced ? spokenAmounts(sentence)[0]?.value ?? null : null);
     if (amount) {
-      budget.push({ id: nextId("pre"), title: "Presupuesto dictado", label: budgetLabel(sentence), amount, sourceText: clip(sentence) });
+      // «Se planifica regeneración ósea guiada. Presupuesto de 350 mil pesos»: si la frase del monto no nombra la prestación, se usa la de la frase anterior.
+      let label = budgetLabel(sentence);
+      const previous = sentenceIndex > 0 ? allSentences[sentenceIndex - 1] : "";
+      if (label === "Prestación dictada" && previous && !parseAmount(previous) && !spokenAmounts(previous).length) {
+        const fromPrevious = budgetLabel(previous);
+        if (fromPrevious !== "Prestación dictada") label = fromPrevious;
+      }
+      budget.push({ id: nextId("pre"), title: "Presupuesto dictado", label, amount, sourceText: clip(sentence) });
     } else if (/\b(?:presupuesto|cotizaci[oó]n|honorarios)\b/i.test(sentence)) {
       const label = budgetLabel(sentence);
       budget.push({ id: nextId("pre"), title: "Presupuesto dictado", label, amount: 0, sourceText: clip(sentence) });
@@ -3388,9 +3395,16 @@ export function applyEvolutionPolicy(proposal: DictationProposal, chart: Structu
   const kind = classifyEvolution(text, null, implantInChart);
   // Pilar protésico instalado o conectado hoy (el de cicatrización es transitorio y queda solo en la evolución).
   const pilarToday = kind.type === "implante-rehabilitacion" && kind.detail === "pilar";
-  const pilarTeeth = pilarToday
+  // Evolución mixta (corona en una pieza y pilar en otra): el pilar se toma de la frase que lo dice.
+  const pilarSentenceTeeth = [...new Set(sentences(text).flatMap((sentence) => {
+    const folded = fold(sentence);
+    if (/\b(?:control\w*|seguimiento|revision|chequeo|aflojad\w*|reaprie\w*|reapriet\w*|desatornill\w*)\b/.test(folded) || /\b(?:cicatriz\w*)\b/.test(folded)) return [];
+    if (!/\bimplantes?\b[^;!?\n]{0,40}\bcon\s+(?:el\s+)?pilar(?:es)?\b|\bpilar(?:es)?\b[^;!?\n]{0,30}\b(?:conectad\w*|atornillad\w*|instalad\w*|colocad\w*)\b|\bse\s+(?:instala|instalo|conecta|conecto|atornilla|atornillo)\s+(?:un\s+|el\s+)?pilar/.test(folded)) return [];
+    return toothMentions(sentence).flatMap((item) => (item.ok ? [item.tooth] : []));
+  }))];
+  const pilarTeeth = pilarSentenceTeeth.length ? pilarSentenceTeeth : pilarToday
     ? (mentioned.filter((tooth) => isImplant(current.get(tooth))).length ? mentioned.filter((tooth) => isImplant(current.get(tooth))) : mentioned.slice(0, 1))
-    : [];
+    : pilarSentenceTeeth;
   const odontogram: OdontogramChange[] = [];
   for (const item of proposal.odontogram) {
     if (pilarTeeth.includes(item.tooth) && item.kind === "status" && item.status === "Implante") continue;
@@ -3412,6 +3426,14 @@ export function applyEvolutionPolicy(proposal: DictationProposal, chart: Structu
     if (kind.type === "implante-rehabilitacion" && kind.detail !== "corona" && !pilarToday && item.kind === "status" && item.status === "Implante") {
       odontogram.push({ ...item, advisory: `Se instaló un pilar de cicatrización: queda en la evolución. Marca «Implante» solo si faltaba registrarlo.` });
       continue;
+    }
+    // «Se retira la corona…» / «se prepara para corona nueva»: la corona no está colocada, no se marca.
+    if (item.status === "Corona") {
+      const said = fold(item.evidence || item.sourceText || "");
+      if (/\b(?:retir\w*|saca\w*|remuev\w*|removi\w*)\s+(?:la\s+|una\s+)?corona\b|\bprepara\w*\s+(?:\w+\s+){0,3}(?:para|de)\s+(?:una\s+)?corona\b/.test(said) && !/\b(?:cementa\w*|instala\w*|atornilla\w*|coloca\w*)\b/.test(said)) {
+        notes.push(`FDI ${formatFdi(item.tooth)}: la corona se retiró o la pieza está en preparación; no se marca corona.`);
+        continue;
+      }
     }
     // Corona cementada en una pieza que el odontograma ya muestra como implante: es corona sobre implante.
     if (item.status === "Corona" && item.foundation !== "implant" && isImplant(current.get(item.tooth))) {

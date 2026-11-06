@@ -258,3 +258,24 @@ test("«implante en el 4.6 con pilar» y «pilar protésico conectado» marcan i
     assert.deepEqual((r.proposal ?? r).odontogram.map((o) => `${o.tooth}:${o.status}`), ["46:Implante con pilar"]);
   }
 });
+
+test("evolución mixta: corona en el 3.6 y pilar en el 4.6 se marcan cada uno en su pieza", async () => {
+  const { proposeFromTranscript } = await import("../lib/dictation/proposal.ts");
+  const chart = [{ tooth: 36, status: "Implante" }, { tooth: 46, status: "Implante" }];
+  const r = await proposeFromTranscript({ transcript: "Se cementa corona de zirconio en el 3.6 con cemento resinoso. Implante en el 4.6 con pilar, torque de treinta newton. Se toma impresión para corona sobre implante en el 4.6.", chart }, null, () => {}, { today: "2026-11-06" });
+  assert.deepEqual((r.proposal ?? r).odontogram.map((o) => `${o.tooth}:${o.status}`).sort(), ["36:Corona", "46:Implante con pilar"]);
+});
+
+test("presupuesto dictado en una frase aparte toma la prestación de la frase anterior", async () => {
+  const { proposeFromTranscript } = await import("../lib/dictation/proposal.ts");
+  const r = await proposeFromTranscript({ transcript: "Se planifica regeneración ósea guiada, presupuesto de trescientos cincuenta mil pesos.", chart: [] }, null, () => {}, { today: "2026-11-06" });
+  assert.deepEqual((r.proposal ?? r).budget.map((b) => [b.label, b.amount]), [["Regeneración ósea guiada", 350000]]);
+});
+
+test("corona retirada o en preparación no se marca; pilar aflojado que se reaprieta no cambia el estado", async () => {
+  const { proposeFromTranscript } = await import("../lib/dictation/proposal.ts");
+  const run = async (transcript, chart) => { const r = await proposeFromTranscript({ transcript, chart }, null, () => {}, { today: "2026-11-06" }); return (r.proposal ?? r).odontogram.map((o) => `${o.tooth}:${o.status}`); };
+  assert.deepEqual(await run("Fractura de corona de metal porcelana en el 1.1, se retira la corona y se hace perno muñón. Se prepara para corona nueva de disilicato color A dos.", [{ tooth: 11, status: "Corona" }]), []);
+  assert.deepEqual(await run("Se cementa corona nueva de disilicato en el 1.1.", [{ tooth: 11, status: "Corona" }]), ["11:Corona"]);
+  assert.deepEqual(await run("Descementación de corona del 2.6 con caries recurrente en el margen distal, se vuelve a cementar la corona. Implante del 1.6 con pilar aflojado, se reaprieta.", [{ tooth: 16, status: "Implante con pilar" }, { tooth: 26, status: "Corona" }]), ["26:Corona"]);
+});
