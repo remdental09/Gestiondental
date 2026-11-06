@@ -91,3 +91,10 @@ test("no se rompen equivalencias previas ni se codifican tumores de otros órgan
 test("un hallazgo de granuloma sin diagnóstico no se codifica", () => {
   assert.deepEqual(codes("lesión apical con un granuloma en la radiografía"), []);
 });
+
+test("«fractura coronaria» sin más datos usa el código sin especificación y no pisa los específicos", () => {
+  const codes = (text) => diagnosisMatches(text).map((m) => m.code);
+  assert.deepEqual(codes("Fractura coronaria de la pieza 1.4"), ["NA0D.0Z"]);
+  assert.deepEqual(codes("fractura coronaria complicada"), ["NA0D.03"]);
+  assert.deepEqual(codes("fractura de esmalte"), ["NA0D.01"]);
+});
