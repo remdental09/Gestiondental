@@ -659,7 +659,7 @@ export function ClinicalDictation({
         const items = group.map((entry) => ({ label: entry.label, amount: entry.amount, ...(entry.phase ? { phase: entry.phase } : {}), ...(entry.catalogCode ? { code: entry.catalogCode } : {}) }));
         const title = option ? `${group[0].title} · Opción ${option}` : group[0].title;
         const parentBudgetId = mainBudgetId;
-        const id = await once("budget:" + option + ":" + group.map((entry) => entry.id + ":" + entry.label + ":" + entry.amount).join("|"), async () => (await persist({ action: "addBudget", patientId, title, items, ...(parentBudgetId ? { parentBudgetId } : {}) })).budget?.id);
+        const id = await once("budget:" + option + ":" + group.map((entry) => entry.id + ":" + entry.label + ":" + entry.amount).join("|"), async () => (await persist({ action: "addBudget", patientId, title, items, ...(attentionDate ? { clinicalDate: attentionDate } : {}), ...(parentBudgetId ? { parentBudgetId } : {}) })).budget?.id);
         if (id) {
           if (!mainBudgetId) mainBudgetId = id;
           for (const entry of group) savedBudgetByProposal.set(entry.id, id);

@@ -1760,10 +1760,17 @@ function originUnion(a: ItemOrigin, b: ItemOrigin): ItemOrigin {
 const ORDINAL_WORD: Record<string, number> = { uno: 1, una: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5 };
 
 /** Fase y opción del plan en que se dictó una prestación: la última mención («fase dos», «opción B») hasta su frase. */
-export function budgetContext(transcript: string, evidence: string): { phase?: string; option?: string } {
-  const probe = evidence.trim().slice(0, 40).toLowerCase();
-  const at = probe ? transcript.toLowerCase().indexOf(probe) : -1;
-  const upto = at >= 0 ? transcript.slice(0, at + evidence.length) : evidence;
+export function budgetContext(transcript: string | string[], evidence: string): { phase?: string; option?: string } {
+  // La cita puede venir del texto corregido o del dictado original: se busca en ambos, por el inicio y por el final.
+  let upto = evidence;
+  const clean = evidence.trim().toLowerCase();
+  search: for (const text of Array.isArray(transcript) ? transcript : [transcript]) {
+    const lower = (text ?? "").toLowerCase();
+    for (const probe of [clean.slice(0, 40), clean.slice(-30)]) {
+      const at = probe.length >= 8 ? lower.indexOf(probe) : -1;
+      if (at >= 0) { upto = (text ?? "").slice(0, at + (probe === clean.slice(-30) ? probe.length : evidence.length)); break search; }
+    }
+  }
   const out: { phase?: string; option?: string } = {};
   const phase = [...upto.matchAll(/(?<!\p{L})(?:fase|etapa)\s+(\d+|uno|una|dos|tres|cuatro|cinco)(?!\p{L})/giu)].pop();
   if (phase) {
@@ -1783,7 +1790,7 @@ function withCatalogCodes(proposal: DictationProposal): DictationProposal {
   return {
     ...proposal,
     budget: proposal.budget.map((item) => {
-      const context = budgetContext(proposal.transcript ?? "", item.evidence || item.sourceText || "");
+      const context = budgetContext([proposal.corrected?.text ?? "", proposal.transcript ?? ""], item.evidence || item.sourceText || "");
       const withContext = { ...item, ...(item.phase ? {} : context.phase ? { phase: context.phase } : {}), ...(item.option ? {} : context.option ? { option: context.option } : {}) };
       if (withContext.catalogCode) return withContext;
       const found = matchPrestacion(withContext.label);
@@ -3416,13 +3423,13 @@ export async function proposeFromTranscript(
     const typed = applyEvolutionPolicy({ ...proposal, evolution, clarifications, diagnoses }, input.chart ?? [], text);
     const normalizedText = normalizeIdentityNumbers(text);
     const normalizedEvolution = typed.evolution ? normalizeIdentityNumbers(typed.evolution.body) : null;
-    return {
+    return withCatalogCodes({
       ...typed,
       ...(normalizedEvolution ? { evolution: { ...typed.evolution!, body: normalizedEvolution.text } } : {}),
       transcript,
       corrected: { text: normalizedText.text, corrections: [...corrections, ...normalizedText.corrections] },
       ...(frame.spokenName ? { spokenName: frame.spokenName } : {}),
-    };
+    });
   };
   if (!model) return { engine: "reglas-locales", model: null, notice: LOCAL_NOTICE, proposal: withText(localOnly, fixed, lexicon.corrections) };
   const started = Date.now();
