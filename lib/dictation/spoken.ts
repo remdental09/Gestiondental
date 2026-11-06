@@ -107,6 +107,11 @@ export function numberSignature(text: string): number[] {
 /** Montos en pesos (≥ 1.000) dichos con cifras o palabras. */
 export function spokenAmounts(text: string): Array<{ value: number; text: string }> {
   return numberRuns(text)
+    .map(run => {
+      // «ochenta lucas» (jerga chilena): una luca son mil pesos.
+      const luca = /^\s*(?:lucas?|lukas?)(?![\p{L}])/iu.exec(text.slice(run.end));
+      return luca && run.value >= 1 && run.value <= 999 ? { ...run, value: run.value * 1000, end: run.end + luca[0].length } : run;
+    })
     .filter(run => run.value >= 1000 && run.value <= 1_000_000_000 && Number.isSafeInteger(run.value))
     .map(run => ({ value: run.value, text: run.text }));
 }
@@ -573,7 +578,7 @@ export function reconcileCorrection(source: string, aiText: string): { text: str
 const SPOKEN_UNIT = "(?:uno|dos|tres|cuatro|cinco|seis|siete|ocho)";
 const TOOTH_TOKEN = `(?:\\d\\.\\d|\\d{1,2}|${SPOKEN_UNIT}\\s+(?:punto\\s+)?${SPOKEN_UNIT})`;
 const FIX_CUE = "(?:no[,\\s]+)?(?:perd[oó]n|mejor\\s+dicho|digo|corrijo|me\\s+equivoqu[eé])";
-const TOOTH_INTRO = "(?:es\\s+)?(?:la\\s+|el\\s+|(?:pieza|diente)\\s+)?";
+const TOOTH_INTRO = "(?:es\\s+)?(?:en\\s+)?(?:la\\s+|el\\s+|(?:pieza|diente)\\s+)?";
 // Lo que va entre la pieza dicha y la corrección no puede nombrar otra pieza.
 const NO_OTHER_TOOTH = "(?:(?!\\d\\.\\d|\\bpieza\\b|\\bdiente\\b)[^.;\\n])*?";
 const NOT_A_TOOTH_AFTER = "(?![\\d.]?\\d)(?!\\s*(?:mil\\b|mm\\b|mil[ií]metros|pesos|%|hrs?\\b|horas))";
