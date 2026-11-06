@@ -2352,6 +2352,7 @@ Redacción esperada: motivo = «Control. Refiere dolor provocado por frío en la
 
 La nota debe ordenar las ideas en una secuencia lógica y eliminar muletillas, repeticiones y frases dirigidas al sistema. Conserva expresamente las negaciones y la temporalidad relevantes (por ejemplo, «la cirugía todavía no se ha realizado»); omitirlas cambia el sentido clínico. Explica relaciones causales solo si el profesional las expresó. Diferencia hallazgo, plan futuro y tratamiento realizado: «se planifica colocar implantes» no significa que ya estén instalados. Si el reconocimiento oyó «root» en un contexto explícito de identificación, entiende que se refiere al RUT, pero no reconstruyas un número de identidad dudoso ni lo agregues a la nota clínica. Cuando un término o número sea ambiguo, conserva lo dicho y plantea la duda; no rellenes vacíos con conocimiento general. La evolución clínica es el resultado principal del dictado: cuando haya atención clínica, conserva en la nota el diagnóstico explícitamente indicado y el tratamiento realizado o planificado, con redacción profesional. La falta de abono, medio de pago, presupuesto, cita o respuesta a una duda nunca debe suprimir ni retrasar la nota. Mantén preguntas y datos administrativos separados de la evolución; no inventes un diagnóstico para completar campos.
 
+Alcance: solo actividades clínicas. No extraigas presupuestos, montos ni pagos (deja "presupuesto" vacío y "presupuestos"/"pagos" sin elementos); si se dictan, ignóralos.
 Examen vs procedimientos: «Examen» recoge solo lo que el profesional OBSERVA o constata (hallazgos, estado de tejidos, restauraciones existentes). Una prestación o maniobra clínica (instalar, colocar, cementar, confeccionar, preparar, extraer, obturar, realizar un destartraje, etc.) es un ACTO: nunca se «observa»; va en «procedimientos» con verbos de acción («Se realiza…», «Se instala…», «Se cementa…»). Jamás escribas «Se observa instalación/colocación/cementación de…».
 2) "hallazgos": un elemento por cada pieza y hallazgo de odontograma OBSERVADO HOY en el examen o realizado hoy. No incluyas lo que el paciente relata, lo planificado, presupuestado o negado.
 - "pieza": el número tal como se dictó ("30", "3.6", "cuarenta y seis").
@@ -3617,6 +3618,28 @@ export function aiFailureReason(message: string): string {
   return text.replace(/[«»"].*$/, "").trim().slice(0, 160) || "error";
 }
 
+/** Alcance clínico: el dictado no propone presupuestos ni pagos, ni deja preguntas o secciones sobre dinero. */
+const MONEY_NOTE = /presupuest|\bmonto|\bpag(?:o|os|ar|aron|ó|ado)\b|\babon|\bcobr|\bvalor(?:es)?\b|pesos|\$/i;
+export function withoutMoney(proposal: DictationProposal): DictationProposal {
+  const lines = proposal.evolution?.body.split("\n") ?? [];
+  const kept: string[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    if (/^(?:Presupuesto|Pagos)$/.test(lines[index].trim())) {
+      while (index + 1 < lines.length && lines[index + 1].trim()) index += 1;
+      if (lines[index + 1] === "") index += 1;
+      continue;
+    }
+    kept.push(lines[index]);
+  }
+  return {
+    ...proposal,
+    budget: [],
+    payments: [],
+    clarifications: proposal.clarifications.filter((note) => !MONEY_NOTE.test(note)),
+    ...(proposal.evolution ? { evolution: { ...proposal.evolution, body: kept.join("\n").trim() } } : {}),
+  };
+}
+
 export async function proposeFromTranscript(
   input: StructureInput,
   model: ClinicalModel | null,
@@ -3645,13 +3668,13 @@ export async function proposeFromTranscript(
     const typed = applyEvolutionPolicy({ ...proposal, evolution, clarifications, diagnoses }, input.chart ?? [], text);
     const normalizedText = normalizeIdentityNumbers(text);
     const normalizedEvolution = typed.evolution ? normalizeIdentityNumbers(typed.evolution.body) : null;
-    return withCatalogCodes({
+    return withCatalogCodes(withoutMoney({
       ...typed,
       ...(normalizedEvolution ? { evolution: { ...typed.evolution!, body: normalizedEvolution.text } } : {}),
       transcript,
       corrected: { text: normalizedText.text, corrections: [...corrections, ...normalizedText.corrections] },
       ...(frame.spokenName ? { spokenName: frame.spokenName } : {}),
-    });
+    }));
   };
   if (!model) return { engine: "reglas-locales", model: null, notice: LOCAL_NOTICE, proposal: withText(localOnly, fixed, lexicon.corrections) };
   const started = Date.now();
@@ -3983,12 +4006,10 @@ export function buildDictatedPerio(
  */
 export function missingData(proposal: DictationProposal): string[] {
   const body = proposal.evolution?.body ?? "";
-  const money = proposal.budget.length > 0 || (proposal.payments?.length ?? 0) > 0 || /^(?:Presupuesto|Pagos)$/m.test(body);
-  const plan = proposal.budget.length > 0 || (proposal.procedures?.length ?? 0) > 0 || /^(?:Plan de tratamiento|Procedimientos realizados|Indicaciones)$/m.test(body);
+  const plan = (proposal.procedures?.length ?? 0) > 0 || /^(?:Plan de tratamiento|Procedimientos realizados|Indicaciones)$/m.test(body);
   const findings = proposal.odontogram.length > 0 || (proposal.incomplete?.length ?? 0) > 0 || (proposal.diagnoses?.length ?? 0) > 0 || proposal.perio.length > 0 || /^(?:Otros hallazgos del examen|Diagnóstico|Sondaje)$/m.test(body);
   const next = (proposal.appointments?.length ?? 0) > 0 || /^Próxima cita$/m.test(body);
   const missing: string[] = [];
-  if (!money) missing.push("Valores: ¿hubo presupuesto o pago?");
   if (!plan) missing.push("Plan: ¿qué se hará y en qué pieza?");
   if (!findings) missing.push("Hallazgos: ¿alguna pieza con hallazgo (fracturada, caries y su profundidad, etc.)?");
   if (!next) missing.push("Próxima cita: ¿cuándo vuelve?");

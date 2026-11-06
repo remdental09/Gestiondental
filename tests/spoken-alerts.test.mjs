@@ -5,9 +5,9 @@ import { spokenAlerts } from "../lib/dictation/spoken-alerts.ts";
 test("avisos hablados: frases cortas, sin citas ni etiquetas, con la pieza dicha en voz natural", () => {
   const phrases = spokenAlerts(
     ["IA: FDI 3.6: ¿profundidad de la caries (esmalte, dentina)? Opcional: «Caries en la 3.6»."],
-    ["Valores: ¿hubo presupuesto o pago?", "Próxima cita: ¿cuándo vuelve?"],
+    ["Plan: ¿qué se hará y en qué pieza?", "Próxima cita: ¿cuándo vuelve?"],
   );
-  assert.deepEqual(phrases, ["pieza 3 punto 6: ¿profundidad de la caries (esmalte, dentina)?", "¿hubo presupuesto o pago?", "¿cuándo vuelve?"]);
+  assert.deepEqual(phrases, ["pieza 3 punto 6: ¿profundidad de la caries (esmalte, dentina)?", "¿qué se hará y en qué pieza?", "¿cuándo vuelve?"]);
 });
 
 test("avisos hablados: nada que avisar, sin repetidos y máximo cuatro más el resto en pantalla", () => {
@@ -16,4 +16,8 @@ test("avisos hablados: nada que avisar, sin repetidos y máximo cuatro más el r
   const many = spokenAlerts(["Duda uno aquí", "Duda dos aquí", "Duda tres aquí", "Duda cuatro aquí", "Duda cinco aquí", "Duda seis aquí"], []);
   assert.equal(many.length, 5);
   assert.equal(many[4], "Y 2 avisos más en pantalla.");
+});
+
+test("avisos hablados: nunca dicen nada de dinero", () => {
+  assert.deepEqual(spokenAlerts(["¿Con qué medio se pagaron $50.000?", "Falta el monto en pesos del tratamiento.", "¿En qué cara es la caries?"], ["Valores: ¿hubo presupuesto o pago?"]), ["¿En qué cara es la caries?"]);
 });

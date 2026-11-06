@@ -41,9 +41,7 @@ test("el presupuesto conserva el código del catálogo y descarta valores invál
   assert.equal(items?.[1].code, undefined);
 });
 
-test("el dictado vincula la prestación del presupuesto con el catálogo", async () => {
+test("el dictado ya no propone presupuestos (alcance clínico)", async () => {
   const proposal = (await proposeFromTranscript({ transcript: "Presupuesto de exodoncia simple de la pieza 3.8 por cuarenta mil pesos.", chart: [] }, null, () => {}, { today: "2026-11-06" })).proposal;
-  const item = proposal.budget.find((entry) => /exodoncia/i.test(entry.label));
-  assert.ok(item, "hay una prestación en el presupuesto");
-  assert.equal(item.catalogCode, "5003001");
+  assert.deepEqual(proposal.budget, []);
 });

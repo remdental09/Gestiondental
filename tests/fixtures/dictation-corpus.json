@@ -95,9 +95,7 @@
       "id": "c08-abono-efectivo",
       "text": "abonó cincuenta mil en efectivo",
       "expect": {
-        "payments": [
-          "50000 efectivo"
-        ],
+        "payments": [],
         "budget": [],
         "patientWarning": false
       }
@@ -205,12 +203,8 @@
       "id": "c18-pago-y-presupuesto",
       "text": "pagó ciento veinte mil con débito presupuesto corona pieza 3.6 trescientos mil pesos",
       "expect": {
-        "payments": [
-          "120000 debito"
-        ],
-        "budget": [
-          "300000"
-        ],
+        "payments": [],
+        "budget": [],
         "odontogram": [],
         "patientWarning": false
       }

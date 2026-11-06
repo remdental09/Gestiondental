@@ -299,8 +299,7 @@ test('la IA no cuela piezas, caras, profundidades ni montos sin cita literal', a
   const molar = items.filter((item) => item.tooth === 16);
   assert.deepEqual(molar.map((item) => item.surface), ['O']);
   assert.equal(molar[0].finding.condition, 'restored');
-  assert.equal(outcome.proposal.budget.length, 1);
-  assert.equal(outcome.proposal.budget[0].amount, 350000);
+  assert.equal(outcome.proposal.budget.length, 0);
   assert.equal(/Falta el monto/.test(outcome.proposal.clarifications.join(' ')), false);
   // La nota se queda, pero el ICDAS que no se dictó queda marcado para revisar.
   assert.match(outcome.proposal.clarifications.join(' '), /«4», que no aparece en el dictado/);
@@ -406,10 +405,8 @@ test('dos dictados chilenos reales no mezclan piezas ni contradicen las aclaraci
   assert.equal(missing.missingReason, 'other');
   assert.equal(missing.numberingLabel.includes('1.6'), true);
   assert.equal(missing.sourceText.includes('Pieza 3'), true);
-  assert.equal(second.proposal.budget.length, 1);
-  assert.equal(second.proposal.budget[0].amount, 0);
-  assert.match(second.proposal.budget[0].label, /resina/i);
-  assert.match(second.proposal.clarifications.join(' '), /Falta el monto/);
+  assert.equal(second.proposal.budget.length, 0);
+  assert.ok(!/Falta el monto/.test(second.proposal.clarifications.join(" ")));
   assert.equal(/no es un FDI válido|lectura local|se dejó fuera/i.test(second.proposal.clarifications.join(' ')), false);
   assert.equal(/refiere|relata/i.test(second.proposal.evolution.body), false);
 });
