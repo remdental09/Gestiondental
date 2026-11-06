@@ -191,3 +191,16 @@ test("budgetContext encuentra la fase con el texto corregido o el original", asy
   assert.equal(budgetContext([corrected, original], "corona del 3.6").phase, "Fase 2");
   assert.equal(budgetContext(["otro texto", original], "endodoncia del 3.6").phase, "Fase 1");
 });
+
+test("sondaje dictado: tres cifras por cara, cifras sin mm, central, sangrado general y movilidad de la pieza anterior", async () => {
+  const { proposeFromTranscript } = await import("../lib/dictation/proposal.ts");
+  const run = async (transcript) => { const r = await proposeFromTranscript({ transcript, chart: [] }, null, () => {}, { today: "2026-11-06" }); return r.proposal ?? r; };
+  const triple = await run("Sondaje en el 4.6 de 5 5 6 por vestibular y 4 4 5 por lingual.");
+  assert.deepEqual(triple.perio.map((p) => `${p.site}${p.depth}`), ["MV5", "V5", "DV6", "ML4", "L4", "DL5"]);
+  const bare = await run("Periodontograma del 1.6: mesial vestibular 7, central 5, distal vestibular 6, todos con sangrado. Movilidad dos.");
+  assert.deepEqual(bare.perio.map((p) => `${p.site}${p.depth}${p.bleeding ? "b" : ""}`), ["MV7b", "V5b", "DV6b"]);
+  assert.equal(bare.mobility[0].tooth, 16);
+  assert.equal(bare.mobility[0].grade, "II");
+  const tail = await run("Sondaje en la pieza 2.6 mesio vestibular 6 mm, vestibular 4 mm, disto vestibular 5 mm, sangrado al sondaje en los tres sitios.");
+  assert.ok(tail.perio.length === 3 && tail.perio.every((p) => p.bleeding));
+});
