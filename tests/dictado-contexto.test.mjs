@@ -26,3 +26,18 @@ test("si las frases vecinas apuntan a piezas distintas, se sigue preguntando", a
   const p = await run("Pieza ocho. Se deja sellado con vidrio ionómero. Pieza nueve.");
   assert.ok(p.clarifications.some((c) => /Falta una pieza identificable/.test(c)));
 });
+
+test("la pieza dictada unas frases antes se hereda si es la única del dictado", async () => {
+  const p = await run("Preparación de la pieza ocho. Se trepana. Así que el diagnóstico está claro. Se deja sellado con vidrio ionómero.");
+  assert.ok(!p.clarifications.some((c) => /Falta una pieza identificable/.test(c)));
+});
+
+test("«el diagnóstico está claro» no genera aviso si otra frase sí dicta un diagnóstico", async () => {
+  const p = await run("Diagnóstico de periodontitis apical crónica en la pieza ocho. Así que el diagnóstico está claro.");
+  assert.ok(!p.clarifications.some((c) => /No se creó un diagnóstico confirmado/.test(c)));
+});
+
+test("sin diagnóstico reconocido en ninguna frase sigue avisando", async () => {
+  const p = await run("El diagnóstico está pendiente en la pieza ocho.");
+  assert.ok(p.clarifications.some((c) => /No se creó un diagnóstico confirmado/.test(c)));
+});

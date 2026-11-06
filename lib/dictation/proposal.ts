@@ -1249,6 +1249,8 @@ export function structureTranscript(transcript: string, options: { today?: strin
   const nextId = (prefix: string) => `${prefix}-${++counter}`;
 
   const allSentences = sentences(transcript);
+  // «El diagnóstico está claro…» no es un diagnóstico perdido si en otra frase sí se dictó uno reconocido.
+  const transcriptHasDiagnosis = allSentences.some((line) => isDiagnosisSentence(line));
   for (const [sentenceIndex, sentence] of allSentences.entries()) {
     const field = fichaFrom(sentence);
     if (field && toothMentions(sentence).length === 0) {
@@ -1266,7 +1268,7 @@ export function structureTranscript(transcript: string, options: { today?: strin
     if (!taggedDiagnosis && /\b(?:epb|l[oö]e[\s-]?silness|aap[\s-]?efp|estadio|grado)\b/i.test(sentence) && /\b(?:periodon|sextante|epb|gingival)\b/i.test(sentence)) {
       clarifications.push("El dictado menciona tamizaje o clasificación periodontal. No se infiere diagnóstico ni se guarda el periodontograma.");
     }
-    if (!taggedDiagnosis && /\bdiagn[oó]stico\b/i.test(sentence)) {
+    if (!taggedDiagnosis && !transcriptHasDiagnosis && /\bdiagn[oó]stico\b/i.test(sentence)) {
       clarifications.push("No se creó un diagnóstico confirmado a partir del dictado.");
     }
     const grade = mobilityGrade(sentence);
@@ -1375,8 +1377,7 @@ export function structureTranscript(transcript: string, options: { today?: strin
     if (!mentions.length && (status || surfaceResult)) {
       // Dictado conversacional: la pieza puede estar en la frase anterior o en la siguiente.
       // Solo se hereda si el entorno apunta a una única pieza válida; si no, se pregunta.
-      const near = [allSentences[sentenceIndex - 1], allSentences[sentenceIndex + 1]]
-        .filter((other): other is string => Boolean(other))
+      const near = [...allSentences.slice(Math.max(0, sentenceIndex - 3), sentenceIndex), ...allSentences.slice(sentenceIndex + 1, sentenceIndex + 3)]
         .flatMap((other) => toothMentions(other));
       const distinct = new Map(near.filter((m) => m.ok).map((m) => [m.tooth, m]));
       if (distinct.size === 1 && near.every((m) => m.ok)) mentions = [...distinct.values()];
@@ -2569,7 +2570,9 @@ export function validateAiExtraction(input: unknown, transcript: string, options
   for (const doubt of list(record.dudas, 12)) {
     const value = str(doubt, 300);
     // Sistema de numeración, profundidad de caries, medio de pago, hora y sitio ya los preguntan las reglas.
-    if (value && !/sistema|numeraci|etiqueta|icdas|actividad|profundidad|esmalte|dentina|medio de pago|forma de pago|hora|sitio/i.test(value)) clarifications.push(`IA: ${value}`);
+    const asksPerio = /sondaje|sangrado|supuraci|bolsa\s+periodontal/i.test(value);
+    const perioDictated = /sondaj|sangrad|supuraci|bolsa|profundidad|periodontograma|inserci/i.test(transcript);
+    if (value && !(asksPerio && !perioDictated) && !/sistema|numeraci|etiqueta|icdas|actividad|profundidad|esmalte|dentina|medio de pago|forma de pago|hora|sitio/i.test(value)) clarifications.push(`IA: ${value}`);
   }
   // Diagnósticos: la IA elige el concepto y cita la frase; el código lo pone el catálogo, nunca la IA.
   const diagnoses: DiagnosisItem[] = [];

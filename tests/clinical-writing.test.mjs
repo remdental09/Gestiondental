@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { procedureCovered, deduplicateProcedureSentences } from '../lib/dictation/clinical-writing.ts';
+import { procedureCovered, deduplicateProcedureSentences, CLINICAL_WRITING_PROMPT } from '../lib/dictation/clinical-writing.ts';
 import { buildModelUserPrompt, proposeFromTranscript, validateAiExtraction } from '../lib/dictation/proposal.ts';
 import { judgeCorrection } from '../lib/dictation/spoken.ts';
 
@@ -85,4 +85,10 @@ test("el prompt de redacción exige registro formal sin agregar pasos no dictado
   assert.match(WRITING_PROMPT_REGISTER, /Prohibido agregar/);
   assert.match(WRITING_PROMPT_REGISTER, /remoción de tejido cariado/);
   assert.match(SYSTEM_PROMPT_REGISTER, /Registro formal/);
+});
+
+test("el prompt conserva términos técnicos y separa indicaciones del plan", () => {
+  assert.match(CLINICAL_WRITING_PROMPT, /«sextante» no es «grupo»/);
+  assert.match(CLINICAL_WRITING_PROMPT, /técnica de cepillado.*«Indicaciones»/s);
+  assert.match(CLINICAL_WRITING_PROMPT, /nunca pidas aclarar un término que tú mismo cambiaste/);
 });
