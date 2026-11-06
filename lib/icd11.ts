@@ -207,7 +207,7 @@ function dentalContext(t: string): boolean {
 /** Conceptos clínicos sin código CIE-11 específico verificado: se etiquetan sin código. */
 type Uncoded = { re: RegExp; title: (match: RegExpExecArray) => string; fallback?: true };
 const UNCODED: Uncoded[] = [
-  { re: /\bgingivitis\s+(?:inducida\s+por\s+(?:placa|biofilm|biopelicula)|asociada\s+a\s+(?:placa|biofilm|biopelicula)|por\s+(?:placa|biofilm))\b/, title: () => "Gingivitis inducida por placa (biofilm)" },
+  { re: /\bgingivitis\s+(?:(?:localizada|generalizada)\s+)?(?:inducida\s+por\s+(?:placa|biofilm|biopelicula)|asociada\s+a\s+(?:placa|biofilm|biopelicula)|por\s+(?:placa|biofilm))\b/, title: () => "Gingivitis inducida por placa (biofilm)" },
   { re: /\bperiodontitis\s+(?:estadio|etapa)\s+(i{1,3}v?|iv|[1-4]|uno|dos|tres|cuatro)(?:[\s,]+(?:y\s+)?grado\s+([abc]))?\b/, title: (m) => `Periodontitis estadio ${roman(m[1])}${m[2] ? ` grado ${m[2].toUpperCase()}` : ""} (clasificación 2017)` },
   { re: /\bbruxismo\b(?!\s+(?:del\s+sueno|nocturno))/, title: () => "Bruxismo (sin precisar si es del sueño o de vigilia)" },
   { re: /\bhipomineralizacion\s+incisivo[\s-]*molar\b|\bmih\b|\bhim\b/, title: () => "Hipomineralización incisivo-molar (HIM)" },

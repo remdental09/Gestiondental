@@ -108,3 +108,16 @@ test("montos dictados en palabras se usan en el presupuesto de la IA", async () 
   const { spokenAmounts } = await import("../lib/dictation/spoken.ts");
   assert.deepEqual(spokenAmounts("ciento ochenta mil pesos").map((a) => a.value), [180000]);
 });
+
+test("«Ausencia del 2.4» marca la pieza ausente y «ausencia de sangrado» no", async () => {
+  const run = async (transcript) => (await proposeFromTranscript({ transcript, chart: [] }, null, () => {}, { today: "2026-11-06" })).proposal;
+  const a = await run("Ausencia del 2.4. Plan de tratamiento opción A: implante con corona en el 2.4, novecientos mil pesos.");
+  assert.deepEqual(a.odontogram.map((o) => [o.tooth, o.status]), [[24, "Ausente"]]);
+  const b = await run("Ausencia de sangrado al sondaje.");
+  assert.equal(b.odontogram.length, 0);
+});
+
+test("gingivitis generalizada asociada a placa se propone como diagnóstico sin código", async () => {
+  const p = (await proposeFromTranscript({ transcript: "Gingivitis generalizada asociada a placa. Plan de tratamiento: profilaxis dental.", chart: [] }, null, () => {}, { today: "2026-11-06" })).proposal;
+  assert.ok(p.diagnoses.some((d) => /Gingivitis inducida por placa/.test(d.title) && !d.code));
+});

@@ -796,6 +796,7 @@ function statusFrom(sentence: string): ToothStatus | null {
   }
   if (/\b(?:corona|pr[oó]tesis\s+fija\s+definitiva)\b/i.test(sentence) && !/\bprovisori[ao]\b/i.test(sentence)) return "Corona";
   if (/\b(?:ausente|extra[ií]d[oa]|exodonciad[oa])\b/i.test(sentence)) return "Ausente";
+  if (/(?<!\p{L})ausencia\s+(?:de(?:l|\s+la)?\s+)?(?:pieza\s+|diente\s+)?\d/iu.test(sentence)) return "Ausente";
   return null;
 }
 
@@ -2292,7 +2293,7 @@ export function evidenceInTranscript(evidence: string, transcript: string): bool
   return false;
 }
 
-function numbersIn(value: string): Set<string> {
+function numbersIn(value: string, articlesAsNumbers = true): Set<string> {
   const found = new Set<string>();
   const plain = value.replace(/(\d)\.(?=\d{3}\b)/g, "$1");
   for (const match of plain.matchAll(/\d+(?:[.,]\d+)?/g)) {
@@ -2311,6 +2312,7 @@ function numbersIn(value: string): Set<string> {
   // «ciento diez mil pesos» se escribe 110000; «fase uno», «cada dos meses»: la nota puede usar cifras.
   for (const amount of amountsIn(value)) found.add(String(amount));
   for (const [word, number] of Object.entries({ un: 1, uno: 1, una: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10 })) {
+    if (!articlesAsNumbers && (word === "un" || word === "una")) continue; // «un monto de…» no es la cifra 1
     if (new RegExp(String.raw`\b${word}\b`).test(spoken)) found.add(String(number));
   }
   for (const match of spoken.matchAll(new RegExp(String.raw`\b${SPOKEN_DIGIT}\s+${SPOKEN_DIGIT_SECOND}\b`, "g"))) {
@@ -2509,7 +2511,7 @@ export function validateAiExtraction(input: unknown, transcript: string, options
   }
   const noteBody = noteLines.join("\n").trim();
   const known = numbersIn(transcript);
-  const strange = [...numbersIn(noteBody)].filter((value) => !known.has(value) && !/^0+$/.test(value));
+  const strange = [...numbersIn(noteBody, false)].filter((value) => !known.has(value) && !/^0+$/.test(value));
   for (const value of strange.slice(0, 6)) clarifications.push(`La nota redactada menciona «${value}», que no aparece en el dictado. Revísalo antes de guardar.`);
 
   // Hallazgos
