@@ -526,7 +526,7 @@ function toothMentions(sentence: string): Mention[] {
   // «en la 3.6» sin etiqueta: la forma con punto es FDI (la corrección convierte «tres seis» en 3.6).
   // No se lee como pieza si es una medida («4.5 mm») o parte de otro número («50.000», «10.30»).
   const unlabeled = sentence.replace(numbered, (whole) => " ".repeat(whole.length));
-  for (const match of unlabeled.matchAll(/(?<![\p{L}\d.,])(?<![x×]\s?)([1-8])\.([1-8])(?![\d.,]?\d)(?!\s*(?:mm|mil[ií]metros?|cm|%|hrs?|horas?|h\b|[x×]\s*\d))/giu)) {
+  for (const match of unlabeled.matchAll(/(?<![\p{L}\d.,])(?<![x×]\s?)(?<!\b(?:color|colores|tono|tinte|matiz|vita|escala)\s+(?:de\s+)?)([1-8])\.([1-8])(?![\d.,]?\d)(?!\s*(?:mm|mil[ií]metros?|cm|%|hrs?|horas?|h\b|[x×]\s*\d))/giu)) {
     mentions.push(interpretTooth(`${match[1]}.${match[2]}`, "fdi"));
   }
   // «las piezas 16 y 26», «dientes 1.6, 2.6 y 3.6»: la etiqueta se comparte con toda la lista.

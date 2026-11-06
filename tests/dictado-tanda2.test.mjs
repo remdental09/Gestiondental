@@ -338,3 +338,8 @@ test("varias frases sobre la misma corona se funden en un solo cambio con su mat
   assert.equal(p.odontogram.length, 1);
   assert.equal(p.odontogram[0].material, "Zirconio");
 });
+
+test("«color 3.5» o «tono 2.5» sin letra tampoco son una pieza", async () => {
+  const p = await quick("Se cementa corona en el diente 2.3 con color 3.5.");
+  assert.deepEqual([...new Set(p.odontogram.map((item) => item.tooth))], [23]);
+});
