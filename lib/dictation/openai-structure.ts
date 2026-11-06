@@ -2,6 +2,8 @@ import { AI_JSON_SCHEMA, AI_SYSTEM_PROMPT, buildModelUserPrompt, type StructureI
 
 /** Respaldo de pago cuando Workers AI no responde o agotó su cupo diario. */
 export const OPENAI_STRUCTURE_MODEL = "gpt-5.6-terra";
+/** Modelo probado en esta cuenta: se usa si el configurado no existe o la clave no tiene acceso. */
+export const OPENAI_SAFE_MODEL = "gpt-4o-mini";
 /** Rectificación lingüística del dictado: tarea acotada, basta el nivel económico. */
 export const OPENAI_CORRECTION_MODEL = "gpt-5.6-luna";
 /** gpt-5.x y o-series razonan: no aceptan temperature ni max_tokens. */
@@ -49,7 +51,14 @@ export async function runOpenAiStructure(
     response = await send(rest);
   }
   // Nunca se incluye la clave ni el cuerpo de la respuesta en el error.
-  if (!response.ok) throw new Error(`OpenAI respondió HTTP ${response.status}`);
+  if (!response.ok) {
+    // Solo el código del error (p. ej. model_not_found); nunca el texto, que podría repetir parte de la clave.
+    const detail = await response.json().then((raw: unknown) => {
+      const body = raw as { error?: { code?: unknown; type?: unknown } };
+      return String(body?.error?.code ?? body?.error?.type ?? "").replace(/[^\w.-]/g, "").slice(0, 40);
+    }).catch(() => "");
+    throw new Error(`OpenAI respondió HTTP ${response.status}${detail ? ` (${detail})` : ""}`);
+  }
   const payload = await response.json() as { choices?: Array<{ message?: { content?: unknown; refusal?: unknown } }>; usage?: OpenAiUsage };
   if (payload.usage && options.onUsage) options.onUsage(payload.usage);
   const content = payload.choices?.[0]?.message?.content;

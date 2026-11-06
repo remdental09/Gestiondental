@@ -8,7 +8,7 @@ import {
   type ClinicalModel,
   type ModelAnswer,
 } from "./proposal.ts";
-import { OPENAI_STRUCTURE_MODEL, runOpenAiStructure, type OpenAiUsage } from "./openai-structure.ts";
+import { isReasoningModel, OPENAI_SAFE_MODEL, OPENAI_STRUCTURE_MODEL, runOpenAiStructure, type OpenAiUsage } from "./openai-structure.ts";
 
 type AiRunner = {
   run(model: string, input: Record<string, unknown>): Promise<unknown>;
@@ -49,12 +49,17 @@ export function createWorkersAiModel(ai: AiRunner | null | undefined, options: {
       const failures: string[] = [];
       let quota = false;
       if (openAiKey && options.preferOpenAi) {
-        try {
-          const content = await runOpenAiStructure(input, openAiKey, { model: openAiModel, fetcher: options.openAi?.fetcher, timeoutMs: Math.min(20_000, totalMs), onUsage: options.openAi?.onUsage });
-          const output = validateModelOutput(modelOutputToJson(content));
-          return { usedModel: `openai/${openAiModel}`, output };
-        } catch (cause) {
-          failures.push(`openai: ${(cause instanceof Error ? cause.message : String(cause)).slice(0, 80)}`);
+        // Si el modelo configurado no responde (sin acceso, no existe, lento), se prueba el modelo seguro antes de caer a Workers AI.
+        for (const candidate of [...new Set([openAiModel, OPENAI_SAFE_MODEL])]) {
+          const left = totalMs - (Date.now() - started);
+          if (left < 5_000) break;
+          try {
+            const content = await runOpenAiStructure(input, openAiKey, { model: candidate, fetcher: options.openAi?.fetcher, timeoutMs: Math.min(candidate === openAiModel && isReasoningModel(candidate) ? 30_000 : 20_000, left), onUsage: options.openAi?.onUsage });
+            const output = validateModelOutput(modelOutputToJson(content));
+            return { usedModel: `openai/${candidate}`, output };
+          } catch (cause) {
+            failures.push(`openai ${candidate}: ${(cause instanceof Error ? cause.message : String(cause)).slice(0, 80)}`);
+          }
         }
       }
       for (const model of chain) {

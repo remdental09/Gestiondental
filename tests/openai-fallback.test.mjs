@@ -137,3 +137,18 @@ test("si OpenAI rechaza reasoning_effort (400), se reintenta una vez sin ese par
   assert.equal(bodies.length, 2);
   assert.equal("reasoning_effort" in bodies[1], false);
 });
+
+test("si el modelo configurado no responde (403), se usa de inmediato el modelo seguro y no las reglas", async () => {
+  const { createWorkersAiModel } = await import("../lib/dictation/workers-ai.ts");
+  const seen = [];
+  const fetcher = async (_url, init) => {
+    const body = JSON.parse(init.body);
+    seen.push(body.model);
+    if (body.model === "gpt-5.6-terra") return new Response(JSON.stringify({ error: { code: "model_not_found", message: "secreto" } }), { status: 403 });
+    return Response.json({ choices: [{ message: { content: JSON.stringify({ nota, hallazgos: [], texto_corregido: "" }) } }] });
+  };
+  const model = createWorkersAiModel(null, { openAi: { apiKey: "k", model: "gpt-5.6-terra", fetcher }, preferOpenAi: true });
+  const answer = await model.complete({ transcript: "hola", chart: [] });
+  assert.deepEqual(seen, ["gpt-5.6-terra", "gpt-4o-mini"]);
+  assert.equal(answer.usedModel, "openai/gpt-4o-mini");
+});
