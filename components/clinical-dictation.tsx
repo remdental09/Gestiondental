@@ -57,6 +57,7 @@ import {
 } from "@/lib/dictation/proposal";
 import { searchDiagnoses } from "@/lib/icd11";
 import { sameDiagnosisTags, sanitizeDiagnosisTags, type EvolutionDiagnosisTag } from "@/lib/evolution-diagnoses";
+import { evolutionNotices, type EvolutionNoticeKey } from "@/lib/dictation/evolution-notices";
 
 type Reload = {
   patients: { id: number; name: string; birthDate: string; rut: string; phone: string; email: string; reason: string; status: string; allergies: string; history: string }[];
@@ -201,7 +202,7 @@ export function ClinicalDictation({
   /** Abre el dictado desde otro lugar (p. ej. «Nueva evolución») con un texto ya escrito o dictado, y lo corrige con IA. */
   request?: { nonce: number; text: string; ignoreCommand?: boolean; incorporate?: boolean } | null;
   /** Evoluciones del paciente, para resolver órdenes dictadas («elimina el último dictado…»). */
-  notes?: CommandNote[];
+  notes?: (CommandNote & { diagnoses?: Partial<EvolutionDiagnosisTag>[] })[];
   onAnnul?: AnnulHandler;
   /** Botón grande «Dictar en esta ficha» (barra fija de la ficha abierta). */
   prominent?: boolean;
@@ -243,6 +244,8 @@ export function ClinicalDictation({
   const [patientConfirmed, setPatientConfirmed] = useState(false);
   const [dxItems, setDxItems] = useState<ReviewDiagnosis[]>([]);
   const [dxSearch, setDxSearch] = useState("");
+  // Avisos descartados con «No es necesario ahora»: valen solo para esta evolución.
+  const [dismissedNotices, setDismissedNotices] = useState<Set<EvolutionNoticeKey>>(new Set());
   // Al terminar un dictado (Detener, corte de Safari o error) se corrige solo con IA, una vez por dictado.
   const autoPending = useRef(false);
   const heard = useRef({ text: "", interim: "" });
@@ -281,6 +284,7 @@ export function ClinicalDictation({
     setAppointmentItems([]);
     setDxItems([]);
     setDxSearch("");
+    setDismissedNotices(new Set());
     setAnswers({});
     setResult(null);
     setFormError("");
@@ -411,6 +415,7 @@ export function ClinicalDictation({
       // Las caries se derivan en vivo de lo aceptado en el odontograma; el resto se revisa una por una.
       setDxItems((data.proposal.diagnoses ?? []).filter((item) => !item.code.startsWith("DA08.0")).map((item) => ({ ...item, decision: item.suggested ? "rejected" as const : "accepted" as const, toothText: item.tooth ? formatFdi(item.tooth) : "", findingsText: item.findings ?? "", codeSearch: "" })));
       setDxSearch("");
+      setDismissedNotices(new Set());
       setAppointmentItems((data.proposal.appointments ?? []).map((item) => ({ ...item, decision: item.day && item.time && !item.timeDoubt ? "accepted" : "rejected", dayValue: item.day ?? "", timeValue: item.time ?? "" })));
     } catch (cause) {
       setOutcome(null);
@@ -737,6 +742,28 @@ export function ClinicalDictation({
 
   const proposal = outcome?.proposal;
   const missing = proposal ? missingData(proposal) : [];
+  // Diagnósticos de la última evolución vigente de la ficha: se pueden vincular sin volver a dictarlos.
+  const currentChartDiagnoses = useMemo(
+    () => (notes.find((note) => (note.diagnoses?.length ?? 0) > 0 && !/anul/i.test(note.status ?? ""))?.diagnoses ?? [])
+      .filter((tag): tag is Partial<EvolutionDiagnosisTag> & { title: string } => typeof tag.title === "string" && tag.title.length > 0),
+    [notes],
+  );
+  const noticeList = proposal ? evolutionNotices({
+    procedures: proposal.procedures?.length ?? 0,
+    acceptedTeeth: teeth.filter((item) => item.decision === "accepted").length,
+    perio: perioItems.filter((item) => item.decision === "accepted").length,
+    diagnoses: dxItems.filter((item) => item.decision === "accepted").length + cariesDiagnoses(teeth.filter((item) => item.decision === "accepted")).filter((item) => item.code.startsWith("DA08.0")).length,
+    budget: proposal.budget.length,
+    planInBody: /^Plan de tratamiento$/m.test(proposal.evolution?.body ?? ""),
+    chartHasPlan: budgetOptions.length > 0,
+    hasBody: Boolean(proposal.evolution?.body?.trim()),
+  }, dismissedNotices) : [];
+  const dismissNotice = (key: EvolutionNoticeKey) => setDismissedNotices((current) => new Set(current).add(key));
+  const linkChartDiagnosis = (tag: Partial<EvolutionDiagnosisTag> & { title: string }) => {
+    setDxItems((current) => current.some((entry) => entry.code === (tag.code ?? "") && entry.title === tag.title && entry.toothText === (tag.tooth ? formatFdi(tag.tooth) : ""))
+      ? current
+      : [...current, { id: `dx-ficha-${Date.now()}-${current.length}`, code: tag.code ?? "", title: tag.title, label: tag.title, evidence: "Diagnóstico vigente de la ficha", origin: "manual" as const, decision: "accepted" as const, tooth: tag.tooth ?? undefined, toothText: tag.tooth ? formatFdi(tag.tooth) : "", findings: tag.findings ?? "", findingsText: tag.findings ?? "", codeSearch: "" }]);
+  };
 
   /** Diagnósticos aceptados: caries derivadas del odontograma aceptado + etiquetas revisadas. */
   function diagnosisPlan(acceptedTeeth: OdontogramChange[]): { items: DiagnosisItem[]; tags: EvolutionDiagnosisTag[] } | { error: string } {
@@ -838,6 +865,24 @@ export function ClinicalDictation({
             {missing.length > 0 && <section className="rounded-xl border border-[#dbe7e8] bg-white p-3 text-sm text-[#31575b]" data-testid="dictation-missing">
               <p><strong>Falta (opcional):</strong> {missing.join(" · ")}</p>
               <p className="mt-1 text-xs text-[#60757a]">No es obligatorio y no impide guardar la evolución. Puedes aclararlo después.</p>
+            </section>}
+            {noticeList.length > 0 && <section className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 text-sm text-amber-950" data-testid="dictation-notices">
+              <h3 className="font-semibold">Avisos (no impiden guardar)</h3>
+              <ul className="mt-2 space-y-3">{noticeList.map((notice) => <li key={notice.key} data-testid={`dictation-notice-${notice.key}`}>
+                <p>{notice.text}</p>
+                {notice.key === "diagnostico" && currentChartDiagnoses.length > 0 && <div className="mt-2 space-y-1">
+                  <p className="text-xs font-medium">Diagnóstico vigente en la ficha:</p>
+                  <ul className="flex flex-wrap gap-2">{currentChartDiagnoses.map((tag, index) => <li key={`${tag.code ?? ""}|${tag.title}|${tag.tooth ?? ""}|${index}`}>
+                    <Button type="button" size="sm" variant="outline" className="h-auto whitespace-normal bg-white text-left" onClick={() => { linkChartDiagnosis(tag); dismissNotice("diagnostico"); }}>
+                      Vincular: {tag.tooth ? `FDI ${formatFdi(tag.tooth)} · ` : ""}{tag.title}{tag.code ? ` (${tag.code})` : ""}
+                    </Button>
+                  </li>)}</ul>
+                </div>}
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {notice.key === "diagnostico" && <Button type="button" size="sm" variant="outline" className="bg-white" onClick={() => document.querySelector<HTMLInputElement>('input[aria-label="Buscar diagnóstico para agregar"]')?.focus()}>Agregarlo ahora</Button>}
+                  <Button type="button" size="sm" variant="outline" className="bg-white" onClick={() => dismissNotice(notice.key)} data-testid={`dictation-notice-dismiss-${notice.key}`}>No es necesario ahora</Button>
+                </div>
+              </li>)}</ul>
             </section>}
             {proposal.clarifications.length > 0 && <section className="rounded-xl bg-amber-50 p-4 text-amber-950" data-testid="dictation-clarifications">
               <h3 className="font-semibold">Aclaraciones opcionales ({proposal.clarifications.length})</h3>
