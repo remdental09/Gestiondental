@@ -5,9 +5,9 @@ import { spokenAlerts } from "../lib/dictation/spoken-alerts.ts";
 test("avisos hablados: frases cortas, sin citas ni etiquetas, con la pieza dicha en voz natural", () => {
   const phrases = spokenAlerts(
     ["IA: FDI 3.6: ¿profundidad de la caries (esmalte, dentina)? Opcional: «Caries en la 3.6»."],
-    ["Valores: ¿hubo presupuesto o pago?", "Próxima cita: ¿cuándo vuelve?"],
+    ["Plan: ¿qué se hará y en qué pieza?", "Próxima cita: ¿cuándo vuelve?"],
   );
-  assert.deepEqual(phrases, ["pieza 3 punto 6: ¿profundidad de la caries (esmalte, dentina)?", "¿hubo presupuesto o pago?", "¿cuándo vuelve?"]);
+  assert.deepEqual(phrases, ["pieza 3 punto 6: ¿profundidad de la caries (esmalte, dentina)?", "¿qué se hará y en qué pieza?", "¿cuándo vuelve?"]);
 });
 
 test("avisos hablados: nada que avisar, sin repetidos y máximo cuatro más el resto en pantalla", () => {
