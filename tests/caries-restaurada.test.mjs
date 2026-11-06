@@ -48,3 +48,12 @@ test("varias mediciones de sondaje en una frase dan una lectura por sitio", asyn
   assert.deepEqual(p.perio.map((item) => [item.site, item.depth, item.bleeding]), [["MV", 5, true], ["DV", 6, true]]);
   assert.equal((p.perioPending ?? []).length, 0);
 });
+
+test("avisos de la IA que no se aplicaron se ocultan si las reglas ya registraron esa pieza", async () => {
+  const base = await quick("Sondaje en la pieza 3.6, mesiovestibular 5 mm con sangrado.");
+  assert.equal(base.perio.length, 1);
+  const ai = { noteBody: "", odontogram: [], incomplete: [], budget: [], ficha: [], procedures: [], rejected: 0, perio: [], perioPending: [], payments: [], appointments: [], diagnoses: [],
+    clarifications: ["FDI 3.6: la IA indicó el sitio MV, que no está en la cita. Queda sin sitio.", "La cita de FDI 3.6 no respalda «caries»: «x»."] };
+  const merged = mergeProposals(ai, base, "Sondaje en la pieza 3.6, mesiovestibular 5 mm con sangrado.");
+  assert.ok(!merged.clarifications.some((note) => /la IA indicó el sitio|no respalda/.test(note)));
+});

@@ -2927,8 +2927,21 @@ export function mergeProposals(ai: AiExtraction, local: DictationProposal, trans
     const budget = paymentBudgetMatch(item, finalBudget);
     return budget ? { ...item, budgetRef: budget.id } : { ...item, budgetRef: undefined };
   });
+  // Propuestas de la IA que no pasaron la verificación y no se aplicaron: si las reglas ya registraron esa pieza, el aviso solo ensucia.
+  const handledTeeth = new Set<string>([
+    ...routed.odontogram.map((item) => formatFdi(item.tooth)),
+    ...routed.perio.map((item) => formatFdi(item.tooth)),
+    ...(routed.mobility ?? []).map((item) => formatFdi(item.tooth)),
+  ]);
+  const aiDiscard = /^(?:La cita de FDI ([\d.]+) no |La IA propuso «[^»]+» en pieza ([\d.]+) sin una cita|FDI ([\d.]+): la IA indic[oó] (?:el sitio|\d+ mm))/;
+  const tidyNotices = routed.clarifications.filter((note) => {
+    const match = note.match(aiDiscard);
+    const tooth = match?.[1] ?? match?.[2] ?? match?.[3];
+    return !(tooth && handledTeeth.has(tooth));
+  });
   return {
     ...routed,
+    clarifications: tidyNotices,
     budget: finalBudget,
     perio: renumber(routed.perio, "per"),
     perioPending: renumber(routed.perioPending ?? [], "pen"),

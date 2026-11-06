@@ -169,3 +169,5 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 - Condición vacía de la IA (p. ej. sondaje listado como superficie) se ignora sin pregunta.
 - Pendiente: guardar la simulación con fechas distintas en la ficha id 8 y releer el odontograma.
 - Simulación guardada en ficha id 8 (fechas 2026-08-03 a 2026-10-20): piezas 26, 55, 65, 47, 38, 14, 25 y 45; el odontograma y el historial por pieza con fecha respondieron bien. Pendiente: sondaje, que se corrige con lecturas múltiples por frase (`perioFragments`) y descarte de dudas de la IA sobre piezas no dictadas.
+- El periodontograma dictado se guarda con la fecha de atención (`savePerio` acepta `clinicalDate`). Los avisos de la IA sobre propuestas no aplicadas (sitio/mm que no están en la cita, cita que no respalda) se ocultan si las reglas ya registraron esa pieza.
+- En la ficha ficticia se quitó el diagnóstico DA07.7 erróneo de la evolución 38 (venía de una frase de costo de implante).
