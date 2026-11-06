@@ -21,7 +21,7 @@ import { buildAppUrl, parseAppUrl, resolveAppUrl, type ParsedAppUrl } from "@/li
 const Periodontogram = lazy(() => import("@/components/periodontogram").then(module => ({ default: module.Periodontogram })));
 const Odontogram = lazy(() => import("@/components/odontogram").then(module => ({ default: module.Odontogram })));
 const PatientImages = lazy(() => import("@/components/patient-images").then(module => ({ default: module.PatientImages })));
-import { emptyOdontogram, formatFdi, summarizePerio, type ClinicalImage, type OdontogramData, type OdontogramSurface, type PerioExam, type SurfaceFinding, type ToothHistoryEvent } from "@/app/clinical-data";
+import { emptyOdontogram, formatFdi, summarizePerio, type ClinicalImage, type OdontogramData, type OdontogramSurface, type PerioExam, type PerioTooth, type SurfaceFinding, type ToothHistoryEvent } from "@/app/clinical-data";
 import { installedImplantTeeth } from "@/app/implant-evidence";
 import { cariesDetail } from "@/lib/caries";
 import { cementedCrownFromEvolution } from "@/app/crown-evidence";
@@ -41,7 +41,7 @@ type Modal = "patient"|"editPatient"|"note"|"budget"|"editBudget"|"appointment"|
 type PatientDraft = { name:string; birthDate:string; rut:string; phone:string; email:string; reason:string };
 type PatientDraftValidation = { missingFields:string[]; invalidFields:string[]; valid:boolean };
 type ClinicalLoadResponse = { error?:string; viewer?:{name?:string}; patients:Patient[]; notes:Note[]; budgets:Budget[]; payments?:Payment[]; appointments:Appointment[]; calendarEvents:CalendarEvent[]; calendarSnapshotAt?:string|null; periodontalExams:Record<number,PerioExam[]>; toothStatuses:Record<number,OdontogramData>; clinicalImages:ClinicalImage[] };
-type ClinicalMutationResponse = { error?:string; odontogram:OdontogramData; exam:PerioExam; patient:Patient; note:Note; budget:Budget; budgets?:Budget[]; payment?:Payment; appointment:Appointment; image:ClinicalImage; chart?:{odontogram?:OdontogramData;updatedTeeth?:number[];warning?:string} };
+type ClinicalMutationResponse = { error?:string; odontogram:OdontogramData; exam:PerioExam; deleted?:boolean; patient:Patient; note:Note; budget:Budget; budgets?:Budget[]; payment?:Payment; appointment:Appointment; image:ClinicalImage; chart?:{odontogram?:OdontogramData;updatedTeeth?:number[];warning?:string} };
 type ClinicalReview = { patientId:number; heading:string; details:string[]; body?:string };
 type WebMcpRegistry = { registerTool(tool:{name:string;title?:string;description:string;inputSchema:object;execute:(input:unknown)=>unknown|Promise<unknown>},options?:{signal?:AbortSignal}):void|Promise<void> };
 const initialPatients:Patient[] = [];
@@ -352,6 +352,26 @@ export default function Home(){
     const data=await persist({action:"setToothStatus",patientId:selectedId,tooth,status});
     setToothStatuses(previous=>({...previous,[selectedId]:data.odontogram}));
   };
+  const deleteToothEvent=async(tooth:number,eventId:string,title:string)=>{
+    if(!await reviewChange({patientId:selectedId,heading:"Eliminar hito de la pieza",details:[`Pieza FDI ${formatFdi(tooth)}: se quitará «${title}» de su historial. El estado actual de la pieza no cambia.`]}))throw new Error("Cambio cancelado; no se guardó.");
+    const data=await persist({action:"deleteToothHistoryEvent",patientId:selectedId,eventId});
+    setToothStatuses(previous=>({...previous,[selectedId]:data.odontogram}));
+  };
+  const editToothEvent=async(tooth:number,eventId:string,fields:{title:string;detail:string;clinicalDate:string})=>{
+    if(!await reviewChange({patientId:selectedId,heading:"Corregir hito de la pieza",details:[`Pieza FDI ${formatFdi(tooth)}: «${fields.title}»${fields.detail?` — ${fields.detail}`:""}${fields.clinicalDate?`, fecha ${fields.clinicalDate.split("-").reverse().join("-")}`:""}.`]}))throw new Error("Cambio cancelado; no se guardó.");
+    const data=await persist({action:"updateToothHistoryEvent",patientId:selectedId,eventId,...fields});
+    setToothStatuses(previous=>({...previous,[selectedId]:data.odontogram}));
+  };
+  const editPerioReading=async(tooth:number,examId:number,reading:PerioTooth,clinicalDate:string)=>{
+    if(!await reviewChange({patientId:selectedId,heading:"Corregir medición periodontal",details:[`Pieza FDI ${formatFdi(tooth)}: se reemplaza la medición del examen${clinicalDate?` y su fecha pasa a ${clinicalDate.split("-").reverse().join("-")} (afecta a todo el examen)`:""}.`]}))throw new Error("Cambio cancelado; no se guardó.");
+    const data=await persist({action:"updatePerioToothReading",patientId:selectedId,examId,tooth,reading,...(clinicalDate?{clinicalDate}:{})});
+    setPeriodontalExams(previous=>({...previous,[selectedId]:(previous[selectedId]??[]).map(exam=>exam.id===examId?data.exam:exam)}));
+  };
+  const deletePerioReading=async(tooth:number,examId:number,day:string)=>{
+    if(!await reviewChange({patientId:selectedId,heading:"Eliminar medición periodontal",details:[`Pieza FDI ${formatFdi(tooth)}: se eliminará la medición del examen del ${day}. Las demás piezas del examen no cambian.`]}))throw new Error("Cambio cancelado; no se guardó.");
+    const data=await persist({action:"deletePerioToothReading",patientId:selectedId,examId,tooth});
+    setPeriodontalExams(previous=>({...previous,[selectedId]:(previous[selectedId]??[]).flatMap(exam=>exam.id!==examId?[exam]:data.deleted?[]:[data.exam])}));
+  };
   const updateCrownDetails=async(tooth:number,material:string,shade:string,foundation?:"tooth"|"implant")=>{
     const support=foundation==="implant"?"sobre implante":"sobre diente natural";
     if(!await reviewChange({patientId:selectedId,heading:"Corregir soporte de corona",details:[`Pieza FDI ${formatFdi(tooth)}: corona de ${material||"material sin consignar"} ${support}${shade?`, color ${shade}`:""}.`]}))throw new Error("Cambio cancelado; no se guardó.");
@@ -607,7 +627,7 @@ export default function Home(){
   }}
   onAnnul={note => setAnnulTarget(note)}
 /></div></TabsContent>
-            <TabsContent value="odontograma"><Suspense fallback={<div className="min-h-[320px] rounded-xl bg-white p-5 text-sm text-[#71858b]" role="status">Cargando odontograma…</div>}><Odontogram key={selectedId} data={toothStatuses[selectedId]??emptyOdontogram()} evolutionEvents={toothEvolutionHistory} onSetStatus={updateTooth} onSetMissingReason={updateMissingReason} onSetSurface={updateSurface} onSetCrownDetails={updateCrownDetails}/></Suspense></TabsContent>
+            <TabsContent value="odontograma"><Suspense fallback={<div className="min-h-[320px] rounded-xl bg-white p-5 text-sm text-[#71858b]" role="status">Cargando odontograma…</div>}><Odontogram key={selectedId} onDeleteEvent={deleteToothEvent} onEditEvent={editToothEvent} data={toothStatuses[selectedId]??emptyOdontogram()} evolutionEvents={toothEvolutionHistory} onSetStatus={updateTooth} onSetMissingReason={updateMissingReason} onSetSurface={updateSurface} onSetCrownDetails={updateCrownDetails}/></Suspense></TabsContent>
             <TabsContent value="presupuestos"><div className="surface"><div className="flex justify-between gap-3"><div><h3 className="font-semibold">Planes de tratamiento y presupuestos</h3><p className="mt-1 text-sm text-[#60757a]">Organiza prestaciones por fases y revisa total, abonos y saldo en cada plan.</p></div><Button variant="outline" size="sm" onClick={startNewBudget}>Añadir plan</Button></div><div className="mt-5 space-y-4">{patientBudgets.length?<>
               {patientBudgets.filter(b=>!b.isAlternative).map(primary=>{
                 const paid=patientPayments.filter(payment=>payment.budgetId===primary.id).reduce((sum,payment)=>sum+payment.amount,0);
@@ -623,7 +643,7 @@ export default function Home(){
               })}
               {patientBudgets.filter(budget=>budget.isAlternative&&!patientBudgets.some(primary=>primary.id===budget.parentBudgetId&&!primary.isAlternative)).map(alternative=><BudgetCard key={alternative.id} budget={alternative} onEdit={()=>editBudget(alternative)} onPrint={()=>setPrintingBudgetId(alternative.id)}/>)}
             </>:<Empty text="Aún no hay planes de tratamiento para este paciente."/>}</div><PatientPaymentSummary payments={patientPayments}/></div></TabsContent>
-            <TabsContent value="periodontograma"><Suspense fallback={<div className="min-h-[320px] rounded-xl bg-white p-5 text-sm text-[#71858b]" role="status">Cargando periodontograma…</div>}><Periodontogram key={selectedId} exams={periodontalExams[selectedId]??[]} toothStatuses={toothStatuses[selectedId]?.teeth??{}} toothHistory={[...(toothStatuses[selectedId]?.history??[]),...toothEvolutionHistory]} onSave={savePerio}/></Suspense></TabsContent>
+            <TabsContent value="periodontograma"><Suspense fallback={<div className="min-h-[320px] rounded-xl bg-white p-5 text-sm text-[#71858b]" role="status">Cargando periodontograma…</div>}><Periodontogram key={selectedId} onDeleteReading={deletePerioReading} onEditReading={editPerioReading} exams={periodontalExams[selectedId]??[]} toothStatuses={toothStatuses[selectedId]?.teeth??{}} toothHistory={[...(toothStatuses[selectedId]?.history??[]),...toothEvolutionHistory]} onSave={savePerio}/></Suspense></TabsContent>
             <TabsContent value="imagenes"><Suspense fallback={<div className="min-h-[220px] rounded-xl bg-white p-5 text-sm text-[#71858b]" role="status">Cargando imágenes…</div>}><PatientImages key={selectedId} images={patientImages} onAdd={addImages} onRemove={removeImage}/></Suspense></TabsContent>
           </Tabs></div><aside className="space-y-5"><div className="surface"><h3 className="font-semibold">Próximas citas</h3><div className="mt-5 space-y-4">{appointments.filter(a=>a.patientId===selectedId).length?appointments.filter(a=>a.patientId===selectedId).map(a=><div key={a.id} className="rounded-xl bg-[#f1f7f7] p-4"><p className="font-semibold text-[#087f83]">{a.day} · {a.time}</p><p className="mt-1 text-sm">{a.reason}</p><Button size="sm" variant="outline" className="mt-3" onClick={()=>editAppointment(a)}>Editar motivo</Button></div>):<Empty text="Sin citas agendadas."/>}</div><Button variant="outline" className="mt-5 w-full" onClick={()=>setModal("appointment")}>Agendar control</Button></div><div className="rounded-2xl bg-[#103c44] p-6 text-white"><Activity className="mb-4 size-6 text-[#7ed1ca]"/><h3 className="font-semibold">Secuencia clínica</h3><p className="mt-2 text-sm leading-6 text-[#bbd3d5]">Documenta evaluación, cirugía, componentes, rehabilitación y controles en orden cronológico.</p></div></aside></div>}
         {section==="Pacientes"&&<div className="surface">{linkNotice&&<p role="alert" className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950" data-testid="link-notice">{linkNotice}</p>}<div className="relative mb-5 max-w-sm"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#8aa0a5]"/><Input aria-label="Buscar paciente por nombre o RUT" placeholder="Buscar por nombre o RUT" value={search} onChange={e=>setSearch(e.target.value)} className="pl-10"/></div><div className="space-y-2">{filteredPatients.map(p=><button key={p.id} onClick={()=>openPatient(p.id)} className="flex w-full items-center gap-4 rounded-xl border border-[#e8edef] p-4 text-left transition hover:border-[#8dc8c6] hover:bg-[#f7fbfb]"><span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-[#e4f2f1] text-sm font-bold text-[#187477]">{initials(p.name)}</span><span className="min-w-0 flex-1"><strong className="block truncate">{p.name}</strong><small className="text-sm text-[#71858b]">{p.reason}{p.birthDate?` · Nacimiento: ${p.birthDate}`:" · Nacimiento sin registrar"}{p.rut?` · RUT: ${p.rut}`:""}</small></span><ChevronRight className="size-5 text-[#8aa0a5]"/></button>)}{!filteredPatients.length&&<Empty text="No se encontraron pacientes."/>}</div></div>}
