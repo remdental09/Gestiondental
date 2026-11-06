@@ -43,12 +43,12 @@ const smooth = (a: number, b: number, v: number) => {
 
 // Natural tooth palette: warmer, more opaque enamel at the cervix, pinkish ivory body,
 // lighter bluish translucent cusp tips / incisal edge; tan root darkening to the apex.
-const ENAMEL_CERVICAL = linear(0xdcc6a2);
-const ENAMEL_BODY = linear(0xe6d2c6);
-const ENAMEL_TIP = linear(0xe4e4e2);
+const ENAMEL_CERVICAL = linear(0xe2cda8);
+const ENAMEL_BODY = linear(0xeddcc6);
+const ENAMEL_TIP = linear(0xe6e9e8);
 const PRIMARY_ENAMEL_BODY = linear(0xf0ebe6);
-const ROOT_CERVICAL = linear(0xcfa46c);
-const ROOT_APEX = linear(0x7c4c28);
+const ROOT_CERVICAL = linear(0xd9b982);
+const ROOT_APEX = linear(0xa87d4e);
 const DENTINE = linear(0xd9c19a);
 const FISSURE = linear(0x4e3220);
 // Ceramic (zirconia/porcelain) crown: whiter, more opaque, faint grey cervically.
@@ -447,7 +447,18 @@ function mountTooth(THREE: ThreeModule, room: RoomEnvironmentModule, canvas: HTM
     for (const root of periodontalRoots) {
       const collar = collarOf(root);
       if (collar.indices.length) {
-        const gingiva = new THREE.Mesh(toGeometry(collar, () => linear(0xe77f8c), () => 0.3, noTint, 0.085), gingivaMaterial);
+        const gingivaGeo = toGeometry(collar, () => linear(0xee98a2), () => 0.3, noTint, 0.085);
+        const rgb = gingivaGeo.getAttribute("color");
+        const rgba = new Float32Array(rgb.count * 4);
+        for (let t = 0; t < collar.indices.length / 3; t += 1) {
+          for (let c = 0; c < 3; c += 1) {
+            const o = t * 3 + c;
+            rgba[o * 4] = rgb.getX(o); rgba[o * 4 + 1] = rgb.getY(o); rgba[o * 4 + 2] = rgb.getZ(o);
+            rgba[o * 4 + 3] = smooth(-0.24, -0.05, collar.level[collar.indices[t * 3 + c]]);
+          }
+        }
+        gingivaGeo.setAttribute("color", new THREE.BufferAttribute(rgba, 4));
+        const gingiva = new THREE.Mesh(gingivaGeo, gingivaMaterial);
         gingiva.renderOrder = 5;
         inner.add(gingiva);
       }
