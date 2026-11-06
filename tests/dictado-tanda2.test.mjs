@@ -279,3 +279,27 @@ test("corona retirada o en preparación no se marca; pilar aflojado que se reapr
   assert.deepEqual(await run("Se cementa corona nueva de disilicato en el 1.1.", [{ tooth: 11, status: "Corona" }]), ["11:Corona"]);
   assert.deepEqual(await run("Descementación de corona del 2.6 con caries recurrente en el margen distal, se vuelve a cementar la corona. Implante del 1.6 con pilar aflojado, se reaprieta.", [{ tooth: 16, status: "Implante con pilar" }, { tooth: 26, status: "Corona" }]), ["26:Corona"]);
 });
+
+test("caries recurrente en el margen distal con obturación rehecha marca la cara D", async () => {
+  const p = await quick("Pieza 4.6 caries recurrente en el margen distal, se rehace la obturación con resina compuesta.");
+  assert.deepEqual(surfaces(p), [[46, "D", "restored"]]);
+  const q = await quick("Pieza 1.6 caries recurrente por distal bajo la obturación antigua.");
+  assert.deepEqual(surfaces(q), [[16, "D", "caries"]]);
+});
+
+test("furcación y clasificación periodontal dictadas se proponen para revisión", async () => {
+  const p = await quick("Pieza 1.6 movilidad grado 1, furcación grado dos por vestibular. Periodontitis estadio 3 grado B generalizada.");
+  assert.deepEqual(p.mobility.map((m) => [m.tooth, m.kind ?? "mov", m.grade]), [[16, "mov", "I"], [16, "furcacion", "II"]]);
+  assert.deepEqual([p.perioClassification.stage, p.perioClassification.grade, p.perioClassification.extent], ["III", "B", "generalized"]);
+  const q = await quick("Pieza 2.6 sondaje mesial 5 distal 6. Furcación grado 2.");
+  assert.deepEqual(q.mobility.map((m) => [m.tooth, m.kind, m.grade]), [[26, "furcacion", "II"]]);
+  const r = await quick("Pieza 3.6 movilidad grado 2.");
+  assert.equal(r.perioClassification, undefined);
+});
+
+test("el examen dictado guarda furcación aparte de la movilidad", async () => {
+  const { buildDictatedPerio } = await import("../lib/dictation/proposal.ts");
+  const teeth = buildDictatedPerio([], [{ tooth: 16, grade: "I" }, { tooth: 16, grade: "II", kind: "furcacion" }]);
+  assert.equal(teeth[16].mobility, "I");
+  assert.equal(teeth[16].furcation, "II");
+});
