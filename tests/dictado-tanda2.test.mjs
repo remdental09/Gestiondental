@@ -103,3 +103,8 @@ test("la prestación del presupuesto no arrastra el monto dicho en palabras ni e
   assert.ok(!/cuarenta|mil|\b3 8\b/i.test(item.label), item.label);
   assert.equal(item.catalogCode, "5003001");
 });
+
+test("montos dictados en palabras se usan en el presupuesto de la IA", async () => {
+  const { spokenAmounts } = await import("../lib/dictation/spoken.ts");
+  assert.deepEqual(spokenAmounts("ciento ochenta mil pesos").map((a) => a.value), [180000]);
+});

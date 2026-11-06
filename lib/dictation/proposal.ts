@@ -2325,7 +2325,8 @@ function amountsIn(value: string): number[] {
   const spoken = speechText(value);
   for (const match of spoken.matchAll(/\b(\d{1,3}(?:\.\d{3})+|\d{4,9})\b/g)) amounts.push(Number(match[1].replace(/\./g, "")));
   for (const match of spoken.matchAll(/\b(\d{1,3})\s+mil\b/g)) amounts.push(Number(match[1]) * 1000);
-  return amounts.filter((amount) => Number.isSafeInteger(amount) && amount >= 1000 && amount <= 1_000_000_000);
+  for (const item of spokenAmounts(value)) amounts.push(item.value);
+  return [...new Set(amounts.filter((amount) => Number.isSafeInteger(amount) && amount >= 1000 && amount <= 1_000_000_000))];
 }
 
 const CONDITION_FROM_AI: Record<string, SurfaceFinding["condition"]> = {
