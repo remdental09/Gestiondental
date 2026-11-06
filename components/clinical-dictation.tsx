@@ -217,6 +217,8 @@ export function ClinicalDictation({
   const answerEngine = useRef(createAudioTranscription());
   const requestId = useRef("");
   const session = useRef("");
+  // Avisos ya dichos en voz alta en este dictado: no se repiten al volver a procesar tras tus correcciones.
+  const spokenBefore = useRef(new Set<string>());
   // Lo que propuso el sistema, para registrar después qué corrigió el profesional.
   const originalProposal = useRef<{ text: string; proposal: StructureOutcome["proposal"] } | null>(null);
   // Lo ya guardado en este dictado no se repite si hay que reintentar tras un error.
@@ -304,6 +306,7 @@ export function ClinicalDictation({
   };
 
   const close = () => {
+    spokenBefore.current.clear();
     autoPending.current = false;
     if (stopFallback.current) { clearTimeout(stopFallback.current); stopFallback.current = null; }
     engine.current.abort();
@@ -823,7 +826,12 @@ export function ClinicalDictation({
   useEffect(() => {
     if (!speakAlerts || !proposal || listening || announced.current === proposal) return;
     announced.current = proposal;
-    speakNow();
+    const isTail = (phrase: string) => /^Y \d+ avisos? más en pantalla\.$/.test(phrase);
+    const fresh = alertPhrases.filter((phrase) => !isTail(phrase) && !spokenBefore.current.has(phrase.toLowerCase()));
+    if (!fresh.length) return;
+    for (const phrase of fresh) spokenBefore.current.add(phrase.toLowerCase());
+    setSpeechBlocked(false);
+    speakPhrases([...fresh, ...alertPhrases.filter(isTail)], () => setSpeechBlocked(true));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [proposal, speakAlerts, listening]);
   useEffect(() => () => { if (typeof window !== "undefined") window.speechSynthesis?.cancel(); }, []);
