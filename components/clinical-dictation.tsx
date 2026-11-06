@@ -225,6 +225,7 @@ export function ClinicalDictation({
   const [structuring, setStructuring] = useState(false);
   const [outcome, setOutcome] = useState<StructureOutcome | null>(null);
   const [evolutionTitle, setEvolutionTitle] = useState("");
+  const [attentionDate, setAttentionDate] = useState("");
   const [evolutionBody, setEvolutionBody] = useState("");
   const [teeth, setTeeth] = useState<ReviewTooth[]>([]);
   const [budgets, setBudgets] = useState<ReviewBudget[]>([]);
@@ -638,7 +639,7 @@ export function ClinicalDictation({
     try {
       if (saveEvolution) {
         requestId.current ||= crypto.randomUUID();
-        const saved = await persist({ action: "addNote", patientId, title: evolutionTitle.trim() || "Evolución dictada", body: finalBody, requestId: requestId.current });
+        const saved = await persist({ action: "addNote", patientId, title: evolutionTitle.trim() || "Evolución dictada", body: finalBody, requestId: requestId.current, ...(attentionDate ? { clinicalDate: attentionDate } : {}) });
         savedNote = { id: saved.note?.id, title: evolutionTitle.trim() || "Evolución dictada", body: saved.note?.body ?? finalBody, clinicalDate: saved.note?.clinicalDate };
         if (saved.note?.id && dxTags.length) await persist({ action: "setEvolutionDiagnoses", patientId, evolutionId: saved.note.id, tags: dxTags });
         const readBack = await reload();
@@ -859,6 +860,9 @@ export function ClinicalDictation({
               {proposal.evolution ? <>
                 <p className="mt-3 text-xs text-[#71858b]">Nota clínica redactada (editable).</p>
                 <Input className="mt-1" aria-label="Título de la evolución" value={evolutionTitle} onChange={(event) => setEvolutionTitle(event.target.value)} />
+                <label className="mt-2 block text-xs text-[#71858b]">Fecha de atención (opcional; vacío = hoy)
+                  <Input className="mt-1" type="date" aria-label="Fecha de atención" max={new Date().toISOString().slice(0, 10)} value={attentionDate} onChange={(event) => setAttentionDate(event.target.value)} />
+                </label>
                 <Textarea className="mt-2 border-emerald-200 bg-emerald-50" aria-label="Cuerpo de la evolución" rows={9} value={evolutionBody} onChange={(event) => setEvolutionBody(event.target.value)} />
               </> : <p className="mt-3 text-[#71858b]">El dictado no produjo una evolución.</p>}
             </section>
