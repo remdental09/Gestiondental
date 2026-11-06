@@ -132,6 +132,8 @@ export type OdontogramChange = {
   conflict?: boolean;
   /** Aviso del tipo de evolución (p. ej. «es un control»): queda sin marcar por defecto. */
   advisory?: string;
+  /** Caries dictada y restaurada en la misma sesión: la superficie queda restaurada y la caries sigue como diagnóstico. */
+  treatedCaries?: SurfaceFinding;
 };
 
 export type ItemOrigin = "ia" | "reglas" | "ia+reglas";
@@ -1130,8 +1132,11 @@ export function isRootCaries(sourceText: string | undefined): boolean {
  */
 export function cariesDiagnoses(items: OdontogramChange[]): DiagnosisItem[] {
   const groups = new Map<string, OdontogramChange[]>();
-  for (const item of items) {
-    if (item.kind !== "surface" || item.finding?.condition !== "caries") continue;
+  for (const original of items) {
+    if (original.kind !== "surface") continue;
+    // Caries tratada en la misma sesión: la superficie queda restaurada, pero el diagnóstico se conserva.
+    const item = original.finding?.condition === "caries" ? original : original.finding?.condition === "restored" && original.treatedCaries ? { ...original, finding: original.treatedCaries } : null;
+    if (!item || item.finding?.condition !== "caries") continue;
     const key = `${item.tooth}:${item.finding.depth ?? ""}:${isRootCaries(item.sourceText) ? "r" : ""}`;
     groups.set(key, [...(groups.get(key) ?? []), item]);
   }
@@ -2723,7 +2728,7 @@ function completeDischargeCondition(body: string, localBody: string): string {
   return normalizedBody.trim() ? normalizedBody.trim() + "\n\n" + section : section;
 }
 
-function mergeProposals(ai: AiExtraction, local: DictationProposal, transcript: string): DictationProposal {
+export function mergeProposals(ai: AiExtraction, local: DictationProposal, transcript: string): DictationProposal {
   const odontogram: OdontogramChange[] = [];
   const clarifications = [...ai.clarifications];
   const conflicts = new Set<string>();
@@ -2770,6 +2775,24 @@ function mergeProposals(ai: AiExtraction, local: DictationProposal, transcript: 
       continue;
     }
     odontogram.push({ ...rule, origin: "reglas" });
+  }
+  // Caries dictada y luego restaurada en la misma superficie: queda la restauración y la caries sigue como diagnóstico.
+  const folded = new Set<number>();
+  for (const restored of odontogram) {
+    if (restored.kind !== "surface" || restored.finding?.condition !== "restored") continue;
+    const caries = odontogram.find((item) => item !== restored && item.kind === "surface" && item.tooth === restored.tooth && item.surface === restored.surface && item.finding?.condition === "caries");
+    if (!caries?.finding) continue;
+    restored.treatedCaries = caries.finding;
+    restored.origin = originUnion(restored.origin ?? "reglas", caries.origin ?? "reglas");
+    odontogram.splice(odontogram.indexOf(caries), 1);
+    folded.add(restored.tooth);
+  }
+  for (const tooth of folded) {
+    for (const item of odontogram) if (item.tooth === tooth && !odontogram.some((other) => other !== item && collides(other, item))) item.conflict = undefined;
+    if (!odontogram.some((item) => item.tooth === tooth && item.conflict)) {
+      const note = `FDI ${formatFdi(tooth)}: la IA y las reglas no coinciden. Elige una de las dos propuestas.`;
+      for (let index = clarifications.length - 1; index >= 0; index--) if (clarifications[index] === note) clarifications.splice(index, 1);
+    }
   }
   // Una caries completa no debe quedar además como incompleta.
   const incomplete: OdontogramChange[] = [];
