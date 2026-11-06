@@ -224,3 +224,20 @@ test("evolución del COP-D por fecha se reconstruye con los hitos de cada pieza"
   const points = copEvolution([16, 26], history);
   assert.deepEqual(points.map((p) => [p.date, p.caries, p.missing, p.filled, p.total]), [["2026-08-03", 1, 0, 0, 1], ["2026-09-01", 0, 1, 1, 2]]);
 });
+
+test("simulación periodoncia/implantes: rectificación de cifras, cara primero, pieza heredada, sitio repetido e implantes en plural", async () => {
+  const { proposeFromTranscript } = await import("../lib/dictation/proposal.ts");
+  const run = async (transcript) => { const r = await proposeFromTranscript({ transcript, chart: [] }, null, () => {}, { today: "2026-11-06" }); return r.proposal ?? r; };
+  const sites = (p) => p.perio.map((x) => `${x.tooth}${x.site}${x.depth}${x.bleeding ? "b" : ""}${x.suppuration ? "s" : ""}`);
+  const fix = await run("Sondaje en la 1.7 mesial vestibular 5, perdón, 6 milímetros, vestibular 4, distal vestibular 5. Movilidad uno, no, movilidad dos.");
+  assert.deepEqual(sites(fix), ["17MV6", "17V4", "17DV5"]);
+  assert.equal(fix.mobility[0].grade, "II");
+  const faceFirst = await run("Sondaje pieza 3 por vestibular 6 5 7, por palatino 4 4 5, sangra todo.");
+  assert.deepEqual(sites(faceFirst), ["16MV6b", "16V5b", "16DV7b", "16ML4b", "16L4b", "16DL5b"]);
+  const inherited = await run("Sondaje del 1.6, mesial vestibular 7, central 6, distal vestibular 8 con sangrado. Lingual 5 5 6.");
+  assert.deepEqual(sites(inherited), ["16MV7", "16V6", "16DV8b", "16ML5", "16L5", "16DL6"]);
+  const repeated = await run("En el 4.6 mesio vestibular 6 mm, vestibular 5 mm, disto vestibular 7 mm, supuración en el distal vestibular.");
+  assert.deepEqual(sites(repeated), ["46MV6", "46V5", "46DV7s"]);
+  const implants = await run("Cirugía: se instalan dos implantes en el 4.6 y en el 4.7.");
+  assert.deepEqual(implants.odontogram.map((o) => `${o.tooth}:${o.status}`), ["46:Implante", "47:Implante"]);
+});

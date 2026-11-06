@@ -604,6 +604,9 @@ export function applySelfCorrections(text: string): { text: string; corrections:
     return value;
   });
   out = out.replace(SELF_FIX_TOOTH_NO, (whole, _old: string, middle: string, next: string) => { const value = `${next}${middle}`; note(whole, value); return value; });
+  // «mesial vestibular 5, perdón, 6 milímetros» / «movilidad uno, no, movilidad dos»: vale lo corregido.
+  out = out.replace(/(?<![\d.,])(\d{1,2})(\s*(?:mm|mil[ií]metros)?)\s*,?\s*(?:perd[oó]n|mejor\s+dicho|quise\s+decir|digo)\s*,?\s*(\d{1,2})(?![\d.,]?\d)/giu, (whole, _old: string, _unit: string, next: string) => { note(whole, next); return next; });
+  out = out.replace(/(?<!\p{L})(movilidad(?:\s+dentaria)?(?:\s+(?:de\s+)?grado)?)\s+(?:0|1|2|3|cero|uno|dos|tres|i{1,3})\s*,?\s*(?:no|perd[oó]n|mejor\s+dicho)\s*,?\s*(movilidad(?:\s+dentaria)?(?:\s+(?:de\s+)?grado)?\s+(?:0|1|2|3|cero|uno|dos|tres|i{1,3}))(?!\p{L})/giu, (whole, _old: string, next: string) => { note(whole, next); return next; });
   out = out.replace(SELF_FIX_FACE, (whole, next: string) => { note(whole, next); return next; });
   return { text: out, corrections };
 }
