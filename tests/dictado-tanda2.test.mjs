@@ -265,3 +265,9 @@ test("evolución mixta: corona en el 3.6 y pilar en el 4.6 se marcan cada uno en
   const r = await proposeFromTranscript({ transcript: "Se cementa corona de zirconio en el 3.6 con cemento resinoso. Implante en el 4.6 con pilar, torque de treinta newton. Se toma impresión para corona sobre implante en el 4.6.", chart }, null, () => {}, { today: "2026-11-06" });
   assert.deepEqual((r.proposal ?? r).odontogram.map((o) => `${o.tooth}:${o.status}`).sort(), ["36:Corona", "46:Implante con pilar"]);
 });
+
+test("presupuesto dictado en una frase aparte toma la prestación de la frase anterior", async () => {
+  const { proposeFromTranscript } = await import("../lib/dictation/proposal.ts");
+  const r = await proposeFromTranscript({ transcript: "Se planifica regeneración ósea guiada, presupuesto de trescientos cincuenta mil pesos.", chart: [] }, null, () => {}, { today: "2026-11-06" });
+  assert.deepEqual((r.proposal ?? r).budget.map((b) => [b.label, b.amount]), [["Regeneración ósea guiada", 350000]]);
+});

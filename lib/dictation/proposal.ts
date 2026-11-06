@@ -1482,7 +1482,14 @@ export function structureTranscript(transcript: string, options: { today?: strin
     const priced = isBudget || isPlan(sentence) || inPlanContext(allSentences, sentenceIndex) || /(?<!\p{L})(?:pesos|lucas?|lukas?)(?!\p{L})/iu.test(sentence);
     const amount = parseAmount(sentence) ?? (priced ? spokenAmounts(sentence)[0]?.value ?? null : null);
     if (amount) {
-      budget.push({ id: nextId("pre"), title: "Presupuesto dictado", label: budgetLabel(sentence), amount, sourceText: clip(sentence) });
+      // «Se planifica regeneración ósea guiada. Presupuesto de 350 mil pesos»: si la frase del monto no nombra la prestación, se usa la de la frase anterior.
+      let label = budgetLabel(sentence);
+      const previous = sentenceIndex > 0 ? allSentences[sentenceIndex - 1] : "";
+      if (label === "Prestación dictada" && previous && !parseAmount(previous) && !spokenAmounts(previous).length) {
+        const fromPrevious = budgetLabel(previous);
+        if (fromPrevious !== "Prestación dictada") label = fromPrevious;
+      }
+      budget.push({ id: nextId("pre"), title: "Presupuesto dictado", label, amount, sourceText: clip(sentence) });
     } else if (/\b(?:presupuesto|cotizaci[oó]n|honorarios)\b/i.test(sentence)) {
       const label = budgetLabel(sentence);
       budget.push({ id: nextId("pre"), title: "Presupuesto dictado", label, amount: 0, sourceText: clip(sentence) });
