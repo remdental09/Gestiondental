@@ -121,3 +121,26 @@ test("gingivitis generalizada asociada a placa se propone como diagnóstico sin 
   const p = (await proposeFromTranscript({ transcript: "Gingivitis generalizada asociada a placa. Plan de tratamiento: profilaxis dental.", chart: [] }, null, () => {}, { today: "2026-11-06" })).proposal;
   assert.ok(p.diagnoses.some((d) => /Gingivitis inducida por placa/.test(d.title) && !d.code));
 });
+
+test("fase y opción del plan se leen de lo dictado", async () => {
+  const { budgetContext } = await import("../lib/dictation/proposal.ts");
+  const t = "Plan de tratamiento fase uno: endodoncia del 3.6, ciento ochenta mil pesos, y reconstrucción con resina, sesenta mil pesos. Fase dos: corona metal cerámica del 3.6, doscientos veinte mil pesos.";
+  assert.deepEqual(budgetContext(t, "endodoncia del 3.6, ciento ochenta mil pesos"), { phase: "Fase 1" });
+  assert.deepEqual(budgetContext(t, "reconstrucción con resina, sesenta mil pesos"), { phase: "Fase 1" });
+  assert.deepEqual(budgetContext(t, "Fase dos: corona metal cerámica del 3.6, doscientos veinte mil pesos."), { phase: "Fase 2" });
+  const o = "Plan de tratamiento opción A: implante con corona en el 2.4, novecientos mil pesos. Opción B: prótesis fija de tres unidades, cuatrocientos cincuenta mil pesos.";
+  assert.deepEqual(budgetContext(o, "implante con corona en el 2.4, novecientos mil pesos."), { option: "A" });
+  assert.deepEqual(budgetContext(o, "Opción B: prótesis fija de tres unidades, cuatrocientos cincuenta mil pesos."), { option: "B" });
+  assert.deepEqual(budgetContext("Endodoncia, cien mil pesos.", "Endodoncia, cien mil pesos."), {});
+});
+
+test("la IA no puede dejar un plan como procedimiento realizado", async () => {
+  const { validateAiExtraction } = await import("../lib/dictation/proposal.ts");
+  const transcript = "Se observa caries oclusal en el 4.6. Plan de tratamiento: obturación con resina compuesta en el 4.6, cincuenta y cinco mil pesos.";
+  const ai = validateAiExtraction({
+    nota: { motivo: "", examen: "Se observa caries oclusal en el 4.6.", procedimientos: "Se planifica obturación con resina compuesta en la pieza 4.6.", plan: "Se plantea obturación en el 4.6.", presupuesto: "" },
+    procedimientos: [{ texto: "Se planifica obturación con resina compuesta en la pieza 4.6.", evidencia: "Plan de tratamiento: obturación con resina compuesta en el 4.6" }],
+    hallazgos: [], presupuesto: [], pagos: [], citas: [], ficha: [], periodonto: [], diagnosticos: [], dudas: [],
+  }, transcript);
+  assert.equal(ai.procedures.length, 0);
+});
