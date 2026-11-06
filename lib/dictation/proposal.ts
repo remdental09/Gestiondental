@@ -590,7 +590,7 @@ function isPlanStrict(sentence: string): boolean {
   return /\b(?:se\s+planifica|planificad[oa]|se\s+indica|a\s+futuro|presupuesto|cotizaci[oó]n|por\s+cotizar)\b/i.test(sentence);
 }
 
-const PLAN_CUE = /(?:^|\P{L})(?:plan\s+(?:de\s+tratamiento|opci[oó]n|alternativ\p{L}*)|(?:fase|etapa)\s+(?:\d+|uno|dos|tres|cuatro|cinco)|opci[oó]n\s+(?:[abc]|be|ce|\d|uno|dos|tres)|alternativa|a\s+decidir|se\s+eval[uú]a(?:r[aá])?|se\s+(?:propone|sugiere|recomienda|planea)|por\s+definir)(?!\p{L})/iu;
+const PLAN_CUE = /(?:^|\P{L})(?:plan\s+(?:de\s+tratamiento|opci[oó]n|alternativ\p{L}*)|(?:fase|etapa)\s+(?:\d+|uno|dos|tres|cuatro|cinco)|opci[oó]n\s+(?:[abc]|be|ce|\d|uno|dos|tres)|alternativa|a\s+decidir|se\s+eval[uú]a(?:r[aá])?|se\s+(?:propone|sugiere|recomienda|planea)|por\s+definir|(?:se\s+)?(?:toma|tom[oó])\s+(?:la\s+)?impresi[oó]n\s+(?:para|de)|(?:se\s+)?(?:env[ií]a|envi[oó])\s+(?:a\s+)?laboratorio)(?!\p{L})/iu;
 const PLAN_HEADER = /(?:^|\P{L})plan\s+(?:de\s+tratamiento|opci[oó]n)(?!\p{L})/iu;
 
 /** Lo que se planifica o se presupuesta no es lo que se hizo: «Plan de tratamiento», «Fase dos», «Opción B», «a decidir». */
@@ -1902,7 +1902,8 @@ export function finishRouting(proposal: DictationProposal): DictationProposal {
   for (const item of proposal.perio) {
     const same = perio.find((done) => done.tooth === item.tooth && done.site === item.site);
     if (!same) { perio.push({ ...item }); continue; }
-    if (same.depth !== item.depth && item.origin === "reglas" && same.origin !== "reglas") continue;
+    // Si la IA y las reglas discrepan en los mm del mismo sitio, vale la lectura literal de las reglas.
+    if (same.depth !== item.depth && item.origin === "reglas" && same.origin !== "reglas") { same.depth = item.depth; same.evidence = item.evidence; same.sourceText = item.sourceText; same.origin = "reglas"; }
     same.bleeding = same.bleeding || item.bleeding;
     same.suppuration = same.suppuration || item.suppuration;
     if (same.origin && item.origin) same.origin = originUnion(same.origin, item.origin);
@@ -3410,6 +3411,11 @@ export function applyEvolutionPolicy(proposal: DictationProposal, chart: Structu
     }
     if (kind.type === "implante-rehabilitacion" && kind.detail !== "corona" && !pilarToday && item.kind === "status" && item.status === "Implante") {
       odontogram.push({ ...item, advisory: `Se instaló un pilar de cicatrización: queda en la evolución. Marca «Implante» solo si faltaba registrarlo.` });
+      continue;
+    }
+    // Corona cementada en una pieza que el odontograma ya muestra como implante: es corona sobre implante.
+    if (item.status === "Corona" && item.foundation !== "implant" && isImplant(current.get(item.tooth))) {
+      odontogram.push({ ...item, foundation: "implant" });
       continue;
     }
     odontogram.push(item);
