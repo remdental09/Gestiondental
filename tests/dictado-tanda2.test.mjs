@@ -249,3 +249,12 @@ test("corona cementada sobre una pieza que ya es implante queda como corona sobr
   const p = r.proposal ?? r;
   assert.deepEqual(p.odontogram.map((o) => [o.tooth, o.foundation]), [[36, "implant"]]);
 });
+
+test("«implante en el 4.6 con pilar» y «pilar protésico conectado» marcan implante con pilar", async () => {
+  const { proposeFromTranscript } = await import("../lib/dictation/proposal.ts");
+  const chart = [{ tooth: 46, status: "Implante" }];
+  for (const transcript of ["Implante en el 4.6 con pilar, torque de treinta newton.", "Pilar protésico conectado en el 4.6 con torque de 30 newton."]) {
+    const r = await proposeFromTranscript({ transcript, chart }, null, () => {}, { today: "2026-11-06" });
+    assert.deepEqual((r.proposal ?? r).odontogram.map((o) => `${o.tooth}:${o.status}`), ["46:Implante con pilar"]);
+  }
+});
