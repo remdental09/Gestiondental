@@ -241,3 +241,11 @@ test("simulación periodoncia/implantes: rectificación de cifras, cara primero,
   const implants = await run("Cirugía: se instalan dos implantes en el 4.6 y en el 4.7.");
   assert.deepEqual(implants.odontogram.map((o) => `${o.tooth}:${o.status}`), ["46:Implante", "47:Implante"]);
 });
+
+test("corona cementada sobre una pieza que ya es implante queda como corona sobre implante; la impresión no coloca la corona; discrepancia IA/reglas en mm vale la regla", async () => {
+  const { proposeFromTranscript } = await import("../lib/dictation/proposal.ts");
+  const chart = [{ tooth: 36, status: "Implante" }, { tooth: 46, status: "Implante" }];
+  const r = await proposeFromTranscript({ transcript: "Se cementa corona de zirconio en el 3.6 con cemento resinoso. Se toma impresión para corona sobre implante en el 4.6.", chart }, null, () => {}, { today: "2026-11-06" });
+  const p = r.proposal ?? r;
+  assert.deepEqual(p.odontogram.map((o) => [o.tooth, o.foundation]), [[36, "implant"]]);
+});
