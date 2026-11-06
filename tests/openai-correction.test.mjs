@@ -8,7 +8,7 @@ test('usa OpenAI para corregir texto clínico y valida cambios seguros', async (
       assert.equal(url, 'https://api.openai.com/v1/chat/completions');
       assert.equal(init.headers.Authorization, 'Bearer test-secret');
       const request = JSON.parse(init.body);
-      assert.equal(request.model, 'gpt-5.6-luna');
+      assert.equal(request.model, 'gpt-4o-mini');
       assert.match(request.messages[1].content, /pieza FDI 3\.6/);
       return Response.json({ choices: [{ message: { content: JSON.stringify({ text: 'Caries mesial en pieza FDI 3.6.' }) } }] });
     },
