@@ -24,3 +24,25 @@ test("la redacción conserva acciones técnicas dichas en conversación y marca 
   assert.match(CLINICAL_WRITING_PROMPT, /Dictados conversacionales/);
   assert.match(CLINICAL_WRITING_PROMPT, /marca en «dudas»|se marca en «dudas»/);
 });
+
+test("diagnósticos de las guías MINSAL sin código CIE-11 quedan como etiqueta sin código, no se pierden", () => {
+  const cases = {
+    "diagnóstico de periodontitis crónica generalizada": /Periodontitis crónica generalizada/,
+    "diagnóstico de flegmón de origen odontogénico en la pieza 36": /Flegmón/,
+    "diagnóstico de hipersensibilidad dentinaria": /Hipersensibilidad dentinaria/,
+    "diagnóstico de peri-implantitis": /Periimplantitis/,
+    "diagnóstico de gingivitis úlcero necrótica": /úlcero necrótica/,
+    "diagnóstico de fisura labiopalatina": /Fisura labiopalatina/,
+  };
+  for (const [text, title] of Object.entries(cases)) {
+    const found = diagnosisMatches(text);
+    assert.equal(found.length, 1, text);
+    assert.equal(found[0].code, "", text);
+    assert.match(found[0].title, title, text);
+  }
+});
+
+test("un diagnóstico con código sigue ganando sobre la etiqueta sin código", () => {
+  assert.ok(diagnosisMatches("diagnóstico de pericoronaritis aguda").every((m) => m.code));
+  assert.equal(diagnosisMatches("diagnóstico de periodontitis apical crónica en la pieza 8")[0].code, "DA09.71");
+});
