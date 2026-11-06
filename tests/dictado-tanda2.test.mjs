@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { proposeFromTranscript } from "../lib/dictation/proposal.ts";
+import { proposeFromTranscript, structureTranscript } from "../lib/dictation/proposal.ts";
 
 const quick = async (transcript) => (await proposeFromTranscript({ transcript, chart: [] }, null, () => {}, { today: "2026-11-06" })).proposal;
 const surfaces = (proposal) => proposal.odontogram.map((item) => [item.tooth, item.surface, item.finding?.condition]);
@@ -96,7 +96,7 @@ test("lo realizado después del plan sí se registra", async () => {
 });
 
 test("la prestación del presupuesto no arrastra el monto dicho en palabras ni el número de pieza partido", async () => {
-  const proposal = await planOnly("Presupuesto de exodoncia simple de la pieza 3.8 por cuarenta mil pesos.");
+  const proposal = structureTranscript("Presupuesto de exodoncia simple de la pieza 3.8 por cuarenta mil pesos.", { today: "2026-11-06" });
   const item = proposal.budget[0];
   assert.ok(item);
   assert.equal(item.amount, 40000);
@@ -178,7 +178,8 @@ test("simulación 20: errores humanos del dictado", async () => {
   assert.ok(c.diagnoses.some((d) => /Periodontitis estadio III/.test(d.title) && d.tooth === undefined));
   // «Opción be», lucas y presupuesto sin la palabra «presupuesto».
   const d = await run("Plan opción A: implante en la 3.6, quinientos mil pesos. Opción be: puente de tres unidades, trescientas ochenta lucas.");
-  assert.deepEqual(d.budget.map((x) => [x.label, x.amount, x.option]), [["Implante en la 3.6", 500000, "A"], ["Puente de tres unidades", 380000, "B"]]);
+  assert.deepEqual(d.budget, []);
+  assert.deepEqual(d.payments ?? [], []);
   // Un pago no cambia el odontograma.
   const e = await run("El paciente abona ciento cincuenta mil pesos en efectivo para el implante de la 3.6.");
   assert.equal(e.odontogram.length, 0);
@@ -268,8 +269,11 @@ test("evolución mixta: corona en el 3.6 y pilar en el 4.6 se marcan cada uno en
 
 test("presupuesto dictado en una frase aparte toma la prestación de la frase anterior", async () => {
   const { proposeFromTranscript } = await import("../lib/dictation/proposal.ts");
-  const r = await proposeFromTranscript({ transcript: "Se planifica regeneración ósea guiada, presupuesto de trescientos cincuenta mil pesos.", chart: [] }, null, () => {}, { today: "2026-11-06" });
-  assert.deepEqual((r.proposal ?? r).budget.map((b) => [b.label, b.amount]), [["Regeneración ósea guiada", 350000]]);
+  const r = structureTranscript("Se planifica regeneración ósea guiada, presupuesto de trescientos cincuenta mil pesos.", { today: "2026-11-06" });
+  assert.deepEqual(r.budget.map((b) => [b.label, b.amount]), [["Regeneración ósea guiada", 350000]]);
+  // El dictado completo ya no propone dinero.
+  const full = await proposeFromTranscript({ transcript: "Se planifica regeneración ósea guiada, presupuesto de trescientos cincuenta mil pesos.", chart: [] }, null, () => {}, { today: "2026-11-06" });
+  assert.deepEqual(full.proposal.budget, []);
 });
 
 test("corona retirada o en preparación no se marca; pilar aflojado que se reaprieta no cambia el estado", async () => {
@@ -363,7 +367,7 @@ test("la IA decide y las reglas verifican: una pieza que solo vieron las reglas 
 
 test("el mismo presupuesto dicho por la IA y por las reglas con otra redacción no se duplica", async () => {
   const { mergeProposals } = await import("../lib/dictation/proposal.ts");
-  const base = await quick("Presupuesto de endodoncia en la 3.6 por 180 mil pesos.");
+  const base = structureTranscript("Presupuesto de endodoncia en la 3.6 por 180 mil pesos.", { today: "2026-11-06" });
   const rule = base.budget[0];
   const aiBudget = { ...rule, id: "ai-b", label: "Endodoncia en la pieza 3.6", amount: 180000, origin: "ia", sourceText: "otra frase", evidence: "otra frase" };
   const ai = { noteBody: "", odontogram: [], incomplete: [], budget: [aiBudget], ficha: [], procedures: [], clarifications: [], rejected: [], perio: [], perioPending: [], payments: [], appointments: [], diagnoses: [] };
@@ -372,4 +376,15 @@ test("el mismo presupuesto dicho por la IA y por las reglas con otra redacción 
   // Otra pieza con el mismo precio sí es otra prestación.
   const otra = mergeProposals({ ...ai, budget: [{ ...aiBudget, label: "Endodoncia en la pieza 4.6" }] }, { ...base, budget: [rule] }, "texto");
   assert.equal(otra.budget.length, 2);
+});
+
+test("alcance clínico: sin presupuesto, pagos, preguntas de dinero ni sección «Presupuesto» en la nota", async () => {
+  const { withoutMoney } = await import("../lib/dictation/proposal.ts");
+  const base = structureTranscript("Caries en la 3.6 oclusal. Presupuesto de endodoncia por 180 mil pesos. Abonó 50 mil en efectivo.", { today: "2026-11-06" });
+  const cleaned = withoutMoney({ ...base, evolution: { title: "E", body: "Examen\nCaries.\n\nPresupuesto\nEndodoncia $180.000.\n\nPagos\nAbono $50.000.\n\nPlan de tratamiento\nControl." }, clarifications: ["¿Con qué medio se pagaron $50.000?", "¿En qué cara?"] });
+  assert.deepEqual([cleaned.budget, cleaned.payments], [[], []]);
+  assert.deepEqual(cleaned.clarifications, ["¿En qué cara?"]);
+  assert.equal(cleaned.evolution.body, "Examen\nCaries.\n\nPlan de tratamiento\nControl.");
+  const full = await quick("Caries de dentina en la 3.6 oclusal. Presupuesto de endodoncia por 180 mil pesos. Abonó 50 mil en efectivo.");
+  assert.ok(!/Presupuesto|Pagos|\$180|\$50/.test(full.evolution.body), full.evolution.body);
 });

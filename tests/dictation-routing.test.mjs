@@ -53,12 +53,12 @@ test('ejemplo del pedido: cada dato va a su módulo y lo que falta se pregunta',
   assert.deepEqual(p.odontogram.filter((i) => i.kind === 'surface').map((i) => [i.tooth, i.surface, i.finding.condition, i.finding.depth]).sort(), [[24, 'M', 'caries', null], [24, 'O', 'caries', null]]);
   assert.equal(p.incomplete.length, 0);
   assert.deepEqual(p.perioPending.map((i) => [i.tooth, i.depth, i.bleeding]), [[36, 4, true]]);
-  assert.deepEqual(p.payments.map((i) => [i.amount, i.method]), [[50000, null]]);
+  assert.deepEqual(p.payments, []);
   assert.deepEqual(p.appointments.map((i) => [i.day, i.time]), [['2026-11-05', null]]);
   const asks = p.clarifications.join('\n');
   assert.match(asks, /FDI 2\.4: ¿profundidad de la caries \(esmalte, dentina superficial, dentina profunda o compromiso pulpar\)\? Opcional/);
   assert.equal(/ICDAS/.test(asks), false);
-  assert.match(asks, /medio/);
+  assert.doesNotMatch(asks, /medio/);
   assert.match(asks, /hora/);
   assert.match(asks, /sitio/);
 });
@@ -68,12 +68,11 @@ test('las respuestas a las aclaraciones completan la propuesta antes de guardar'
   const answer = (re, text) => ({ question: first.clarifications.find((q) => re.test(q)), answer: text });
   const lines = answerLines([
     answer(/profundidad de la caries/, 'dentina profunda'),
-    answer(/medio/, 'efectivo'),
     answer(/hora/, 'a las diez y media'),
     answer(/sitio/, 'mesiovestibular'),
     { question: 'vacía', answer: '   ' },
   ]);
-  assert.equal(lines.length, 4);
+  assert.equal(lines.length, 3);
   assert.ok(lines.every((l) => l.startsWith('Aclaración: ')));
   const text = withAnswers(first.corrected.text, lines);
   assert.equal(withAnswers(text, lines), text, 'no repite aclaraciones ya agregadas');
@@ -82,7 +81,7 @@ test('las respuestas a las aclaraciones completan la propuesta antes de guardar'
     [[24, 'M', 'caries', 'dentina_profunda'], [24, 'O', 'caries', 'dentina_profunda']]);
   assert.match(p.evolution.body, /FDI 2\.4 \(Chile 12\): caries de dentina profunda M-O \(CIE-11 DA08\.0&XA6FX3 Caries dental · Dentina\)\./);
   assert.equal(p.incomplete.length, 0);
-  assert.deepEqual(p.payments.map((i) => [i.amount, i.method]), [[50000, 'efectivo']]);
+  assert.deepEqual(p.payments, []);
   assert.deepEqual(p.appointments.map((i) => [i.day, i.time]), [['2026-11-05', '10:30']]);
   assert.deepEqual(p.perio.map((i) => [i.tooth, i.site, i.depth, i.bleeding]), [[36, 'MV', 4, true]]);
   assert.equal(p.perioPending.length, 0);
@@ -117,7 +116,7 @@ test('IA de prueba: corrige texto y sus pagos/sondajes solo valen con evidencia'
   assert.equal(out.engine, 'ia+reglas');
   const p = out.proposal;
   assert.match(p.corrected.text, /mesial/);
-  assert.deepEqual(p.payments.map((i) => i.amount), [50000]);
+  assert.deepEqual(p.payments, []);
   assert.ok(!p.perio.some((i) => i.tooth === 11) && !p.perioPending.some((i) => i.tooth === 11));
   assert.equal(p.appointments.length, 1);
 });
