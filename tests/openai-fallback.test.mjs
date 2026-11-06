@@ -26,7 +26,7 @@ test("cadena completa: 8B → 70B → mistral → OpenAI cuando Workers AI falla
   const answer = await createWorkersAiModel(ai, { openAi: { apiKey: FAKE_KEY, fetcher: openAiFetcher(fetches) } }).complete(input);
   assert.deepEqual(calls, [WORKERS_AI_MODEL, ...WORKERS_AI_FALLBACKS]);
   assert.equal(fetches.length, 1);
-  assert.equal(answer.usedModel, "openai/gpt-4o-mini");
+  assert.equal(answer.usedModel, "openai/gpt-5.6-luna");
   assert.equal(answer.note, OPENAI_FAILOVER_NOTE);
 });
 
@@ -82,7 +82,7 @@ test("cuando OpenAI responde, el resultado es ia+reglas con nota discreta y sin 
   const model = createWorkersAiModel(ai, { openAi: { apiKey: FAKE_KEY, fetcher: openAiFetcher(fetches) } });
   const outcome = await proposeFromTranscript({ transcript: "control de implante", chart: [] }, model, () => {}, { today: "2026-11-02" });
   assert.equal(outcome.engine, "ia+reglas");
-  assert.equal(outcome.model, "openai/gpt-4o-mini");
+  assert.equal(outcome.model, "openai/gpt-5.6-luna");
   assert.equal(outcome.aiNote, "Corregido con OpenAI (cupo de Workers AI agotado)");
   assert.equal(outcome.aiError, undefined);
 });
@@ -94,14 +94,14 @@ test("OpenAI recibe el mismo prompt y el mismo esquema JSON que Workers AI, con 
   assert.equal(url, OPENAI_CHAT_URL);
   assert.equal(init.headers.Authorization, `Bearer ${FAKE_KEY}`);
   assert.ok(!init.body.includes(FAKE_KEY));
-  assert.equal(body.model, "gpt-4o-mini");
+  assert.equal(body.model, "gpt-5.6-luna");
   assert.deepEqual(body.messages, [{ role: "system", content: AI_SYSTEM_PROMPT }, { role: "user", content: buildModelUserPrompt(input) }]);
   assert.deepEqual(body.response_format, { type: "json_schema", json_schema: { name: "propuesta_dictado", strict: true, schema: AI_JSON_SCHEMA } });
   assert.deepEqual(buildOpenAiRequest(input), body);
 });
 
-test("costo estimado de gpt-4o-mini por tokens", () => {
-  assert.equal(Math.round(openAiCostUsd({ prompt_tokens: 1_000_000, completion_tokens: 1_000_000 }) * 100) / 100, 0.75);
+test("costo estimado de gpt-5.6-luna por tokens", () => {
+  assert.equal(Math.round(openAiCostUsd({ prompt_tokens: 1_000_000, completion_tokens: 1_000_000 }) * 100) / 100, 1.4);
 });
 
 test("la pantalla muestra la advertencia ámbar solo con reglas locales y la nota discreta con OpenAI", () => {
