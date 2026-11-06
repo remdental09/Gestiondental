@@ -1,4 +1,4 @@
-import { isReasoningModel, OPENAI_CORRECTION_MODEL, OPENAI_SAFE_MODEL } from "./openai-structure.ts";
+import { isReasoningModel, OPENAI_CORRECTION_MODEL } from "./openai-structure.ts";
 import { TOOTH_NUMBERING_PROMPT } from "./clinical-writing.ts";
 import { reconcileCorrection, type TranscriptCorrection } from "./spoken.ts";
 import { DENTAL_DICTIONARY_HINTS } from "./dental-lexicon.ts";
@@ -35,10 +35,6 @@ export async function correctWithOpenAi(
       ],
     }),
   });
-  // Sin acceso al modelo configurado (403/404/400): se reintenta una vez con el modelo probado en esta cuenta.
-  if (!response.ok && model !== OPENAI_SAFE_MODEL && [400, 403, 404].includes(response.status)) {
-    return correctWithOpenAi(source, apiKey, { ...options, model: OPENAI_SAFE_MODEL });
-  }
   if (!response.ok) throw new Error(`OpenAI respondió HTTP ${response.status}.`);
 
   const payload = await response.json() as {

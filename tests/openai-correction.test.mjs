@@ -58,17 +58,3 @@ test('no expone la clave ni acepta respuestas vacías del proveedor', async () =
     /no devolvió texto corregido/,
   );
 });
-
-test('si gpt-5.6-luna responde 403, la corrección reintenta con gpt-4o-mini', async () => {
-  const models = [];
-  const result = await correctWithOpenAi('Caries mecial en pieza FDI 3.6.', 'test-secret', {
-    fetcher: async (_url, init) => {
-      const request = JSON.parse(init.body);
-      models.push(request.model);
-      if (request.model === 'gpt-5.6-luna') return new Response('{}', { status: 403 });
-      return Response.json({ choices: [{ message: { content: JSON.stringify({ text: 'Caries mesial en pieza FDI 3.6.' }) } }] });
-    },
-  });
-  assert.deepEqual(models, ['gpt-5.6-luna', 'gpt-4o-mini']);
-  assert.equal(result.text, 'Caries mesial en pieza FDI 3.6.');
-});

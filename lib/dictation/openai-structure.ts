@@ -1,16 +1,14 @@
 import { AI_JSON_SCHEMA, AI_SYSTEM_PROMPT, buildModelUserPrompt, type StructureInput } from "./proposal.ts";
 
 /** Respaldo de pago cuando Workers AI no responde o agotó su cupo diario. */
-export const OPENAI_STRUCTURE_MODEL = "gpt-5.6-terra";
-/** Modelo probado en esta cuenta: se usa si el configurado no existe o la clave no tiene acceso. */
-export const OPENAI_SAFE_MODEL = "gpt-4o-mini";
-/** Rectificación lingüística del dictado: tarea acotada, basta el nivel económico. */
+export const OPENAI_STRUCTURE_MODEL = "gpt-5.6-luna";
+/** Rectificación lingüística del dictado. Se usa un solo modelo (Luna) para todo, sin combinar modelos. */
 export const OPENAI_CORRECTION_MODEL = "gpt-5.6-luna";
 /** gpt-5.x y o-series razonan: no aceptan temperature ni max_tokens. */
 export const isReasoningModel = (model: string) => /^(?:gpt-[5-9]|o\d)/i.test(model);
 export const OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions";
-/** Precio público (USD por millón de tokens), solo para estimar costos en el eval. Referencia: gpt-5.6-terra. */
-export const OPENAI_PRICE_PER_MTOK = { input: 2, output: 12 } as const;
+/** Precio público (USD por millón de tokens), solo para estimar costos en el eval. Referencia: gpt-5.6-luna. */
+export const OPENAI_PRICE_PER_MTOK = { input: 0.2, output: 1.2 } as const;
 
 export type OpenAiUsage = { prompt_tokens: number; completion_tokens: number };
 
