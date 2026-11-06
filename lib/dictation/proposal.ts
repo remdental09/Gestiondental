@@ -413,7 +413,9 @@ function sentences(text: string): string[] {
 /** Solo las partes de la frase que no hablan de fractura, cúspide u otro hallazgo fuera de la leyenda. */
 function surfaceScope(sentence: string): string {
   // «fosas y fisuras» es la anatomía del sellante o de la caries oclusal, no una fisura dentaria.
-  const anatomical = sentence.replace(/\b(?:fosas?\s+y\s+(?:fisuras?|surcos?)|surcos?\s+y\s+fisuras?|fosas?,?\s+surcos?\s+y\s+fisuras?)\b/giu, "fosas");
+  // En un sellante, las fosas y fisuras son la cara oclusal.
+  const sealing = /\b(?:sellante|sellad\p{L}*)\b/iu.test(sentence);
+  const anatomical = sentence.replace(/\b(?:fosas?\s+y\s+(?:fisuras?|surcos?)|surcos?\s+y\s+fisuras?|fosas?,?\s+surcos?\s+y\s+fisuras?)\b/giu, sealing ? "fosas oclusal" : "fosas");
   const parts = anatomical.split(/\s*[,;]\s*|\s+(?:y|e|con|m[aá]s)\s+/iu);
   return parts.filter((part) => !OTHER_FINDING.test(part)).join(" ");
 }
@@ -512,6 +514,18 @@ function toothMentions(sentence: string): Mention[] {
   const unlabeled = sentence.replace(numbered, (whole) => " ".repeat(whole.length));
   for (const match of unlabeled.matchAll(/(?<![\d.,])(?<![x×]\s?)([1-8])\.([1-8])(?![\d.,]?\d)(?!\s*(?:mm|mil[ií]metros?|cm|%|hrs?|horas?|h\b|[x×]\s*\d))/giu)) {
     mentions.push(interpretTooth(`${match[1]}.${match[2]}`, "fdi"));
+  }
+  // «las piezas 16 y 26», «dientes 1.6, 2.6 y 3.6»: la etiqueta se comparte con toda la lista.
+  for (const list of sentence.matchAll(/\b(?:pieza|diente)s\s+(?:(fdi|iso|chilena|nacional|universal|estadounidense)\s+)?(\d{1,2}(?:\.\d)?(?:\s*(?:,|y|e)\s*\d{1,2}(?:\.\d)?)+)(?![\d.]?\d)/gi)) {
+    for (const number of list[2].match(/\d{1,2}(?:\.\d)?/g) ?? []) mentions.push(interpretTooth(number, list[1]));
+  }
+  // «tercer molar inferior derecho 48», «muela 37»: el número que sigue al nombre del diente.
+  for (const match of sentence.matchAll(/\b(?:molar(?:es)?|premolar(?:es)?|incisivo|canino|muela|cordal)(?:\s+(?:superior|inferior|derech[oa]|izquierd[oa]|central|lateral|primer|segundo|tercer)){0,4}\s+(\d{2}(?:\.\d)?)(?![\d.]?\d)(?!\s*(?:mm|mil[ií]metros?|cm|%|mg|mil))/giu)) {
+    mentions.push(interpretTooth(match[1], undefined));
+  }
+  // «caries de la 37», «el 46»: solo números que no pueden ser un día del mes (FDI 33–48 y 51–85).
+  for (const match of unlabeled.matchAll(/(?<![\d.,])\b(?:la|el)\s+(3[3-9]|4[0-8]|5[1-9]|6\d|7\d|8[0-5])(?![\d.,]?\d)(?!\s*(?:mm|mil[ií]metros?|cm|%|mg|mil|a[nñ]os?|de\s+(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)))/giu)) {
+    mentions.push(interpretTooth(match[1], undefined));
   }
   const spoken = speechText(sentence);
   const consumed: Array<[number, number]> = [];
@@ -1115,10 +1129,23 @@ export function textDiagnoses(text: string): DiagnosisItem[] {
     const found = clauses.length > 1
       ? clauses.flatMap((clause) => {
           const own = toothMentions(clause).find((item) => item.ok);
-          const tooth = own && own.ok ? own.tooth : undefined;
+          let tooth = own && own.ok ? own.tooth : undefined;
+          if (tooth === undefined && diagnosisMatches(clause).length) {
+            // «Fractura coronaria complicada de la | pieza 21…»: el corte deja la pieza en la cláusula siguiente.
+            const index = clauses.indexOf(clause);
+            const next = clauses[index + 1] ? toothMentions(clauses[index + 1]).find((item) => item.ok) : undefined;
+            if (next && next.ok && /(?:\b(?:de|del|en|a|la|el)\s*)+$/iu.test(clause.trim())) tooth = next.tooth;
+            else tooth = sentenceTooth;
+          }
           return diagnosisMatches(clause).map((match) => ({ match, tooth }));
         })
-      : diagnosisMatches(sentence).map((match) => ({ match, tooth: sentenceTooth }));
+      : (() => {
+          const matches = diagnosisMatches(sentence);
+          // Un solo diagnóstico para varias piezas de la misma frase («desgaste en 1.3 y 2.3»): uno por pieza.
+          const teeth = [...new Set(toothMentions(sentence).filter((item) => item.ok).map((item) => (item as { tooth: number }).tooth))];
+          if (matches.length === 1 && teeth.length > 1) return teeth.map((tooth) => ({ match: matches[0], tooth }));
+          return matches.map((match) => ({ match, tooth: sentenceTooth }));
+        })();
     for (const { match, tooth } of found) {
       if (out.some((done) => done.code === match.code && done.title === match.title && done.tooth === tooth)) continue;
       const item: DiagnosisItem = { id: `dx-${out.length + 1}`, tooth, code: match.code, title: match.title, label: "", evidence: clip(sentence, 400), findings: "", origin: "reglas", term: match.term, ...(match.suggested ? { suggested: match.suggested } : {}) };
@@ -1395,6 +1422,12 @@ export function structureTranscript(transcript: string, options: { today?: strin
     }
     if (/\bresto\s+radicular\b/i.test(sentence) && !/\bendodoncia\b/i.test(sentence) && !EXTRACTION_DONE.test(sentence)) {
       clarifications.push("Hay un resto radicular sin decir si tiene endodoncia. No se cambió el estado general.");
+    }
+
+    if (/(?<!\p{L})(?:exodoncia|extracci[oó]n)\s+(?:de|del)\s+(?:la\s+|el\s+|los\s+|las\s+)?(?:pieza|diente|molar|premolar|incisivo|canino|muela|cordal|\d)/iu.test(sentence)
+      && !EXTRACTION_DONE.test(sentence) && !EXTRACTION_INDICATED.test(sentence)
+      && !/(?<!\p{L})(?:planific\p{L}*|se\s+indic\p{L}*|se\s+plante\p{L}*|program\p{L}*|agend\p{L}*|pr[oó]xim\p{L}*|requiere|necesita|futur\p{L}*)(?!\p{L})/iu.test(sentence)) {
+      clarifications.push(`¿La exodoncia ya se realizó o solo está indicada? No se cambió el estado de la pieza: «${clip(sentence)}».`);
     }
 
     let mentions = toothMentions(sentence);
