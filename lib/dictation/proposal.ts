@@ -581,8 +581,33 @@ function isPerformed(sentence: string): boolean {
   return PERFORMED.test(sentence) && !NEGATED_PERFORMED.test(sentence);
 }
 
-function isPlan(sentence: string): boolean {
+function isPlanStrict(sentence: string): boolean {
   return /\b(?:se\s+planifica|planificad[oa]|se\s+indica|a\s+futuro|presupuesto|cotizaci[oó]n|por\s+cotizar)\b/i.test(sentence);
+}
+
+const PLAN_CUE = /(?:^|\P{L})(?:plan\s+(?:de\s+tratamiento|opci[oó]n|alternativ\p{L}*)|(?:fase|etapa)\s+(?:\d+|uno|dos|tres|cuatro|cinco)|opci[oó]n\s+(?:[abc]|\d|uno|dos|tres)|alternativa|a\s+decidir|se\s+eval[uú]a(?:r[aá])?|se\s+(?:propone|sugiere|recomienda|planea)|por\s+definir)(?!\p{L})/iu;
+const PLAN_HEADER = /(?:^|\P{L})plan\s+(?:de\s+tratamiento|opci[oó]n)(?!\p{L})/iu;
+
+/** Lo que se planifica o se presupuesta no es lo que se hizo: «Plan de tratamiento», «Fase dos», «Opción B», «a decidir». */
+function isPlan(sentence: string): boolean {
+  return isPlanStrict(sentence) || PLAN_CUE.test(sentence);
+}
+
+/** Frases que siguen a un «Plan de tratamiento» sin que se diga que algo se hizo: siguen siendo plan. */
+function inPlanContext(all: string[], index: number): boolean {
+  if (index < 0 || PERFORMED_TODAY.test(all[index]) || EXTRACTION_DONE.test(all[index])) return false;
+  for (let k = index - 1; k >= Math.max(0, index - 6); k -= 1) {
+    if (isPerformed(all[k]) || PERFORMED_TODAY.test(all[k])) return false;
+    if (PLAN_HEADER.test(all[k])) return true;
+  }
+  return false;
+}
+
+function planContextOfSegment(segment: string, transcript: string): boolean {
+  const all = sentences(transcript);
+  const target = normalizeEvidence(segment);
+  const index = all.findIndex((line) => { const text = normalizeEvidence(line); return text.includes(target) || target.includes(text); });
+  return inPlanContext(all, index);
 }
 
 function isNegatedFinding(sentence: string): boolean {
@@ -597,13 +622,19 @@ function parseAmount(sentence: string): number | null {
   return Number.isSafeInteger(amount) && amount >= 1 && amount <= 1_000_000_000 ? amount : null;
 }
 
+const SPOKEN_AMOUNT = /\b(?:(?:un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|diecis[eé]is|diecisiete|dieciocho|diecinueve|veinte|veinti\p{L}+|treinta|cuarenta|cincuenta|sesenta|setenta|ochenta|noventa|cien|ciento|doscientos|trescientos|cuatrocientos|quinientos|seiscientos|setecientos|ochocientos|novecientos|y)\s+)*(?:mil|mill[oó]n|millones)\b(?:\s+(?:y\s+)?(?:un|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|veinte|treinta|cuarenta|cincuenta|sesenta|setenta|ochenta|noventa)\b)*/giu;
+
 function budgetLabel(sentence: string): string {
   const label = sentence
+    .replace(/\b([1-8])\.([1-8])\b/g, "$1#$2")
     .replace(/(?:\$\s*)?(?:\d{1,3}(?:\.\d{3})+|\d{4,9})/g, " ")
-    .replace(/\b(?:presupuesto|cotizaci[oó]n|honorarios?|pesos|clp|pieza|diente|fdi|iso|chilena|nacional|universal)\b/gi, " ")
+    .replace(SPOKEN_AMOUNT, " ")
+    .replace(/\b(?:presupuesto|cotizaci[oó]n|honorarios?|pesos|clp|fdi|iso|chilena|nacional|universal|cada\s+uno|cada\s+una)\b/gi, " ")
     .replace(/[.,;:()]/g, " ")
     .replace(/\s+/g, " ")
     .trim()
+    .replace(/(?:\s+(?:por|a|en|de|del|la|el|y))+$/i, "")
+    .replace(/#/g, ".")
     .replace(/^(?:de|del|la|el|un|una)\s+/i, "");
   const clean = clip(label, 180);
   if (clean.length < 3) return "Prestación dictada";
@@ -1413,8 +1444,8 @@ export function structureTranscript(transcript: string, options: { today?: strin
       }
       continue;
     }
-    if (isPlan(sentence) && !isPerformed(sentence) && !EXTRACTION_INDICATED.test(sentence)) {
-      if (/\b(?:implante|corona|exodoncia|caries|obturaci)\b/i.test(sentence)) {
+    if ((isPlan(sentence) || inPlanContext(allSentences, sentenceIndex)) && !isPerformed(sentence) && !EXTRACTION_INDICATED.test(sentence)) {
+      if (isPlanStrict(sentence) && /\b(?:implante|corona|exodoncia|caries|obturaci)\b/i.test(sentence)) {
         clarifications.push(`Plan o presupuesto, sin cambio de odontograma: «${clip(sentence)}».`);
       }
       continue;
@@ -2277,6 +2308,11 @@ function numbersIn(value: string): Set<string> {
     if (number >= 51 && number <= 85) found.add(`${Math.floor(number / 10)}.${number % 10}`);
   }
   for (const match of spoken.matchAll(/\b(\d+)\s+mil\b/g)) found.add(String(Number(match[1]) * 1000));
+  // «ciento diez mil pesos» se escribe 110000; «fase uno», «cada dos meses»: la nota puede usar cifras.
+  for (const amount of amountsIn(value)) found.add(String(amount));
+  for (const [word, number] of Object.entries({ un: 1, uno: 1, una: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10 })) {
+    if (new RegExp(String.raw`\b${word}\b`).test(spoken)) found.add(String(number));
+  }
   for (const match of spoken.matchAll(new RegExp(String.raw`\b${SPOKEN_DIGIT}\s+${SPOKEN_DIGIT_SECOND}\b`, "g"))) {
     const words = match[0].split(/\s+/);
     found.add(`${spokenDigit(words[0])}.${spokenDigit(words[1])}`);
@@ -2502,7 +2538,7 @@ export function validateAiExtraction(input: unknown, transcript: string, options
       const cue = STATUS_CUE[status];
       if (!cue || !TOOTH_STATUSES.includes(status)) { reject(`Estado «${status}» no reconocido en ${heading}.`); continue; }
       if (!cue.test(segment)) { reject(`La cita de ${heading} no dice «${status.toLowerCase()}»: «${clip(segment)}».`); continue; }
-      if (status !== "Indicación de exodoncia" && isPlan(segment) && !isPerformed(segment)) { reject(`Plan o presupuesto, sin cambio de odontograma: «${clip(segment)}».`); continue; }
+      if (status !== "Indicación de exodoncia" && (isPlan(segment) || planContextOfSegment(segment, transcript)) && !isPerformed(segment)) { continue; }
       if (isNegatedFinding(segment)) { reject(`Hallazgo negado, sin cambio de odontograma: «${clip(segment)}».`); continue; }
       if (status === "Resto radicular con endodoncia" && !/endodoncia/i.test(segment)) { reject(`${heading}: resto radicular sin decir si tiene endodoncia.`); continue; }
       // Corona provisoria: aún no es la definitiva, no cambia el estado general.
@@ -2531,7 +2567,7 @@ export function validateAiExtraction(input: unknown, transcript: string, options
       continue;
     }
     if (condition !== "sound" && isNegatedFinding(segment)) { reject(`Hallazgo negado, sin cambio de odontograma: «${clip(segment)}».`); continue; }
-    if (isPlan(segment) && !isPerformed(segment)) { reject(`Plan o presupuesto, sin cambio de odontograma: «${clip(segment)}».`); continue; }
+    if ((isPlan(segment) || planContextOfSegment(segment, transcript)) && !isPerformed(segment)) { continue; }
     const resolved = resolveDictatedSurfaces(scope, mention.tooth);
     for (const note of resolved.notes) clarifications.push(note);
     const aiFaces = list(item.caras, 5).filter((face): face is OdontogramSurface => typeof face === "string" && ODONTOGRAM_SURFACES.includes(face as OdontogramSurface));
@@ -2580,7 +2616,7 @@ export function validateAiExtraction(input: unknown, transcript: string, options
     if (!evidence || !evidenceInTranscript(evidence, transcript)) { reject(`Presupuesto «${label}» sin cita literal del dictado. No se propuso.`); continue; }
     // La prestación tiene que estar en la cita (al menos una palabra con contenido).
     const labelWords = normalizeEvidence(label).split(" ").filter((word) => word.length > 3 && !/^\d+$/.test(word));
-    const quoted = normalizeEvidence(evidence);
+    const quoted = `${normalizeEvidence(evidence)} ${sentences(transcript).filter((line) => normalizeEvidence(line).includes(normalizeEvidence(evidence)) || normalizeEvidence(evidence).includes(normalizeEvidence(line))).map(normalizeEvidence).join(" ")}`;
     if (labelWords.length && !labelWords.some((word) => quoted.includes(word.slice(0, Math.max(4, word.length - 2))))) { reject(`Presupuesto «${label}»: la prestación no está en la cita. No se propuso.`); continue; }
     const said = amountsIn(evidence);
     const aiAmount = Number(item.monto);
