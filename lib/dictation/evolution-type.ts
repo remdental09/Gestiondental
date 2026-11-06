@@ -115,6 +115,8 @@ export function classifyEvolution(text: string, tooth?: string | null, implantIn
     const pilar = /\b(?:pilar(?:es)?|aditamento|tornillo\s+de\s+cicatrizacion|cicatrizal)\b/;
     const verb = new RegExp(String.raw`\b(?:${DONE}|instalacion|cementacion|conexion|colocacion|entrega)\b`);
     if (near(today, crown, verb) && !/\bprovisori[ao]\b/.test(today)) return make("implante-rehabilitacion", "corona");
+    // «Implante en el 4.6 con pilar» / «pilar protésico conectado»: el estado dicho vale como pilar de hoy.
+    if (/\bimplantes?\b[^;!?\n]{0,40}\bcon\s+(?:el\s+)?pilar(?:es)?\b|\bpilar(?:es)?\b[^;!?\n]{0,30}\b(?:conectad\w*|atornillad\w*|instalad\w*|colocad\w*)\b/.test(today)) return make("implante-rehabilitacion", /cicatriz/.test(today) ? "pilar de cicatrización" : "pilar");
     if (near(today, pilar, verb)) return make("implante-rehabilitacion", /cicatriz/.test(today) ? "pilar de cicatrización" : "pilar");
     if (/\b(?:se\s+(?:instala|instalo|coloca|coloco|inserta|inserto)\s+(?:un\s+|el\s+)?implante|instalacion\s+de(?:l)?\s+(?:un\s+)?implante|cirugia\s+de\s+implante|implante\s+instalado\s+hoy)\b/.test(today)) return make("implante-instalacion");
     // Un control del implante no vuelve a marcarlo; «pieza 2.1 corona sobre implante» sin control ni
