@@ -212,3 +212,15 @@ test("sondaje dictado: «sangra en el distovestibular» marca solo ese sitio y u
   assert.deepEqual(perio.filter((p) => p.tooth === 36 && p.bleeding).map((p) => p.site), ["DV"]);
   assert.equal(perio.filter((p) => p.tooth === 16 && p.bleeding).length, 3);
 });
+
+test("evolución del COP-D por fecha se reconstruye con los hitos de cada pieza", async () => {
+  const { copEvolution } = await import("../app/odontogram-index.ts");
+  const snap = (status, condition, missingReason = null) => ({ status, surfaces: condition ? { O: { condition, depth: null, icdas: null, activity: null } } : {}, missingReason, crown: null });
+  const history = [
+    { id: "a", tooth: 16, recordedAt: "2026-11-06T10:00:00Z", clinicalDate: "2026-08-03", eventType: "surface", after: snap("Sin hallazgos", "caries") },
+    { id: "b", tooth: 16, recordedAt: "2026-11-06T10:01:00Z", clinicalDate: "2026-09-01", eventType: "surface", after: snap("Sin hallazgos", "restored") },
+    { id: "c", tooth: 26, recordedAt: "2026-11-06T10:02:00Z", clinicalDate: "2026-09-01", eventType: "status", after: snap("Ausente", null, "caries") },
+  ];
+  const points = copEvolution([16, 26], history);
+  assert.deepEqual(points.map((p) => [p.date, p.caries, p.missing, p.filled, p.total]), [["2026-08-03", 1, 0, 0, 1], ["2026-09-01", 0, 1, 1, 2]]);
+});
