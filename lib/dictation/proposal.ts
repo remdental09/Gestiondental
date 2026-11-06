@@ -352,7 +352,7 @@ function clip(value: string, max = 180): string {
 
 /** Hallazgos clínicos que no son estados del odontograma: no aportan caras ni caries. */
 const OTHER_FINDING = /(?<!\p{L})(?:fractur\p{L}*|fisur\p{L}*|c[uú]spides?|desgaste|abfracci\p{L}*|abrasi[oó]n|erosi[oó]n|atrici[oó]n|movilidad|tinci[oó]n|manchas?|absceso|f[ií]stula|dolor|sensibilidad)(?!\p{L})/iu;
-const FINDING_CUE = /(?<!\p{L})(?:caries|obtura\p{L}*|restaura\p{L}*|resina|amalgama|sellante|san[oa]|ausente|implante|corona|exodoncia|extra[ií]d\p{L}*|resto\s+radicular|endodoncia|fractur\p{L}*|fisur\p{L}*|c[uú]spides?|icdas|esmalte|dentina|pulpar|penetrante|lesi[oó]n|movilidad|sondaje|dolor|sensibilidad|absceso|f[ií]stula|desgaste|abfracci\p{L}*|pulpitis|necrosis|periodontitis|activ[ao]|inactiv[ao]|oclusal|mesial|distal|vestibular|palatin[ao]|lingual|incisal|mod)(?!\p{L})/iu;
+const FINDING_CUE = /(?<!\p{L})(?:caries|obtura\p{L}*|restaura\p{L}*|resina|amalgama|sellante|san[oa]|ausente|implantes?|coronas?|exodoncia|extra[ií]d\p{L}*|resto\s+radicular|endodoncia|fractur\p{L}*|fisur\p{L}*|c[uú]spides?|icdas|esmalte|dentina|pulpar|penetrante|lesi[oó]n|movilidad|sondaje|dolor|sensibilidad|absceso|f[ií]stula|desgaste|abfracci\p{L}*|pulpitis|necrosis|periodontitis|activ[ao]|inactiv[ao]|oclusal|mesial|distal|vestibular|palatin[ao]|lingual|incisal|mod)(?!\p{L})/iu;
 const TOOTH_START = /(?:^|\s)((?:(?:la|el)\s+)?(?:(?:pieza|diente)s?\s+(?:(?:fdi|iso|chilena|nacional|universal)\s+)?(?:\d|un[oa]?\b|dos\b|tres\b|cuatro\b|cinco\b|seis\b|siete\b|ocho\b|nueve\b|diez\b|once\b|doce\b|trece\b|catorce\b|quince\b|diec|veint|treinta|cuarenta|cincuenta|sesenta|setenta|ochenta|temporal|decidu|de\s+leche)|(?:fdi|iso)\s+(?:\d|un[oa]?\b|dos\b|tres\b|cuatro\b|cinco\b|seis\b|siete\b|ocho\b)))/giu;
 const CLAUSE_START = /(?:^|\s)((?:(?:el|la)\s+)?(?:paciente\s+)?(?:refiere|relata|comenta|niega)(?!\p{L})|se\s+(?:le\s+)?(?:indica|planifica|realiz[oó]|instal[oó]|cement[oó]|observa|encuentra)(?!\p{L})|(?:el\s+)?motivo\s+de\s+(?:la\s+)?consulta(?!\p{L})|viene\s+(?:a|por|para)\s|nos\s+vemos(?!\p{L})|est[aá]\s+conectad[oa](?!\p{L})|fue\s+(?:una\s+)?t[eé]cnica(?!\p{L})|(?:sondaje|sondeo|movilidad)(?!\p{L})|(?:con\s+)?sangrado\s+al\s+(?:sondaje|sondeo)(?!\p{L})|(?:presupuesto|se\s+presupuesta)(?!\p{L})|(?:el\s+paciente\s+|la\s+paciente\s+)?(?:abon[oó]|pag[oó]|cancel[oó])(?!\p{L})|pr[oó]xim[oa]\s+(?:cita|control|sesi[oó]n|hora)(?!\p{L})|se\s+(?:cita|agenda|reagenda)(?!\p{L})|se\s+controla(?:r[aá])?\s+(?:en|el|para|dentro)(?!\p{L})|aclaraci[oó]n:)/giu;
 const OPEN_ENDING = /(?:^|\s)(?:en|de|del|la|el|los|las|a|al|para|entre|sobre|por|un|una|que|o|con|desde|hasta|observa|observan|extrae|extrajo|restaura|restaur[oó]|obtura|obtur[oó]|presenta|presentan|indica|planifica|realiza|realiz[oó]|instal[oó]|cement[oó]|tiene|hay|evidencia|paciente)$/iu;
@@ -573,7 +573,7 @@ function toothMentions(sentence: string): Mention[] {
   return mentions;
 }
 
-const PERFORMED = /(?:^|\P{L})(?:se\s+(?:instal[oó]|coloc[oó]|cement[oó]|realiz[oó]|efectu[oó]|insert[oó])|cementad[oa])(?!\p{L})/iu;
+const PERFORMED = /(?:^|\P{L})(?:se\s+(?:instal(?:[oó]|an)|coloc(?:[oó]|an)|cement[oó]|realiz[oó]|efectu[oó]|insert[oó])|cementad[oa])(?!\p{L})/iu;
 const NEGATED_PERFORMED = /(?:^|\P{L})no\s+se\s+(?:instal[oó]|coloc[oó]|cement[oó]|realiz[oó]|efectu[oó]|insert[oó])(?!\p{L})/iu;
 
 function isPatient(sentence: string): boolean {
@@ -799,7 +799,7 @@ function statusFrom(sentence: string): ToothStatus | null {
   if (/\bresto\s+radicular\b/i.test(sentence) && /\bendodoncia\b/i.test(sentence)) return "Resto radicular con endodoncia";
   if (EXTRACTION_INDICATED.test(sentence)) return "Indicación de exodoncia";
   if (crownOnImplantSentence(sentence)) return null;
-  if (/\bimplante\b/i.test(sentence) && !/\b(?:corona|pr[oó]tesis\s+fija)\b/i.test(sentence)) {
+  if (/\bimplantes?\b/i.test(sentence) && !/\b(?:corona|pr[oó]tesis\s+fija)\b/i.test(sentence)) {
     if (/\b(?:control\p{L}*|seguimiento|revisi[oó]n|mantenimiento)(?!\p{L})/iu.test(sentence) && !isPerformed(sentence)) return null;
     if (/\b(?:planific|se\s+indic|program)\b/i.test(sentence)) return null;
     return "Implante";
@@ -1002,7 +1002,7 @@ const VISIT_REASON = /(?<!\p{L})(?:motivo\s+de\s+(?:la\s+)?consulta|viene\s+(?:a
 const EXAM_STATE = /(?<!\p{L})(?:se\s+encuentra|buen\s+estado|sin\s+(?:hemorragia|sangrado|inflamaci[oó]n|supuraci[oó]n|dolor|movilidad)|conectad[oa]|cicatriz\p{L}*|cerr[oó]\s+bien|t[eé]cnica\s+flapless|flapless)(?!\p{L})/iu;
 
 /** Lo hecho hoy dicho en presente («se realiza profilaxis», «se instala pilar», «se cambia arco»). */
-const PERFORMED_TODAY = /(?<!\p{L})(?<!no\s)se\s+(?:realiza|hace|efect[uú]a|instala|coloca|cementa|atornilla|cambia|activa(?:n)?|ajusta|pule|obtura|restaura|extrae|retira|entrega|toma)(?!\p{L})/iu;
+const PERFORMED_TODAY = /(?<!\p{L})(?<!no\s)se\s+(?:realiza|hace|efect[uú]a|instala|instalan|coloca|colocan|cementa|atornilla|cambia|activa(?:n)?|ajusta|pule|obtura|restaura|extrae|retira|entrega|toma)(?!\p{L})/iu;
 
 /** Rehace la sección «Examen (odontograma)» con los cambios que quedaron propuestos. */
 export function replaceExamSection(body: string, items: OdontogramChange[]): string {
@@ -1331,6 +1331,7 @@ export function structureTranscript(transcript: string, options: { today?: strin
   const perio: PerioStub[] = [];
   const perioPending: PerioPending[] = [];
   let lastPerioItems: PerioStub[] = [];
+  let lastAnyMention: Extract<Mention, { ok: true }> | null = null;
   let lastPerioMention: ReturnType<typeof toothMentions>[number] | null = null;
   const mobility: MobilityChange[] = [];
   const payments: PaymentChange[] = [];
@@ -1360,6 +1361,7 @@ export function structureTranscript(transcript: string, options: { today?: strin
       continue;
     }
     // Un diagnóstico dictado queda como etiqueta para confirmar en la revisión: no hace falta el aviso.
+    const ownMention = toothMentions(sentence).find((item): item is Extract<Mention, { ok: true }> => item.ok);
     const taggedDiagnosis = isDiagnosisSentence(sentence);
     if (!taggedDiagnosis && !/^\s*Aclaraci[oó]n\s*:/iu.test(sentence) && !diagnosisUncertaintyAnswered(sentence, transcript)) {
       const question = uncertainDiagnosisQuestion(sentence);
@@ -1371,6 +1373,8 @@ export function structureTranscript(transcript: string, options: { today?: strin
     if (!taggedDiagnosis && !transcriptHasDiagnosis && /\bdiagn[oó]stico\b/i.test(sentence)) {
       clarifications.push("No se creó un diagnóstico confirmado a partir del dictado.");
     }
+    const inheritedMention = lastAnyMention;
+    if (ownMention) lastAnyMention = ownMention;
     const grade = mobilityGrade(sentence);
     if (grade) {
       // «Movilidad grado 1.» sin pieza: se refiere a la pieza del sondaje anterior.
@@ -1385,9 +1389,9 @@ export function structureTranscript(transcript: string, options: { today?: strin
       continue;
     }
     lastPerioItems = [];
-    if (/(?<!\p{L})(?:sondaje|sondeo)(?!\p{L})/iu.test(sentence) || (/(?<!\p{L})periodontograma(?!\p{L})/iu.test(sentence) && /\d/.test(sentence)) || perioFragments(sentence).length >= 2) {
+    if (/(?<!\p{L})(?:sondaje|sondeo)(?!\p{L})/iu.test(sentence) || (/(?<!\p{L})periodontograma(?!\p{L})/iu.test(sentence) && /\d/.test(sentence)) || perioFragments(sentence).length >= 2 || (lastPerioMention && perioTriplets(sentence, lastPerioMention).length > 0)) {
       // Tres cifras por cara («5 5 6 por vestibular y 4 4 5 por lingual»): mesial, central y distal en ese orden.
-      const triplets = perioTriplets(sentence);
+      const triplets = perioTriplets(sentence, inheritedMention);
       if (triplets.length) {
         for (const part of triplets) {
           const item: PerioStub = {
@@ -1412,7 +1416,7 @@ export function structureTranscript(transcript: string, options: { today?: strin
         lastPerioMention = several[0].mention;
         continue;
       }
-      const reading = perioReading(sentence);
+      const reading = perioReading(sentence, inheritedMention);
       if (/(?<!\p{L})(?:sondaje|sondeo)(?:\s+de)?\s+\d{1,2}[.,]\d+\s*(?:mm|mil[ií]metros)/iu.test(sentence)) clarifications.push("El sondaje con decimal no se anota. Usa milímetros enteros.");
       else if (!reading.mention && /(?<!\p{L})(?:generalizad\p{L}*|en\s+general|en\s+toda\s+la\s+boca|boca\s+completa|todas\s+las\s+piezas|localizad\p{L}*)(?!\p{L})/iu.test(sentence)) {
         // «Sangrado al sondaje generalizado» es una nota periodontal, no un registro por pieza: queda en la evolución.
@@ -1486,7 +1490,7 @@ export function structureTranscript(transcript: string, options: { today?: strin
     }
 
     if (isPatient(sentence)) {
-      if (/(?:^|\P{L})(?:caries|ausente|implante|obturaci\p{L}*|corona|extraj\p{L}*|extra[ií]d\p{L}*|exodoncia)(?!\p{L})/iu.test(sentence)) {
+      if (/(?:^|\P{L})(?:caries|ausente|implantes?|obturaci\p{L}*|corona|extraj\p{L}*|extra[ií]d\p{L}*|exodoncia)(?!\p{L})/iu.test(sentence)) {
         clarifications.push(`Relato, no hallazgo confirmado: «${clip(sentence)}».`);
       }
       continue;
@@ -1692,6 +1696,11 @@ function perioFragments(sentence: string) {
       if (bare && Number(bare[1]) <= 15 && out.length) reading.depth = Number(bare[1]);
     }
     if (reading.depth === null && !reading.site) continue; // encabezado («Sondaje en la pieza 3.6»)
+    // «…, supuración en el distal vestibular»: completa un sitio ya medido.
+    if (reading.depth === null && reading.site && (reading.suppuration || reading.bleeding)) {
+      const done = out.find((item) => item.site === reading.site);
+      if (done) { done.suppuration ||= reading.suppuration; done.bleeding ||= reading.bleeding; continue; }
+    }
     if (reading.depth === null || !reading.site || reading.depth > 15) return [];
     if (out.some((item) => item.site === reading.site)) return [];
     out.push({ mention, site: reading.site, depth: reading.depth, bleeding: reading.bleeding, suppuration: reading.suppuration });
@@ -1700,19 +1709,25 @@ function perioFragments(sentence: string) {
 }
 
 /** «5 5 6 por vestibular»: tres cifras por cara, de mesial a distal. */
-function perioTriplets(sentence: string) {
-  const mention = toothMentions(sentence).find((item): item is Extract<Mention, { ok: true }> => item.ok);
+function perioTriplets(sentence: string, fallback: Extract<Mention, { ok: true }> | null = null) {
+  const mention = toothMentions(sentence).find((item): item is Extract<Mention, { ok: true }> => item.ok) ?? fallback;
   if (!mention) return [];
   const out: Array<{ mention: typeof mention; site: PerioSite; depth: number; bleeding: boolean; suppuration: boolean }> = [];
-  const matches = [...fold(sentence).matchAll(/(?<![\d.,])(\d{1,2})[\s,]+(\d{1,2})[\s,]+(\d{1,2})(?![\d.,]?\d)\s*(?:mm|milimetros)?\s*(?:por|en|de)?\s*(?:la\s+cara\s+)?(vestibular|bucal|lingual|palatin[oa]|palatal)\b/g)];
+  const text = fold(sentence);
+  const FACE = "(vestibular|bucal|lingual|palatin[oa]|palatal)";
+  const after = [...text.matchAll(new RegExp("(?<![\\d.,])(\\d{1,2})[\\s,]+(\\d{1,2})[\\s,]+(\\d{1,2})(?![\\d.,]?\\d)\\s*(?:mm|milimetros)?\\s*(?:por|en|de)?\\s*(?:la\\s+cara\\s+)?" + FACE + "\\b", "g"))].map((m) => ({ index: m.index ?? 0, end: (m.index ?? 0) + m[0].length, face: m[4], depths: [m[1], m[2], m[3]] }));
+  // «por vestibular 6 5 7»: la cara primero y las tres cifras después.
+  const before = [...text.matchAll(new RegExp("\\b" + FACE + "\\s*(?:de|con)?\\s*(\\d{1,2})[\\s,]+(\\d{1,2})[\\s,]+(\\d{1,2})(?![\\d.,]?\\d)", "g"))].map((m) => ({ index: m.index ?? 0, end: (m.index ?? 0) + m[0].length, face: m[1], depths: [m[2], m[3], m[4]] }));
+  const matches = [...after, ...before].sort((a, b) => a.index - b.index);
+  const allBleed = /\bsangra(?:n)?\s+(?:todo|todos|todas)\b|\bcon\s+sangrado\s+(?:en\s+)?(?:todo|todos|todas)\b/.test(text);
   for (let index = 0; index < matches.length; index += 1) {
     const match = matches[index];
-    const buccal = /^(?:vestibular|bucal)$/.test(match[4]);
+    const buccal = /^(?:vestibular|bucal)$/.test(match.face);
     const sites: PerioSite[] = buccal ? ["MV", "V", "DV"] : ["ML", "L", "DL"];
-    const tail = fold(sentence).slice((match.index ?? 0) + match[0].length, matches[index + 1]?.index ?? undefined);
-    const bleeding = /\bcon\s+sangrado\b|\bsangra\b/.test(tail) && !/\bsangra\s+en\b/.test(tail);
+    const tail = text.slice(match.end, matches[index + 1]?.index ?? undefined);
+    const bleeding = allBleed || (/\bcon\s+sangrado\b|\bsangra\b/.test(tail) && !/\bsangra\s+en\b/.test(tail));
     const suppuration = /\bcon\s+supuracion\b/.test(tail);
-    const depths = [Number(match[1]), Number(match[2]), Number(match[3])];
+    const depths = match.depths.map(Number);
     if (depths.some((depth) => depth > 15) || out.some((item) => sites.includes(item.site))) return [];
     sites.forEach((site, i) => out.push({ mention, site, depth: depths[i], bleeding, suppuration }));
   }
@@ -1723,9 +1738,9 @@ function perioTriplets(sentence: string) {
   return out;
 }
 
-function perioReading(sentence: string) {
+function perioReading(sentence: string, fallback: Extract<Mention, { ok: true }> | null = null) {
   const folded = fold(sentence);
-  const mention = toothMentions(sentence).find((item): item is Extract<Mention, { ok: true }> => item.ok) ?? null;
+  const mention = toothMentions(sentence).find((item): item is Extract<Mention, { ok: true }> => item.ok) ?? fallback;
   return {
     mention,
     // Sin «mm»: la cifra pegada al nombre del sitio («mesial vestibular 7»).
@@ -2466,7 +2481,7 @@ const CONDITION_CUE: Record<string, RegExp> = {
 
 const STATUS_CUE: Record<string, RegExp> = {
   Ausente: /(?<!\p{L})(?:ausente|extra[ií]d\p{L}*|exodonciad\p{L}*|no\s+est[aá]|falta)(?!\p{L})/iu,
-  Implante: /(?<!\p{L})implante(?!\p{L})/iu,
+  Implante: /(?<!\p{L})implantes?(?!\p{L})/iu,
   Corona: /(?<!\p{L})(?:corona|pr[oó]tesis\s+fija)(?!\p{L})/iu,
   "Indicación de exodoncia": /(?<!\p{L})(?:indicaci[oó]n\s+de\s+exodoncia|indica\s+(?:la\s+)?exodoncia|exodoncia\s+indicada|para\s+exodoncia)(?!\p{L})/iu,
   "Resto radicular con endodoncia": /(?<!\p{L})resto\s+radicular(?!\p{L})/iu,
