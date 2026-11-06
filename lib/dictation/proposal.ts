@@ -3388,9 +3388,16 @@ export function applyEvolutionPolicy(proposal: DictationProposal, chart: Structu
   const kind = classifyEvolution(text, null, implantInChart);
   // Pilar protésico instalado o conectado hoy (el de cicatrización es transitorio y queda solo en la evolución).
   const pilarToday = kind.type === "implante-rehabilitacion" && kind.detail === "pilar";
+  // Evolución mixta (corona en una pieza y pilar en otra): el pilar se toma de la frase que lo dice.
+  const pilarSentenceTeeth = [...new Set(sentences(text).flatMap((sentence) => {
+    const folded = fold(sentence);
+    if (/\b(?:control\w*|seguimiento|revision|chequeo)\b/.test(folded) || /\b(?:cicatriz\w*)\b/.test(folded)) return [];
+    if (!/\bimplantes?\b[^;!?\n]{0,40}\bcon\s+(?:el\s+)?pilar(?:es)?\b|\bpilar(?:es)?\b[^;!?\n]{0,30}\b(?:conectad\w*|atornillad\w*|instalad\w*|colocad\w*)\b|\bse\s+(?:instala|instalo|conecta|conecto|atornilla|atornillo)\s+(?:un\s+|el\s+)?pilar/.test(folded)) return [];
+    return toothMentions(sentence).flatMap((item) => (item.ok ? [item.tooth] : []));
+  }))].filter((tooth) => isImplant(current.get(tooth)));
   const pilarTeeth = pilarToday
     ? (mentioned.filter((tooth) => isImplant(current.get(tooth))).length ? mentioned.filter((tooth) => isImplant(current.get(tooth))) : mentioned.slice(0, 1))
-    : [];
+    : pilarSentenceTeeth;
   const odontogram: OdontogramChange[] = [];
   for (const item of proposal.odontogram) {
     if (pilarTeeth.includes(item.tooth) && item.kind === "status" && item.status === "Implante") continue;

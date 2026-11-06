@@ -258,3 +258,10 @@ test("«implante en el 4.6 con pilar» y «pilar protésico conectado» marcan i
     assert.deepEqual((r.proposal ?? r).odontogram.map((o) => `${o.tooth}:${o.status}`), ["46:Implante con pilar"]);
   }
 });
+
+test("evolución mixta: corona en el 3.6 y pilar en el 4.6 se marcan cada uno en su pieza", async () => {
+  const { proposeFromTranscript } = await import("../lib/dictation/proposal.ts");
+  const chart = [{ tooth: 36, status: "Implante" }, { tooth: 46, status: "Implante" }];
+  const r = await proposeFromTranscript({ transcript: "Se cementa corona de zirconio en el 3.6 con cemento resinoso. Implante en el 4.6 con pilar, torque de treinta newton. Se toma impresión para corona sobre implante en el 4.6.", chart }, null, () => {}, { today: "2026-11-06" });
+  assert.deepEqual((r.proposal ?? r).odontogram.map((o) => `${o.tooth}:${o.status}`).sort(), ["36:Corona", "46:Implante con pilar"]);
+});
