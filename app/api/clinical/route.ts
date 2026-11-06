@@ -436,7 +436,7 @@ export async function POST(request: Request) {
     }
     if (action === "addBudget") {
       const title = string(input.title, 180);
-      const rawItems = input.items === undefined ? [{ label: string(input.label, 180), amount: Number(input.amount) }] : input.items;
+      const rawItems = input.items === undefined ? [{ label: string(input.label, 180), amount: Number(input.amount), code: string(input.code, 7) }] : input.items;
       const items = normalizeBudgetItems(rawItems);
       if (!title || !items) return error("Revisa el nombre del plan y cada prestación, su fase, valor y descuento.");
       const parentBudgetId = input.parentBudgetId === undefined || input.parentBudgetId === null || input.parentBudgetId === "" ? null : Number(input.parentBudgetId);

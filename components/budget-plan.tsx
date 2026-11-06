@@ -32,7 +32,7 @@ const paymentMethodLabel: Record<string, string> = { efectivo: "Efectivo", debit
 type CatalogModule = typeof import("@/lib/prestaciones-catalog");
 
 /** Campo de prestación con sugerencias del catálogo; el texto libre sigue siendo válido. */
-function PrestacionField({ value, onChange }: { value: string; onChange: (label: string) => void }) {
+function PrestacionField({ value, onChange, onPick }: { value: string; onChange: (label: string) => void; onPick: (label: string, code: string) => void }) {
   const [catalog, setCatalog] = useState<CatalogModule | null>(null);
   const [open, setOpen] = useState(false);
   const matches = useMemo<Prestacion[]>(() => (catalog && open ? catalog.searchPrestaciones(value, 6) : []), [catalog, open, value]);
@@ -46,7 +46,7 @@ function PrestacionField({ value, onChange }: { value: string; onChange: (label:
     />
     {open && catalog && matches.length > 0 && <ul role="listbox" aria-label="Prestaciones sugeridas" className="absolute z-20 mt-1 max-h-60 w-full overflow-auto rounded-lg border border-[#d8e3e3] bg-white py-1 shadow-lg">
       {matches.map((item) => <li key={item.code} role="option" aria-selected={false}>
-        <button type="button" className="block w-full px-3 py-2 text-left text-sm hover:bg-[#eef7f6]" onMouseDown={(event) => event.preventDefault()} onClick={() => { onChange(catalog.prestacionLabel(item.name)); setOpen(false); }}>
+        <button type="button" className="block w-full px-3 py-2 text-left text-sm hover:bg-[#eef7f6]" onMouseDown={(event) => event.preventDefault()} onClick={() => { onPick(catalog.prestacionLabel(item.name), item.code); setOpen(false); }}>
           <span className="block">{catalog.prestacionLabel(item.name)}</span>
           <span className="block text-xs text-[#71858b]">{catalog.prestacionLabel(item.group)} · {item.code}</span>
         </button>
@@ -65,7 +65,7 @@ export function BudgetItemsEditor({ items, onChange }: { items: BudgetItem[]; on
     {items.map((item, index) => <section key={index} className="rounded-xl border border-[#e4ebed] bg-[#fbfdfd] p-3" aria-label={`Prestación ${index + 1}`}>
       <div className="mb-3 flex items-center justify-between gap-3"><span className="text-xs font-semibold uppercase tracking-wide text-[#527075]">Prestación {index + 1}</span>{items.length > 1 && <button type="button" aria-label={`Quitar prestación ${index + 1}`} className="rounded p-1 text-[#8c4a51] hover:bg-rose-50" onClick={() => onChange(items.filter((_, itemIndex) => itemIndex !== index))}><Trash2 className="size-4"/></button>}</div>
       <div className="grid gap-3 sm:grid-cols-2">
-        <label className="space-y-1 text-sm font-medium sm:col-span-2">Prestación<PrestacionField value={item.label} onChange={label => update(index, { label })}/></label>
+        <label className="space-y-1 text-sm font-medium sm:col-span-2">Prestación<PrestacionField value={item.label} onChange={label => update(index, { label, code: undefined })} onPick={(label, code) => update(index, { label, code })}/></label>
         <label className="space-y-1 text-sm font-medium">Fase<Input maxLength={80} value={item.phase ?? ""} onChange={event => update(index, { phase: event.target.value })} placeholder="Fase 1 · Resolución"/></label>
         <label className="space-y-1 text-sm font-medium">Valor CLP<Input type="number" inputMode="numeric" min="1" step="1" value={item.amount || ""} onChange={event => update(index, { amount: Number(event.target.value) })} placeholder="790000"/></label>
         <label className="space-y-1 text-sm font-medium">Descuento (%)<Input type="number" inputMode="numeric" min="0" max="100" step="1" value={item.discountPercent ?? 0} onChange={event => update(index, { discountPercent: Number(event.target.value) })}/></label>
@@ -122,7 +122,7 @@ export function BudgetCard({
     <div className="mt-4 space-y-4 border-t border-[#edf1f2] pt-3">
       {budgetPhases(budget.items).map(phase => <section key={phase.name}>
         <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#527075]">{phase.name}</h4>
-        <ul className="space-y-2">{phase.items.map((item, index) => <li key={`${item.label}-${index}`} className="flex flex-wrap justify-between gap-x-4 gap-y-1 text-sm text-[#60757a]"><span>{item.label}{item.discountPercent ? <span className="ml-2 text-xs text-[#2b7764]">−{item.discountPercent}%</span> : null}</span><span>{money(budgetItemTotal(item))}</span></li>)}</ul>
+        <ul className="space-y-2">{phase.items.map((item, index) => <li key={`${item.label}-${index}`} className="flex flex-wrap justify-between gap-x-4 gap-y-1 text-sm text-[#60757a]"><span>{item.label}{item.code ? <span className="ml-2 text-xs text-[#71858b]">Cód. {item.code}</span> : null}{item.discountPercent ? <span className="ml-2 text-xs text-[#2b7764]">−{item.discountPercent}%</span> : null}</span><span>{money(budgetItemTotal(item))}</span></li>)}</ul>
       </section>)}
     </div>
     {budget.isAlternative

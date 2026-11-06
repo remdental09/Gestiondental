@@ -3,6 +3,8 @@ export type BudgetItem = {
   amount: number;
   phase?: string;
   discountPercent?: number;
+  /** Código del catálogo de prestaciones (7 dígitos), si la prestación se eligió o reconoció allí. */
+  code?: string;
 };
 
 export type BudgetTotals = { subtotal: number; discount: number; total: number };
@@ -64,7 +66,8 @@ export function normalizeBudgetItems(value: unknown): BudgetItem[] | null {
       || !Number.isInteger(discountPercent) || discountPercent < 0 || discountPercent > 100) return null;
     subtotal += amount;
     if (!Number.isSafeInteger(subtotal) || subtotal > 1_000_000_000) return null;
-    items.push({ label, amount, ...(phase ? { phase } : {}), ...(discountPercent ? { discountPercent } : {}) });
+    const code = typeof item.code === "string" && /^\d{7}$/.test(item.code.trim()) ? item.code.trim() : "";
+    items.push({ label, amount, ...(phase ? { phase } : {}), ...(discountPercent ? { discountPercent } : {}), ...(code ? { code } : {}) });
   }
   return items;
 }

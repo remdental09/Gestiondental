@@ -22,3 +22,28 @@ test("la búsqueda por código y la etiqueta legible", () => {
   assert.equal(prestacionLabel("APLICACION DE SELLANTE POR PIEZA"), "Aplicación de sellante por pieza");
   assert.equal(prestacionLabel("FERULA PARA TTM"), "Férula para TTM");
 });
+
+import { matchPrestacion } from "../lib/prestaciones-catalog.ts";
+import { normalizeBudgetItems } from "../lib/budget-plans.ts";
+import { proposeFromTranscript } from "../lib/dictation/proposal.ts";
+
+test("matchPrestacion solo responde cuando la coincidencia es clara", () => {
+  assert.equal(matchPrestacion("Exodoncia simple")?.code, "5003001");
+  assert.equal(matchPrestacion("Aplicación de sellante por pieza")?.code, "5001005");
+  assert.equal(matchPrestacion("Exodoncia"), null);
+  assert.equal(matchPrestacion("Corona"), null);
+  assert.equal(matchPrestacion("Rehabilitación protésica"), null);
+});
+
+test("el presupuesto conserva el código del catálogo y descarta valores inválidos", () => {
+  const items = normalizeBudgetItems([{ label: "Exodoncia simple", amount: 40000, code: "5003001" }, { label: "Otra", amount: 1000, code: "abc" }]);
+  assert.equal(items?.[0].code, "5003001");
+  assert.equal(items?.[1].code, undefined);
+});
+
+test("el dictado vincula la prestación del presupuesto con el catálogo", async () => {
+  const proposal = (await proposeFromTranscript({ transcript: "Presupuesto de exodoncia simple de la pieza 3.8 por cuarenta mil pesos.", chart: [] }, null, () => {}, { today: "2026-11-06" })).proposal;
+  const item = proposal.budget.find((entry) => /exodoncia/i.test(entry.label));
+  assert.ok(item, "hay una prestación en el presupuesto");
+  assert.equal(item.catalogCode, "5003001");
+});

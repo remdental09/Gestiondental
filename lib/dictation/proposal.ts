@@ -44,6 +44,7 @@ export { PAYMENT_METHOD_LABEL, PAYMENT_METHODS } from "./spoken.ts";
 import { CARIES_DEPTH_LABEL, CARIES_DEPTH_QUESTION, cariesDepthFrom, isCariesDepth, type CariesDepth } from "../caries.ts";
 import { ICD11, ICD11_CATALOG, cariesIcd11, diagnosisMatches, icd11Label, type SuggestedMapping } from "../icd11.ts";
 import { classifyEvolution, type EvolutionKind } from "./evolution-type.ts";
+import { matchPrestacion } from "../prestaciones-catalog.ts";
 export { CARIES_DEPTHS, CARIES_DEPTH_LABEL, CARIES_DEPTH_SHORT, cariesDetail } from "../caries.ts";
 export { cariesIcd11, icd11Label } from "../icd11.ts";
 
@@ -145,6 +146,8 @@ export type BudgetChange = {
   id: string;
   title: string;
   label: string;
+  /** Código del catálogo de prestaciones cuando el texto coincide con una sola prestación. */
+  catalogCode?: string;
   amount: number;
   sourceText: string;
   evidence?: string;
@@ -1694,6 +1697,18 @@ function originUnion(a: ItemOrigin, b: ItemOrigin): ItemOrigin {
 }
 
 /** Une repetidos (lo dictado + la aclaración, o IA + reglas) y genera las preguntas de lo que falta. */
+/** Vincula con el catálogo las prestaciones del presupuesto dictado; sin coincidencia clara no se toca. */
+function withCatalogCodes(proposal: DictationProposal): DictationProposal {
+  return {
+    ...proposal,
+    budget: proposal.budget.map((item) => {
+      if (item.catalogCode) return item;
+      const found = matchPrestacion(item.label);
+      return found ? { ...item, catalogCode: found.code } : item;
+    }),
+  };
+}
+
 export function finishRouting(proposal: DictationProposal): DictationProposal {
   const payments: PaymentChange[] = [];
   for (const item of proposal.payments ?? []) {
@@ -1766,7 +1781,7 @@ export function finishRouting(proposal: DictationProposal): DictationProposal {
     const budget = paymentBudgetMatch(item, proposal.budget);
     return budget ? { ...item, budgetRef: budget.id } : item;
   });
-  return {
+  return withCatalogCodes({
     ...proposal,
     perio,
     perioPending: pending,
@@ -1774,7 +1789,7 @@ export function finishRouting(proposal: DictationProposal): DictationProposal {
     payments: linkedPayments,
     appointments,
     clarifications: [...new Set([...kept, ...questions])],
-  };
+  });
 }
 
 function text(value: unknown, max: number): string {
@@ -3002,7 +3017,7 @@ export function mergeProposals(ai: AiExtraction, local: DictationProposal, trans
     const tooth = match?.[3];
     return !(tooth && handledTeeth.has(tooth));
   });
-  return {
+  return withCatalogCodes({
     ...routed,
     clarifications: tidyNotices,
     budget: finalBudget,
@@ -3011,7 +3026,7 @@ export function mergeProposals(ai: AiExtraction, local: DictationProposal, trans
     payments: finalPayments,
     appointments: renumber(routed.appointments ?? [], "cit"),
     mobility: renumber(routed.mobility ?? [], "mov"),
-  };
+  });
 }
 
 export function sanitizeChart(value: unknown): StructureInput["chart"] {

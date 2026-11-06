@@ -653,7 +653,7 @@ export function ClinicalDictation({
         await persist(linkedAction);
       }
       for (const item of acceptedBudgets) {
-        const id = await once("budget:" + item.id + ":" + item.label + ":" + item.amount, async () => (await persist({ action: "addBudget", patientId, title: item.title, label: item.label, amount: item.amount })).budget?.id);
+        const id = await once("budget:" + item.id + ":" + item.label + ":" + item.amount, async () => (await persist({ action: "addBudget", patientId, title: item.title, label: item.label, amount: item.amount, ...(item.catalogCode ? { code: item.catalogCode } : {}) })).budget?.id);
         if (id) {
           savedBudgetIds.push(id);
           savedBudgetByProposal.set(item.id, id);
@@ -1036,7 +1036,7 @@ export function ClinicalDictation({
                   <Decision value={item.decision} onChange={(decision) => setBudgets((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, decision } : entry))} />
                 </div>
                 {item.decision === "accepted" && <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                  <label className="space-y-1">Prestación<input className="flex h-9 w-full rounded-md border px-3" value={item.label} onChange={(event) => setBudgets((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, label: event.target.value } : entry))} /></label>
+                  <label className="space-y-1">Prestación{item.catalogCode && <span className="ml-2 rounded bg-[#e7f5f3] px-1.5 py-0.5 text-xs font-medium text-[#075b60]" title="Coincide con una prestación del catálogo">Catálogo {item.catalogCode}</span>}<input className="flex h-9 w-full rounded-md border px-3" value={item.label} onChange={(event) => setBudgets((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, label: event.target.value, catalogCode: undefined } : entry))} /></label>
                   <label className="space-y-1">Monto CLP<input className="flex h-9 w-full rounded-md border px-3" inputMode="numeric" value={item.amountText} onChange={(event) => setBudgets((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, amountText: event.target.value } : entry))} /></label>
                 </div>}
               </article>)}
