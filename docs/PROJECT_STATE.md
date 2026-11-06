@@ -172,3 +172,7 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 - El periodontograma dictado se guarda con la fecha de atención (`savePerio` acepta `clinicalDate`). Los avisos de la IA sobre propuestas no aplicadas (sitio/mm que no están en la cita, cita que no respalda) se ocultan si las reglas ya registraron esa pieza.
 - En la ficha ficticia se quitó el diagnóstico DA07.7 erróneo de la evolución 38 (venía de una frase de costo de implante).
 - Diagnóstico pulpar o de caries dictado sin pieza en su frase se asocia a la única pieza que nombra el dictado. «Fractura coronaria/dentaria/de cúspide» sin más datos se codifica NA0D.0Z (sin especificación); los casos específicos (complicada, esmalte, dentina-esmalte, corona-raíz) conservan su código. La notación con punto («5.5») es la convención de la app para todas las piezas; «cincuenta y cinco» ya la respalda al verificar la nota.
+
+## Odontograma 3D: maqueta de capas translúcidas (2026-11-06)
+- Vista 3D de pieza: nueva capa de encía (borde suave) además de ligamento y hueso alveolar, y deslizador «Ver el diente por dentro» (10–100 %) que cambia la opacidad del periodonto en vivo, sin recargar la escena. Colores de esmalte y raíz más naturales.
+- Es una maqueta: el modelo sigue siendo procedural (código). Pendiente: cargador de modelos GLB realistas (diente, encía y hueso por separado) si se consigue un modelo; el procedural queda de respaldo para corona, implante, muñón endodóntico y periodonto.
