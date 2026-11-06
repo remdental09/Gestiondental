@@ -93,13 +93,14 @@ const RULES: Rule[] = [
   { re: /\babsceso\s+(?:periapical|apical)\s+con\s+(?:afectacion|compromiso)\s+facial\b|\babsceso\s+(?:periapical|apical)\s+con\s+aumento\s+de\s+volumen\s+facial\b/, code: "DA09.60" },
   { re: /\babsceso\s+(?:periapical|apical)\s+con\s+(?:fistula|tracto\s+sinuoso)\b/, code: "DA09.61" },
   { re: /\babsceso\s+(?:periapical|apical)\s+sin\s+fistula\b/, code: "DA09.62" },
-  { re: /\babsceso\s+apical\s+cronico\b/, code: "DA09.61", aae: true },
-  { re: /\babsceso\s+apical\s+agudo\b/, code: "DA09.62", aae: true },
+  { re: /\babsceso\s+(?:apical\s+cronico|cronico\s+apical)\b/, code: "DA09.61", aae: true },
+  { re: /\babsceso\s+(?:apical\s+agudo|agudo\s+apical)\b/, code: "DA09.62", aae: true },
   { re: /\babsceso\s+(?:periapical|apical|dentoalveolar)\b/, code: "DA09.6Z" },
-  { re: /\bperiodontitis\s+(?:apical|periapical)\s+aguda\b/, code: "DA09.70" },
-  { re: /\bperiodontitis\s+(?:apical|periapical)\s+cronica\b(?!\s+reagudizad)/, code: "DA09.71" },
-  { re: /\bperiodontitis\s+(?:apical|periapical)\s+sintomatica\b/, code: "DA09.70", aae: true },
-  { re: /\bperiodontitis\s+(?:apical|periapical)\s+asintomatica\b/, code: "DA09.71", aae: true },
+  // El orden de los calificativos varía al dictar: «apical crónica» y «crónica apical» son lo mismo.
+  { re: /\bperiodontitis\s+(?:(?:apical|periapical)\s+aguda|aguda\s+(?:apical|periapical))\b/, code: "DA09.70" },
+  { re: /\bperiodontitis\s+(?:(?:apical|periapical)\s+cronica|cronica\s+(?:apical|periapical))\b(?!\s+reagudizad)/, code: "DA09.71" },
+  { re: /\bperiodontitis\s+(?:(?:apical|periapical)\s+sintomatica|sintomatica\s+(?:apical|periapical))\b/, code: "DA09.70", aae: true },
+  { re: /\bperiodontitis\s+(?:(?:apical|periapical)\s+asintomatica|asintomatica\s+(?:apical|periapical))\b/, code: "DA09.71", aae: true },
   { re: /\bperiodontitis\s+(?:periapical|apical)\b/, code: "DA09.7Z" },
   { re: /\bquiste\s+(?:radicular|periapical)\b/, code: "DA09.8" },
   // Encía y periodonto
@@ -149,6 +150,25 @@ const family = (code: string) => (code === "DA09.3" ? "DA09.7" : FAMILIES.find((
  * se comparan títulos OMS y sinónimos clínicos con frases explícitas, sin inferir diagnósticos semánticamente.
  * La caries DA08.0 se mantiene en su flujo propio para conservar profundidad, pieza y superficies.
  */
+/**
+ * Calificativos cuyo orden cambia al hablar («periodontitis apical crónica» = «periodontitis crónica apical»).
+ * Solo se permutan los calificativos que siguen al primer sustantivo, y únicamente si TODOS están en esta lista;
+ * así no se mezclan frases con otro significado.
+ */
+const QUALIFIERS = new Set([
+  "cronico", "cronica", "agudo", "aguda", "apical", "periapical", "benigno", "benigna", "maligno", "maligna",
+  "unilateral", "bilateral", "sintomatico", "sintomatica", "asintomatico", "asintomatica", "reversible", "irreversible",
+  "superior", "inferior", "izquierdo", "izquierda", "derecho", "derecha",
+]);
+
+function orderVariants(words: string[]): string[][] {
+  const [head, ...tail] = words;
+  if (!head || tail.length < 2 || tail.length > 3 || !tail.every((word) => QUALIFIERS.has(word))) return [words];
+  const permutations = (items: string[]): string[][] =>
+    items.length <= 1 ? [items] : items.flatMap((item, i) => permutations([...items.slice(0, i), ...items.slice(i + 1)]).map((rest) => [item, ...rest]));
+  return permutations(tail).map((order) => [head, ...order]);
+}
+
 type CatalogDiagnosisTerm = { code: string; title: string; term: string; re: RegExp; chars: number; residual: boolean; official: boolean };
 
 const CATALOG_DIAGNOSIS_TERMS: CatalogDiagnosisTerm[] = ICD11_CATALOG.flatMap((entry) => {
@@ -164,7 +184,7 @@ const CATALOG_DIAGNOSIS_TERMS: CatalogDiagnosisTerm[] = ICD11_CATALOG.flatMap((e
       code: entry.code,
       title,
       term,
-      re: new RegExp(`\\b${words.join("[^a-z0-9]+")}\\b`, "i"),
+      re: new RegExp(`\\b(?:${orderVariants(words).map((order) => order.join("[^a-z0-9]+")).join("|")})\\b`, "i"),
       chars: words.join(" ").length,
       residual: Boolean(entry.isResidual),
       official: term === entry.title || term === title,
@@ -214,6 +234,8 @@ export function diagnosisMatches(text: string): DiagnosisMatch[] {
     const match = rule.re.exec(t);
     if (!match) continue;
     if (rule.dentalOnly && !dentalContext(t)) continue;
+    // Una regla más específica ya cubrió esta frase («periodontitis aguda apical» no es además «periodontitis aguda»).
+    if (overlaps(matchedRanges, match.index, match.index + match[0].length)) continue;
     if (found.some((done) => done.code && family(done.code) === family(rule.code))) continue;
     const entry = ICD11[rule.code];
     found.push({ code: entry.code, title: entry.title, term: said(match), ...(rule.aae ? { suggested: { from: "AAE" as const, term: said(match) } } : {}) });

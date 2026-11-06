@@ -2,7 +2,7 @@
 
 - **Release:** CIE-11 MMS **2026-01** (sello del archivo: 2026 Jan 17 - 05:30 UTC)
 - **Fecha de verificación:** 2026-11-01
-- **Entradas:** 345 (266 códigos troncales + 79 códigos de extensión), todas `verified: true`.
+- **Entradas:** 439 (360 códigos troncales + 79 códigos de extensión), todas `verified: true`. El 2026-11-06 se sumaron 94 troncales de tres grupos maxilofaciales (ver abajo).
 
 ## Fuentes
 | Fuente | URL | sha256 |
@@ -49,3 +49,19 @@ Código, título ES/EN, URI lineal, URI de fundación y padre salen **solo** de 
 - Codificar siempre la hoja más específica (`is_leaf`). Las categorías padre (p. ej. DA09.6, DA09.7) tienen subcódigos; para "no especificado" usar el residual …Z.
 - Pieza FDI, superficies, profundidad, estadio/grado, lado, etc. van en campos aparte (`record_separately`). Si se quiere poscoordinar en CIE-11: `DA08.0&XA6FX3` (caries en dentina), `&XA0TL3` (pieza 16), `&XA5DM8` (oclusal).
 - Conceptos clínicos sin código específico verificado: ver `meta.unmapped_concepts` (gingivitis por placa, periodontitis 2017 estadio/grado, dentina superficial vs profunda, superficie palatina, HIM, maloclusión II/1 y III).
+
+
+## Ampliación 2026-11-06 (grupos maxilofaciales)
+Se agregaron 94 códigos troncales leyendo solo la tabulación oficial en español de la OMS (CIE-11 MMS 2026-01, con el título en inglés incluido en el mismo archivo). Código, títulos, URI y padre salen de ese archivo; los sinónimos y `recordSeparately` son propuestas locales.
+
+| Grupo | Entradas | Contenido |
+|---|---|---|
+| Neoplasias bucales y maxilofaciales | 53 | Neoplasias malignas de labio, lengua, piso de boca, paladar, otras partes de la boca, glándulas parótida, submaxilar y sublingual; carcinoma in situ; neoplasias benignas de labio, lengua, piso y otras partes de la boca y de glándulas salivales mayores; osteosarcoma del maxilar y rabdomiosarcoma bucal |
+| Fracturas y luxaciones maxilofaciales | 17 | Fractura orbitaria, de huesos nasales, del hueso cigomático y de la mandíbula (cóndilo, subcóndilo, coronoides, rama, ángulo, sínfisis); fracturas faciales múltiples. Las fracturas de maxilar (NA02.4x), del arco alveolar (NA02.75) y la luxación mandibular (NA03.0) ya estaban, en otros grupos |
+| Fisuras y malformaciones craneofaciales | 24 | Fisura labial, labioalveolar, del paladar y otras fisuras; fisuras faciales, asimetría facial y anomalías de los huesos faciales |
+
+Quedaron **fuera** a propósito: tumores de faringe, amígdala y de otros órganos digestivos, que comparten bloque con los bucales, y los códigos de morfología (XH…).
+`scripts/cie11-agregar-grupos.py` reproduce la ampliación desde el archivo de la OMS y es idempotente. «Fisura labial» sin precisar mantiene su equivalencia previa con DA00.3; para la fisura congénita usar «labio leporino» o «fisura labial unilateral/bilateral».
+
+## Reconocimiento del dictado
+`diagnosisMatches` (lib/icd11.ts) acepta calificativos en cualquier orden cuando todos pertenecen a una lista controlada (crónica, aguda, apical, periapical, benigna, maligna, unilateral, bilateral, sintomática, asintomática, reversible, irreversible, superior, inferior, izquierda, derecha). Una regla no se aplica sobre una frase que otra más específica ya cubrió: «periodontitis aguda apical» es DA09.70 y no además DA0C.0. `tests/icd11-matching.test.mjs` comprueba estas propiedades sobre todo el catálogo.

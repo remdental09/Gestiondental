@@ -1246,7 +1246,8 @@ export function structureTranscript(transcript: string, options: { today?: strin
   let counter = 0;
   const nextId = (prefix: string) => `${prefix}-${++counter}`;
 
-  for (const sentence of sentences(transcript)) {
+  const allSentences = sentences(transcript);
+  for (const [sentenceIndex, sentence] of allSentences.entries()) {
     const field = fichaFrom(sentence);
     if (field && toothMentions(sentence).length === 0) {
       for (const part of fichaParts(sentence)) {
@@ -1328,6 +1329,8 @@ export function structureTranscript(transcript: string, options: { today?: strin
     }
     if (isAppointmentText(sentence)) {
       const appointment = appointmentFrom(sentence, today, nextId("cit"), "reglas");
+      // «Hasta la próxima sesión» es una despedida: sin fecha ni hora no hay cita que crear ni que preguntar.
+      if (!appointment.day && !appointment.time && /\bhasta\s+(?:la\s+)?pr[oó]xim[ao]\b/iu.test(sentence)) continue;
       appointments.push(appointment);
       continue;
     }
@@ -1362,11 +1365,20 @@ export function structureTranscript(transcript: string, options: { today?: strin
       clarifications.push("Hay un resto radicular sin decir si tiene endodoncia. No se cambió el estado general.");
     }
 
-    const mentions = toothMentions(sentence);
+    let mentions = toothMentions(sentence);
     const scope = surfaceScope(sentence);
     const onImplant = crownOnImplantSentence(sentence);
     const status = statusFrom(sentence);
     const surfaceResult = onImplant || status === "Ausente" || status === "Implante" ? null : findingFrom(scope);
+    if (!mentions.length && (status || surfaceResult)) {
+      // Dictado conversacional: la pieza puede estar en la frase anterior o en la siguiente.
+      // Solo se hereda si el entorno apunta a una única pieza válida; si no, se pregunta.
+      const near = [allSentences[sentenceIndex - 1], allSentences[sentenceIndex + 1]]
+        .filter((other): other is string => Boolean(other))
+        .flatMap((other) => toothMentions(other));
+      const distinct = new Map(near.filter((m) => m.ok).map((m) => [m.tooth, m]));
+      if (distinct.size === 1 && near.every((m) => m.ok)) mentions = [...distinct.values()];
+    }
     if (!mentions.length && (status || surfaceResult)) {
       clarifications.push(`Falta una pieza identificable en: «${clip(sentence)}».`);
       continue;
