@@ -294,7 +294,8 @@ test('la IA no cuela piezas, caras, profundidades ni montos sin cita literal', a
   assert.deepEqual(items.filter((item) => item.tooth === 36).map((item) => [item.surface, item.finding.condition, item.finding.depth]), [['D', 'caries', null]]);
   assert.equal(outcome.proposal.incomplete.length, 0);
   const asks = outcome.proposal.clarifications;
-  assert.ok(asks.some((q) => /FDI 3\.6: la IA indicó caries de dentina profunda, pero el dictado no dice la profundidad/.test(q)), asks.join('\n'));
+  assert.ok(asks.some((q) => /FDI 3\.6: la IA sugiere caries de dentina profunda, pero el dictado no lo dice; ¿profundidad de la caries/.test(q)), asks.join('\n'));
+  assert.equal(asks.some((q) => /la IA indicó caries de dentina profunda/.test(q)), false, 'un solo aviso: la sugerencia va dentro de la pregunta');
   assert.equal(asks.filter((q) => /FDI 3\.6: .*¿profundidad de la caries/.test(q)).length, 1, 'IA y reglas no preguntan dos veces lo mismo');
   const molar = items.filter((item) => item.tooth === 16);
   assert.deepEqual(molar.map((item) => item.surface), ['O']);
