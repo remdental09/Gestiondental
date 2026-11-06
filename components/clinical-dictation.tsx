@@ -672,7 +672,7 @@ export function ClinicalDictation({
       }
       if (savePerio) {
         const key = `perio:${JSON.stringify(perioReadings)}:${JSON.stringify(perioMobility)}`;
-        examId = await once(key, async () => (await persist({ action: "savePerio", patientId, teeth: buildDictatedPerio(perioReadings, perioMobility) })).exam?.id);
+        examId = await once(key, async () => (await persist({ action: "savePerio", patientId, teeth: buildDictatedPerio(perioReadings, perioMobility), ...(attentionDate ? { clinicalDate: attentionDate } : {}) })).exam?.id);
       }
       if (fichaUpdate && patient) {
         await persist({ action: "updatePatient", patientId, name: patient.name, rut: patient.rut, phone: patient.phone, email: patient.email, allergies: fichaUpdate.allergies, history: fichaUpdate.history });

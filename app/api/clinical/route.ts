@@ -37,6 +37,8 @@ type ChartHistoryMetadata = { source: "manual" | "evolution"; sourceEvolutionId?
 const error = (message: string, status = 400) => Response.json({ error: message }, { status });
 const string = (value: unknown, max: number) => typeof value === "string" ? value.trim().slice(0, max) : "";
 const normalizePatientName = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+// Fecha de atención opcional (registro retroactivo): válida, no futura y no anterior a 5 años.
+const attentionDateOk = (value: string) => !value || (validDate(value) && value <= dateInChile() && Number(value.slice(0, 4)) >= Number(dateInChile().slice(0, 4)) - 5);
 const validDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
 const validPhone = (value: string) => !value || (/^[+\d()\s.-]{7,24}$/.test(value) && value.replace(/\D/g, "").length >= 8);
 const validEmail = (value: string) => !value || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
@@ -313,9 +315,8 @@ export async function POST(request: Request) {
       const title = string(input.title, 180) || "Evolución clínica", body = string(input.body, 30000);
       if (!body) return error("Escribe o dicta el registro clínico.");
       const t = now(), today = dateInChile();
-      // Fecha de atención opcional (registro retroactivo): válida, no futura y no anterior a 5 años.
       const dateInput = string(input.clinicalDate, 10);
-      if (dateInput && (!validDate(dateInput) || dateInput > today || Number(dateInput.slice(0, 4)) < Number(today.slice(0, 4)) - 5)) return error("Revisa la fecha de atención: no puede ser futura.");
+      if (!attentionDateOk(dateInput)) return error("Revisa la fecha de atención: no puede ser futura.");
       const clinicalDate = dateInput || today;
       const requestId = string(input.requestId, 80) || null;
       if (requestId) {
@@ -559,7 +560,9 @@ export async function POST(request: Request) {
         if (c.system!=="AAP-EFP 2017" || (c.stage!==undefined&&!['I','II','III','IV'].includes(String(c.stage))) || (c.grade!==undefined&&!['A','B','C'].includes(String(c.grade))) || (c.extent!==undefined&&!['localized','generalized','molar-incisor'].includes(String(c.extent)))) return error("Clasificación periodontal inválida.");
       }
       const savedData={teeth:input.teeth,epb:input.epb,classification:input.classification};
-      const [e] = await db.insert(periodontalExams).values({ ownerId, patientId, recordedAt: now(), teeth: JSON.stringify(savedData) }).returning();
+      const examDate = string(input.clinicalDate, 10);
+      if (!attentionDateOk(examDate)) return error("Revisa la fecha de atención: no puede ser futura.");
+      const [e] = await db.insert(periodontalExams).values({ ownerId, patientId, recordedAt: examDate ? `${examDate}T15:00:00.000Z` : now(), teeth: JSON.stringify(savedData) }).returning();
       return Response.json({ exam: { id: e.id, recordedAt: e.recordedAt, ...savedData } }, { status: 201 });
     }
     if (action === "setToothStatus") {
