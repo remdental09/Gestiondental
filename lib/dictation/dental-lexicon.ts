@@ -16,7 +16,9 @@
  * Las variantes regionales son formas reconocidas: no se convierten entre sí
  * porque pueden tener matices clínicos o preferencia local.
  */
-export const DENTAL_DICTIONARY = {
+import { MINSAL_VOCABULARY } from "./minsal-vocabulary.ts";
+
+const BASE_DICTIONARY = {
   anatomia: [
     "diente", "pieza dental", "dentición", "esmalte", "dentina", "cemento radicular",
     "pulpa", "pulpar", "cámara pulpar", "conducto radicular", "ápice", "raíz",
@@ -137,6 +139,23 @@ export const DENTAL_DICTIONARY = {
   ],
 } as const;
 
+const foldDictionaryTerm = (value: string) => value
+  .normalize("NFD")
+  .replace(/[\u0300-\u036f]/g, "")
+  .toLowerCase();
+
+const baseTerms = new Set(Object.values(BASE_DICTIONARY).flat().map(foldDictionaryTerm));
+
+/** Términos de las guías del MINSAL que el diccionario base aún no tenía (sin repetidos). */
+const minsalNewTerms = Object.fromEntries(
+  Object.entries(MINSAL_VOCABULARY).map(([group, terms]) => [
+    `minsal_${group}`,
+    terms.filter((term) => !baseTerms.has(foldDictionaryTerm(term))),
+  ]),
+) as Record<string, string[]>;
+
+export const DENTAL_DICTIONARY: Record<string, readonly string[]> = { ...BASE_DICTIONARY, ...minsalNewTerms };
+
 export const DENTAL_SPEECH_HINTS = [
   { phrase: "RUN", boost: 8 },
   { phrase: "RUT", boost: 8 },
@@ -232,6 +251,38 @@ export const DENTAL_SPEECH_HINTS = [
   { phrase: "exodoncia", boost: 7 },
   { phrase: "endodoncia", boost: 7 },
   { phrase: "odontograma", boost: 8 },
+  { phrase: "urgencia odontológica ambulatoria", boost: 8 },
+  { phrase: "pericoronaritis aguda", boost: 9 },
+  { phrase: "absceso dentoalveolar agudo", boost: 9 },
+  { phrase: "gingivitis úlcero necrótica", boost: 9 },
+  { phrase: "traumatismo dentoalveolar", boost: 9 },
+  { phrase: "luxación intrusiva", boost: 8 },
+  { phrase: "fractura coronaria complicada", boost: 8 },
+  { phrase: "alveolitis seca", boost: 9 },
+  { phrase: "pulpotomía parcial", boost: 8 },
+  { phrase: "recubrimiento pulpar directo", boost: 8 },
+  { phrase: "remoción selectiva de caries", boost: 8 },
+  { phrase: "aislamiento absoluto", boost: 8 },
+  { phrase: "material biocerámico", boost: 8 },
+  { phrase: "hidróxido de calcio", boost: 8 },
+  { phrase: "caries radicular", boost: 8 },
+  { phrase: "barniz de flúor", boost: 8 },
+  { phrase: "aplicación de sellantes", boost: 8 },
+  { phrase: "raspado y alisado radicular", boost: 9 },
+  { phrase: "examen periodontal básico", boost: 8 },
+  { phrase: "terapia de desinfección bucal total", boost: 8 },
+  { phrase: "prótesis parcial removible", boost: 9 },
+  { phrase: "prótesis total", boost: 8 },
+  { phrase: "prótesis fija", boost: 8 },
+  { phrase: "sobredentadura implantosoportada", boost: 8 },
+  { phrase: "estomatitis subprotésica", boost: 8 },
+  { phrase: "clasificación de Kennedy", boost: 8 },
+  { phrase: "xerostomía", boost: 8 },
+  { phrase: "hipersensibilidad dentinaria", boost: 8 },
+  { phrase: "clorhexidina", boost: 7 },
+  { phrase: "bloqueo del nervio dentario inferior", boost: 8 },
+  { phrase: "incisión y drenaje", boost: 8 },
+  { phrase: "alta odontológica integral", boost: 7 },
 ] as const;
 
 const foldTerm = (value: string) => value
