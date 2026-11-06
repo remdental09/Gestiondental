@@ -42,3 +42,9 @@ test("exodoncia realizada deja la pieza ausente; planificada o indicada no", asy
   assert.equal((await quick("Se planifica exodoncia de la pieza 3.8.")).odontogram.length, 0);
   assert.equal((await quick("Se indica exodoncia de la pieza 3.8.")).odontogram[0]?.status, "Indicación de exodoncia");
 });
+
+test("varias mediciones de sondaje en una frase dan una lectura por sitio", async () => {
+  const p = await quick("Sondaje en la pieza tres seis, mesiovestibular cinco milímetros con sangrado, distovestibular seis milímetros con sangrado.");
+  assert.deepEqual(p.perio.map((item) => [item.site, item.depth, item.bleeding]), [["MV", 5, true], ["DV", 6, true]]);
+  assert.equal((p.perioPending ?? []).length, 0);
+});
