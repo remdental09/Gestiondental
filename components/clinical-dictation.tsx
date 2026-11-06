@@ -62,6 +62,7 @@ import { sameDiagnosisTags, sanitizeDiagnosisTags, type EvolutionDiagnosisTag } 
 import { evolutionNotices, type EvolutionNoticeKey } from "@/lib/dictation/evolution-notices";
 import { buildFeedback, type ReviewGroup } from "@/lib/dictation/feedback";
 import { spokenAlerts } from "@/lib/dictation/spoken-alerts";
+import { speakPhrases, unlockSpeech } from "@/lib/dictation/speech";
 
 type Reload = {
   patients: { id: number; name: string; birthDate: string; rut: string; phone: string; email: string; reason: string; status: string; allergies: string; history: string }[];
@@ -316,6 +317,7 @@ export function ClinicalDictation({
   };
 
   const start = async () => {
+    unlockSpeech();
     if (transcribing || answering) return;
     setSpeechError("");
     setResult(null);
@@ -454,6 +456,7 @@ export function ClinicalDictation({
   };
 
   const stop = () => {
+    unlockSpeech();
     setTranscribing(true);
     setListening(false);
     engine.current.stop();
@@ -811,14 +814,10 @@ export function ClinicalDictation({
     if (!next && typeof window !== "undefined") window.speechSynthesis?.cancel();
   };
   const alertPhrases = useMemo(() => proposal ? spokenAlerts(proposal.clarifications, missing) : [], [proposal, missing]);
+  const [speechBlocked, setSpeechBlocked] = useState(false);
   const speakNow = () => {
-    if (typeof window === "undefined" || !("speechSynthesis" in window) || !alertPhrases.length) return;
-    window.speechSynthesis.cancel();
-    for (const phrase of alertPhrases) {
-      const utterance = new SpeechSynthesisUtterance(phrase);
-      utterance.lang = "es-CL";
-      window.speechSynthesis.speak(utterance);
-    }
+    setSpeechBlocked(false);
+    speakPhrases(alertPhrases, () => setSpeechBlocked(true));
   };
   const announced = useRef<unknown>(null);
   useEffect(() => {
@@ -976,6 +975,7 @@ export function ClinicalDictation({
             <div className="flex flex-wrap items-center gap-2 text-sm" data-testid="dictation-speak-alerts">
               <Button type="button" size="sm" variant="outline" className="bg-white" aria-pressed={speakAlerts} onClick={toggleSpeak}>{speakAlerts ? "🔊 Avisos en voz alta: sí" : "🔇 Avisos en voz alta: no"}</Button>
               {alertPhrases.length > 0 && <Button type="button" size="sm" variant="outline" className="bg-white" onClick={speakNow}>Repetir avisos</Button>}
+              {speechBlocked && <span className="text-xs text-amber-800">El móvil bloqueó el audio automático: toca «Repetir avisos».</span>}
             </div>
             {proposal.clarifications.length > 0 && <section className="rounded-xl bg-amber-50 p-4 text-amber-950" data-testid="dictation-clarifications">
               <h3 className="font-semibold">Aclaraciones opcionales ({proposal.clarifications.length})</h3>
