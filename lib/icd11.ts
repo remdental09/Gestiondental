@@ -203,7 +203,7 @@ function dentalContext(t: string): boolean {
 }
 
 /** Conceptos clínicos sin código CIE-11 específico verificado: se etiquetan sin código. */
-type Uncoded = { re: RegExp; title: (match: RegExpExecArray) => string };
+type Uncoded = { re: RegExp; title: (match: RegExpExecArray) => string; fallback?: true };
 const UNCODED: Uncoded[] = [
   { re: /\bgingivitis\s+(?:inducida\s+por\s+(?:placa|biofilm|biopelicula)|asociada\s+a\s+(?:placa|biofilm|biopelicula)|por\s+(?:placa|biofilm))\b/, title: () => "Gingivitis inducida por placa (biofilm)" },
   { re: /\bperiodontitis\s+(?:estadio|etapa)\s+(i{1,3}v?|iv|[1-4]|uno|dos|tres|cuatro)(?:[\s,]+(?:y\s+)?grado\s+([abc]))?\b/, title: (m) => `Periodontitis estadio ${roman(m[1])}${m[2] ? ` grado ${m[2].toUpperCase()}` : ""} (clasificación 2017)` },
@@ -211,6 +211,32 @@ const UNCODED: Uncoded[] = [
   { re: /\bhipomineralizacion\s+incisivo[\s-]*molar\b|\bmih\b|\bhim\b/, title: () => "Hipomineralización incisivo-molar (HIM)" },
   { re: /\b(?:maloclusion\s+)?clase\s+(?:ii|2|dos)\s+(?:division|div\.?)\s+(?:1|uno|i)\b/, title: () => "Maloclusión clase II división 1" },
   { re: /\b(?:maloclusion\s+)?clase\s+(?:iii|3|tres)\b(?!\s*de\s+(?:black|kennedy))/, title: () => "Maloclusión clase III" },
+  // Diagnósticos de las guías del MINSAL que la CIE-11 no separa o no trae: quedan como etiqueta sin código para confirmar.
+  { re: /\bperiodontitis\s+cronica(?:\s+(localizada|generalizada))?\b/, title: (m) => `Periodontitis crónica${m[1] ? ` ${m[1]}` : ""} (clasificación previa a 2017)` , fallback: true },
+  { re: /\bgingivitis\s+(?:ulcero[\s-]*necrotica|ulcero[\s-]*necrosante|necrosante|ulcerativa\s+necrosante|ulcero[\s-]*necrotizante)\b|\bguna\b/, title: () => "Gingivitis úlcero necrótica" , fallback: true },
+  { re: /\b(?:periodontitis|estomatitis|enfermedad\s+periodontal)\s+(?:ulcero[\s-]*)?necrosante\b/, title: (m) => `${m[0].startsWith("estomatitis") ? "Estomatitis necrosante" : m[0].startsWith("enfermedad") ? "Enfermedad periodontal necrosante" : "Periodontitis necrosante"}` , fallback: true },
+  { re: /\bflegmon(?:\s+oro[\s-]*cervico[\s-]*facial)?(?:\s+de\s+origen\s+(?:odontogenico|odontologico|dental))?\b/, title: () => "Flegmón de origen odontogénico" , fallback: true },
+  { re: /\bcelulitis\s+(?:facial\s+)?(?:de\s+origen\s+)?(?:odontogenica|odontogenico|odontologica|dental|facial)\b/, title: () => "Celulitis facial de origen odontogénico" , fallback: true },
+  { re: /\babsceso\s+(subperiostico|submucoso)\b/, title: (m) => `Absceso ${m[1] === "subperiostico" ? "subperióstico" : "submucoso"} de origen odontogénico` , fallback: true },
+  { re: /\babsceso\s+de\s+(?:los\s+)?espacios?\s+(?:anatomicos?|fasciales?)\b/, title: () => "Absceso de espacios anatómicos buco-máxilo-faciales" , fallback: true },
+  { re: /\bosteomielitis\s+(?:de\s+(?:los\s+)?maxilares|de\s+la\s+mandibula|mandibular|maxilar)\b/, title: () => "Osteomielitis de los maxilares" , fallback: true },
+  { re: /\bhipersensibilidad\s+dentinaria\b|\bsensibilidad\s+dentinaria\b/, title: () => "Hipersensibilidad dentinaria" , fallback: true },
+  { re: /\bperi[\s-]*implantitis\b/, title: () => "Periimplantitis" , fallback: true },
+  { re: /\bmucositis\s+peri[\s-]*implantaria\b/, title: () => "Mucositis periimplantaria" , fallback: true },
+  { re: /\bestomatitis\s+subprotesica\b/, title: () => "Estomatitis subprotésica" , fallback: true },
+  { re: /\bdesdentad[oa]\s+total\b|\bedentulismo\s+total\b/, title: () => "Desdentado total" , fallback: true },
+  { re: /\bcomunicacion\s+(oro[\s-]*antral|oro[\s-]*sinusal|oro[\s-]*nasal)\b/, title: (m) => `Comunicación ${m[1].replace(/[\s-]/g, "")}` , fallback: true },
+  { re: /\bhemorragia\s+post[\s-]*(?:exodoncia|extraccion)\b/, title: () => "Hemorragia posexodoncia" , fallback: true },
+  { re: /\bfractura\s+(?:del\s+)?(?:proceso\s+)?alveolar\b/, title: () => "Fractura alveolar" , fallback: true },
+  { re: /\bfractura\s+radicular\s+vertical\b|\bfractura\s+vertical\s+(?:de\s+(?:la\s+)?)?raiz\b|\bsindrome\s+del\s+diente\s+fisurado\b/, title: () => "Fractura radicular vertical / diente fisurado" , fallback: true },
+  { re: /\bdiente\s+invaginado\b|\bdens\s+(?:in\s+dente|invaginatus)\b/, title: () => "Diente invaginado (dens in dente)" , fallback: true },
+  { re: /\bfluorosis\s+(?:dental|dentaria)\b/, title: () => "Fluorosis dental" , fallback: true },
+  { re: /\beritroleucoplasia\b/, title: () => "Eritroleucoplasia" , fallback: true },
+  { re: /\bsinusitis\s+odontogenica\b/, title: () => "Sinusitis maxilar de origen odontogénico" , fallback: true },
+  { re: /\bameloblastoma\b/, title: () => "Ameloblastoma" , fallback: true },
+  { re: /\bfisura\s+labio[\s-]*(?:alveolo[\s-]*)?palatina\b|\bfisura\s+(?:del\s+)?labio\s+y\s+(?:del\s+)?paladar\b/, title: () => "Fisura labiopalatina (la CIE-11 la separa en fisura labial/alveolar LA40-LA41 y fisura del paladar LA42)" , fallback: true },
+  { re: /\bgingivitis\s+marginal(?:\s+simple)?\b/, title: () => "Gingivitis marginal simple" , fallback: true },
+  { re: /\bgingivitis\s+hiperplasica\b/, title: () => "Gingivitis hiperplásica" , fallback: true },
 ];
 
 function roman(value: string): string {
@@ -245,6 +271,7 @@ export function diagnosisMatches(text: string): DiagnosisMatch[] {
   const uncoded: DiagnosisMatch[] = [];
   const uncodedRanges: Array<[number, number]> = [];
   for (const rule of UNCODED) {
+    if (rule.fallback) continue;
     const match = rule.re.exec(t);
     if (!match) continue;
     uncoded.push({ code: "", title: rule.title(match), term: said(match) });
@@ -263,6 +290,16 @@ export function diagnosisMatches(text: string): DiagnosisMatch[] {
     catalogMatches.push({ code: candidate.code, title: candidate.title, term: candidate.term });
     matchedRanges.push([start, end]);
   }
+  // Etiquetas de respaldo: solo cuando ningún código verificado cubre ese mismo término.
+  for (const rule of UNCODED) {
+    if (!rule.fallback) continue;
+    const match = rule.re.exec(t);
+    if (!match) continue;
+    const start = match.index, end = start + match[0].length;
+    if (overlaps(matchedRanges, start, end) || overlaps(uncodedRanges, start, end)) continue;
+    uncoded.push({ code: "", title: rule.title(match), term: said(match) });
+    uncodedRanges.push([start, end]);
+  }
   return [...found, ...catalogMatches, ...uncoded];
 }
 
@@ -279,6 +316,14 @@ export const UNCODED_TAGS = [
   "Maloclusión clase II división 1",
   "Maloclusión clase III",
   "Bruxismo (sin precisar si es del sueño o de vigilia)",
+  "Periodontitis crónica (clasificación previa a 2017)",
+  "Gingivitis úlcero necrótica",
+  "Flegmón de origen odontogénico",
+  "Celulitis facial de origen odontogénico",
+  "Hipersensibilidad dentinaria",
+  "Periimplantitis",
+  "Estomatitis subprotésica",
+  "Desdentado total",
 ];
 
 /** Diagnósticos dictados sin un código CIE-11 verificado: se registran sin código. */

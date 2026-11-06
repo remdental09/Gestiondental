@@ -1049,6 +1049,8 @@ export const DIAGNOSES_HEADER = "Diagnósticos (CIE-11)";
 const DIAGNOSIS_STEM = "(?:pulp|necros|absces|periodont|fractur|fisur|quiste|retracc|recesi|agrand|hiperplas|atrici|desgast|abras|erosi|abfracc|infracc|pericoron|rest|raiz)";
 const DIAGNOSIS_DOUBT = new RegExp(`\\b(?:descart\\p{L}*|sospecha|probable|posible|diagnostico diferencial|d\\/d|no\\s+se\\s+confirma|sin\\s+confirmar|por\\s+confirmar|a\\s+descartar|sin\\s+(?:signos?\\s+de\\s+|evidencia\\s+de\\s+)?(?:\\p{L}+\\s+)?${DIAGNOSIS_STEM})`, "iu");
 
+const DIAGNOSIS_CUE = /\b(?:diagnostic[oa]s?|diagnosticamos|dx|corresponde\s+a|se\s+trata\s+de|cuadro\s+de|compatible\s+con)\b/;
+
 function isDiagnosisSentence(sentence: string): boolean {
   if (isPatient(sentence) || isPlan(sentence) || isNegatedFinding(sentence)) return false;
   const plain = sentence.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
@@ -2581,10 +2583,14 @@ export function validateAiExtraction(input: unknown, transcript: string, options
     evidence = quoteEvidenceWithPiece(evidence, pieza, "", transcript);
     // Ni relatos del paciente, ni planes, ni negaciones, ni sospechas.
     if (isPatient(evidence) || isPlan(evidence) || isNegatedFinding(evidence) || DIAGNOSIS_DOUBT.test(fold(evidence))) continue;
-    const mapped = diagnosisFromTerm(term);
+    const literal = normalizeEvidence(evidence).includes(normalizeEvidence(term));
+    // Un diagnóstico que la CIE-11 no trae queda como etiqueta sin código solo si el profesional lo nombró
+    // con una fórmula diagnóstica y el término está tal cual en su frase: nunca se inventa un código.
+    const mapped = diagnosisFromTerm(term)
+      ?? (literal && DIAGNOSIS_CUE.test(fold(evidence)) && term.length >= 5 ? { code: "", title: capitalize(term) } : null);
     if (!mapped) continue;
     // El concepto debe estar en la cita: literal, o reconocido por las reglas en ella.
-    const said = normalizeEvidence(evidence).includes(normalizeEvidence(term)) || diagnosisMatches(evidence).some((m) => m.code === mapped.code && m.title === mapped.title);
+    const said = literal || diagnosisMatches(evidence).some((m) => m.code === mapped.code && m.title === mapped.title);
     if (!said) continue;
     const mention = pieza ? resolveAiTooth(pieza, "", evidence) : toothMentions(evidence).find((m) => m.ok);
     const tooth = mention && mention.ok ? mention.tooth : undefined;
