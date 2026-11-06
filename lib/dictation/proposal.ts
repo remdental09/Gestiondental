@@ -1507,7 +1507,15 @@ export function structureTranscript(transcript: string, options: { today?: strin
         }
         continue;
       }
-      const resolved = resolveDictatedSurfaces(scope, mention.tooth);
+      let resolved = resolveDictatedSurfaces(scope, mention.tooth);
+      // «Caries profunda en oclusal de la 3.7. Se restaura con resina compuesta.»: la restauración sin cara va en la cara recién dictada.
+      if (!resolved.surfaces.length && !resolved.notes.length && surfaceResult.finding.condition === "restored") {
+        for (const other of allSentences.slice(Math.max(0, sentenceIndex - 2), sentenceIndex).reverse()) {
+          if (!toothMentions(other).some((found) => found.ok && found.tooth === mention.tooth)) continue;
+          const inherited = resolveDictatedSurfaces(surfaceScope(other), mention.tooth).surfaces;
+          if (inherited.length) { resolved = { ...resolved, surfaces: inherited }; break; }
+        }
+      }
       for (const note of resolved.notes) clarifications.push(note);
       if (!resolved.surfaces.length) {
         // «pieza 1.6 sin caries» sin cara: queda en la nota, no cambia el odontograma ni pregunta la cara.
@@ -1588,6 +1596,11 @@ function perioFragments(sentence: string) {
   const out: Array<{ mention: typeof mention; site: PerioSite; depth: number; bleeding: boolean; suppuration: boolean }> = [];
   for (const part of sentence.split(/\s*[,;]\s*|\s+y\s+/iu)) {
     const reading = perioReading(part);
+    // «…, vestibular 3, distovestibular 5 con supuración»: el sitio ya fijó la unidad en el primer fragmento.
+    if (reading.depth === null && reading.site && !toothMentions(part).length) {
+      const bare = fold(part).match(/(?<![\d.,])(\d{1,2})(?![\d.,]?\d)/);
+      if (bare && Number(bare[1]) <= 15 && out.length) reading.depth = Number(bare[1]);
+    }
     if (reading.depth === null && !reading.site) continue; // encabezado («Sondaje en la pieza 3.6»)
     if (reading.depth === null || !reading.site || reading.depth > 15) return [];
     if (out.some((item) => item.site === reading.site)) return [];
@@ -2236,7 +2249,11 @@ export function evidenceInTranscript(evidence: string, transcript: string): bool
 function numbersIn(value: string): Set<string> {
   const found = new Set<string>();
   const plain = value.replace(/(\d)\.(?=\d{3}\b)/g, "$1");
-  for (const match of plain.matchAll(/\d+(?:[.,]\d+)?/g)) found.add(match[0].replace(",", "."));
+  for (const match of plain.matchAll(/\d+(?:[.,]\d+)?/g)) {
+    found.add(match[0].replace(",", "."));
+    // «la 37» se escribe «3.7» en la notación con punto de la app (FDI 33–48 y 51–85).
+    if (/^(?:3[3-9]|4[0-8]|5[1-9]|6\d|7\d|8[0-5])$/.test(match[0])) found.add(`${match[0][0]}.${match[0][1]}`);
+  }
   const spoken = speechText(value);
   for (const [phrase, number] of SPOKEN_CARDINALS) {
     if (!new RegExp(String.raw`\b${phrase}\b`).test(spoken)) continue;
@@ -2473,6 +2490,8 @@ export function validateAiExtraction(input: unknown, transcript: string, options
       if (status !== "Indicación de exodoncia" && isPlan(segment) && !isPerformed(segment)) { reject(`Plan o presupuesto, sin cambio de odontograma: «${clip(segment)}».`); continue; }
       if (isNegatedFinding(segment)) { reject(`Hallazgo negado, sin cambio de odontograma: «${clip(segment)}».`); continue; }
       if (status === "Resto radicular con endodoncia" && !/endodoncia/i.test(segment)) { reject(`${heading}: resto radicular sin decir si tiene endodoncia.`); continue; }
+      // Corona provisoria: aún no es la definitiva, no cambia el estado general.
+      if (status === "Corona" && /\bprovisori[ao]s?\b/i.test(segment) && !/\bdefinitiv[ao]s?\b/i.test(segment)) continue;
       if (status === "Corona" || (status === "Implante" && crownOnImplantSentence(segment))) {
         const onImplant = crownOnImplantSentence(segment);
         const material = materialFrom(segment);
@@ -2662,7 +2681,7 @@ export function validateAiExtraction(input: unknown, transcript: string, options
     const dictatedNumbers = new Set([...numbersIn(transcript)].map((number) => number.replace(".", "")));
     const askedTeeth = [...value.matchAll(/\b(?:pieza|fdi)\s+(\d(?:\.\d)?|\d{2})\b/gi)].map((match) => match[1].replace(".", ""));
     const offTopicTooth = askedTeeth.some((number) => !dictatedNumbers.has(number));
-    if (value && !offTopicTooth && !(asksPerio && !perioDictated) && !/sistema|numeraci|etiqueta|icdas|actividad|profundidad|esmalte|dentina|medio de pago|forma de pago|hora|sitio/i.test(value)) clarifications.push(`IA: ${value}`);
+    if (value && !offTopicTooth && !(asksPerio && !perioDictated) && !/sistema|numeraci|etiqueta|icdas|actividad|profundidad|esmalte|dentina|medio de pago|forma de pago|hora|sitio|temporal o permanente|permanente o temporal/i.test(value)) clarifications.push(`IA: ${value}`);
   }
   // Diagnósticos: la IA elige el concepto y cita la frase; el código lo pone el catálogo, nunca la IA.
   const diagnoses: DiagnosisItem[] = [];
@@ -2979,7 +2998,8 @@ export function mergeProposals(ai: AiExtraction, local: DictationProposal, trans
   const aiDiscard = /^(?:La cita de FDI ([\d.]+) no |La IA propuso «[^»]+» en pieza ([\d.]+) sin una cita|FDI ([\d.]+): la IA indic[oó] (?:el sitio|\d+ mm))/;
   const tidyNotices = routed.clarifications.filter((note) => {
     const match = note.match(aiDiscard);
-    const tooth = match?.[1] ?? match?.[2] ?? match?.[3];
+    if (match?.[1] || match?.[2]) return false; // propuesta de la IA sin cita: nada se aplicó, el aviso solo ensucia
+    const tooth = match?.[3];
     return !(tooth && handledTeeth.has(tooth));
   });
   return {
