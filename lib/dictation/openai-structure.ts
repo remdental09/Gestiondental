@@ -1,17 +1,20 @@
 import { AI_JSON_SCHEMA, AI_SYSTEM_PROMPT, buildModelUserPrompt, type StructureInput } from "./proposal.ts";
 
 /** Respaldo de pago cuando Workers AI no responde o agotó su cupo diario. */
-export const OPENAI_STRUCTURE_MODEL = "gpt-4.1";
+export const OPENAI_STRUCTURE_MODEL = "gpt-5.6-terra";
+/** Rectificación lingüística del dictado: tarea acotada, basta el nivel económico. */
+export const OPENAI_CORRECTION_MODEL = "gpt-5.6-luna";
+/** gpt-5.x y o-series razonan: no aceptan temperature ni max_tokens. */
+export const isReasoningModel = (model: string) => /^(?:gpt-[5-9]|o\d)/i.test(model);
 export const OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions";
-/** Precio público (USD por millón de tokens), solo para estimar costos en el eval. Referencia: gpt-4.1. */
-export const OPENAI_PRICE_PER_MTOK = { input: 2, output: 8 } as const;
+/** Precio público (USD por millón de tokens), solo para estimar costos en el eval. Referencia: gpt-5.6-terra. */
+export const OPENAI_PRICE_PER_MTOK = { input: 2, output: 12 } as const;
 
 export type OpenAiUsage = { prompt_tokens: number; completion_tokens: number };
 
 /** Mismo prompt y mismo contrato JSON que la cadena de Workers AI (esquema estricto). */
 export function buildOpenAiRequest(input: StructureInput, model: string = OPENAI_STRUCTURE_MODEL): Record<string, unknown> {
-  // Los modelos de razonamiento (gpt-5, o1/o3/o4) no aceptan temperature ni max_tokens.
-  const reasoning = /^(?:gpt-5|o\d)/i.test(model);
+  const reasoning = isReasoningModel(model);
   return {
     model,
     ...(reasoning ? { max_completion_tokens: 12000, reasoning_effort: "low" } : { temperature: 0, max_tokens: 3500 }),
@@ -30,12 +33,21 @@ export async function runOpenAiStructure(
   options: { model?: string; fetcher?: typeof fetch; timeoutMs?: number; onUsage?: (usage: OpenAiUsage) => void } = {},
 ): Promise<string> {
   const fetcher = options.fetcher ?? fetch;
-  const response = await fetcher(OPENAI_CHAT_URL, {
+  const model = options.model || OPENAI_STRUCTURE_MODEL;
+  const timeout = options.timeoutMs ?? (isReasoningModel(model) ? 55_000 : 28_000);
+  const send = (body: Record<string, unknown>) => fetcher(OPENAI_CHAT_URL, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    signal: AbortSignal.timeout(options.timeoutMs ?? 28_000),
-    body: JSON.stringify(buildOpenAiRequest(input, options.model || OPENAI_STRUCTURE_MODEL)),
+    signal: AbortSignal.timeout(timeout),
+    body: JSON.stringify(body),
   });
+  const request = buildOpenAiRequest(input, model);
+  let response = await send(request);
+  // Si la API rechaza el esfuerzo de razonamiento, se reintenta una vez sin ese parámetro.
+  if (response.status === 400 && "reasoning_effort" in request) {
+    const { reasoning_effort: _omit, ...rest } = request;
+    response = await send(rest);
+  }
   // Nunca se incluye la clave ni el cuerpo de la respuesta en el error.
   if (!response.ok) throw new Error(`OpenAI respondió HTTP ${response.status}`);
   const payload = await response.json() as { choices?: Array<{ message?: { content?: unknown; refusal?: unknown } }>; usage?: OpenAiUsage };

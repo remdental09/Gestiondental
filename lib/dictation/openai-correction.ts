@@ -1,3 +1,4 @@
+import { isReasoningModel, OPENAI_CORRECTION_MODEL } from "./openai-structure.ts";
 import { TOOTH_NUMBERING_PROMPT } from "./clinical-writing.ts";
 import { reconcileCorrection, type TranscriptCorrection } from "./spoken.ts";
 import { DENTAL_DICTIONARY_HINTS } from "./dental-lexicon.ts";
@@ -13,17 +14,17 @@ export async function correctWithOpenAi(
 ): Promise<CorrectedText> {
   const fetcher = options.fetcher ?? fetch;
   const identitySource = normalizeIdentityNumbers(source);
+  const model = options.model || OPENAI_CORRECTION_MODEL;
   const response = await fetcher("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
-    signal: AbortSignal.timeout(20_000),
+    signal: AbortSignal.timeout(isReasoningModel(model) ? 40_000 : 20_000),
     body: JSON.stringify({
-      model: options.model || "gpt-4o-mini",
-      temperature: 0,
-      max_tokens: 5000,
+      model,
+      ...(isReasoningModel(model) ? { max_completion_tokens: 8000, reasoning_effort: "low" } : { temperature: 0, max_tokens: 5000 }),
       response_format: { type: "json_object" },
       messages: [
         {
