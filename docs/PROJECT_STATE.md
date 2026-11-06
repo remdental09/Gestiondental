@@ -168,3 +168,4 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 - Prescripciones de fármacos van en «Indicaciones»; detalles de procedimiento no pasan a Examen.
 - Condición vacía de la IA (p. ej. sondaje listado como superficie) se ignora sin pregunta.
 - Pendiente: guardar la simulación con fechas distintas en la ficha id 8 y releer el odontograma.
+- Simulación guardada en ficha id 8 (fechas 2026-08-03 a 2026-10-20): piezas 26, 55, 65, 47, 38, 14, 25 y 45; el odontograma y el historial por pieza con fecha respondieron bien. Pendiente: sondaje, que se corrige con lecturas múltiples por frase (`perioFragments`) y descarte de dudas de la IA sobre piezas no dictadas.

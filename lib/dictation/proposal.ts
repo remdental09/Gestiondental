@@ -1295,6 +1295,17 @@ export function structureTranscript(transcript: string, options: { today?: strin
       }
     }
     if (/(?<!\p{L})(?:sondaje|sondeo)(?!\p{L})/iu.test(sentence)) {
+      // Varias mediciones en una frase («mesiovestibular 5 mm con sangrado, distovestibular 6 mm»): una lectura por sitio.
+      const several = perioFragments(sentence);
+      if (several.length >= 2) {
+        for (const part of several) {
+          perio.push({
+            id: nextId("per"), tooth: part.mention.tooth, numberingLabel: part.mention.numberingLabel, site: part.site, siteLabel: SITE_LABEL[part.site],
+            depth: part.depth, sourceText: clip(sentence), persisted: false, bleeding: part.bleeding, suppuration: part.suppuration, evidence: clip(sentence, 400), origin: "reglas",
+          });
+        }
+        continue;
+      }
       const reading = perioReading(sentence);
       if (/(?<!\p{L})(?:sondaje|sondeo)(?:\s+de)?\s+\d{1,2}[.,]\d+\s*(?:mm|mil[ií]metros)/iu.test(sentence)) clarifications.push("El sondaje con decimal no se anota. Usa milímetros enteros.");
       else if (!reading.mention && /(?<!\p{L})(?:generalizad\p{L}*|en\s+general|en\s+toda\s+la\s+boca|boca\s+completa|todas\s+las\s+piezas|localizad\p{L}*)(?!\p{L})/iu.test(sentence)) {
@@ -1535,6 +1546,21 @@ function mobilityGrade(sentence: string): MobilityChange["grade"] | null {
   if (!match) return null;
   const map: Record<string, MobilityChange["grade"]> = { "0": "0", cero: "0", "1": "I", i: "I", uno: "I", "2": "II", ii: "II", dos: "II", "3": "III", iii: "III", tres: "III" };
   return map[match[1]] ?? null;
+}
+
+/** Lecturas completas (sitio + milímetros) dentro de una misma frase de sondaje; sirve solo si hay dos o más. */
+function perioFragments(sentence: string) {
+  const mention = toothMentions(sentence).find((item): item is Extract<Mention, { ok: true }> => item.ok);
+  if (!mention) return [];
+  const out: Array<{ mention: typeof mention; site: PerioSite; depth: number; bleeding: boolean; suppuration: boolean }> = [];
+  for (const part of sentence.split(/\s*[,;]\s*|\s+y\s+/iu)) {
+    const reading = perioReading(part);
+    if (reading.depth === null && !reading.site) continue; // encabezado («Sondaje en la pieza 3.6»)
+    if (reading.depth === null || !reading.site || reading.depth > 15) return [];
+    if (out.some((item) => item.site === reading.site)) return [];
+    out.push({ mention, site: reading.site, depth: reading.depth, bleeding: reading.bleeding, suppuration: reading.suppuration });
+  }
+  return out;
 }
 
 function perioReading(sentence: string) {
@@ -2594,7 +2620,11 @@ export function validateAiExtraction(input: unknown, transcript: string, options
     // Sistema de numeración, profundidad de caries, medio de pago, hora y sitio ya los preguntan las reglas.
     const asksPerio = /sondaje|sangrado|supuraci|bolsa\s+periodontal/i.test(value);
     const perioDictated = /sondaj|sangrad|supuraci|bolsa|profundidad|periodontograma|inserci/i.test(transcript);
-    if (value && !(asksPerio && !perioDictated) && !/sistema|numeraci|etiqueta|icdas|actividad|profundidad|esmalte|dentina|medio de pago|forma de pago|hora|sitio/i.test(value)) clarifications.push(`IA: ${value}`);
+    // La IA ve la ficha y a veces pregunta por una pieza que este dictado no menciona: esa duda no corresponde.
+    const dictatedNumbers = new Set([...numbersIn(transcript)].map((number) => number.replace(".", "")));
+    const askedTeeth = [...value.matchAll(/\b(?:pieza|fdi)\s+(\d(?:\.\d)?|\d{2})\b/gi)].map((match) => match[1].replace(".", ""));
+    const offTopicTooth = askedTeeth.some((number) => !dictatedNumbers.has(number));
+    if (value && !offTopicTooth && !(asksPerio && !perioDictated) && !/sistema|numeraci|etiqueta|icdas|actividad|profundidad|esmalte|dentina|medio de pago|forma de pago|hora|sitio/i.test(value)) clarifications.push(`IA: ${value}`);
   }
   // Diagnósticos: la IA elige el concepto y cita la frase; el código lo pone el catálogo, nunca la IA.
   const diagnoses: DiagnosisItem[] = [];
