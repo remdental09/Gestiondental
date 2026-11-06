@@ -1,19 +1,20 @@
 import { AI_JSON_SCHEMA, AI_SYSTEM_PROMPT, buildModelUserPrompt, type StructureInput } from "./proposal.ts";
 
 /** Respaldo de pago cuando Workers AI no responde o agotó su cupo diario. */
-export const OPENAI_STRUCTURE_MODEL = "gpt-4o-mini";
+export const OPENAI_STRUCTURE_MODEL = "gpt-4.1";
 export const OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions";
-/** Precio público de gpt-4o-mini (USD por millón de tokens), solo para estimar costos en el eval. */
-export const OPENAI_PRICE_PER_MTOK = { input: 0.15, output: 0.6 } as const;
+/** Precio público (USD por millón de tokens), solo para estimar costos en el eval. Referencia: gpt-4.1. */
+export const OPENAI_PRICE_PER_MTOK = { input: 2, output: 8 } as const;
 
 export type OpenAiUsage = { prompt_tokens: number; completion_tokens: number };
 
 /** Mismo prompt y mismo contrato JSON que la cadena de Workers AI (esquema estricto). */
 export function buildOpenAiRequest(input: StructureInput, model: string = OPENAI_STRUCTURE_MODEL): Record<string, unknown> {
+  // Los modelos de razonamiento (gpt-5, o1/o3/o4) no aceptan temperature ni max_tokens.
+  const reasoning = /^(?:gpt-5|o\d)/i.test(model);
   return {
     model,
-    temperature: 0,
-    max_tokens: 3500,
+    ...(reasoning ? { max_completion_tokens: 12000, reasoning_effort: "low" } : { temperature: 0, max_tokens: 3500 }),
     messages: [
       { role: "system", content: AI_SYSTEM_PROMPT },
       { role: "user", content: buildModelUserPrompt(input) },
@@ -32,7 +33,7 @@ export async function runOpenAiStructure(
   const response = await fetcher(OPENAI_CHAT_URL, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    signal: AbortSignal.timeout(options.timeoutMs ?? 20_000),
+    signal: AbortSignal.timeout(options.timeoutMs ?? 28_000),
     body: JSON.stringify(buildOpenAiRequest(input, options.model || OPENAI_STRUCTURE_MODEL)),
   });
   // Nunca se incluye la clave ni el cuerpo de la respuesta en el error.

@@ -3192,6 +3192,16 @@ export function mergeProposals(ai: AiExtraction, local: DictationProposal, trans
     }
     odontogram.push({ ...rule, origin: "reglas" });
   }
+  // La IA decide y las reglas verifican: una pieza que solo detectaron las reglas (la IA, que sí leyó el dictado, no la nombró)
+  // es sospechosa de falso positivo de patrón (p. ej. un color «A3.5» leído como pieza). No se acepta sola: parte sin aceptar.
+  const aiTeeth = new Set([...ai.odontogram, ...ai.incomplete].map((item) => item.tooth));
+  if (aiTeeth.size) {
+    for (const item of odontogram) {
+      if (item.origin === "reglas" && !item.conflict && !item.advisory && !aiTeeth.has(item.tooth)) {
+        item.advisory = `Solo las reglas detectaron esto en FDI ${formatFdi(item.tooth)}; la IA no lo vio. Revisa que sea la pieza correcta antes de aceptarlo.`;
+      }
+    }
+  }
   // Caries dictada y luego restaurada en la misma superficie: queda la restauración y la caries sigue como diagnóstico.
   const folded = new Set<number>();
   for (const restored of odontogram) {

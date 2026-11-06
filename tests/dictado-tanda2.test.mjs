@@ -343,3 +343,20 @@ test("«color 3.5» o «tono 2.5» sin letra tampoco son una pieza", async () =>
   const p = await quick("Se cementa corona en el diente 2.3 con color 3.5.");
   assert.deepEqual([...new Set(p.odontogram.map((item) => item.tooth))], [23]);
 });
+
+test("la IA decide y las reglas verifican: una pieza que solo vieron las reglas parte con aviso", async () => {
+  const { mergeProposals } = await import("../lib/dictation/proposal.ts");
+  const base = await quick("Hoy se realiza instalación de una corona sobre el diente 2.3 con zirconio.");
+  const rule23 = base.odontogram.find((item) => item.tooth === 23);
+  const ruleFalse = { ...rule23, id: "r2", tooth: 35, numberingLabel: "FDI 3.5" };
+  const aiItem = { ...rule23, id: "a1", origin: "ia" };
+  const ai = { noteBody: "", odontogram: [aiItem], incomplete: [], budget: [], ficha: [], procedures: [], clarifications: [], rejected: [], perio: [], perioPending: [], payments: [], appointments: [], diagnoses: [] };
+  const merged = mergeProposals(ai, { ...base, odontogram: [rule23, ruleFalse] }, "texto");
+  const ok = merged.odontogram.find((item) => item.tooth === 23);
+  const dudosa = merged.odontogram.find((item) => item.tooth === 35);
+  assert.ok(!ok.advisory);
+  assert.match(dudosa.advisory, /Solo las reglas detectaron/);
+  // Sin ninguna pieza de la IA no hay con qué contrastar: las reglas siguen como antes.
+  const sinIa = mergeProposals({ ...ai, odontogram: [] }, { ...base, odontogram: [rule23] }, "texto");
+  assert.ok(!sinIa.odontogram[0].advisory);
+});
