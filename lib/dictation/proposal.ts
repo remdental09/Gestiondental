@@ -2205,7 +2205,12 @@ function numbersIn(value: string): Set<string> {
   const plain = value.replace(/(\d)\.(?=\d{3}\b)/g, "$1");
   for (const match of plain.matchAll(/\d+(?:[.,]\d+)?/g)) found.add(match[0].replace(",", "."));
   const spoken = speechText(value);
-  for (const [phrase, number] of SPOKEN_CARDINALS) if (new RegExp(String.raw`\b${phrase}\b`).test(spoken)) found.add(String(number));
+  for (const [phrase, number] of SPOKEN_CARDINALS) {
+    if (!new RegExp(String.raw`\b${phrase}\b`).test(spoken)) continue;
+    found.add(String(number));
+    // «cincuenta y cinco» también se escribe «5.5» en la notación con punto de la app.
+    if (number >= 51 && number <= 85) found.add(`${Math.floor(number / 10)}.${number % 10}`);
+  }
   for (const match of spoken.matchAll(/\b(\d+)\s+mil\b/g)) found.add(String(Number(match[1]) * 1000));
   for (const match of spoken.matchAll(new RegExp(String.raw`\b${SPOKEN_DIGIT}\s+${SPOKEN_DIGIT_SECOND}\b`, "g"))) {
     const words = match[0].split(/\s+/);
@@ -2648,7 +2653,12 @@ export function validateAiExtraction(input: unknown, transcript: string, options
     const said = literal || diagnosisMatches(evidence).some((m) => m.code === mapped.code && m.title === mapped.title);
     if (!said) continue;
     const mention = pieza ? resolveAiTooth(pieza, "", evidence) : toothMentions(evidence).find((m) => m.ok);
-    const tooth = mention && mention.ok ? mention.tooth : undefined;
+    let tooth = mention && mention.ok ? mention.tooth : undefined;
+    // Un diagnóstico pulpar o de caries dictado sin pieza en su frase pertenece a la única pieza que nombra el dictado.
+    if (tooth === undefined && /^DA0[89]/.test(mapped.code)) {
+      const named = new Set(sentences(transcript).flatMap((text) => toothMentions(text).filter((m) => m.ok).map((m) => (m as { tooth: number }).tooth)));
+      if (named.size === 1) tooth = [...named][0];
+    }
     if (diagnoses.some((done) => done.code === mapped.code && done.title === mapped.title && done.tooth === tooth)) continue;
     const dx: DiagnosisItem = { id: nextId("dx"), tooth, code: mapped.code, title: mapped.title, label: "", evidence: clip(evidence, 400), findings: "", origin: "ia", term, ...(mapped.suggested ? { suggested: mapped.suggested } : {}) };
     dx.label = diagnosisLabel(dx);

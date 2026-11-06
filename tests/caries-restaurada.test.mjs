@@ -57,3 +57,8 @@ test("avisos de la IA que no se aplicaron se ocultan si las reglas ya registraro
   const merged = mergeProposals(ai, base, "Sondaje en la pieza 3.6, mesiovestibular 5 mm con sangrado.");
   assert.ok(!merged.clarifications.some((note) => /la IA indicó el sitio|no respalda/.test(note)));
 });
+
+test("«cincuenta y cinco» respalda «5.5» en la nota redactada", async () => {
+  const p = await quick("Pieza cincuenta y cinco con caries de dentina en oclusal.");
+  assert.ok(!p.clarifications.some((c) => /menciona «5\.5»/.test(c)));
+});

@@ -125,6 +125,8 @@ const RULES: Rule[] = [
   { re: /\bfractura\s+(?:del?\s+)?esmalte\b/, code: "NA0D.01" },
   { re: /\bfractura\s+(?:coronaria|de\s+(?:la\s+)?corona)\s+complicada\b/, code: "NA0D.03" },
   { re: /\bfractura\s+(?:radicular|de\s+(?:la\s+)?raiz)\b/, code: "NA0D.06" },
+  // «Fractura coronaria» sin decir si es complicada ni qué tejidos compromete: el código honesto es el sin especificación de la familia.
+  { re: /\bfractura\s+(?:coronaria|de\s+(?:la\s+)?corona|dentaria|del\s+diente|de\s+(?:la\s+)?cuspide)\b(?![\s,]+(?:no\s+|sin\s+)?complic|\s+con\s+exposicion|\s+(?:de\s+|del\s+)?(?:esmalte|dentina)|[\s-]+(?:raiz|radicular))/, code: "NA0D.0Z" },
   { re: /\b(?:concusion|conmocion)(?:\s+(?:dentaria|del\s+tejido\s+periodontal))?\b/, code: "NA0D.10" },
   { re: /\bsubluxacion\b/, code: "NA0D.11" },
   { re: /\bluxacion\s+extrusiva\b|\bextrusion\s+(?:dentaria\s+)?traumatica\b/, code: "NA0D.12" },
