@@ -59,3 +59,16 @@ test("un diagnóstico dictado para dos piezas en la misma frase se registra en c
   const teeth = proposal.diagnoses.filter((item) => item.code).map((item) => item.tooth).sort();
   assert.deepEqual(teeth, [13, 23]);
 });
+
+test("sondaje con sitios compuestos y profundidades sin unidad: una lectura por sitio", async () => {
+  const proposal = await quick("Sondaje pieza 3.7 mesiovestibular 4 milímetros con sangrado, vestibular 3, distovestibular 5 con supuración.");
+  assert.deepEqual(proposal.perio.map((item) => [item.tooth, item.site, item.depth, item.bleeding, item.suppuration]), [[37, "MV", 4, true, false], [37, "V", 3, false, false], [37, "DV", 5, false, true]]);
+  assert.equal(proposal.clarifications.length, 0);
+});
+
+test("«Se restaura con resina compuesta» sin cara usa la cara recién dictada de esa pieza", async () => {
+  const proposal = await quick("Caries de dentina profunda en oclusal de la pieza 3.7. Se restaura con resina compuesta.");
+  const restored = proposal.odontogram.filter((item) => item.tooth === 37 && item.surface === "O" && item.finding?.condition === "restored");
+  assert.equal(restored.length, 1);
+  assert.ok(!proposal.clarifications.some((text) => /Falta la superficie/.test(text)));
+});
