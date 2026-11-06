@@ -312,7 +312,11 @@ export async function POST(request: Request) {
     if (action === "addNote") {
       const title = string(input.title, 180) || "Evolución clínica", body = string(input.body, 30000);
       if (!body) return error("Escribe o dicta el registro clínico.");
-      const t = now(), clinicalDate = dateInChile();
+      const t = now(), today = dateInChile();
+      // Fecha de atención opcional (registro retroactivo): válida, no futura y no anterior a 5 años.
+      const dateInput = string(input.clinicalDate, 10);
+      if (dateInput && (!validDate(dateInput) || dateInput > today || Number(dateInput.slice(0, 4)) < Number(today.slice(0, 4)) - 5)) return error("Revisa la fecha de atención: no puede ser futura.");
+      const clinicalDate = dateInput || today;
       const requestId = string(input.requestId, 80) || null;
       if (requestId) {
         const [existing] = await db.select().from(evolutions).where(and(eq(evolutions.ownerId, ownerId), eq(evolutions.requestId, requestId)));

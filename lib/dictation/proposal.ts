@@ -475,6 +475,8 @@ function bareToothNumber(value: number): number | null {
 }
 
 const SPOKEN_DIGIT = "(?:un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho)";
+// Como segundo dígito, «un/una» es casi siempre el artículo («pieza cuatro una caries»), no el 1: el dígito se dicta «uno».
+const SPOKEN_DIGIT_SECOND = "(?:uno|dos|tres|cuatro|cinco|seis|siete|ocho)";
 const SPOKEN_CARDINALS: Array<[string, number]> = [
   ["cuarenta y ocho", 48], ["cuarenta y siete", 47], ["cuarenta y seis", 46], ["cuarenta y cinco", 45], ["cuarenta y cuatro", 44], ["cuarenta y tres", 43], ["cuarenta y dos", 42], ["cuarenta y uno", 41], ["cuarenta", 40],
   ["treinta y ocho", 38], ["treinta y siete", 37], ["treinta y seis", 36], ["treinta y cinco", 35], ["treinta y cuatro", 34], ["treinta y tres", 33], ["treinta y dos", 32], ["treinta y uno", 31], ["treinta", 30],
@@ -506,7 +508,7 @@ function toothMentions(sentence: string): Mention[] {
   const spoken = speechText(sentence);
   const consumed: Array<[number, number]> = [];
   const overlaps = (start: number, end: number) => consumed.some(([from, to]) => start < to && end > from);
-  const pair = new RegExp(String.raw`\b(?:(?:pieza|diente)\s+)?(?:(?:fdi|iso)\s+)?${SPOKEN_DIGIT}\s+${SPOKEN_DIGIT}\b`, "g");
+  const pair = new RegExp(String.raw`\b(?:(?:pieza|diente)\s+)?(?:(?:fdi|iso)\s+)?${SPOKEN_DIGIT}\s+${SPOKEN_DIGIT_SECOND}\b`, "g");
   for (const match of spoken.matchAll(pair)) {
     const start = match.index ?? 0;
     const end = start + match[0].length;
@@ -1249,6 +1251,8 @@ export function structureTranscript(transcript: string, options: { today?: strin
   const nextId = (prefix: string) => `${prefix}-${++counter}`;
 
   const allSentences = sentences(transcript);
+  // «El diagnóstico está claro…» no es un diagnóstico perdido si en otra frase sí se dictó uno reconocido.
+  const transcriptHasDiagnosis = allSentences.some((line) => isDiagnosisSentence(line));
   for (const [sentenceIndex, sentence] of allSentences.entries()) {
     const field = fichaFrom(sentence);
     if (field && toothMentions(sentence).length === 0) {
@@ -1266,7 +1270,7 @@ export function structureTranscript(transcript: string, options: { today?: strin
     if (!taggedDiagnosis && /\b(?:epb|l[oö]e[\s-]?silness|aap[\s-]?efp|estadio|grado)\b/i.test(sentence) && /\b(?:periodon|sextante|epb|gingival)\b/i.test(sentence)) {
       clarifications.push("El dictado menciona tamizaje o clasificación periodontal. No se infiere diagnóstico ni se guarda el periodontograma.");
     }
-    if (!taggedDiagnosis && /\bdiagn[oó]stico\b/i.test(sentence)) {
+    if (!taggedDiagnosis && !transcriptHasDiagnosis && /\bdiagn[oó]stico\b/i.test(sentence)) {
       clarifications.push("No se creó un diagnóstico confirmado a partir del dictado.");
     }
     const grade = mobilityGrade(sentence);
@@ -1375,9 +1379,11 @@ export function structureTranscript(transcript: string, options: { today?: strin
     if (!mentions.length && (status || surfaceResult)) {
       // Dictado conversacional: la pieza puede estar en la frase anterior o en la siguiente.
       // Solo se hereda si el entorno apunta a una única pieza válida; si no, se pregunta.
-      const near = [allSentences[sentenceIndex - 1], allSentences[sentenceIndex + 1]]
-        .filter((other): other is string => Boolean(other))
-        .flatMap((other) => toothMentions(other));
+      // En una charla clínica lo que se hace sigue a lo que se acaba de nombrar: se usa la frase anterior
+      // más cercana que nombre pieza (hasta tres atrás) y, solo si no hay ninguna, la siguiente.
+      const previous = allSentences.slice(Math.max(0, sentenceIndex - 3), sentenceIndex).reverse().map((other) => toothMentions(other)).find((found) => found.length > 0);
+      const following = allSentences.slice(sentenceIndex + 1, sentenceIndex + 3).flatMap((other) => toothMentions(other));
+      const near = previous ?? following;
       const distinct = new Map(near.filter((m) => m.ok).map((m) => [m.tooth, m]));
       if (distinct.size === 1 && near.every((m) => m.ok)) mentions = [...distinct.values()];
     }
@@ -2160,7 +2166,7 @@ function numbersIn(value: string): Set<string> {
   const spoken = speechText(value);
   for (const [phrase, number] of SPOKEN_CARDINALS) if (new RegExp(String.raw`\b${phrase}\b`).test(spoken)) found.add(String(number));
   for (const match of spoken.matchAll(/\b(\d+)\s+mil\b/g)) found.add(String(Number(match[1]) * 1000));
-  for (const match of spoken.matchAll(new RegExp(String.raw`\b${SPOKEN_DIGIT}\s+${SPOKEN_DIGIT}\b`, "g"))) {
+  for (const match of spoken.matchAll(new RegExp(String.raw`\b${SPOKEN_DIGIT}\s+${SPOKEN_DIGIT_SECOND}\b`, "g"))) {
     const words = match[0].split(/\s+/);
     found.add(`${spokenDigit(words[0])}.${spokenDigit(words[1])}`);
   }
@@ -2569,7 +2575,9 @@ export function validateAiExtraction(input: unknown, transcript: string, options
   for (const doubt of list(record.dudas, 12)) {
     const value = str(doubt, 300);
     // Sistema de numeración, profundidad de caries, medio de pago, hora y sitio ya los preguntan las reglas.
-    if (value && !/sistema|numeraci|etiqueta|icdas|actividad|profundidad|esmalte|dentina|medio de pago|forma de pago|hora|sitio/i.test(value)) clarifications.push(`IA: ${value}`);
+    const asksPerio = /sondaje|sangrado|supuraci|bolsa\s+periodontal/i.test(value);
+    const perioDictated = /sondaj|sangrad|supuraci|bolsa|profundidad|periodontograma|inserci/i.test(transcript);
+    if (value && !(asksPerio && !perioDictated) && !/sistema|numeraci|etiqueta|icdas|actividad|profundidad|esmalte|dentina|medio de pago|forma de pago|hora|sitio/i.test(value)) clarifications.push(`IA: ${value}`);
   }
   // Diagnósticos: la IA elige el concepto y cita la frase; el código lo pone el catálogo, nunca la IA.
   const diagnoses: DiagnosisItem[] = [];
