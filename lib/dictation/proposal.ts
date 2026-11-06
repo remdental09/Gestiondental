@@ -526,7 +526,7 @@ function toothMentions(sentence: string): Mention[] {
   // «en la 3.6» sin etiqueta: la forma con punto es FDI (la corrección convierte «tres seis» en 3.6).
   // No se lee como pieza si es una medida («4.5 mm») o parte de otro número («50.000», «10.30»).
   const unlabeled = sentence.replace(numbered, (whole) => " ".repeat(whole.length));
-  for (const match of unlabeled.matchAll(/(?<![\d.,])(?<![x×]\s?)([1-8])\.([1-8])(?![\d.,]?\d)(?!\s*(?:mm|mil[ií]metros?|cm|%|hrs?|horas?|h\b|[x×]\s*\d))/giu)) {
+  for (const match of unlabeled.matchAll(/(?<![\p{L}\d.,])(?<![x×]\s?)([1-8])\.([1-8])(?![\d.,]?\d)(?!\s*(?:mm|mil[ií]metros?|cm|%|hrs?|horas?|h\b|[x×]\s*\d))/giu)) {
     mentions.push(interpretTooth(`${match[1]}.${match[2]}`, "fdi"));
   }
   // «las piezas 16 y 26», «dientes 1.6, 2.6 y 3.6»: la etiqueta se comparte con toda la lista.
@@ -1939,6 +1939,17 @@ function withCatalogCodes(proposal: DictationProposal): DictationProposal {
 }
 
 export function finishRouting(proposal: DictationProposal): DictationProposal {
+  // Varias frases sobre la misma corona («se instala… / es de zirconio…») son un solo cambio: se funden y conservan el material.
+  const crownKey = (item: OdontogramChange) => item.kind === "crown" ? `${item.tooth}|${item.foundation ?? ""}` : "";
+  const odontogram: OdontogramChange[] = [];
+  for (const item of proposal.odontogram) {
+    const key = crownKey(item);
+    const same = key ? odontogram.find((done) => crownKey(done) === key) : undefined;
+    if (!same || item.kind !== "crown" || same.kind !== "crown") { odontogram.push(item); continue; }
+    if (!same.material && item.material) same.material = item.material;
+    same.origin = originUnion(same.origin ?? "reglas", item.origin ?? "reglas");
+  }
+  proposal = { ...proposal, odontogram };
   const payments: PaymentChange[] = [];
   for (const item of proposal.payments ?? []) {
     const itemEvidence = normalizeEvidence(item.evidence);
@@ -2255,6 +2266,7 @@ export function validateModelOutput(output: unknown): Record<string, unknown> {
     sections[key] = typeof value === "string" ? value : "";
     if (sections[key].trim()) filled += 1;
   }
+  moveActsOutOfExam(sections);
   const corrected = record.texto_corregido;
   if (corrected != null && typeof corrected !== "string") throw new Error("JSON del modelo: «texto_corregido» no es texto.");
   if (!filled && !(typeof corrected === "string" && corrected.trim())) throw new Error("JSON del modelo vacío.");
@@ -2289,6 +2301,33 @@ export function modelOutputToJson(result: unknown): unknown {
 // devuelve se contrasta con la transcripción antes de proponerlo.
 // ---------------------------------------------------------------------------
 
+const ACT_NOUN = String.raw`(?:instalaci[oó]n|colocaci[oó]n|cementaci[oó]n|confecci[oó]n|realizaci[oó]n|extracci[oó]n|exodoncia|preparaci[oó]n|obturaci[oó]n|restauraci[oó]n|destartraje|profilaxis|pulpectom[ií]a|pulpotom[ií]a|endodoncia|sutura|cirug[ií]a)`;
+const OBSERVED_ACT = new RegExp(String.raw`^\s*Se\s+(?:observa|evidencia|aprecia|constata|objetiva|visualiza)\s+(?:la\s+|una\s+|el\s+)?${ACT_NOUN}\b`, "iu");
+
+/**
+ * Una prestación es un acto, no un hallazgo: «Se observa instalación de una corona» no pertenece a «Examen».
+ * Pasa a «Procedimientos realizados» como «Se realiza …» (sin duplicar lo que ya está allí).
+ */
+export function moveActsOutOfExam(sections: Record<string, string>): void {
+  const exam = sections.examen ?? "";
+  if (!exam.trim()) return;
+  const parts = exam.split(/(?<=[.!?])\s+/);
+  const kept: string[] = [];
+  const moved: string[] = [];
+  for (const part of parts) (OBSERVED_ACT.test(part) ? moved : kept).push(part);
+  if (!moved.length) return;
+  sections.examen = kept.join(" ").trim();
+  const fold = (text: string) => text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+  const existing = fold(sections.procedimientos ?? "");
+  const fresh = moved
+    .map((part) => part.replace(/^\s*Se\s+(?:observa|evidencia|aprecia|constata|objetiva|visualiza)\s+/iu, "Se realiza "))
+    .filter((part) => {
+      const noun = fold(part).match(new RegExp(ACT_NOUN.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\[oó\]/g, "o").replace(/\[ií\]/g, "i"), "u"))?.[0];
+      return !noun || !existing.includes(noun);
+    });
+  if (fresh.length) sections.procedimientos = [sections.procedimientos?.trim(), ...fresh].filter(Boolean).join(" ");
+}
+
 export const NOTE_SECTIONS = [
   ["motivo", "Motivo de consulta"],
   ["anamnesis", "Anamnesis y antecedentes"],
@@ -2313,6 +2352,7 @@ Redacción esperada: motivo = «Control. Refiere dolor provocado por frío en la
 
 La nota debe ordenar las ideas en una secuencia lógica y eliminar muletillas, repeticiones y frases dirigidas al sistema. Conserva expresamente las negaciones y la temporalidad relevantes (por ejemplo, «la cirugía todavía no se ha realizado»); omitirlas cambia el sentido clínico. Explica relaciones causales solo si el profesional las expresó. Diferencia hallazgo, plan futuro y tratamiento realizado: «se planifica colocar implantes» no significa que ya estén instalados. Si el reconocimiento oyó «root» en un contexto explícito de identificación, entiende que se refiere al RUT, pero no reconstruyas un número de identidad dudoso ni lo agregues a la nota clínica. Cuando un término o número sea ambiguo, conserva lo dicho y plantea la duda; no rellenes vacíos con conocimiento general. La evolución clínica es el resultado principal del dictado: cuando haya atención clínica, conserva en la nota el diagnóstico explícitamente indicado y el tratamiento realizado o planificado, con redacción profesional. La falta de abono, medio de pago, presupuesto, cita o respuesta a una duda nunca debe suprimir ni retrasar la nota. Mantén preguntas y datos administrativos separados de la evolución; no inventes un diagnóstico para completar campos.
 
+Examen vs procedimientos: «Examen» recoge solo lo que el profesional OBSERVA o constata (hallazgos, estado de tejidos, restauraciones existentes). Una prestación o maniobra clínica (instalar, colocar, cementar, confeccionar, preparar, extraer, obturar, realizar un destartraje, etc.) es un ACTO: nunca se «observa»; va en «procedimientos» con verbos de acción («Se realiza…», «Se instala…», «Se cementa…»). Jamás escribas «Se observa instalación/colocación/cementación de…».
 2) "hallazgos": un elemento por cada pieza y hallazgo de odontograma OBSERVADO HOY en el examen o realizado hoy. No incluyas lo que el paciente relata, lo planificado, presupuestado o negado.
 - "pieza": el número tal como se dictó ("30", "3.6", "cuarenta y seis").
 - "sistema": "chilena" si dijo pieza 1 a 32 sin etiqueta (p. ej. «pieza 30» = FDI 3.6) o dijo chilena/nacional; "FDI" si dijo FDI/ISO, con punto (2.6, «dos punto seis»), dos dígitos separados (tres seis) o un número sin etiqueta del 33 al 48 o del 51 al 85; "universal" si lo dijo; "sin_etiqueta" si es otro número sin sistema.

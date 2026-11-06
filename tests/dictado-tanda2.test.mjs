@@ -315,3 +315,26 @@ test("recesión gingival: milímetros por sitio, guardados como margen negativo"
   assert.deepEqual([teeth[26].sites.V.depth, teeth[26].sites.V.margin, teeth[26].sites.V.bleeding], [4, -3, true]);
   assert.deepEqual([teeth[26].sites.DV.depth, teeth[26].sites.DV.margin], [null, -2]);
 });
+
+test("un color de resina o cerámica (A3.5) no se lee como pieza dental", async () => {
+  const p = await quick("Hoy se realiza instalación de una corona sobre el diente 2.3. La corona es de zirconio, fue confeccionada en CATCAM con zirconio multicapa A3.5. Color A3.5. Queda cementada con vidrio ionómero.");
+  assert.ok(p.odontogram.every((item) => item.tooth === 23), JSON.stringify(p.odontogram.map((i) => i.tooth)));
+});
+
+test("una prestación dictada no queda como «Se observa» dentro de Examen", async () => {
+  const { moveActsOutOfExam } = await import("../lib/dictation/proposal.ts");
+  const sections = { examen: "Se observa instalación de una corona sobre el diente 2.3. Se encuentra cementada con vidrio ionómero. Se observa caries en la pieza 3.6.", procedimientos: "Se realiza instalación de una corona sobre el diente 2.3." };
+  moveActsOutOfExam(sections);
+  assert.equal(sections.examen, "Se encuentra cementada con vidrio ionómero. Se observa caries en la pieza 3.6.");
+  assert.equal(sections.procedimientos, "Se realiza instalación de una corona sobre el diente 2.3.");
+  const solo = { examen: "Se observa cementación de corona en 1.6.", procedimientos: "" };
+  moveActsOutOfExam(solo);
+  assert.equal(solo.examen, "");
+  assert.equal(solo.procedimientos, "Se realiza cementación de corona en 1.6.");
+});
+
+test("varias frases sobre la misma corona se funden en un solo cambio con su material", async () => {
+  const p = await quick("Hoy se realiza instalación de una corona sobre el diente 2.3. La corona es de zirconio, fue confeccionada en CATCAM. Queda cementada con vidrio ionómero.");
+  assert.equal(p.odontogram.length, 1);
+  assert.equal(p.odontogram[0].material, "Zirconio");
+});
