@@ -582,6 +582,36 @@ export async function POST(request: Request) {
       await db.update(toothStatuses).set({ data: JSON.stringify(data), updatedAt }).where(and(eq(toothStatuses.ownerId, ownerId), eq(toothStatuses.patientId, patientId)));
       return Response.json({ odontogram: data });
     }
+    if (action === "updateToothHistoryEvent") {
+      // Corrige fecha, título o detalle de un hito de la pieza (registro mal anotado). No cambia el estado actual.
+      const eventId = string(input.eventId, 200), title = string(input.title, 180), detail = string(input.detail, 400), clinicalDate = string(input.clinicalDate, 10);
+      if (!eventId || !title) return error("El hito necesita un título.");
+      if (clinicalDate && !attentionDateOk(clinicalDate)) return error("Revisa la fecha: no puede ser futura.");
+      const [old] = await db.select().from(toothStatuses).where(and(eq(toothStatuses.ownerId, ownerId), eq(toothStatuses.patientId, patientId)));
+      if (!old) return error("Hito no encontrado.", 404);
+      const data = normalizeOdontogram(JSON.parse(old.data));
+      const event = (data.history ?? []).find(item => item.id === eventId);
+      if (!event) return error("Hito no encontrado en esta ficha.", 404);
+      event.title = title;
+      if (detail) event.detail = detail; else delete event.detail;
+      if (clinicalDate) event.clinicalDate = clinicalDate;
+      await db.update(toothStatuses).set({ data: JSON.stringify(data), updatedAt: now() }).where(and(eq(toothStatuses.ownerId, ownerId), eq(toothStatuses.patientId, patientId)));
+      return Response.json({ odontogram: data });
+    }
+    if (action === "updatePerioToothReading") {
+      // Corrige la medición de una pieza en un examen (y, si se pide, la fecha del examen).
+      const examId = Number(input.examId), tooth = Number(input.tooth), clinicalDate = string(input.clinicalDate, 10);
+      if (!Number.isSafeInteger(examId) || examId <= 0 || !Number.isSafeInteger(tooth)) return error("Examen o pieza inválidos.");
+      if (!validPerioTeeth({ [tooth]: input.reading })) return error("Medición periodontal inválida.");
+      if (clinicalDate && !attentionDateOk(clinicalDate)) return error("Revisa la fecha: no puede ser futura.");
+      const [exam] = await db.select().from(periodontalExams).where(and(eq(periodontalExams.id, examId), eq(periodontalExams.patientId, patientId), eq(periodontalExams.ownerId, ownerId))).limit(1);
+      if (!exam) return error("Examen no encontrado en esta ficha.", 404);
+      const saved = JSON.parse(exam.teeth) as { teeth?: Record<string, unknown> };
+      const teeth = { ...(saved.teeth ?? {}), [String(tooth)]: input.reading };
+      const recordedAt = clinicalDate ? `${clinicalDate}T15:00:00.000Z` : exam.recordedAt;
+      await db.update(periodontalExams).set({ teeth: JSON.stringify({ ...saved, teeth }), recordedAt }).where(and(eq(periodontalExams.id, examId), eq(periodontalExams.ownerId, ownerId)));
+      return Response.json({ exam: { id: exam.id, recordedAt, ...saved, teeth } });
+    }
     if (action === "deletePerioToothReading") {
       // Quita la medición de una pieza en un examen; si el examen queda sin piezas, se elimina completo.
       const examId = Number(input.examId), tooth = Number(input.tooth);
