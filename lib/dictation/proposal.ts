@@ -1385,7 +1385,7 @@ export function structureTranscript(transcript: string, options: { today?: strin
       continue;
     }
     lastPerioItems = [];
-    if (/(?<!\p{L})(?:sondaje|sondeo)(?!\p{L})/iu.test(sentence) || (/(?<!\p{L})periodontograma(?!\p{L})/iu.test(sentence) && /\d/.test(sentence))) {
+    if (/(?<!\p{L})(?:sondaje|sondeo)(?!\p{L})/iu.test(sentence) || (/(?<!\p{L})periodontograma(?!\p{L})/iu.test(sentence) && /\d/.test(sentence)) || perioFragments(sentence).length >= 2) {
       // Tres cifras por cara («5 5 6 por vestibular y 4 4 5 por lingual»): mesial, central y distal en ese orden.
       const triplets = perioTriplets(sentence);
       if (triplets.length) {
@@ -1716,6 +1716,10 @@ function perioTriplets(sentence: string) {
     if (depths.some((depth) => depth > 15) || out.some((item) => sites.includes(item.site))) return [];
     sites.forEach((site, i) => out.push({ mention, site, depth: depths[i], bleeding, suppuration }));
   }
+  // «sangra en el distovestibular»: solo ese sitio.
+  const bleedAt = fold(sentence).match(/\bsangra\s+en\s+(?:el\s+|la\s+)?([a-z-]+(?:\s+(?:vestibular|lingual|palatin[oa]|bucal))?)/)?.[1];
+  const bleedSite = bleedAt ? perioSite(bleedAt) : null;
+  if (bleedSite) for (const item of out) if (item.site === bleedSite) item.bleeding = true;
   return out;
 }
 

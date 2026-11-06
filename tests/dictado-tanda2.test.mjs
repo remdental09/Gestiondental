@@ -204,3 +204,11 @@ test("sondaje dictado: tres cifras por cara, cifras sin mm, central, sangrado ge
   const tail = await run("Sondaje en la pieza 2.6 mesio vestibular 6 mm, vestibular 4 mm, disto vestibular 5 mm, sangrado al sondaje en los tres sitios.");
   assert.ok(tail.perio.length === 3 && tail.perio.every((p) => p.bleeding));
 });
+
+test("sondaje dictado: «sangra en el distovestibular» marca solo ese sitio y una frase sin la palabra sondaje con varios sitios también cuenta", async () => {
+  const { proposeFromTranscript } = await import("../lib/dictation/proposal.ts");
+  const r = await proposeFromTranscript({ transcript: "Sondaje en el 3.6 de 5 5 6 por vestibular y 4 4 5 por lingual, sangra en el distovestibular. Pieza 1.6 mesial vestibular 7, central 5, distal vestibular 6, todos con sangrado.", chart: [] }, null, () => {}, { today: "2026-11-06" });
+  const perio = (r.proposal ?? r).perio;
+  assert.deepEqual(perio.filter((p) => p.tooth === 36 && p.bleeding).map((p) => p.site), ["DV"]);
+  assert.equal(perio.filter((p) => p.tooth === 16 && p.bleeding).length, 3);
+});
