@@ -132,6 +132,8 @@ export type OdontogramChange = {
   conflict?: boolean;
   /** Aviso del tipo de evolución (p. ej. «es un control»): queda sin marcar por defecto. */
   advisory?: string;
+  /** Caries dictada y restaurada en la misma sesión: la superficie queda restaurada y la caries sigue como diagnóstico. */
+  treatedCaries?: SurfaceFinding;
 };
 
 export type ItemOrigin = "ia" | "reglas" | "ia+reglas";
@@ -343,9 +345,9 @@ function clip(value: string, max = 180): string {
 /** Hallazgos clínicos que no son estados del odontograma: no aportan caras ni caries. */
 const OTHER_FINDING = /(?<!\p{L})(?:fractur\p{L}*|fisur\p{L}*|c[uú]spides?|desgaste|abfracci\p{L}*|abrasi[oó]n|erosi[oó]n|atrici[oó]n|movilidad|tinci[oó]n|manchas?|absceso|f[ií]stula|dolor|sensibilidad)(?!\p{L})/iu;
 const FINDING_CUE = /(?<!\p{L})(?:caries|obtura\p{L}*|restaura\p{L}*|resina|amalgama|sellante|san[oa]|ausente|implante|corona|exodoncia|extra[ií]d\p{L}*|resto\s+radicular|endodoncia|fractur\p{L}*|fisur\p{L}*|c[uú]spides?|icdas|esmalte|dentina|pulpar|penetrante|lesi[oó]n|movilidad|sondaje|dolor|sensibilidad|absceso|f[ií]stula|desgaste|abfracci\p{L}*|pulpitis|necrosis|periodontitis|activ[ao]|inactiv[ao]|oclusal|mesial|distal|vestibular|palatin[ao]|lingual|incisal|mod)(?!\p{L})/iu;
-const TOOTH_START = /(?:^|\s)((?:(?:la|el)\s+)?(?:(?:pieza|diente)s?\s+(?:(?:fdi|iso|chilena|nacional|universal)\s+)?(?:\d|un[oa]?\b|dos\b|tres\b|cuatro\b|cinco\b|seis\b|siete\b|ocho\b|nueve\b|diez\b|once\b|doce\b|trece\b|catorce\b|quince\b|diec|veint|treinta|cuarenta|temporal|decidu|de\s+leche)|(?:fdi|iso)\s+(?:\d|un[oa]?\b|dos\b|tres\b|cuatro\b|cinco\b|seis\b|siete\b|ocho\b)))/giu;
+const TOOTH_START = /(?:^|\s)((?:(?:la|el)\s+)?(?:(?:pieza|diente)s?\s+(?:(?:fdi|iso|chilena|nacional|universal)\s+)?(?:\d|un[oa]?\b|dos\b|tres\b|cuatro\b|cinco\b|seis\b|siete\b|ocho\b|nueve\b|diez\b|once\b|doce\b|trece\b|catorce\b|quince\b|diec|veint|treinta|cuarenta|cincuenta|sesenta|setenta|ochenta|temporal|decidu|de\s+leche)|(?:fdi|iso)\s+(?:\d|un[oa]?\b|dos\b|tres\b|cuatro\b|cinco\b|seis\b|siete\b|ocho\b)))/giu;
 const CLAUSE_START = /(?:^|\s)((?:(?:el|la)\s+)?(?:paciente\s+)?(?:refiere|relata|comenta|niega)(?!\p{L})|se\s+(?:le\s+)?(?:indica|planifica|realiz[oó]|instal[oó]|cement[oó]|observa|encuentra)(?!\p{L})|(?:el\s+)?motivo\s+de\s+(?:la\s+)?consulta(?!\p{L})|viene\s+(?:a|por|para)\s|nos\s+vemos(?!\p{L})|est[aá]\s+conectad[oa](?!\p{L})|fue\s+(?:una\s+)?t[eé]cnica(?!\p{L})|(?:sondaje|sondeo|movilidad)(?!\p{L})|(?:con\s+)?sangrado\s+al\s+(?:sondaje|sondeo)(?!\p{L})|(?:presupuesto|se\s+presupuesta)(?!\p{L})|(?:el\s+paciente\s+|la\s+paciente\s+)?(?:abon[oó]|pag[oó]|cancel[oó])(?!\p{L})|pr[oó]xim[oa]\s+(?:cita|control|sesi[oó]n|hora)(?!\p{L})|se\s+(?:cita|agenda|reagenda)(?!\p{L})|se\s+controla(?:r[aá])?\s+(?:en|el|para|dentro)(?!\p{L})|aclaraci[oó]n:)/giu;
-const OPEN_ENDING = /(?:^|\s)(?:en|de|del|la|el|los|las|a|al|para|entre|sobre|por|un|una|que|o|con|desde|hasta|observa|observan|presenta|presentan|indica|planifica|realiza|realiz[oó]|instal[oó]|cement[oó]|tiene|hay|evidencia|paciente)$/iu;
+const OPEN_ENDING = /(?:^|\s)(?:en|de|del|la|el|los|las|a|al|para|entre|sobre|por|un|una|que|o|con|desde|hasta|observa|observan|extrae|extrajo|restaura|restaur[oó]|obtura|obtur[oó]|presenta|presentan|indica|planifica|realiza|realiz[oó]|instal[oó]|cement[oó]|tiene|hay|evidencia|paciente)$/iu;
 const TRAILING_CONNECTOR = /(?:[\s,;:]+(?:y|e|con|adem[aá]s|tambi[eé]n))+[\s,;:]*$|[\s,;:]+$/iu;
 
 /** «punto», «punto aparte» y «coma» dictados como palabras. No toca FDI «tres punto seis» ni «punto de contacto». */
@@ -410,7 +412,9 @@ function sentences(text: string): string[] {
 
 /** Solo las partes de la frase que no hablan de fractura, cúspide u otro hallazgo fuera de la leyenda. */
 function surfaceScope(sentence: string): string {
-  const parts = sentence.split(/\s*[,;]\s*|\s+(?:y|e|con|m[aá]s)\s+/iu);
+  // «fosas y fisuras» es la anatomía del sellante o de la caries oclusal, no una fisura dentaria.
+  const anatomical = sentence.replace(/\b(?:fosas?\s+y\s+(?:fisuras?|surcos?)|surcos?\s+y\s+fisuras?|fosas?,?\s+surcos?\s+y\s+fisuras?)\b/giu, "fosas");
+  const parts = anatomical.split(/\s*[,;]\s*|\s+(?:y|e|con|m[aá]s)\s+/iu);
   return parts.filter((part) => !OTHER_FINDING.test(part)).join(" ");
 }
 
@@ -477,7 +481,11 @@ function bareToothNumber(value: number): number | null {
 const SPOKEN_DIGIT = "(?:un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho)";
 // Como segundo dígito, «un/una» es casi siempre el artículo («pieza cuatro una caries»), no el 1: el dígito se dicta «uno».
 const SPOKEN_DIGIT_SECOND = "(?:uno|dos|tres|cuatro|cinco|seis|siete|ocho)";
+// Dientes temporales (FDI 51–55, 61–65, 71–75, 81–85) dictados en palabras.
+const PRIMARY_TENS: Array<[string, number]> = [["cincuenta", 50], ["sesenta", 60], ["setenta", 70], ["ochenta", 80]];
+const PRIMARY_UNITS: Array<[string, number]> = [["cinco", 5], ["cuatro", 4], ["tres", 3], ["dos", 2], ["uno", 1]];
 const SPOKEN_CARDINALS: Array<[string, number]> = [
+  ...PRIMARY_TENS.flatMap(([tens, base]) => PRIMARY_UNITS.map(([unit, value]) => [`${tens} y ${unit}`, base + value] as [string, number])),
   ["cuarenta y ocho", 48], ["cuarenta y siete", 47], ["cuarenta y seis", 46], ["cuarenta y cinco", 45], ["cuarenta y cuatro", 44], ["cuarenta y tres", 43], ["cuarenta y dos", 42], ["cuarenta y uno", 41], ["cuarenta", 40],
   ["treinta y ocho", 38], ["treinta y siete", 37], ["treinta y seis", 36], ["treinta y cinco", 35], ["treinta y cuatro", 34], ["treinta y tres", 33], ["treinta y dos", 32], ["treinta y uno", 31], ["treinta", 30],
   ["veintinueve", 29], ["veintiocho", 28], ["veintisiete", 27], ["veintiseis", 26], ["veinticinco", 25], ["veinticuatro", 24], ["veintitres", 23], ["veintidos", 22], ["veintiuno", 21], ["veinte", 20],
@@ -725,7 +733,11 @@ function crownOnImplantSentence(sentence: string): boolean {
 
 const EXTRACTION_INDICATED = /(?<!\p{L})(?:indicaci[oó]n\s+de\s+exodoncia|indica(?:da)?\s+(?:la\s+)?exodoncia|exodoncia\s+indicada|para\s+exodoncia)(?!\p{L})/iu;
 
+/** Exodoncia efectuada en la sesión (no planificada ni indicada): la pieza queda ausente. */
+const EXTRACTION_DONE = /(?<!\p{L})(?:se\s+(?:realiz[aó]|hace|hizo|efect[uú]a|efectu[oó]|practic[aó])\s+(?:la\s+|una\s+)?(?:exodoncia|extracci[oó]n)|se\s+extra(?:e|jo|jeron)|exodoncia\s+(?:realizada|efectuada)|extracci[oó]n\s+(?:realizada|efectuada))(?!\p{L})/iu;
+
 function statusFrom(sentence: string): ToothStatus | null {
+  if (EXTRACTION_DONE.test(sentence) && !/\b(?:planific|se\s+indic|se\s+plante)/i.test(sentence)) return "Ausente";
   if (/\bresto\s+radicular\b/i.test(sentence) && /\bendodoncia\b/i.test(sentence)) return "Resto radicular con endodoncia";
   if (EXTRACTION_INDICATED.test(sentence)) return "Indicación de exodoncia";
   if (crownOnImplantSentence(sentence)) return null;
@@ -1130,8 +1142,11 @@ export function isRootCaries(sourceText: string | undefined): boolean {
  */
 export function cariesDiagnoses(items: OdontogramChange[]): DiagnosisItem[] {
   const groups = new Map<string, OdontogramChange[]>();
-  for (const item of items) {
-    if (item.kind !== "surface" || item.finding?.condition !== "caries") continue;
+  for (const original of items) {
+    if (original.kind !== "surface") continue;
+    // Caries tratada en la misma sesión: la superficie queda restaurada, pero el diagnóstico se conserva.
+    const item = original.finding?.condition === "caries" ? original : original.finding?.condition === "restored" && original.treatedCaries ? { ...original, finding: original.treatedCaries } : null;
+    if (!item || item.finding?.condition !== "caries") continue;
     const key = `${item.tooth}:${item.finding.depth ?? ""}:${isRootCaries(item.sourceText) ? "r" : ""}`;
     groups.set(key, [...(groups.get(key) ?? []), item]);
   }
@@ -1367,7 +1382,7 @@ export function structureTranscript(transcript: string, options: { today?: strin
       clarifications.push(`Hallazgo negado, sin cambio de odontograma: «${clip(sentence)}».`);
       continue;
     }
-    if (/\bresto\s+radicular\b/i.test(sentence) && !/\bendodoncia\b/i.test(sentence)) {
+    if (/\bresto\s+radicular\b/i.test(sentence) && !/\bendodoncia\b/i.test(sentence) && !EXTRACTION_DONE.test(sentence)) {
       clarifications.push("Hay un resto radicular sin decir si tiene endodoncia. No se cambió el estado general.");
     }
 
@@ -2410,6 +2425,8 @@ export function validateAiExtraction(input: unknown, transcript: string, options
       continue;
     }
     const condition = CONDITION_FROM_AI[str(item.condicion)];
+    // Sin condición (p. ej. un sondaje o un dolor que la IA listó como superficie): no hay hallazgo que registrar y no se pregunta.
+    if (!condition && !str(item.condicion)) continue;
     if (!condition) { reject(`Hallazgo de superficie no reconocido en ${heading}.`); continue; }
     if (!CONDITION_CUE[condition].test(scope)) {
       reject(`La cita de ${heading} no respalda «${str(item.condicion)}» (o lo dice junto a una fractura u otro hallazgo): «${clip(segment)}».`);
@@ -2723,7 +2740,7 @@ function completeDischargeCondition(body: string, localBody: string): string {
   return normalizedBody.trim() ? normalizedBody.trim() + "\n\n" + section : section;
 }
 
-function mergeProposals(ai: AiExtraction, local: DictationProposal, transcript: string): DictationProposal {
+export function mergeProposals(ai: AiExtraction, local: DictationProposal, transcript: string): DictationProposal {
   const odontogram: OdontogramChange[] = [];
   const clarifications = [...ai.clarifications];
   const conflicts = new Set<string>();
@@ -2770,6 +2787,24 @@ function mergeProposals(ai: AiExtraction, local: DictationProposal, transcript: 
       continue;
     }
     odontogram.push({ ...rule, origin: "reglas" });
+  }
+  // Caries dictada y luego restaurada en la misma superficie: queda la restauración y la caries sigue como diagnóstico.
+  const folded = new Set<number>();
+  for (const restored of odontogram) {
+    if (restored.kind !== "surface" || restored.finding?.condition !== "restored") continue;
+    const caries = odontogram.find((item) => item !== restored && item.kind === "surface" && item.tooth === restored.tooth && item.surface === restored.surface && item.finding?.condition === "caries");
+    if (!caries?.finding) continue;
+    restored.treatedCaries = caries.finding;
+    restored.origin = originUnion(restored.origin ?? "reglas", caries.origin ?? "reglas");
+    odontogram.splice(odontogram.indexOf(caries), 1);
+    folded.add(restored.tooth);
+  }
+  for (const tooth of folded) {
+    for (const item of odontogram) if (item.tooth === tooth && !odontogram.some((other) => other !== item && collides(other, item))) item.conflict = undefined;
+    if (!odontogram.some((item) => item.tooth === tooth && item.conflict)) {
+      const note = `FDI ${formatFdi(tooth)}: la IA y las reglas no coinciden. Elige una de las dos propuestas.`;
+      for (let index = clarifications.length - 1; index >= 0; index--) if (clarifications[index] === note) clarifications.splice(index, 1);
+    }
   }
   // Una caries completa no debe quedar además como incompleta.
   const incomplete: OdontogramChange[] = [];
