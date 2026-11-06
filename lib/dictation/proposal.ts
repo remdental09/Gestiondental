@@ -31,6 +31,7 @@ import {
   paymentMethodFrom,
   reconcileCorrection,
   spokenAmounts,
+  numberRuns,
   stripDictationFrame,
   resolveSpokenDate,
   resolveSpokenTime,
@@ -589,7 +590,7 @@ function isPlanStrict(sentence: string): boolean {
   return /\b(?:se\s+planifica|planificad[oa]|se\s+indica|a\s+futuro|presupuesto|cotizaci[oó]n|por\s+cotizar)\b/i.test(sentence);
 }
 
-const PLAN_CUE = /(?:^|\P{L})(?:plan\s+(?:de\s+tratamiento|opci[oó]n|alternativ\p{L}*)|(?:fase|etapa)\s+(?:\d+|uno|dos|tres|cuatro|cinco)|opci[oó]n\s+(?:[abc]|\d|uno|dos|tres)|alternativa|a\s+decidir|se\s+eval[uú]a(?:r[aá])?|se\s+(?:propone|sugiere|recomienda|planea)|por\s+definir)(?!\p{L})/iu;
+const PLAN_CUE = /(?:^|\P{L})(?:plan\s+(?:de\s+tratamiento|opci[oó]n|alternativ\p{L}*)|(?:fase|etapa)\s+(?:\d+|uno|dos|tres|cuatro|cinco)|opci[oó]n\s+(?:[abc]|be|ce|\d|uno|dos|tres)|alternativa|a\s+decidir|se\s+eval[uú]a(?:r[aá])?|se\s+(?:propone|sugiere|recomienda|planea)|por\s+definir)(?!\p{L})/iu;
 const PLAN_HEADER = /(?:^|\P{L})plan\s+(?:de\s+tratamiento|opci[oó]n)(?!\p{L})/iu;
 
 /** Lo que se planifica o se presupuesta no es lo que se hizo: «Plan de tratamiento», «Fase dos», «Opción B», «a decidir». */
@@ -626,20 +627,25 @@ function parseAmount(sentence: string): number | null {
   return Number.isSafeInteger(amount) && amount >= 1 && amount <= 1_000_000_000 ? amount : null;
 }
 
-const SPOKEN_AMOUNT = /\b(?:(?:un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|diecis[eé]is|diecisiete|dieciocho|diecinueve|veinte|veinti\p{L}+|treinta|cuarenta|cincuenta|sesenta|setenta|ochenta|noventa|cien|ciento|doscientos|trescientos|cuatrocientos|quinientos|seiscientos|setecientos|ochocientos|novecientos|y)\s+)*(?:mil|mill[oó]n|millones)\b(?:\s+(?:y\s+)?(?:un|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|veinte|treinta|cuarenta|cincuenta|sesenta|setenta|ochenta|noventa)\b)*/giu;
+const SPOKEN_AMOUNT = /\b(?:(?:un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|diecis[eé]is|diecisiete|dieciocho|diecinueve|veinte|veinti\p{L}+|treinta|cuarenta|cincuenta|sesenta|setenta|ochenta|noventa|cien|ciento|doscient[oa]s|trescient[oa]s|cuatrocient[oa]s|quinient[oa]s|seiscient[oa]s|setecient[oa]s|ochocient[oa]s|novecient[oa]s|y)\s+)*(?:mil|mill[oó]n|millones)\b(?:\s+(?:y\s+)?(?:un|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|veinte|treinta|cuarenta|cincuenta|sesenta|setenta|ochenta|noventa)\b)*/giu;
 
 function budgetLabel(sentence: string): string {
   const label = sentence
     .replace(/\b([1-8])\.([1-8])\b/g, "$1#$2")
     .replace(/(?:\$\s*)?(?:\d{1,3}(?:\.\d{3})+|\d{4,9})/g, " ")
     .replace(SPOKEN_AMOUNT, " ")
-    .replace(/\b(?:presupuesto|cotizaci[oó]n|honorarios?|pesos|clp|fdi|iso|chilena|nacional|universal|cada\s+uno|cada\s+una)\b/gi, " ")
+    .replace(/(?<!\p{L})(?:(?:un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|veinte|veinti\p{L}+|treinta|cuarenta|cincuenta|sesenta|setenta|ochenta|noventa|cien|ciento|doscient[oa]s|trescient[oa]s|cuatrocient[oa]s|quinient[oa]s|seiscient[oa]s|setecient[oa]s|ochocient[oa]s|novecient[oa]s|y)\s+)*(?:lucas?|lukas?)(?!\p{L})/giu, " ")
+    .replace(/\b(?:presupuesto|cotizaci[oó]n|honorarios?|pesos|clp|lucas?|fdi|iso|chilena|nacional|universal|cada\s+uno|cada\s+una)\b/gi, " ")
+    .replace(/(?<!\p{L})plan\s+de\s+tratamiento(?!\p{L})/giu, " ")
+    .replace(/(?<!\p{L})(?:fase|etapa)\s+(?:\d+|uno|dos|tres|cuatro|cinco)(?!\p{L})/giu, " ")
+    .replace(/(?<!\p{L})opci[oó]n\s+(?:[abc]|be|ce|\d|uno|dos|tres)(?!\p{L})/giu, " ")
+    .replace(/(?<!\p{L})(?:se\s+)?(?:planifica|plantea|propone|indica|realiza)(?:\s+hoy)?(?!\p{L})/giu, " ")
     .replace(/[.,;:()]/g, " ")
     .replace(/\s+/g, " ")
     .trim()
     .replace(/(?:\s+(?:por|a|en|de|del|la|el|y))+$/i, "")
     .replace(/#/g, ".")
-    .replace(/^(?:de|del|la|el|un|una)\s+/i, "");
+    .replace(/^(?:plan|de|del|la|el|un|una)\s+/i, "");
   const clean = clip(label, 180);
   if (clean.length < 3) return "Prestación dictada";
   return clean.charAt(0).toUpperCase() + clean.slice(1);
@@ -1185,7 +1191,9 @@ export function textDiagnoses(text: string): DiagnosisItem[] {
           if (matches.length === 1 && teeth.length > 1) return teeth.map((tooth) => ({ match: matches[0], tooth }));
           return matches.map((match) => ({ match, tooth: sentenceTooth }));
         })();
-    for (const { match, tooth } of found) {
+    for (const { match, tooth: mentioned } of found) {
+      // La periodontitis y la gingivitis se dictan del paciente, no de la pieza que se nombre en la misma frase.
+      const tooth = /^(?:periodontitis|gingivitis)(?!\p{L}*\s+(?:apical|periapical))/iu.test(match.title) ? undefined : mentioned;
       if (out.some((done) => done.code === match.code && done.title === match.title && done.tooth === tooth)) continue;
       const item: DiagnosisItem = { id: `dx-${out.length + 1}`, tooth, code: match.code, title: match.title, label: "", evidence: clip(sentence, 400), findings: "", origin: "reglas", term: match.term, ...(match.suggested ? { suggested: match.suggested } : {}) };
       item.label = diagnosisLabel(item);
@@ -1331,7 +1339,14 @@ export function structureTranscript(transcript: string, options: { today?: strin
   let counter = 0;
   const nextId = (prefix: string) => `${prefix}-${++counter}`;
 
-  const allSentences = sentences(transcript);
+  const allSentences = sentences(transcript).flatMap((line) => {
+    const parts = line.split(/,?\s+y\s+(?=ausencia\s+de(?:l|\s+la|\s+las)?\s)/iu).filter((part) => part.trim());
+    // «caries … en la 4.6, y caries … en la 4.5»: cada hallazgo con su pieza va aparte para no mezclar las caras.
+    return parts.flatMap((part) => {
+      const pieces = part.split(/,\s+(?:y\s+)?(?=(?:caries|obturaci[oó]n|restauraci[oó]n|sellantes?|fractura|lesi[oó]n)(?!\p{L}))/iu).filter((piece) => piece.trim());
+      return pieces.length > 1 && pieces.every((piece) => toothMentions(piece).some((found) => found.ok)) ? pieces : [part];
+    });
+  });
   // «El diagnóstico está claro…» no es un diagnóstico perdido si en otra frase sí se dictó uno reconocido.
   const transcriptHasDiagnosis = allSentences.some((line) => isDiagnosisSentence(line));
   for (const [sentenceIndex, sentence] of allSentences.entries()) {
@@ -1376,7 +1391,7 @@ export function structureTranscript(transcript: string, options: { today?: strin
       if (/(?<!\p{L})(?:sondaje|sondeo)(?:\s+de)?\s+\d{1,2}[.,]\d+\s*(?:mm|mil[ií]metros)/iu.test(sentence)) clarifications.push("El sondaje con decimal no se anota. Usa milímetros enteros.");
       else if (!reading.mention && /(?<!\p{L})(?:generalizad\p{L}*|en\s+general|en\s+toda\s+la\s+boca|boca\s+completa|todas\s+las\s+piezas|localizad\p{L}*)(?!\p{L})/iu.test(sentence)) {
         // «Sangrado al sondaje generalizado» es una nota periodontal, no un registro por pieza: queda en la evolución.
-      } else if (!reading.mention) clarifications.push(`Sondaje sin una pieza identificada: «${clip(sentence)}». ¿En qué pieza?`);
+      } else if (!reading.mention) { if (!/(?<!\p{L})(?:sextantes?|generaliz\p{L}*|toda\s+la\s+boca|todas\s+las\s+piezas)(?!\p{L})/iu.test(sentence)) clarifications.push(`Sondaje sin una pieza identificada: «${clip(sentence)}». ¿En qué pieza?`); }
       else if (reading.depth !== null && reading.depth > 15) clarifications.push(`Sondaje fuera de 0 a 15 mm: «${clip(sentence)}».`);
       else if (reading.depth === null && !reading.bleeding && !reading.suppuration) clarifications.push(`Sondaje sin milímetros enteros: «${clip(sentence)}». No se anota.`);
       else if (reading.depth === null || !reading.site) {
@@ -1434,7 +1449,9 @@ export function structureTranscript(transcript: string, options: { today?: strin
     }
 
     const isBudget = /\b(?:presupuesto|presupuesta|cotizaci[oó]n|honorarios)\b/i.test(sentence);
-    const amount = parseAmount(sentence) ?? (isBudget ? spokenAmounts(sentence)[0]?.value ?? null : null);
+    // Un monto hablado también es de presupuesto si la frase es del plan o dice «pesos»/«lucas» (sin la palabra «presupuesto»).
+    const priced = isBudget || isPlan(sentence) || inPlanContext(allSentences, sentenceIndex) || /(?<!\p{L})(?:pesos|lucas?|lukas?)(?!\p{L})/iu.test(sentence);
+    const amount = parseAmount(sentence) ?? (priced ? spokenAmounts(sentence)[0]?.value ?? null : null);
     if (amount) {
       budget.push({ id: nextId("pre"), title: "Presupuesto dictado", label: budgetLabel(sentence), amount, sourceText: clip(sentence) });
     } else if (/\b(?:presupuesto|cotizaci[oó]n|honorarios)\b/i.test(sentence)) {
@@ -1470,9 +1487,15 @@ export function structureTranscript(transcript: string, options: { today?: strin
     }
 
     let mentions = toothMentions(sentence);
+    // «ausencia de la 2.5 y la 2.6, pilares la 2.4 y la 2.7»: solo las dos primeras faltan.
+    const absence = /(?<!\p{L})ausencia\s+(?:de(?:l|\s+la|\s+las)?\s+)/iu.exec(sentence);
+    if (absence && !/(?<!\p{L})ausentes?(?!\p{L})/iu.test(sentence)) {
+      const tail = sentence.slice(absence.index).split(/(?<!\p{L})(?:pilar(?:es)?|soport\p{L}*|apoyad\p{L}*|(?:y\s+)?se\s+planifica)(?!\p{L})/iu)[0];
+      mentions = toothMentions(tail);
+    }
     const scope = surfaceScope(sentence);
     const onImplant = crownOnImplantSentence(sentence);
-    const status = statusFrom(sentence);
+    const status = isPaymentText(sentence) ? null : statusFrom(sentence);
     const surfaceResult = onImplant || status === "Ausente" || status === "Implante" ? null : findingFrom(scope);
     if (!mentions.length && (status || surfaceResult)) {
       // Dictado conversacional: la pieza puede estar en la frase anterior o en la siguiente.
@@ -1747,10 +1770,10 @@ export function budgetContext(transcript: string, evidence: string): { phase?: s
     const number = /^\d+$/.test(phase[1]) ? Number(phase[1]) : ORDINAL_WORD[phase[1].toLowerCase()];
     if (number >= 1 && number <= 9) out.phase = `Fase ${number}`;
   }
-  const option = [...upto.matchAll(/(?<!\p{L})opci[oó]n\s+([abc]|\d|uno|una|dos|tres)(?!\p{L})/giu)].pop();
+  const option = [...upto.matchAll(/(?<!\p{L})opci[oó]n\s+([abc]|be|bé|ce|cé|\d|uno|una|dos|tres)(?!\p{L})/giu)].pop();
   if (option) {
     const raw = option[1].toLowerCase();
-    const index = /^\d$/.test(raw) ? Number(raw) : raw in ORDINAL_WORD ? ORDINAL_WORD[raw] : raw.charCodeAt(0) - 96;
+    const index = /^\d$/.test(raw) ? Number(raw) : raw in ORDINAL_WORD ? ORDINAL_WORD[raw] : raw.charCodeAt(0) - 96; // «be» y «ce»: la primera letra
     if (index >= 1 && index <= 3) out.option = String.fromCharCode(64 + index);
   }
   return out;
@@ -2337,6 +2360,12 @@ function numbersIn(value: string, articlesAsNumbers = true): Set<string> {
     if (number >= 51 && number <= 85) found.add(`${Math.floor(number / 10)}.${number % 10}`);
   }
   for (const match of spoken.matchAll(/\b(\d+)\s+mil\b/g)) found.add(String(Number(match[1]) * 1000));
+  // «cero coma doce» se escribe 0.12; «cuatro coma cinco», 4.5.
+  for (const match of spoken.matchAll(/\b([a-z]+)\s+coma\s+([a-z]+(?:\s+y\s+[a-z]+)?)\b/g)) {
+    const whole = numberRuns(match[1])[0]?.value;
+    const decimals = numberRuns(match[2])[0]?.value;
+    if (whole !== undefined && decimals !== undefined) found.add(`${whole}.${decimals}`);
+  }
   // «ciento diez mil pesos» se escribe 110000; «fase uno», «cada dos meses»: la nota puede usar cifras.
   for (const amount of amountsIn(value)) found.add(String(amount));
   for (const [word, number] of Object.entries({ un: 1, uno: 1, una: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10 })) {
@@ -2578,6 +2607,7 @@ export function validateAiExtraction(input: unknown, transcript: string, options
     if (str(item.tipo) === "estado") {
       const status = str(item.estado, 48) as ToothStatus;
       const cue = STATUS_CUE[status];
+      if (!status) continue;
       if (!cue || !TOOTH_STATUSES.includes(status)) { reject(`Estado «${status}» no reconocido en ${heading}.`); continue; }
       if (!cue.test(segment)) { reject(`La cita de ${heading} no dice «${status.toLowerCase()}»: «${clip(segment)}».`); continue; }
       if (status !== "Indicación de exodoncia" && (isPlan(segment) || planContextOfSegment(segment, transcript)) && !isPerformed(segment)) { continue; }
@@ -2654,7 +2684,7 @@ export function validateAiExtraction(input: unknown, transcript: string, options
   for (const raw of list(record.presupuesto, 12)) {
     if (!raw || typeof raw !== "object") continue;
     const item = raw as Record<string, unknown>;
-    const label = clip(str(item.prestacion, 180), 180);
+    const label = clip(str(item.prestacion, 180).replace(/^\s*(?:(?:fase|etapa)\s+(?:\d+|uno|dos|tres|cuatro|cinco)|opci[oó]n\s+(?:[abc]|be|ce|\d))\s*[:,.\-]?\s*/iu, ""), 180);
     const evidence = str(item.evidencia, 400);
     if (!label) continue;
     if (!evidence || !evidenceInTranscript(evidence, transcript)) { reject(`Presupuesto «${label}» sin cita literal del dictado. No se propuso.`); continue; }

@@ -162,3 +162,24 @@ test("la relectura reconoce planes con varias prestaciones y alternativas", asyn
   const r = verifyDictationSave({ patientId: 1, before: { teeth: {}, surfaces: {} }, note: null, accepted: [], budgets, savedBudgetIds: [10, 11, 10] }, snapshot);
   assert.equal(r.ok, true, r.messages.join("\n"));
 });
+
+test("simulación 20: errores humanos del dictado", async () => {
+  const run = async (transcript) => (await proposeFromTranscript({ transcript, chart: [] }, null, () => {}, { today: "2026-11-06" })).proposal;
+  // Rectificación con «en la»: la 1.6 se anula.
+  const a = await run("Se observa caries de dentina profunda oclusal y mesial en la uno seis, perdón, en la 4.6, y caries de dentina superficial vestibular en la 4.5.");
+  assert.deepEqual(a.odontogram.map((o) => `${o.tooth}${o.surface}`).sort(), ["45V", "46M", "46O"]);
+  // Los pilares no faltan; «ausencia» afecta solo a las piezas nombradas antes.
+  const b = await run("Ausencia de la 2.5 y la 2.6, pilares la 2.4 y la 2.7. Se planifica prótesis fija plural, un millón doscientos mil pesos.");
+  assert.deepEqual(b.odontogram.map((o) => o.tooth).sort(), [25, 26]);
+  // Ausencia dentro de una frase con otros hallazgos; periodontitis sin pieza.
+  const c = await run("Hoy se observa caries de dentina profunda en la 2.6 oclusal, periodontitis estadio tres, y ausencia de la 3.6.");
+  assert.ok(c.odontogram.some((o) => o.tooth === 36 && o.status === "Ausente"));
+  assert.ok(!c.odontogram.some((o) => o.tooth === 26 && o.status === "Ausente"));
+  assert.ok(c.diagnoses.some((d) => /Periodontitis estadio III/.test(d.title) && d.tooth === undefined));
+  // «Opción be», lucas y presupuesto sin la palabra «presupuesto».
+  const d = await run("Plan opción A: implante en la 3.6, quinientos mil pesos. Opción be: puente de tres unidades, trescientas ochenta lucas.");
+  assert.deepEqual(d.budget.map((x) => [x.label, x.amount, x.option]), [["Implante en la 3.6", 500000, "A"], ["Puente de tres unidades", 380000, "B"]]);
+  // Un pago no cambia el odontograma.
+  const e = await run("El paciente abona ciento cincuenta mil pesos en efectivo para el implante de la 3.6.");
+  assert.equal(e.odontogram.length, 0);
+});
