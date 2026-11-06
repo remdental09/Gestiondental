@@ -61,6 +61,7 @@ export function Tooth3DModal({
   const [reducedMotion, setReducedMotion] = useState(() => window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   const [grown, setGrown] = useState(reducedMotion);
   const [showPeriodontium, setShowPeriodontium] = useState(true);
+  const [periodontiumOpacity, setPeriodontiumOpacity] = useState(1);
   const [fullArch, setFullArch] = useState(false);
   const propCrownFoundation = crown?.foundation === "implant" ? "implant" : "tooth";
   const crownFoundationKey = `${tooth}|${propCrownFoundation}|${crown?.material ?? ""}|${crown?.shade ?? ""}|${crown?.source ?? ""}`;
@@ -191,19 +192,24 @@ export function Tooth3DModal({
         {naturalTooth && <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#e2d7d0] bg-[#fffaf7] px-3 py-2">
           <div className="text-xs leading-5 text-[#6b5550]">
             <span className="font-semibold">Periodonto 3D</span>
-            <span className="ml-1">{showPeriodontium ? "Hueso alveolar translúcido y ligamento periodontal." : "Vista de la pieza sin capas periodontales."}</span>
+            <span className="ml-1">{showPeriodontium ? "Encía, hueso alveolar y ligamento periodontal translúcidos." : "Vista de la pieza sin capas periodontales."}</span>
           </div>
           <button type="button" aria-pressed={showPeriodontium} onClick={() => setShowPeriodontium((visible) => !visible)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-[#d5aaa7] bg-white px-3 py-1.5 text-xs font-semibold text-[#6e4144] hover:bg-[#fff0ee]">
             {showPeriodontium ? <EyeOff className="size-4" aria-hidden="true" /> : <Eye className="size-4" aria-hidden="true" />}
             {showPeriodontium ? "Ocultar periodonto" : "Mostrar periodonto"}
           </button>
+          {showPeriodontium && <label className="flex w-full items-center gap-2 text-xs font-medium text-[#6b5550]">
+            <span className="shrink-0">Ver el diente por dentro</span>
+            <input type="range" min={10} max={100} step={5} value={Math.round(periodontiumOpacity * 100)} onChange={(event) => setPeriodontiumOpacity(Number(event.target.value) / 100)} className="h-2 min-w-0 flex-1 accent-[#b85c64]" aria-label="Opacidad del periodonto" />
+            <span className="w-9 shrink-0 text-right tabular-nums">{Math.round(periodontiumOpacity * 100)} %</span>
+          </label>}
         </div>}
         {periodontalSites ? <div className="mb-3 grid grid-cols-3 gap-1.5 text-center text-xs sm:gap-2" aria-label="Seis sitios periodontales">
           {(["MV", "V", "DV", "ML", "L", "DL"] as PerioSiteKey[]).map(key => { const reading = periodontalSites[key]; const depth = reading?.depth; const measured = depth !== null && depth !== undefined; const color = !measured ? "#94a3b8" : depth >= 6 ? "#be123c" : depth >= 4 ? "#b45309" : "#047857"; return <div key={key} className="rounded-lg border border-[#e2eaeb] bg-white px-1 py-1.5"><span className="font-semibold">{key}</span><span className="ml-1 font-medium" style={{color}}>{measured ? `${depth} mm` : "sin medir"}</span>{reading?.bleeding && <span className="block text-red-700">Sangrado</span>}{reading?.suppuration && <span className="block text-violet-700">Supuración</span>}</div>; })}
         </div> : findings.length > 0 ? <ul className="mb-3 flex flex-wrap gap-2">{findings.map((line) => <li key={line} className="rounded-full bg-[#f3f7f7] px-3 py-1 text-xs font-medium text-[#31575b]">{line}</li>)}</ul> : <p className="mb-3 text-sm text-[#71858b]">Sin hallazgos registrados en esta pieza.</p>}
         <div className="mb-2 flex gap-2" role="group" aria-label="Vista del odontograma 3D"><button type="button" onClick={() => setFullArch(false)} aria-pressed={!fullArch} className={`rounded-lg border px-3 py-1.5 text-sm ${!fullArch ? "border-[#087f83] bg-[#e7f5f3] text-[#075b60]" : "border-[#d8e3e3] bg-white text-[#52666c]"}`}>Pieza seleccionada</button><button type="button" onClick={() => setFullArch(true)} aria-pressed={fullArch} className={`rounded-lg border px-3 py-1.5 text-sm ${fullArch ? "border-[#087f83] bg-[#e7f5f3] text-[#075b60]" : "border-[#d8e3e3] bg-white text-[#52666c]"}`}>Todas las piezas en hueso</button></div>
         {fullArch ? <FullArch3DStage reducedMotion={reducedMotion} /> : <Suspense fallback={<p className="grid h-[min(42vh,360px)] min-h-56 place-items-center text-sm text-[#71858b]" role="status">Preparando el diente…</p>}>
-          {placed && <Tooth3DStage tooth={tooth} status={status} surfaces={surfaces} hasCrown={hasCrown} reducedMotion={reducedMotion} periodontalSites={periodontalSites} showPeriodontium={showPeriodontium} />}
+          {placed && <Tooth3DStage tooth={tooth} status={status} surfaces={surfaces} hasCrown={hasCrown} reducedMotion={reducedMotion} periodontalSites={periodontalSites} showPeriodontium={showPeriodontium} periodontiumOpacity={periodontiumOpacity} />}
         </Suspense>}
         <p className="mt-2 text-xs leading-5 text-[#71858b]">{reducedMotion ? "Arrastra para girar. Acerca con la rueda o con dos dedos. La rotación automática está desactivada." : "Las piezas giran juntas con la arcada. Arrastra para orientarlas y acerca con la rueda o con dos dedos."}</p>
         <ul className="mt-3 flex flex-wrap gap-2 text-xs text-[#52666c]" aria-label="Leyenda de colores">
