@@ -1330,6 +1330,8 @@ export function structureTranscript(transcript: string, options: { today?: strin
   const budget: BudgetChange[] = [];
   const perio: PerioStub[] = [];
   const perioPending: PerioPending[] = [];
+  let lastPerioItems: PerioStub[] = [];
+  let lastPerioMention: ReturnType<typeof toothMentions>[number] | null = null;
   const mobility: MobilityChange[] = [];
   const payments: PaymentChange[] = [];
   const appointments: AppointmentChange[] = [];
@@ -1371,20 +1373,43 @@ export function structureTranscript(transcript: string, options: { today?: strin
     }
     const grade = mobilityGrade(sentence);
     if (grade) {
-      for (const mention of toothMentions(sentence)) {
+      // «Movilidad grado 1.» sin pieza: se refiere a la pieza del sondaje anterior.
+      const own = toothMentions(sentence);
+      for (const mention of own.length ? own : lastPerioMention ? [lastPerioMention] : []) {
         if (mention.ok) mobility.push({ id: nextId("mov"), tooth: mention.tooth, numberingLabel: mention.numberingLabel, grade, evidence: clip(sentence, 400), origin: "reglas" });
       }
     }
-    if (/(?<!\p{L})(?:sondaje|sondeo)(?!\p{L})/iu.test(sentence)) {
+    // «Sangrado en los tres sitios» / «todos con sangrado» (frase suelta): marca las lecturas de la frase anterior.
+    if (lastPerioItems.length && !toothMentions(sentence).length && /(?<!\p{L})(?:(?:todos|todas|los\s+(?:tres|seis)\s+sitios)\s+(?:con\s+)?sangrado|sangrado(?:\s+al\s+sondaje)?\s+(?:en|de)\s+(?:todos|los\s+(?:tres|seis)\s+sitios))(?!\p{L})/iu.test(sentence)) {
+      for (const item of lastPerioItems) item.bleeding = true;
+      continue;
+    }
+    lastPerioItems = [];
+    if (/(?<!\p{L})(?:sondaje|sondeo)(?!\p{L})/iu.test(sentence) || (/(?<!\p{L})periodontograma(?!\p{L})/iu.test(sentence) && /\d/.test(sentence))) {
+      // Tres cifras por cara («5 5 6 por vestibular y 4 4 5 por lingual»): mesial, central y distal en ese orden.
+      const triplets = perioTriplets(sentence);
+      if (triplets.length) {
+        for (const part of triplets) {
+          const item: PerioStub = {
+            id: nextId("per"), tooth: part.mention.tooth, numberingLabel: part.mention.numberingLabel, site: part.site, siteLabel: SITE_LABEL[part.site],
+            depth: part.depth, sourceText: clip(sentence), persisted: false, bleeding: part.bleeding, suppuration: part.suppuration, evidence: clip(sentence, 400), origin: "reglas",
+          };
+          perio.push(item); lastPerioItems.push(item);
+        }
+        lastPerioMention = triplets[0].mention;
+        continue;
+      }
       // Varias mediciones en una frase («mesiovestibular 5 mm con sangrado, distovestibular 6 mm»): una lectura por sitio.
       const several = perioFragments(sentence);
       if (several.length >= 2) {
         for (const part of several) {
-          perio.push({
+          const item: PerioStub = {
             id: nextId("per"), tooth: part.mention.tooth, numberingLabel: part.mention.numberingLabel, site: part.site, siteLabel: SITE_LABEL[part.site],
             depth: part.depth, sourceText: clip(sentence), persisted: false, bleeding: part.bleeding, suppuration: part.suppuration, evidence: clip(sentence, 400), origin: "reglas",
-          });
+          };
+          perio.push(item); lastPerioItems.push(item);
         }
+        lastPerioMention = several[0].mention;
         continue;
       }
       const reading = perioReading(sentence);
@@ -1658,6 +1683,9 @@ function perioFragments(sentence: string) {
   const out: Array<{ mention: typeof mention; site: PerioSite; depth: number; bleeding: boolean; suppuration: boolean }> = [];
   for (const part of sentence.split(/\s*[,;]\s*|\s+y\s+/iu)) {
     const reading = perioReading(part);
+    // «mesial vestibular 7, central 5, distal vestibular 6, todos con sangrado».
+    if (/(?<!\p{L})(?:todos|todas|los\s+(?:tres|seis)\s+sitios)\s+(?:con\s+)?sangrado(?!\p{L})/iu.test(part) && !reading.site && out.length) { for (const item of out) item.bleeding = true; continue; }
+    if (!reading.site && /(?<!\p{L})central(?!\p{L})/iu.test(part) && out.length) reading.site = out[out.length - 1].site.endsWith("L") ? "L" : "V";
     // «…, vestibular 3, distovestibular 5 con supuración»: el sitio ya fijó la unidad en el primer fragmento.
     if (reading.depth === null && reading.site && !toothMentions(part).length) {
       const bare = fold(part).match(/(?<![\d.,])(\d{1,2})(?![\d.,]?\d)/);
@@ -1671,12 +1699,33 @@ function perioFragments(sentence: string) {
   return out;
 }
 
+/** «5 5 6 por vestibular»: tres cifras por cara, de mesial a distal. */
+function perioTriplets(sentence: string) {
+  const mention = toothMentions(sentence).find((item): item is Extract<Mention, { ok: true }> => item.ok);
+  if (!mention) return [];
+  const out: Array<{ mention: typeof mention; site: PerioSite; depth: number; bleeding: boolean; suppuration: boolean }> = [];
+  const matches = [...fold(sentence).matchAll(/(?<![\d.,])(\d{1,2})[\s,]+(\d{1,2})[\s,]+(\d{1,2})(?![\d.,]?\d)\s*(?:mm|milimetros)?\s*(?:por|en|de)?\s*(?:la\s+cara\s+)?(vestibular|bucal|lingual|palatin[oa]|palatal)\b/g)];
+  for (let index = 0; index < matches.length; index += 1) {
+    const match = matches[index];
+    const buccal = /^(?:vestibular|bucal)$/.test(match[4]);
+    const sites: PerioSite[] = buccal ? ["MV", "V", "DV"] : ["ML", "L", "DL"];
+    const tail = fold(sentence).slice((match.index ?? 0) + match[0].length, matches[index + 1]?.index ?? undefined);
+    const bleeding = /\bcon\s+sangrado\b|\bsangra\b/.test(tail) && !/\bsangra\s+en\b/.test(tail);
+    const suppuration = /\bcon\s+supuracion\b/.test(tail);
+    const depths = [Number(match[1]), Number(match[2]), Number(match[3])];
+    if (depths.some((depth) => depth > 15) || out.some((item) => sites.includes(item.site))) return [];
+    sites.forEach((site, i) => out.push({ mention, site, depth: depths[i], bleeding, suppuration }));
+  }
+  return out;
+}
+
 function perioReading(sentence: string) {
   const folded = fold(sentence);
   const mention = toothMentions(sentence).find((item): item is Extract<Mention, { ok: true }> => item.ok) ?? null;
   return {
     mention,
-    depth: depthFrom(sentence),
+    // Sin «mm»: la cifra pegada al nombre del sitio («mesial vestibular 7»).
+    depth: depthFrom(sentence) ?? (() => { const bare = folded.match(/(?:vestibular|bucal|lingual|palatin[oa]|palatal|mesial|distal|central)\s+(?:de\s+)?(\d{1,2})(?![\d.,]?\d)/); return bare ? Number(bare[1]) : null; })(),
     site: perioSite(folded),
     bleeding: /\b(?:sangra\w*|sangrado|hemorragia)\b/.test(folded) && !/\b(?:sin|no)\s+(?:hay\s+)?(?:sangra\w*|sangrado)\b/.test(folded),
     suppuration: /\b(?:supura\w*|pus)\b/.test(folded) && !/\b(?:sin|no)\s+(?:hay\s+)?(?:supura\w*|pus)\b/.test(folded),
