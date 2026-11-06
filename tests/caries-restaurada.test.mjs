@@ -20,3 +20,25 @@ test("caries dictada y restaurada en la misma cara: queda restaurada, sin confli
   const dx = cariesDiagnoses(merged.odontogram);
   assert.ok(dx.some((d) => d.code.startsWith("DA08.0")), "el diagnóstico de caries se conserva");
 });
+
+const quick = async (transcript) => (await proposeFromTranscript({ transcript, chart: [] }, null, () => {}, { today: "2026-11-06" })).proposal;
+
+test("dientes temporales dictados en palabras (cincuenta y cinco, sesenta y cinco)", async () => {
+  const p = await quick("Pieza sesenta y cinco, se coloca sellante de fosas y fisuras en oclusal.");
+  assert.equal(p.odontogram.length, 1);
+  assert.equal(p.odontogram[0].tooth, 65);
+  assert.equal(p.odontogram[0].finding.condition, "sealant");
+});
+
+test("«fosas y fisuras» no se confunde con una fisura dentaria", async () => {
+  const p = await quick("Pieza 16, se coloca sellante de fosas y fisuras en oclusal.");
+  assert.equal(p.odontogram[0]?.surface, "O");
+  assert.ok(!p.clarifications.some((c) => /Falta la superficie/.test(c)));
+});
+
+test("exodoncia realizada deja la pieza ausente; planificada o indicada no", async () => {
+  assert.equal((await quick("Se realiza exodoncia de la pieza 3.8.")).odontogram[0]?.status, "Ausente");
+  assert.equal((await quick("Se extrae la pieza 3.6 por caries.")).odontogram[0]?.status, "Ausente");
+  assert.equal((await quick("Se planifica exodoncia de la pieza 3.8.")).odontogram.length, 0);
+  assert.equal((await quick("Se indica exodoncia de la pieza 3.8.")).odontogram[0]?.status, "Indicación de exodoncia");
+});

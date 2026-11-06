@@ -158,3 +158,13 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 
 ## Fecha de atención opcional en el dictado
 - `addNote` acepta `clinicalDate` (AAAA-MM-DD, no futura, máx. 5 años atrás); sin valor usa hoy en Chile. El diálogo de dictado tiene el campo "Fecha de atención". El historial del odontograma hereda la fecha de la evolución. Permite registrar atenciones pasadas y simular fechas distintas en la ficha ficticia (id 8).
+
+## Simulación con la ficha ficticia (2026-11-06): hallazgos corregidos
+- Caries dictada y restaurada en la misma cara: queda una sola propuesta "restaurada" (sin conflicto IA/reglas) y la caries se conserva como diagnóstico (`treatedCaries`, `cariesDiagnoses`).
+- Dientes temporales dictados en palabras (cincuenta y cinco … ochenta y cinco).
+- «Sellante de fosas y fisuras» ya no se trata como fisura dentaria (se perdía la cara).
+- Exodoncia realizada («se realiza exodoncia», «se extrae») deja la pieza Ausente; planificada no; indicada = Indicación de exodoncia.
+- «Se extrae/restaura/obtura» + pieza ya no se parte en dos frases.
+- Prescripciones de fármacos van en «Indicaciones»; detalles de procedimiento no pasan a Examen.
+- Condición vacía de la IA (p. ej. sondaje listado como superficie) se ignora sin pregunta.
+- Pendiente: guardar la simulación con fechas distintas en la ficha id 8 y releer el odontograma.
