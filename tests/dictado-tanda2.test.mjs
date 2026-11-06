@@ -183,3 +183,11 @@ test("simulación 20: errores humanos del dictado", async () => {
   const e = await run("El paciente abona ciento cincuenta mil pesos en efectivo para el implante de la 3.6.");
   assert.equal(e.odontogram.length, 0);
 });
+
+test("budgetContext encuentra la fase con el texto corregido o el original", async () => {
+  const { budgetContext } = await import("../lib/dictation/proposal.ts");
+  const original = "fase uno endodoncia del 3.6 y fase dos corona del 3.6";
+  const corrected = "Fase 1: endodoncia del 3.6. Fase 2: corona del 3.6";
+  assert.equal(budgetContext([corrected, original], "corona del 3.6").phase, "Fase 2");
+  assert.equal(budgetContext(["otro texto", original], "endodoncia del 3.6").phase, "Fase 1");
+});

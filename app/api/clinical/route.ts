@@ -457,7 +457,10 @@ export async function POST(request: Request) {
       }
       const t = now();
       const itemsData = encodeBudgetData(items, { isAlternative: parentBudgetId !== null, parentBudgetId });
-      const [b] = await db.insert(budgets).values({ ownerId, patientId, title, items: itemsData, status: "Borrador", createdAt: t }).returning();
+      // La fecha de la atención dictada (hoy o pasada) es la del presupuesto.
+      const budgetDate = string(input.clinicalDate, 10);
+      const createdAt = /^\d{4}-\d{2}-\d{2}$/.test(budgetDate) && !Number.isNaN(Date.parse(budgetDate)) && budgetDate <= t.slice(0, 10) ? `${budgetDate}T12:00:00.000Z` : t;
+      const [b] = await db.insert(budgets).values({ ownerId, patientId, title, items: itemsData, status: "Borrador", createdAt }).returning();
       return Response.json({ budget: budgetView(b) }, { status: 201 });
     }
     if (action === "updateBudget") {
