@@ -1,9 +1,11 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import { Plus, Trash2, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { budgetItemTotal, budgetPhases, budgetTotals, type BudgetItem } from "@/lib/budget-plans";
+import type { Prestacion } from "@/lib/prestaciones-catalog";
 
 export type BudgetPlan = {
   id: number;
@@ -27,6 +29,32 @@ export type BudgetPaymentEntry = {
 const money = (amount: number) => "$" + amount.toLocaleString("es-CL");
 const paymentMethodLabel: Record<string, string> = { efectivo: "Efectivo", debito: "Débito", credito: "Crédito", transferencia: "Transferencia", otro: "Otro" };
 
+type CatalogModule = typeof import("@/lib/prestaciones-catalog");
+
+/** Campo de prestación con sugerencias del catálogo; el texto libre sigue siendo válido. */
+function PrestacionField({ value, onChange }: { value: string; onChange: (label: string) => void }) {
+  const [catalog, setCatalog] = useState<CatalogModule | null>(null);
+  const [open, setOpen] = useState(false);
+  const matches = useMemo<Prestacion[]>(() => (catalog && open ? catalog.searchPrestaciones(value, 6) : []), [catalog, open, value]);
+  return <div className="relative">
+    <Input
+      maxLength={180} value={value} autoComplete="off" role="combobox" aria-expanded={open && matches.length > 0} aria-autocomplete="list"
+      onFocus={() => { setOpen(true); if (!catalog) void import("@/lib/prestaciones-catalog").then(setCatalog); }}
+      onBlur={() => setTimeout(() => setOpen(false), 120)}
+      onChange={(event) => { onChange(event.target.value); setOpen(true); }}
+      placeholder="Ej.: rehabilitación protésica, sellante, exodoncia…"
+    />
+    {open && catalog && matches.length > 0 && <ul role="listbox" aria-label="Prestaciones sugeridas" className="absolute z-20 mt-1 max-h-60 w-full overflow-auto rounded-lg border border-[#d8e3e3] bg-white py-1 shadow-lg">
+      {matches.map((item) => <li key={item.code} role="option" aria-selected={false}>
+        <button type="button" className="block w-full px-3 py-2 text-left text-sm hover:bg-[#eef7f6]" onMouseDown={(event) => event.preventDefault()} onClick={() => { onChange(catalog.prestacionLabel(item.name)); setOpen(false); }}>
+          <span className="block">{catalog.prestacionLabel(item.name)}</span>
+          <span className="block text-xs text-[#71858b]">{catalog.prestacionLabel(item.group)} · {item.code}</span>
+        </button>
+      </li>)}
+    </ul>}
+  </div>;
+}
+
 export function BudgetItemsEditor({ items, onChange }: { items: BudgetItem[]; onChange: (items: BudgetItem[]) => void }) {
   const update = (index: number, patch: Partial<BudgetItem>) => onChange(items.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item));
   return <div className="space-y-4">
@@ -37,7 +65,7 @@ export function BudgetItemsEditor({ items, onChange }: { items: BudgetItem[]; on
     {items.map((item, index) => <section key={index} className="rounded-xl border border-[#e4ebed] bg-[#fbfdfd] p-3" aria-label={`Prestación ${index + 1}`}>
       <div className="mb-3 flex items-center justify-between gap-3"><span className="text-xs font-semibold uppercase tracking-wide text-[#527075]">Prestación {index + 1}</span>{items.length > 1 && <button type="button" aria-label={`Quitar prestación ${index + 1}`} className="rounded p-1 text-[#8c4a51] hover:bg-rose-50" onClick={() => onChange(items.filter((_, itemIndex) => itemIndex !== index))}><Trash2 className="size-4"/></button>}</div>
       <div className="grid gap-3 sm:grid-cols-2">
-        <label className="space-y-1 text-sm font-medium sm:col-span-2">Prestación<Input maxLength={180} value={item.label} onChange={event => update(index, { label: event.target.value })} placeholder="Ej.: rehabilitación protésica"/></label>
+        <label className="space-y-1 text-sm font-medium sm:col-span-2">Prestación<PrestacionField value={item.label} onChange={label => update(index, { label })}/></label>
         <label className="space-y-1 text-sm font-medium">Fase<Input maxLength={80} value={item.phase ?? ""} onChange={event => update(index, { phase: event.target.value })} placeholder="Fase 1 · Resolución"/></label>
         <label className="space-y-1 text-sm font-medium">Valor CLP<Input type="number" inputMode="numeric" min="1" step="1" value={item.amount || ""} onChange={event => update(index, { amount: Number(event.target.value) })} placeholder="790000"/></label>
         <label className="space-y-1 text-sm font-medium">Descuento (%)<Input type="number" inputMode="numeric" min="0" max="100" step="1" value={item.discountPercent ?? 0} onChange={event => update(index, { discountPercent: Number(event.target.value) })}/></label>
