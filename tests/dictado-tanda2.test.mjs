@@ -72,3 +72,34 @@ test("«Se restaura con resina compuesta» sin cara usa la cara recién dictada 
   assert.equal(restored.length, 1);
   assert.ok(!proposal.clarifications.some((text) => /Falta la superficie/.test(text)));
 });
+
+const planOnly = async (text) => (await quick(text));
+
+test("«Plan de tratamiento» no marca el odontograma como hecho (obturación, corona, implante)", async () => {
+  const a = await planOnly("Se observa caries de dentina profunda en la cara oclusal de la pieza 4.6. Plan de tratamiento: obturación con resina compuesta oclusal de la 4.6. Presupuesto: obturación con resina compuesta, cincuenta y cinco mil pesos.");
+  assert.ok(!a.odontogram.some((item) => item.finding?.condition === "restored"), "la obturación planificada no queda restaurada");
+  assert.ok(a.odontogram.some((item) => item.finding?.condition === "caries"), "la caries sí se registra");
+  const b = await planOnly("Plan de tratamiento en dos fases. Fase uno: endodoncia en la 3.6. Fase dos: reconstrucción con muñón y corona metal cerámica en la 3.6, trescientos veinte mil pesos.");
+  assert.ok(!b.odontogram.some((item) => item.kind === "crown" || item.status === "Corona"));
+  const c = await planOnly("Pieza 2.4 ausente. Plan opción A: implante unitario en la 2.4, seiscientos cincuenta mil pesos, y corona sobre implante, trescientos cincuenta mil pesos.");
+  assert.deepEqual(c.odontogram.map((item) => [item.tooth, item.status ?? item.kind]), [[24, "Ausente"]]);
+});
+
+test("«se evalúa implante o puente, a decidir» no marca implante", async () => {
+  const proposal = await planOnly("Pieza 3.5 con resto radicular. Luego se evalúa implante o puente, a decidir con el paciente.");
+  assert.ok(!proposal.odontogram.some((item) => item.status === "Implante"));
+});
+
+test("lo realizado después del plan sí se registra", async () => {
+  const proposal = await planOnly("Plan de tratamiento: exodoncia de la 4.8. Se realiza exodoncia de la pieza 4.8 sin complicaciones.");
+  assert.ok(proposal.odontogram.some((item) => item.tooth === 48 && item.status === "Ausente"));
+});
+
+test("la prestación del presupuesto no arrastra el monto dicho en palabras ni el número de pieza partido", async () => {
+  const proposal = await planOnly("Presupuesto de exodoncia simple de la pieza 3.8 por cuarenta mil pesos.");
+  const item = proposal.budget[0];
+  assert.ok(item);
+  assert.equal(item.amount, 40000);
+  assert.ok(!/cuarenta|mil|\b3 8\b/i.test(item.label), item.label);
+  assert.equal(item.catalogCode, "5003001");
+});
