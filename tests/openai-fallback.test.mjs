@@ -26,7 +26,7 @@ test("cadena completa: 8B → 70B → mistral → OpenAI cuando Workers AI falla
   const answer = await createWorkersAiModel(ai, { openAi: { apiKey: FAKE_KEY, fetcher: openAiFetcher(fetches) } }).complete(input);
   assert.deepEqual(calls, [WORKERS_AI_MODEL, ...WORKERS_AI_FALLBACKS]);
   assert.equal(fetches.length, 1);
-  assert.equal(answer.usedModel, "openai/gpt-5.6-luna");
+  assert.equal(answer.usedModel, "openai/gpt-4o-mini");
   assert.equal(answer.note, OPENAI_FAILOVER_NOTE);
 });
 
@@ -82,7 +82,7 @@ test("cuando OpenAI responde, el resultado es ia+reglas con nota discreta y sin 
   const model = createWorkersAiModel(ai, { openAi: { apiKey: FAKE_KEY, fetcher: openAiFetcher(fetches) } });
   const outcome = await proposeFromTranscript({ transcript: "control de implante", chart: [] }, model, () => {}, { today: "2026-11-02" });
   assert.equal(outcome.engine, "ia+reglas");
-  assert.equal(outcome.model, "openai/gpt-5.6-luna");
+  assert.equal(outcome.model, "openai/gpt-4o-mini");
   assert.equal(outcome.aiNote, "Corregido con OpenAI (cupo de Workers AI agotado)");
   assert.equal(outcome.aiError, undefined);
 });
@@ -94,14 +94,14 @@ test("OpenAI recibe el mismo prompt y el mismo esquema JSON que Workers AI, con 
   assert.equal(url, OPENAI_CHAT_URL);
   assert.equal(init.headers.Authorization, `Bearer ${FAKE_KEY}`);
   assert.ok(!init.body.includes(FAKE_KEY));
-  assert.equal(body.model, "gpt-5.6-luna");
+  assert.equal(body.model, "gpt-4o-mini");
   assert.deepEqual(body.messages, [{ role: "system", content: AI_SYSTEM_PROMPT }, { role: "user", content: buildModelUserPrompt(input) }]);
   assert.deepEqual(body.response_format, { type: "json_schema", json_schema: { name: "propuesta_dictado", strict: true, schema: AI_JSON_SCHEMA } });
   assert.deepEqual(buildOpenAiRequest(input), body);
 });
 
-test("costo estimado de gpt-5.6-luna por tokens", () => {
-  assert.equal(Math.round(openAiCostUsd({ prompt_tokens: 1_000_000, completion_tokens: 1_000_000 }) * 100) / 100, 1.4);
+test("costo estimado de gpt-4o-mini por tokens", () => {
+  assert.equal(Math.round(openAiCostUsd({ prompt_tokens: 1_000_000, completion_tokens: 1_000_000 }) * 100) / 100, 0.75);
 });
 
 test("la pantalla muestra la advertencia ámbar solo con reglas locales y la nota discreta con OpenAI", () => {
@@ -132,20 +132,20 @@ test("si OpenAI rechaza reasoning_effort (400), se reintenta una vez sin ese par
     if ("reasoning_effort" in body) return new Response("{}", { status: 400 });
     return Response.json({ choices: [{ message: { content: "{\"ok\":true}" } }] });
   };
-  const text = await runOpenAiStructure({ transcript: "hola", chart: [] }, "k", { fetcher });
+  const text = await runOpenAiStructure({ transcript: "hola", chart: [] }, "k", { fetcher, model: "gpt-5.6-luna" });
   assert.equal(text, "{\"ok\":true}");
   assert.equal(bodies.length, 2);
   assert.equal("reasoning_effort" in bodies[1], false);
 });
 
-test("un solo modelo: si gpt-5.6-luna responde 403 no se prueba otro y el error muestra el código", async () => {
+test("un solo modelo: si el modelo configurado responde 403 no se prueba otro y el error muestra el código", async () => {
   const { createWorkersAiModel } = await import("../lib/dictation/workers-ai.ts");
   const seen = [];
   const fetcher = async (_url, init) => {
     seen.push(JSON.parse(init.body).model);
     return new Response(JSON.stringify({ error: { code: "model_not_found", message: "secreto" } }), { status: 403 });
   };
-  const model = createWorkersAiModel(null, { openAi: { apiKey: "k", fetcher }, preferOpenAi: true });
+  const model = createWorkersAiModel(null, { openAi: { apiKey: "k", model: "gpt-5.6-luna", fetcher }, preferOpenAi: true });
   await assert.rejects(() => model.complete({ transcript: "hola", chart: [] }), (error) => /gpt-5\.6-luna: OpenAI respondió HTTP 403 \(model_not_found\)/.test(error.message) && !/secreto/.test(error.message));
   assert.deepEqual(seen, ["gpt-5.6-luna"]);
 });
