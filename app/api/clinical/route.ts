@@ -682,7 +682,7 @@ export async function POST(request: Request) {
       const [old] = await db.select().from(toothStatuses).where(and(eq(toothStatuses.ownerId, ownerId), eq(toothStatuses.patientId, patientId)));
       const data = normalizeOdontogram(old ? JSON.parse(old.data) : {});
       if (!data.teeth[tooth] || !["Ausente","Indicación de exodoncia"].includes(data.teeth[tooth])) return error("Primero registra la pieza como ausente o indicada para exodoncia.");
-      const historyMeta = await chartHistoryMetadata("Causa de ausencia: " + reason);
+      const historyMeta = await chartHistoryMetadata("Causa de ausencia: " + (reason === "caries" ? "caries" : reason === "other" ? "otra causa" : "sin registrar"));
       if ("error" in historyMeta) return error(historyMeta.error);
       if (historyAlreadyRecorded(data, historyMeta)) return Response.json({ odontogram: data });
       const before = toothHistorySnapshot(data, tooth);

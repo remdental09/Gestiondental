@@ -3,6 +3,8 @@ import { useState } from "react";
 import { PERIO_SITES, formatFdi, type PerioExam, type PerioReading, type PerioSiteKey, type PerioTooth, type ToothHistoryEvent } from "@/app/clinical-data";
 
 const dayOf = (iso?: string, fallback = "") => (iso || fallback).slice(0, 10);
+/** Hitos antiguos guardaron la causa de ausencia en inglés («other»): se muestra en español. */
+const spanishTitle = (title: string) => title.replace(/^(Causa de ausencia: )(caries|other|unknown)$/, (_, head: string, value: string) => head + (value === "caries" ? "caries" : value === "other" ? "otra causa" : "sin registrar"));
 const shown = (day: string) => (day ? day.split("-").reverse().join("-") : "sin fecha");
 const MOBILITY = ["", "I", "II", "III"];
 const FURCATION = ["", "I", "II", "III"];
@@ -33,7 +35,7 @@ export function ToothTimeline({ tooth, history, exams, mode, editableIds = [], o
 
   const events = history
     .filter((event) => event.tooth === tooth)
-    .map((event) => ({ id: event.id, day: dayOf(event.clinicalDate, event.recordedAt), title: event.title || event.eventType, detail: event.detail || "", manual: event.source === "manual" }))
+    .map((event) => ({ id: event.id, day: dayOf(event.clinicalDate, event.recordedAt), title: spanishTitle(event.title || event.eventType), detail: event.detail || "", manual: event.source === "manual" }))
     .sort((a, b) => b.day.localeCompare(a.day));
   const measured = exams
     .filter((exam) => exam.teeth[tooth])
