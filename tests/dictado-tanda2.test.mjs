@@ -388,3 +388,33 @@ test("alcance clínico: sin presupuesto, pagos, preguntas de dinero ni sección 
   const full = await quick("Caries de dentina en la 3.6 oclusal. Presupuesto de endodoncia por 180 mil pesos. Abonó 50 mil en efectivo.");
   assert.ok(!/Presupuesto|Pagos|\$180|\$50/.test(full.evolution.body), full.evolution.body);
 });
+
+test('«ausencia dental» se asocia a DA0A.1 en CIE-11', async () => {
+  const { diagnosisMatches } = await import('../lib/icd11.ts');
+  for (const text of ['ausencia dental', 'Se diagnostica ausencia dentaria en la pieza 3.1', 'pieza ausente']) {
+    assert.ok(diagnosisMatches(text).some((match) => match.code === 'DA0A.1'), text);
+  }
+});
+
+test('edentulismo, ausencia de dientes y similares van a DA0A.1; el edentulismo total sigue aparte', async () => {
+  const { diagnosisMatches, nearestDiagnosis } = await import('../lib/icd11.ts');
+  for (const text of ['edentulismo', 'ausencia de dientes', 'falta de dientes anteriores', 'dientes ausentes']) {
+    assert.ok(diagnosisMatches(text).some((match) => match.code === 'DA0A.1'), text);
+  }
+  assert.deepEqual(diagnosisMatches('edentulismo total').map((match) => match.code), ['']);
+  assert.equal(nearestDiagnosis('resto de raíz retenida')?.code, 'DA0A.3');
+  assert.equal(nearestDiagnosis('atrofia del reborde alveolar')?.code, 'DA0A.2');
+  assert.equal(nearestDiagnosis('dolor de muelas'), null);
+  assert.equal(nearestDiagnosis('xyz'), null);
+});
+
+test('un diagnóstico dictado que no está en el catálogo se acerca al más parecido, como sugerencia por confirmar', async () => {
+  const { proposeFromTranscript } = await import('../lib/dictation/proposal.ts');
+  const t = 'Diagnóstico de retención de raíz dental en la pieza 4.6.';
+  const out = { hallazgos: [], procedimientos: [], presupuesto: [], ficha: [], periodonto: [], pagos: [], citas: [], dudas: [], nota: {}, texto_corregido: t,
+    diagnosticos: [{ termino: 'retención de raíz dental', pieza: '4.6', evidencia: 'Diagnóstico de retención de raíz dental en la pieza 4.6' }] };
+  const result = await proposeFromTranscript({ transcript: t, chart: [] }, { complete: async () => JSON.stringify(out), model: 'x' }, () => {});
+  const dx = result.proposal.diagnoses.find((item) => item.code === 'DA0A.3');
+  assert.ok(dx, JSON.stringify(result.proposal.diagnoses));
+  assert.equal(dx.suggested?.from, 'aproximado');
+});

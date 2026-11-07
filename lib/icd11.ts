@@ -78,7 +78,7 @@ const fold = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/
  * Términos de la AAE (Asociación Americana de Endodoncia) que se usan en Chile y no son títulos CIE-11.
  * Su código es una equivalencia SUGERIDA que el profesional confirma; nunca se guarda sin su revisión.
  */
-export type SuggestedMapping = { from: "AAE" | "caries-pulpar"; term: string };
+export type SuggestedMapping = { from: "AAE" | "caries-pulpar" | "aproximado"; term: string };
 
 type Rule = { re: RegExp; code: string; aae?: true; dentalOnly?: true };
 
@@ -226,7 +226,7 @@ const UNCODED: Uncoded[] = [
   { re: /\bperi[\s-]*implantitis\b/, title: () => "Periimplantitis" , fallback: true },
   { re: /\bmucositis\s+peri[\s-]*implantaria\b/, title: () => "Mucositis periimplantaria" , fallback: true },
   { re: /\bestomatitis\s+subprotesica\b/, title: () => "Estomatitis subprotésica" , fallback: true },
-  { re: /\bdesdentad[oa]\s+total\b|\bedentulismo\s+total\b/, title: () => "Desdentado total" , fallback: true },
+  { re: /\bdesdentad[oa]\s+total\b|\bedentulismo\s+total\b/, title: () => "Desdentado total" },
   { re: /\bcomunicacion\s+(oro[\s-]*antral|oro[\s-]*sinusal|oro[\s-]*nasal)\b/, title: (m) => `Comunicación ${m[1].replace(/[\s-]/g, "")}` , fallback: true },
   { re: /\bhemorragia\s+post[\s-]*(?:exodoncia|extraccion)\b/, title: () => "Hemorragia posexodoncia" , fallback: true },
   { re: /\bfractura\s+(?:del\s+)?(?:proceso\s+)?alveolar\b/, title: () => "Fractura alveolar" , fallback: true },
@@ -394,4 +394,36 @@ export function searchDiagnoses(query: string, limit = 12): DiagnosisSearchResul
   // The score is used for ranking only and is deliberately omitted from the public result.
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   return scored.sort((a, b) => b.score - a.score || a.code.localeCompare(b.code)).slice(0, limit).map(({ score: _score, ...rest }) => rest);
+}
+
+
+const NEAREST_STOP = new Set(["de", "del", "la", "el", "los", "las", "por", "y", "e", "con", "en", "a", "al", "un", "una", "otro", "otra", "otros", "otras", "especificado", "especificada", "especificados", "especificadas", "debido", "causa", "tipo"]);
+const stemWords = (text: string) => fold(text).split(/[^a-z0-9]+/).filter((word) => word.length > 1 && !NEAREST_STOP.has(word)).map((word) => (word.length > 6 ? word.slice(0, 6) : word));
+
+/**
+ * Diagnóstico del catálogo más cercano a un término que ninguna regla ni sinónimo reconoció (similitud de palabras
+ * con el título y los sinónimos). Solo propone si el parecido es claro y hay un ganador; el profesional lo confirma.
+ */
+export function nearestDiagnosis(term: string): { code: string; title: string; score: number } | null {
+  const wanted = stemWords(term);
+  if (wanted.length === 0) return null;
+  const wantedSet = new Set(wanted);
+  const scored: Array<{ code: string; title: string; score: number }> = [];
+  for (const entry of ICD11_CATALOG) {
+    if (entry.kind !== "stem" || !entry.isLeaf || entry.isResidual) continue;
+    let best = 0;
+    for (const name of [entry.title, ...entry.synonyms]) {
+      const words = new Set(stemWords(name));
+      if (!words.size) continue;
+      let shared = 0;
+      for (const word of wantedSet) if (words.has(word)) shared += 1;
+      best = Math.max(best, (2 * shared) / (wantedSet.size + words.size));
+    }
+    if (best > 0) scored.push({ code: entry.code, title: ICD11[entry.code]?.title ?? entry.title, score: best });
+  }
+  scored.sort((a, b) => b.score - a.score);
+  const [first, second] = scored;
+  if (!first || first.score < 0.6) return null;
+  if (second && first.score - second.score < 0.08) return null;
+  return first;
 }

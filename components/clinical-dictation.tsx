@@ -1090,7 +1090,7 @@ export function ClinicalDictation({
                           {item.origin && item.origin !== "manual" && <OriginBadge origin={item.origin} />}
                           {item.origin === "manual" && <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700">Agregado a mano</span>}
                         </p>
-                        {item.suggested && <p className="mt-1 text-xs font-medium text-amber-800" data-testid="dictation-diagnosis-suggested">{item.suggested.from === "AAE" ? `Sugerido: equivalencia de «${item.suggested.term}» (AAE). Confírmalo si corresponde.` : "Sugerido por caries con compromiso pulpar: confirma o cambia el diagnóstico pulpar."}</p>}
+                        {item.suggested && <p className="mt-1 text-xs font-medium text-amber-800" data-testid="dictation-diagnosis-suggested">{item.suggested.from === "AAE" ? `Sugerido: equivalencia de «${item.suggested.term}» (AAE). Confírmalo si corresponde.` : item.suggested.from === "aproximado" ? `Aproximado: «${item.suggested.term}» no figura tal cual en la CIE-11; este es el más cercano. Confírmalo o cámbialo.` : "Sugerido por caries con compromiso pulpar: confirma o cambia el diagnóstico pulpar."}</p>}
                         <Evidence text={item.evidence} />
                       </div>
                       <div className="flex gap-2">

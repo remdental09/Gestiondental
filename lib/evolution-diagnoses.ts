@@ -13,7 +13,7 @@ export type EvolutionDiagnosisTag = {
   findings: string;
   evidence: string;
   origin: DiagnosisOrigin;
-  suggestedFrom: "AAE" | "caries-pulpar" | null;
+  suggestedFrom: "AAE" | "caries-pulpar" | "aproximado" | null;
 };
 
 export const MAX_DIAGNOSIS_TAGS = 30;
@@ -34,7 +34,7 @@ export function sanitizeDiagnosisTags(value: unknown): { tags: EvolutionDiagnosi
     const toothValue = item.tooth === null || item.tooth === undefined || item.tooth === "" ? null : Number(item.tooth);
     if (toothValue !== null && !isValidFdi(toothValue)) return { error: "Pieza FDI inválida en un diagnóstico." };
     const origin = ORIGINS.includes(item.origin as DiagnosisOrigin) ? (item.origin as DiagnosisOrigin) : "manual";
-    const suggestedFrom: EvolutionDiagnosisTag["suggestedFrom"] = item.suggestedFrom === "AAE" || item.suggestedFrom === "caries-pulpar" ? item.suggestedFrom : null;
+    const suggestedFrom: EvolutionDiagnosisTag["suggestedFrom"] = item.suggestedFrom === "AAE" || item.suggestedFrom === "caries-pulpar" || item.suggestedFrom === "aproximado" ? item.suggestedFrom : null;
     const tag: EvolutionDiagnosisTag = { code, title, tooth: toothValue, findings: text(item.findings, 300), evidence: text(item.evidence, 400), origin, suggestedFrom };
     if (tags.some((done) => done.code === tag.code && done.title === tag.title && done.tooth === tag.tooth)) continue;
     tags.push(tag);
