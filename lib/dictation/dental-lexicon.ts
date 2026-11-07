@@ -17,6 +17,7 @@
  * porque pueden tener matices clínicos o preferencia local.
  */
 import { MINSAL_VOCABULARY } from "./minsal-vocabulary.ts";
+import { IMPLANT_BRAND_TERMS } from "./implant-brands.ts";
 
 const BASE_DICTIONARY = {
   anatomia: [
@@ -154,9 +155,13 @@ const minsalNewTerms = Object.fromEntries(
   ]),
 ) as Record<string, string[]>;
 
-export const DENTAL_DICTIONARY: Record<string, readonly string[]> = { ...BASE_DICTIONARY, ...minsalNewTerms };
+export const DENTAL_DICTIONARY: Record<string, readonly string[]> = { ...BASE_DICTIONARY, ...minsalNewTerms, marcas_y_empresas_de_implantes: IMPLANT_BRAND_TERMS };
+
+/** Marcas de implantes como pistas del reconocimiento de voz (sin alias cortos que se confundirían con palabras comunes). */
+const IMPLANT_SPEECH_HINTS = [...new Map(IMPLANT_BRAND_TERMS.filter((term) => term.length >= 5).map((phrase) => [foldDictionaryTerm(phrase), { phrase, boost: 5 }])).values()];
 
 export const DENTAL_SPEECH_HINTS = [
+  ...IMPLANT_SPEECH_HINTS,
   { phrase: "RUN", boost: 8 },
   { phrase: "RUT", boost: 8 },
   { phrase: "dígito verificador", boost: 8 },
@@ -310,5 +315,6 @@ export const DENTAL_DICTIONARY_HINTS = [
   "En periodoncia, conserva como hallazgos independientes la profundidad de sondaje, el nivel de inserción clínica, el sangrado al sondaje, la recesión, la furcación, la movilidad y la supuración; no calcules ni atribuyas estadio, grado o extensión cuando no estén dictados.",
   "En contexto periodontal, «tatuaje subgingival» o «tatuaje supragingival» puede ser un error del reconocimiento de voz por «destartraje»; corrígelo solo cuando acompañe a supra/ subgingival o a términos de periodoncia.",
   "En cirugía bucal, conserva la marca, el material y el calibre de suturas, la técnica y las dimensiones del implante. Corrige solo errores claros de reconocimiento; no sustituyas materiales ni completes datos que no fueron dictados.",
+  "Marcas y empresas de implantes (lista no exhaustiva): conserva el nombre como se dictó. Si lo dictado suena parecido a una de la lista y el contexto es un implante, corrígelo a la forma de la lista; si no está en la lista, déjalo tal cual y no lo cambies, no lo asocies a otra empresa ni inventes datos de origen. Un número con coma o punto junto a mm, «de ancho» o «de largo» es una medida del implante, nunca una pieza dental.",
   "Si se dicta «la mitad» o «50 por ciento» de un total único, calcula el abono y mantén separado el precio total del presupuesto; pregunta si hay más de un total posible.",
 ].join("\n");
