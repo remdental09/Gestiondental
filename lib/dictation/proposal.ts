@@ -2253,7 +2253,7 @@ export function parseModelJson(text: string): unknown {
   }
 }
 
-const MODEL_ARRAY_FIELDS = ["hallazgos", "procedimientos", "presupuesto", "ficha", "periodonto", "pagos", "citas", "diagnosticos", "dudas"] as const;
+const MODEL_ARRAY_FIELDS = ["hallazgos", "procedimientos", "presupuesto", "ficha", "periodonto", "pagos", "citas", "diagnosticos", "diagnosticos_sugeridos", "dudas"] as const;
 
 /**
  * Valida la forma de la respuesta (los modelos chicos a veces devuelven otra cosa).
@@ -2384,6 +2384,7 @@ Examen vs procedimientos: «Examen» recoge solo lo que el profesional OBSERVA o
 8) "pagos": dinero que el paciente pagó o abonó HOY (no lo que debe). Si dice «la mitad», «50 %» o una fracción equivalente de un monto total único e inequívoco, calcula el monto abonado en "monto" y conserva la cita literal en "evidencia". El presupuesto mantiene su monto total original; el pago se registra como abono asociado. Si hay más de un total posible, no adivines: deja el pago pendiente de aclaración. Completa "medio" solo si se dictó (efectivo | debito | credito | transferencia | otro | ""), y "concepto" solo si aparece en la cita. No inventes método ni monto.
 9) "citas": la próxima cita o control que se dictó, con "motivo" ("" si no se dijo) y "evidencia" literal que contenga la fecha u hora tal como se dijo. No calcules la fecha.
 10) "diagnosticos": cada diagnóstico que el PROFESIONAL dictó hoy (no lo que el paciente relata, ni lo sospechado, probable, a descartar, negado o planificado), con "termino" (el diagnóstico tal como se dijo, p. ej. «pulpitis irreversible sintomática», «absceso apical crónico», «gingivitis inducida por placa», «periodontitis estadio III grado B»), "pieza" ("" si no se dijo) y "evidencia" literal que contenga el término. No pongas códigos: el sistema los asigna desde el catálogo CIE-11. Elige el término clínico y código más específico que esté respaldado por las palabras del profesional; normaliza errores evidentes de reconocimiento solo cuando el contexto lo haga inequívoco. No conviertas síntomas («boca seca», «dolor al frío», «sangrado») en diagnósticos. Si se expresa que faltan criterios o no se puede distinguir entre diagnósticos, deja el diagnóstico vacío y formula una pregunta clínica concreta en «dudas». Las caries ya van en hallazgos: no las repitas aquí.
+10b) "diagnosticos_sugeridos": SOLO cuando el profesional describe procedimientos o hallazgos de hoy y NO dictó ningún diagnóstico para esa pieza (o para el caso general). Deduce, como lo haría un colega, el diagnóstico CIE-11 más cercano a lo que describió: «termino» es el diagnóstico en lenguaje clínico, «pieza» ("" si no se dijo) y «evidencia» la frase LITERAL del dictado que describe la acción o hallazgo en que te basas (no inventes evidencia). Ejemplos: «extracción de una raíz dental» → raíz dental retenida; instalación de implante sin otro dato → solo si el dictado dice por qué. Máximo 3. Si la acción puede responder a varios diagnósticos distintos y el dictado no permite elegir (por ejemplo una extracción sin causa), propón el más cercano a las palabras dictadas y pregunta el motivo en «dudas». Úsalo para sugerir, nunca para afirmar: el profesional las confirma o descarta. No repitas lo que ya va en «diagnosticos», no uses síntomas, relatos del paciente, planes ni dinero, y no sugieras nada si el dictado ya trae un diagnóstico para esa pieza. En «termino» usa palabras que existan en el catálogo CIE-11 (si tienes la herramienta buscar_diagnostico, úsala).
 11) "dudas": incluye dudas reales que el odontólogo deba resolver: además de números inválidos, autocorrecciones confusas o caras inciertas, pregunta cuando un término clínico esté mal reconocido o un diagnóstico sea posible/sospechado y el profesional diga que no hay criterios suficientes para confirmarlo. Cita brevemente la frase y pregunta qué término/diagnóstico confirma el clínico o qué dato permitiría distinguirlo. No propongas una respuesta como hecho ni asignes un código mientras no se aclare. Pregunta por la pieza solo si el número no es válido en ningún sistema (sin etiqueta: 1 a 32 es chilena, 33 a 48 y 51 a 85 es FDI; p. ej. «pieza 39» o «pieza 50»): pregunta «¿Qué pieza?» sin suponer ninguna. «pieza 30» es chilena (FDI 3.6): no es una duda. No preguntes por lo que ya falta en pagos, citas o sondajes (medio de pago, hora, sitio): eso se pregunta aparte.
 
 Las líneas que empiezan con «Aclaración:» son respuestas del profesional a preguntas anteriores; completan o corrigen lo dictado antes y tienen prioridad.
@@ -2395,7 +2396,7 @@ const STRING = { type: "string" } as const;
 export const AI_JSON_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["nota", "hallazgos", "procedimientos", "presupuesto", "ficha", "texto_corregido", "periodonto", "pagos", "citas", "diagnosticos", "dudas"],
+  required: ["nota", "hallazgos", "procedimientos", "presupuesto", "ficha", "texto_corregido", "periodonto", "pagos", "citas", "diagnosticos", "diagnosticos_sugeridos", "dudas"],
   properties: {
     nota: {
       type: "object",
@@ -2472,6 +2473,10 @@ export const AI_JSON_SCHEMA = {
       items: { type: "object", additionalProperties: false, required: ["motivo", "evidencia"], properties: { motivo: STRING, evidencia: STRING } },
     },
     diagnosticos: {
+      type: "array",
+      items: { type: "object", additionalProperties: false, required: ["termino", "pieza", "evidencia"], properties: { termino: STRING, pieza: STRING, evidencia: STRING } },
+    },
+    diagnosticos_sugeridos: {
       type: "array",
       items: { type: "object", additionalProperties: false, required: ["termino", "pieza", "evidencia"], properties: { termino: STRING, pieza: STRING, evidencia: STRING } },
     },
@@ -3054,6 +3059,34 @@ export function validateAiExtraction(input: unknown, transcript: string, options
     }
     if (diagnoses.some((done) => done.code === mapped.code && done.title === mapped.title && done.tooth === tooth)) continue;
     const dx: DiagnosisItem = { id: nextId("dx"), tooth, code: mapped.code, title: mapped.title, label: "", evidence: clip(evidence, 400), findings: "", origin: "ia", term, ...(mapped.suggested ? { suggested: mapped.suggested } : {}) };
+    dx.label = diagnosisLabel(dx);
+    diagnoses.push(dx);
+  }
+  // Diagnósticos deducidos de lo realizado: solo con código del catálogo CIE-11 y con la frase del dictado como respaldo.
+  // Llegan como sugerencia (el profesional las acepta o las descarta) y nunca si ya hay un diagnóstico para esa pieza.
+  const dictatedTeeth = new Set(diagnoses.filter((dx) => dx.tooth !== undefined).map((dx) => dx.tooth));
+  const dictatedGeneral = diagnoses.some((dx) => dx.tooth === undefined);
+  for (const raw of list(record.diagnosticos_sugeridos, 6)) {
+    if (diagnoses.filter((dx) => dx.suggested?.from === "nota").length >= 3) break;
+    if (!raw || typeof raw !== "object") continue;
+    const item = raw as Record<string, unknown>;
+    const term = str(item.termino, 120);
+    let evidence = str(item.evidencia, 400);
+    if (!term || !evidence || !evidenceInTranscript(evidence, transcript)) continue;
+    if (isPatient(evidence) || isNegatedFinding(evidence) || DIAGNOSIS_DOUBT.test(fold(evidence))) continue;
+    const pieza = str(item.pieza, 40);
+    evidence = quoteEvidenceWithPiece(evidence, pieza, "", transcript);
+    const found = diagnosisFromTerm(term) ?? nearestDiagnosis(term);
+    if (!found?.code) continue;
+    const mention = pieza ? resolveAiTooth(pieza, "", evidence) : toothMentions(evidence).find((m) => m.ok);
+    let tooth = mention && mention.ok ? mention.tooth : undefined;
+    if (tooth === undefined) {
+      const named = new Set(sentences(transcript).flatMap((text) => toothMentions(text).filter((m) => m.ok).map((m) => (m as { tooth: number }).tooth)));
+      if (named.size === 1) tooth = [...named][0];
+    }
+    if (tooth !== undefined ? dictatedTeeth.has(tooth) : dictatedGeneral) continue;
+    if (diagnoses.some((done) => done.code === found.code && done.tooth === tooth)) continue;
+    const dx: DiagnosisItem = { id: nextId("dx"), tooth, code: found.code, title: found.title, label: "", evidence: clip(evidence, 400), findings: "", origin: "ia", term, suggested: { from: "nota", term: clip(evidence, 120) } };
     dx.label = diagnosisLabel(dx);
     diagnoses.push(dx);
   }

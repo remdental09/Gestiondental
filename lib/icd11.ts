@@ -78,7 +78,10 @@ const fold = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/
  * Términos de la AAE (Asociación Americana de Endodoncia) que se usan en Chile y no son títulos CIE-11.
  * Su código es una equivalencia SUGERIDA que el profesional confirma; nunca se guarda sin su revisión.
  */
-export type SuggestedMapping = { from: "AAE" | "caries-pulpar" | "aproximado"; term: string };
+/**
+ * `nota`: el profesional no dictó diagnóstico; se deduce de lo que describió haber hecho (`term` = la acción que lo respalda).
+ */
+export type SuggestedMapping = { from: "AAE" | "caries-pulpar" | "aproximado" | "nota"; term: string };
 
 type Rule = { re: RegExp; code: string; aae?: true; dentalOnly?: true };
 
