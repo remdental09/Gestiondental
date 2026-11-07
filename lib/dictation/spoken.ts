@@ -444,7 +444,8 @@ export function lexiconDoubts(text: string): string[] {
   const out: string[] = [];
   // «Arsis», «Arxis», «Arsys»… solo cuentan como la marca si acompañan a FGM, «marca» o «implante»; «arcis/arcys» ya bastaba solo.
   const brand = text.match(/\b(?:marca\s+)?(arc[iy]s+(?:\s+dos)?)\b/i) ?? text.match(/\b(?:fgm|marca|implante)\s+(?:de\s+)?(?:marca\s+)?(?:fgm\s+)?(ar[cxks]{1,2}[iy]s+(?:\s+dos)?)\b/i);
-  if (brand) out.push(`¿La marca del implante es Arcsys (FGM)? Se oyó «${brand[1]}»: confírmala o corrígela.`);
+  // «Arcsys» bien escrito no necesita confirmación; sí las variantes oídas («Arcis», «Arsis»…).
+  if (brand && !/^arcsys$/i.test(brand[1])) out.push(`¿La marca del implante es Arcsys (FGM)? Se oyó «${brand[1]}»: confírmala o corrígela.`);
   const integral = text.match(/\bimplantes?\s+integral(?:es)?\b/i);
   if (integral) out.push(`Se oyó «${integral[0]}»: ¿es un implante oseointegrado o la marca/modelo del implante?`);
   // Frases que no tienen sentido clínico: se preguntan, no se adivinan.

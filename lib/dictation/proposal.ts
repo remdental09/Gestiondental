@@ -599,7 +599,7 @@ function isPerformed(sentence: string): boolean {
 }
 
 function isPlanStrict(sentence: string): boolean {
-  return /\b(?:se\s+planifica|planificad[oa]|se\s+indica|a\s+futuro|presupuesto|cotizaci[oó]n|por\s+cotizar)\b/i.test(sentence);
+  return /\b(?:se\s+planifica|planificad[oa]|se\s+indica|a\s+futuro|presupuesto|cotizaci[oó]n|por\s+cotizar|implantes?\s+diferid[oa]s?)\b/i.test(sentence);
 }
 
 const PLAN_CUE = /(?:^|\P{L})(?:plan\s+(?:de\s+tratamiento|opci[oó]n|alternativ\p{L}*)|(?:fase|etapa)\s+(?:\d+|uno|dos|tres|cuatro|cinco)|opci[oó]n\s+(?:[abc]|be|ce|\d|uno|dos|tres)|alternativa|a\s+decidir|se\s+eval[uú]a(?:r[aá])?|se\s+(?:propone|sugiere|recomienda|planea)|por\s+definir|(?:se\s+)?(?:toma|tom[oó])\s+(?:la\s+)?impresi[oó]n\s+(?:para|de)|(?:se\s+)?(?:env[ií]a|envi[oó])\s+(?:a\s+)?laboratorio)(?!\p{L})/iu;
@@ -808,11 +808,16 @@ const EXTRACTION_INDICATED = /(?<!\p{L})(?:indicaci[oó]n\s+de\s+exodoncia|indic
 /** Exodoncia efectuada en la sesión (no planificada ni indicada): la pieza queda ausente. */
 const EXTRACTION_DONE = /(?<!\p{L})(?:se\s+(?:realiz[aó]|hace|hizo|efect[uú]a|efectu[oó]|practic[aó])\s+(?:la\s+|una\s+)?(?:exodoncia|extracci[oó]n)|se\s+extra(?:e|jo|jeron)|exodoncia\s+(?:realizada|efectuada)|extracci[oó]n\s+(?:realizada|efectuada))(?!\p{L})/iu;
 
+/** Implante que se hará después («implante diferido», «se instalará», «en cuatro meses»): aún no figura en el odontograma. */
+const IMPLANT_LATER = /(?<!\p{L})(?:diferid[oa]s?|a\s+futuro|m[aá]s\s+adelante|se\s+(?:instalar|colocar|planific|program|agendar)\p{L}*|planificad[oa]s?|programad[oa]s?|(?:en|dentro\s+de|a\s+los)\s+(?:\d+|un|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|doce)\s+(?:mes(?:es)?|semanas?))(?!\p{L})/iu;
+/** Instalación hecha hoy: «se instala/coloca/inserta … implante». */
+const IMPLANT_INSTALLING = /(?<!\p{L})(?:instal|coloc|insert|pon[eé]|puso)\p{L}*/iu;
+
 const EXTRACTION_ANY = /(?<!\p{L})(?:extracci[oó]n|exodoncia|extra[ií]d[oa]|se\s+extra(?:e|jo|jeron))(?!\p{L})/iu;
 
 /** Piezas que reciben un implante hoy. */
 function implantedToday(list: OdontogramChange[]): Set<number> {
-  return new Set(list.filter((item) => item.kind === "status" && item.status === "Implante").map((item) => item.tooth));
+  return new Set(list.filter((item) => item.kind === "status" && item.status === "Implante" && !IMPLANT_LATER.test(item.sourceText ?? "")).map((item) => item.tooth));
 }
 
 /**
@@ -825,13 +830,17 @@ function withoutExtractionBeforeImplant(list: OdontogramChange[], implanted: Set
 }
 
 function statusFrom(sentence: string): ToothStatus | null {
-  if (EXTRACTION_DONE.test(sentence) && !/\b(?:planific|se\s+indic|se\s+plante)/i.test(sentence)) return "Ausente";
+  if (EXTRACTION_DONE.test(sentence) && !/\b(?:planific|se\s+indic|se\s+plante)/i.test(sentence)) {
+    // Extracción e instalación en la misma frase («extracción y se instala un implante en el alvéolo fresco»): queda el implante.
+    const implantNow = /\bimplantes?\b/i.test(sentence) && IMPLANT_INSTALLING.test(sentence) && !IMPLANT_LATER.test(sentence);
+    return implantNow ? "Implante" : "Ausente";
+  }
   if (/\bresto\s+radicular\b/i.test(sentence) && /\bendodoncia\b/i.test(sentence)) return "Resto radicular con endodoncia";
   if (EXTRACTION_INDICATED.test(sentence)) return "Indicación de exodoncia";
   if (crownOnImplantSentence(sentence)) return null;
   if (/\bimplantes?\b/i.test(sentence) && !/\b(?:corona|pr[oó]tesis\s+fija)\b/i.test(sentence)) {
     if (/\b(?:control\p{L}*|seguimiento|revisi[oó]n|mantenimiento)(?!\p{L})/iu.test(sentence) && !isPerformed(sentence)) return null;
-    if (/\b(?:planific|se\s+indic|program)\b/i.test(sentence)) return null;
+    if (/\b(?:planific|se\s+indic|program)\b/i.test(sentence) || IMPLANT_LATER.test(sentence)) return null;
     return "Implante";
   }
   if (/\b(?:corona|pr[oó]tesis\s+fija\s+definitiva)\b/i.test(sentence) && !/\bprovisori[ao]\b/i.test(sentence)) return "Corona";
