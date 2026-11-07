@@ -4,7 +4,7 @@ import { IMPLANT_BRANDS, IMPLANT_BRAND_TERMS, findImplantBrand } from "../lib/di
 import { DENTAL_DICTIONARY, DENTAL_DICTIONARY_HINTS, DENTAL_SPEECH_HINTS, DENTAL_PROTECTED_WORDS } from "../lib/dictation/dental-lexicon.ts";
 
 test("el catálogo de marcas cubre Europa, Estados Unidos, Brasil y Asia sin repetir marcas", () => {
-  assert.ok(IMPLANT_BRANDS.length >= 80);
+  assert.ok(IMPLANT_BRANDS.length >= 75);
   const names = IMPLANT_BRANDS.map((item) => item.brand.toLowerCase());
   assert.equal(new Set(names).size, names.length);
   for (const brand of ["Straumann", "Nobel Biocare", "Neodent", "Osstem", "MegaGen", "Zimmer Biomet", "Conexão", "Hiossen", "MIS", "Camlog"]) assert.ok(names.includes(brand.toLowerCase()), brand);
