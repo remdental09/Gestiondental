@@ -43,7 +43,7 @@ import {
 export type { PaymentMethod, TranscriptCorrection } from "./spoken.ts";
 export { PAYMENT_METHOD_LABEL, PAYMENT_METHODS } from "./spoken.ts";
 import { CARIES_DEPTH_LABEL, CARIES_DEPTH_QUESTION, cariesDepthFrom, isCariesDepth, type CariesDepth } from "../caries.ts";
-import { ICD11, ICD11_CATALOG, cariesIcd11, diagnosisMatches, icd11Label, type SuggestedMapping } from "../icd11.ts";
+import { ICD11, ICD11_CATALOG, cariesIcd11, diagnosisMatches, icd11Label, nearestDiagnosis, type SuggestedMapping } from "../icd11.ts";
 import { classifyEvolution, type EvolutionKind } from "./evolution-type.ts";
 import { matchPrestacion } from "../prestaciones-catalog.ts";
 import { procedureLinesOf, suggestPrestaciones, type PrestacionItem } from "./prestaciones.ts";
@@ -3027,7 +3027,10 @@ export function validateAiExtraction(input: unknown, transcript: string, options
     const literal = normalizeEvidence(evidence).includes(normalizeEvidence(term));
     // Un diagnóstico que la CIE-11 no trae queda como etiqueta sin código solo si el profesional lo nombró
     // con una fórmula diagnóstica y el término está tal cual en su frase: nunca se inventa un código.
+    // Si el término no está en el catálogo se acerca al diagnóstico CIE-11 más parecido, como sugerencia por confirmar.
+    const nearest = diagnosisFromTerm(term) ? null : nearestDiagnosis(term);
     const mapped = diagnosisFromTerm(term)
+      ?? (nearest && literal ? { code: nearest.code, title: nearest.title, suggested: { from: "aproximado" as const, term } } : null)
       ?? (literal && DIAGNOSIS_CUE.test(fold(evidence)) && term.length >= 5 ? { code: "", title: capitalize(term) } : null);
     if (!mapped) continue;
     // El concepto debe estar en la cita: literal, o reconocido por las reglas en ella.
