@@ -48,6 +48,9 @@ const KEYWORDS: Array<{ test: RegExp; code: (text: string) => string | null }> =
   { test: /\bdestartraje\b|\bprofilaxis\b|\bhigiene\s+(?:oral|dental)\b|\blimpieza\s+(?:dental|coronaria)\b/, code: (t) => (/\buna\s+arcada\b|\bsolo\s+(?:la\s+)?(?:superior|inferior)\b/.test(t) ? "5001039" : /\bseis\s+grupos\b|\bgrupo\s+\d\b|\bsubgingival\b/.test(t) ? null : "5001030") },
   { test: /\bsellantes?\b/, code: () => "5005012" },
   { test: /\bexodoncia\b|\bextraccion\b|\bse\s+extrae\b/, code: (t) => (/\bresto\s+radicular\b/.test(t) ? "5001041" : /\bterce(?:r|ros)\s+molar|\bmuela\s+del\s+juicio\b|\bcordal/.test(t) ? "5003045" : "5003001") },
+  { test: /\b(?:se\s+)?(?:instal|coloc)\w*\s+(?:un\s+|el\s+|los\s+|dos\s+)?implantes?\b|\binstalacion\s+de\s+(?:un\s+)?implante|\bimplantes?\s+(?:inmediato|unitario)\b/, code: (t) => (/corona|pilar\s+de\s+cicatrizacion|provisori|segunda\s+fase|control|\binstalar|\bcolocar|\bplan\b|\ben\s+\w+\s+meses|se\s+planifica|diferid/.test(t) ? null : "5011001") },
+  { test: /\belevacion\s+(?:de\s+)?(?:del\s+)?seno|\bantrotomia\b|\bsinus\s+lift\b/, code: () => "5011005" },
+  { test: /\bpreservacion\s+alveolar\b/, code: () => "5011020" },
   { test: /\bradiografia\s+retroalveolar\b/, code: () => "5002001" },
   { test: /\bradiografia\s+panoramica\b|\bortopantomografia\b/, code: () => "5002010" },
   { test: /\bbite\s?wing\b|\baleta\s+mordida\b/, code: () => "5002004" },
@@ -108,16 +111,19 @@ export function suggestPrestaciones(odontogram: OdontogramChange[], procedureLin
     const words = contentWords(sentence);
     return words.size > 0 && modelWords.some((known) => known.size > 0 && [...words].filter((word) => known.has(word)).length / Math.min(words.size, known.size) >= 0.6);
   };
+  const implantTeeth = new Set(odontogram.filter((item) => item.kind === "status" && item.status === "Implante" && !item.advisory).map((item) => item.tooth));
   const sentencesOfLines = procedureLines.flatMap((line) => line.split(/(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑ])/u).map((part) => part.trim()).filter(Boolean));
   for (const line of sentencesOfLines) {
     if (modelCovers(line)) continue;
     const plain = fold(line);
-    const teeth = teethOf(line);
+    const teeth = [...new Set(teethOf(line))];
     if (skipRestoration(plain, teeth)) continue;
     let ruled = false;
     for (const rule of KEYWORDS) {
       if (!rule.test.test(plain)) continue;
-      const code = rule.code(plain);
+      let code = rule.code(plain);
+      // Extracción de una pieza que queda con implante en la misma sesión: «extracción para implante inmediato».
+      if (code === "5003001" && teeth.length === 1 && (implantTeeth.has(teeth[0]) || /implante\s+inmediato/.test(plain))) code = "5011018";
       if (code) { ruled = true; push(make(code, teeth.length === 1 ? teeth[0] : null, line, out.length + 1)); }
     }
     // Sin regla ni código del modelo: búsqueda por palabras, solo si la coincidencia es clara (si hay duda, no se asigna).

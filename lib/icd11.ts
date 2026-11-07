@@ -112,7 +112,7 @@ const RULES: Rule[] = [
   { re: /\bperiodontitis\s+agresiva\b/, code: "DA0C.1" },
   { re: /\bperiodontitis\s+aguda\b/, code: "DA0C.0" },
   { re: /\babsceso\s+(?:periodontal|del\s+periodonto)\b/, code: "DA0C.4" },
-  { re: /\b(?:retraccion|recesion)\s+gingival\b/, code: "DA0D.0" },
+  { re: /\b(?:retraccion|recesion)\s+gingival\b(?!\s+(?:con|mediante)\s+(?:hilo|cordon))/, code: "DA0D.0" },
   { re: /\b(?:agrandamiento|hiperplasia)\s+gingival\b/, code: "DA0D.1" },
   // Tejidos duros
   { re: /\batricion\b|\bfacetas?\s+de\s+desgaste\b/, code: "DA08.10" },
@@ -290,6 +290,8 @@ export function diagnosisMatches(text: string): DiagnosisMatch[] {
     if (!match) continue;
     if ((candidate.code === "DA08.11" || candidate.code === "DA08.12") && !dentalContext(t)) continue;
     const start = match.index, end = start + match[0].length;
+    // «Retracción gingival con hilo» es la técnica de impresión, no una recesión.
+    if (candidate.code === "DA0D.0" && /^\s+(?:con|mediante)\s+(?:hilo|cordon)/.test(t.slice(end))) continue;
     // Si una regla clínica o una etiqueta sin código ya cubre la frase, conserva esa decisión más específica.
     if (overlaps(matchedRanges, start, end) || overlaps(uncodedRanges, start, end)) continue;
     if ([...found, ...catalogMatches].some((done) => done.code && family(done.code) === family(candidate.code))) continue;
