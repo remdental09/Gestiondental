@@ -12,6 +12,8 @@ declare namespace Cloudflare {
     OPENAI_TRANSCRIPTION_MODEL?: string;
     /** Modelo de OpenAI de respaldo para estructurar el dictado; por defecto gpt-4o-mini. */
     OPENAI_STRUCTURE_MODEL?: string;
+    /** Correos (separados por coma) que usan el agente de dictado con herramientas; vacío = nadie. */
+    DICTATION_AGENT_EMAILS?: string;
     ACCESS_TEAM_DOMAIN?: string;
     ACCESS_POLICY_AUD?: string;
     ACCESS_ALLOWED_EMAIL?: string;
