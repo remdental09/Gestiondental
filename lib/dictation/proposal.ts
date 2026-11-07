@@ -46,7 +46,7 @@ import { CARIES_DEPTH_LABEL, CARIES_DEPTH_QUESTION, cariesDepthFrom, isCariesDep
 import { ICD11, ICD11_CATALOG, cariesIcd11, diagnosisMatches, icd11Label, nearestDiagnosis, type SuggestedMapping } from "../icd11.ts";
 import { classifyEvolution, type EvolutionKind } from "./evolution-type.ts";
 import { candidatePrestaciones, matchPrestacion, prestacionByCode, prestacionLabel } from "../prestaciones-catalog.ts";
-import { procedureLinesOf, suggestPrestaciones, type PrestacionItem } from "./prestaciones.ts";
+import { endodonticQuestions, procedureLinesOf, suggestPrestaciones, type PrestacionItem } from "./prestaciones.ts";
 import { buildSpecialtyContext } from "../knowledge/index.ts";
 export { CARIES_DEPTHS, CARIES_DEPTH_LABEL, CARIES_DEPTH_SHORT, cariesDetail } from "../caries.ts";
 export { cariesIcd11, icd11Label } from "../icd11.ts";
@@ -555,6 +555,10 @@ function toothMentions(sentence: string): Mention[] {
   for (const match of unlabeled.matchAll(/(?<![\d.,])\b(?:la|el)\s+(3[3-9]|4[0-8]|5[1-9]|6\d|7\d|8[0-5])(?![\d.,]?\d)(?!\s*(?:mm|mil[ií]metros?|cm|%|mg|mil|a[nñ]os?|de\s+(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)))/giu)) {
     mentions.push(interpretTooth(match[1], undefined));
   }
+  // «la 12», «la 24» (numeración chilena 10–32, sin la palabra «pieza»): solo con «la», para no confundir con un día («el 12 de marzo»).
+  for (const match of unlabeled.matchAll(/(?<![\d.,])\bla\s+(1\d|2\d|3[0-2])(?![\d.,]?\d)(?!\s*(?:mm|mil[ií]metros?|cm|%|mg|mil|a[nñ]os?|horas?|hrs?|de\s+(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)))/giu)) {
+    mentions.push(interpretTooth(match[1], undefined));
+  }
   const spoken = speechText(sentence);
   const consumed: Array<[number, number]> = [];
   const overlaps = (start: number, end: number) => consumed.some(([from, to]) => start < to && end > from);
@@ -582,6 +586,19 @@ function toothMentions(sentence: string): Mention[] {
       const cue = match[1];
       const system = match[2] || (cue === "fdi" || cue === "iso" ? "fdi" : undefined);
       mentions.push(interpretTooth(String(value), system));
+    }
+  }
+  // «extracción de la once», «obturación de la veintiseis»: número de dos cifras en palabras con «la», sin «pieza».
+  // No se lee si es un día del mes, una hora, una cantidad o una medida.
+  for (const [phrase, value] of SPOKEN_CARDINALS) {
+    if (value < 10) continue;
+    const bare = new RegExp(String.raw`\bla\s+${phrase}\b(?!\s+(?:de\s+(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)|a[nñ]os?|horas?|minutos?|mil|por\s+ciento|milimetros?|mm|cm|veces|dias?|semanas?|meses))`, "g");
+    for (const match of spoken.matchAll(bare)) {
+      const start = match.index ?? 0;
+      const end = start + match[0].length;
+      if (overlaps(start, end)) continue;
+      consumed.push([start, end]);
+      mentions.push(interpretTooth(String(value), undefined));
     }
   }
   const temporal = /\b(?:pieza|diente)\s+(?:temporal|decidua|deciduo|de\s+leche)\s+([a-t])\b/gi;
@@ -1681,7 +1698,7 @@ export function structureTranscript(transcript: string, options: { today?: strin
       clarifications.push("Hay un resto radicular sin decir si tiene endodoncia. No se cambió el estado general.");
     }
 
-    if (/(?<!\p{L})(?:exodoncia|extracci[oó]n)\s+(?:de|del)\s+(?:la\s+|el\s+|los\s+|las\s+)?(?:pieza|diente|molar|premolar|incisivo|canino|muela|cordal|\d)/iu.test(sentence)
+    if (/(?<!\p{L})(?:exodoncia|extracci[oó]n)\s+(?:de|del)\s+(?:la\s+|el\s+|los\s+|las\s+)?(?:pieza|diente|molar|premolar|incisivo|canino|muela|cordal|\d|(?:diez|once|doce|trece|catorce|quince|diecis[eé]is|diecisiete|dieciocho|diecinueve|veinte|veinti\p{L}+|treinta|cuarenta)(?!\p{L}))/iu.test(sentence)
       && !EXTRACTION_DONE.test(sentence) && !EXTRACTION_INDICATED.test(sentence)
       // Un título o motivo («Extracción de la pieza 2.1 e implante») seguido de «se realiza extracción…»: ya está respondido.
       && !allSentences.some((other) => other !== sentence && EXTRACTION_DONE.test(other))
@@ -3929,9 +3946,10 @@ export async function proposeFromTranscript(
     // sugirieron una prestación, la IA no necesita preguntar «qué código corresponde».
     const ruleBrandAsked = finished.clarifications.some((item) => /^¿La marca del implante es Arcsys/.test(item));
     const hasPrestaciones = (finished.prestaciones ?? []).length > 0;
+    const endoQuestions = endodonticQuestions(procedureLinesOf(finished.evolution?.body ?? ""), finished.prestaciones ?? []).filter((item) => !finished.clarifications.includes(item));
     return {
       ...finished,
-      clarifications: finished.clarifications.filter((item) => !(ruleBrandAsked && /^IA: ¿La marca dictada como/.test(item)) && !(hasPrestaciones && /^IA: No hay una prestaci[oó]n candidata/.test(item))),
+      clarifications: [...finished.clarifications, ...endoQuestions].filter((item) => !(ruleBrandAsked && /^IA: ¿La marca dictada como/.test(item)) && !(hasPrestaciones && /^IA: No hay una prestaci[oó]n candidata/.test(item))),
     };
   };
   if (!model) return { engine: "reglas-locales", model: null, notice: LOCAL_NOTICE, proposal: withText(localOnly, fixed, lexicon.corrections) };
