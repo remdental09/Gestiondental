@@ -25,6 +25,7 @@ HERRAMIENTAS (solo lectura; no guardan nada):
 - buscar_prestacion: si el procedimiento realizado hoy no está claramente en «Prestaciones candidatas del arancel», búscalo. Un código devuelto por esta herramienta también es válido para "codigo".
 - buscar_diagnostico: para escribir en «diagnosticos» un término que exista en el catálogo CIE-11 verificado, y para elegir el más cercano en «diagnosticos_sugeridos» cuando el profesional describió lo que hizo pero no dictó diagnóstico.
 - buscar_marca_implante: cuando se dicte una marca o empresa de implantes, compruébala; la voz suele deformarlas.
+- buscar_termino_odontologico: cuando una palabra no tenga sentido clínico o suene a material, marca, instrumento o medicamento de cualquier especialidad, búscala antes de dejarla tal cual o corregirla.
 Usa las herramientas solo cuando aporten (normalmente 0 a 3 llamadas, todas juntas en una misma vuelta si puedes). No busques montos ni datos de pago. Si tras buscar persiste la duda, déjala en «dudas» en vez de suponer. Cuando termines, devuelve el JSON.`;
 
 type ToolCall = { id: string; type: "function"; function: { name: string; arguments: string } };

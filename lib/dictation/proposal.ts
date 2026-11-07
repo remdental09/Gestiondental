@@ -47,6 +47,7 @@ import { ICD11, ICD11_CATALOG, cariesIcd11, diagnosisMatches, icd11Label, neares
 import { classifyEvolution, type EvolutionKind } from "./evolution-type.ts";
 import { candidatePrestaciones, matchPrestacion, prestacionByCode, prestacionLabel } from "../prestaciones-catalog.ts";
 import { procedureLinesOf, suggestPrestaciones, type PrestacionItem } from "./prestaciones.ts";
+import { buildSpecialtyContext } from "../knowledge/index.ts";
 export { CARIES_DEPTHS, CARIES_DEPTH_LABEL, CARIES_DEPTH_SHORT, cariesDetail } from "../caries.ts";
 export { cariesIcd11, icd11Label } from "../icd11.ts";
 
@@ -2545,7 +2546,9 @@ export function buildModelUserPrompt(input: StructureInput): string {
     : "";
   const minsalContext = buildMinsalClinicalContext(input.transcript);
   const endoPerioContext = buildEndoPerioContext(input.transcript);
-  const clinicalContext = [minsalContext, endoPerioContext].filter(Boolean).join("\n\n");
+  // Solo el vocabulario de las especialidades que toca este dictado; el resto de la base se consulta por búsqueda.
+  const specialtyContext = buildSpecialtyContext(input.transcript);
+  const clinicalContext = [minsalContext, endoPerioContext, specialtyContext].filter(Boolean).join("\n\n");
   const toothContext = [...new Set(toothMentions(spokenPunctuation(input.transcript)).flatMap((item) => item.ok ? [item.numberingLabel] : []))];
   const candidates = candidatePrestaciones(input.transcript, 40);
   const catalog = candidates.length ? `Prestaciones candidatas del arancel (código · nombre; elige solo de esta lista, sin dinero):\n${candidates.map((item) => `${item.code} · ${prestacionLabel(item.name)}`).join("\n")}\n\n` : "";
