@@ -22,6 +22,7 @@ test("las marcas llegan al diccionario, a las pistas de voz y a las palabras pro
 test("findImplantBrand reconoce la marca dictada, con alias y sin tildes", () => {
   assert.equal(findImplantBrand("Se instala un implante Neodent Helix de 4 por 10")?.brand, "Neodent");
   assert.equal(findImplantBrand("implante conexao cone morse")?.company, "Conexão Sistemas de Prótese");
-  assert.equal(findImplantBrand("implante Arxis ET de la empresa FSM")?.brand, "Arxis");
+  assert.equal(findImplantBrand("implante Arxis ET de la empresa FSM")?.brand, "Arcsys");
+  assert.equal(findImplantBrand("implante Arcsys")?.company, "FGM Produtos Odontológicos");
   assert.equal(findImplantBrand("implante de una marca desconocida"), null);
 });

@@ -71,7 +71,7 @@ const ROWS: Array<[string, string, string, string[]?]> = [
   ["SIN Implant System", "S.I.N. Sistema de Implante Nacional", "Brasil", ["SIN", "Sin Implante"]],
   ["Implacil De Bortoli", "Implacil De Bortoli", "Brasil", ["Implacil"]],
   ["Bionnovation", "Bionnovation Biomedical", "Brasil"],
-  ["Arcsys", "FGM Produtos Odontológicos", "Brasil", ["FGM"]],
+  ["Arcsys", "FGM Produtos Odontológicos", "Brasil", ["FGM", "Arxis", "Arxys", "Arcsis", "Arksis"]],
   ["Titanium Fix", "Titanium Fix", "Brasil"],
   ["Signo Vinces", "Signo Vinces", "Brasil"],
   ["Intra-Lock Brasil", "Intra-Lock", "Brasil"],
@@ -91,8 +91,6 @@ const ROWS: Array<[string, string, string, string[]?]> = [
   ["Biotem", "Biotem", "Corea del Sur"],
   ["Kyocera", "Kyocera Medical", "Japón", ["Bioceram"]],
   ["GC Implant", "GC Corporation", "Japón", ["GC"]],
-  // Marcas dictadas por el profesional (empresa tal como se dijo; sin datos de origen verificados)
-  ["Arxis", "FSM", "Dictada por el profesional", ["Arxis ET"]],
 ];
 
 export const IMPLANT_BRANDS: ImplantBrand[] = ROWS.map(([brand, company, region, aliases]) => ({ brand, company, region, ...(aliases ? { aliases } : {}) }));
