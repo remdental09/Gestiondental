@@ -106,3 +106,9 @@ test("el artículo «un» de la nota redactada no se toma como la cifra 1 (falso
   const p = (await proposeFromTranscript({ transcript: T, chart: [] }, model, () => {}, { today: "2026-11-07" })).proposal;
   assert.ok(!p.clarifications.some((q) => /menciona «1»/.test(q)));
 });
+
+test("restauración con causa no cariosa («por abrasión cervical») conserva la cara dictada", async () => {
+  const p = await run("Restauración con resina de la 2.7 vestibular por abrasión cervical.");
+  assert.deepEqual(odo(p), ["27:V/restored"]);
+  assert.ok(!p.clarifications.some((q) => /Falta la superficie/.test(q)));
+});

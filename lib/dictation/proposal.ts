@@ -444,7 +444,8 @@ function surfaceScope(sentence: string): string {
   const sealing = /\b(?:sellante|sellad\p{L}*)\b/iu.test(sentence);
   const anatomical = sentence.replace(/\b(?:fosas?\s+y\s+(?:fisuras?|surcos?)|surcos?\s+y\s+fisuras?|fosas?,?\s+surcos?\s+y\s+fisuras?)\b/giu, sealing ? "fosas oclusal" : "fosas");
   const parts = anatomical.split(/\s*[,;]\s*|\s+(?:y|e|con|m[aá]s)\s+/iu);
-  return parts.filter((part) => !OTHER_FINDING.test(part)).join(" ");
+  // «resina de la 2.7 vestibular por abrasión cervical»: lo que va antes de la causa no relacionada conserva su cara.
+  return parts.map((part) => (OTHER_FINDING.test(part) ? part.split(/\s+(?:por|debido\s+a|a\s+causa\s+de)\s+/iu)[0] : part)).filter((part) => !OTHER_FINDING.test(part)).join(" ");
 }
 
 function capitalize(value: string): string {
