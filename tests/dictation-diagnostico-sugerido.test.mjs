@@ -17,14 +17,17 @@ test("sin diagnóstico dictado: sugiere el más cercano del catálogo, con la fr
   assert.match(dx[0].evidence, /raíz dental/);
 });
 
+// Estas pruebas validan lo que propone el modelo (origin «ia»); el código deduce aparte sus propias sugerencias (origin «reglas»).
+const fromModel = (proposal) => (proposal.diagnoses ?? []).filter((item) => item.suggested?.from === "nota" && item.origin === "ia");
+
 test("un término fuera del catálogo no genera sugerencia ni código inventado", async () => {
   const proposal = await run({ diagnosticos_sugeridos: [{ termino: "zzz inexistente qqq", pieza: "8", evidencia: "Se realiza la extracción de una raíz dental de la pieza 8" }] });
-  assert.equal((proposal.diagnoses ?? []).filter((item) => item.suggested?.from === "nota").length, 0);
+  assert.equal(fromModel(proposal).length, 0);
 });
 
 test("evidencia que no está en el dictado se descarta", async () => {
   const proposal = await run({ diagnosticos_sugeridos: [{ termino: "raíz dental retenida", pieza: "8", evidencia: "Fractura radicular vertical con absceso" }] });
-  assert.equal((proposal.diagnoses ?? []).filter((item) => item.suggested?.from === "nota").length, 0);
+  assert.equal(fromModel(proposal).length, 0);
 });
 
 test("si el profesional ya dictó diagnóstico para la pieza, no se sugiere otro", async () => {

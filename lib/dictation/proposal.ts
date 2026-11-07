@@ -101,6 +101,8 @@ export type SurfaceFinding = {
  * la pieza (`tooth`, FDI almacenado como 24) y los hallazgos (`findings`) se guardan aparte del código.
  * `suggested`: equivalencia propuesta (términos AAE, caries con compromiso pulpar) que el profesional debe confirmar.
  */
+export type DiagnosisPrompt = { id: string; tooth: number; question: string; options: Array<{ code: string; title: string }> };
+
 export type DiagnosisItem = {
   id: string;
   tooth?: number;
@@ -241,6 +243,8 @@ export type DictationProposal = {
   procedures?: ProcedureItem[];
   /** Prestaciones del arancel sugeridas desde lo realizado hoy (sin dinero); el profesional las acepta o quita. */
   prestaciones?: PrestacionItem[];
+  /** Diagnóstico que falta y no se puede deducir: pregunta con opciones del catálogo CIE-11 para tocar. */
+  diagnosisPrompts?: DiagnosisPrompt[];
   /** Transcripción literal; se guarda completa al final de la evolución. */
   transcript?: string;
   /** Texto corregido (diccionario + IA validada) y cada cambio hecho sobre lo dictado. */
@@ -1193,6 +1197,63 @@ function diagnosisUncertaintyAnswered(sentence: string, transcript: string): boo
   });
 }
 
+/** Motivos habituales de una extracción, todos verificados en el catálogo CIE-11. */
+const EXTRACTION_REASONS = ["DA08.0", "DA09.1", "DA0C.Z", "NA0D.06", "NA0D.04", "DA0A.3"];
+/** La causa ya está dicha («por caries», «por fractura», «diagnóstico…»): no se pregunta. */
+const EXTRACTION_CAUSE_SAID = /(?<!\p{L})(?:diagn[oó]stic\p{L}*|(?:por|debido\s+a|a\s+causa\s+de|motivo)\s+(?:de\s+)?(?:una?\s+|la\s+|el\s+)?(?:caries|fractura|enfermedad|periodont\p{L}*|movilidad|necrosis|absceso|reabsorci\p{L}*|trauma\p{L}*|ortodoncia|indicaci[oó]n|pericoronaritis|infecci[oó]n|quiste|lesi[oó]n))(?!\p{L})/iu;
+/** Lo extraído era una raíz o resto radicular: se deduce «Raíz dental retenida». */
+const ROOT_EXTRACTED = /(?<!\p{L})(?:ra[ií]z|ra[ií]ces|resto\s+radicular|restos\s+radiculares)(?!\p{L})/iu;
+
+/**
+ * Diagnósticos que el código deduce o pregunta cuando el profesional describió extracciones o implantes y no dictó diagnóstico:
+ * - extracción (con o sin implante inmediato): no se adivina la causa; se pregunta con opciones del catálogo.
+ * - implante en una pieza que ya estaba ausente: se sugiere «Pérdida de dientes…» (DA0A.1), por confirmar.
+ * No depende del modelo. Nada se guarda sin que el profesional lo elija o lo acepte.
+ */
+export function deducedDiagnoses(odontogram: OdontogramChange[], diagnoses: DiagnosisItem[], transcript: string): { prompts: DiagnosisPrompt[]; suggested: DiagnosisItem[] } {
+  const prompts: DiagnosisPrompt[] = [];
+  const suggested: DiagnosisItem[] = [];
+  const covered = new Set(diagnoses.filter((dx) => dx.tooth !== undefined && dx.code).map((dx) => dx.tooth));
+  const all = sentences(transcript);
+  const named = new Set(all.flatMap((text) => toothMentions(text).filter((m) => m.ok).map((m) => (m as { tooth: number }).tooth)));
+  const sentencesOf = (tooth: number) => {
+    const own = all.filter((text) => toothMentions(text).some((m) => m.ok && m.tooth === tooth));
+    return named.size === 1 ? all : own;
+  };
+  const done = new Set<number>();
+  for (const change of odontogram) {
+    // Un cambio con aviso (p. ej. el implante ya figuraba: segunda fase o control) no es un tratamiento nuevo: no se deduce nada.
+    if (change.kind !== "status" || change.advisory || (change.status !== "Ausente" && change.status !== "Implante") || done.has(change.tooth) || covered.has(change.tooth)) continue;
+    done.add(change.tooth);
+    const own = sentencesOf(change.tooth);
+    const extracted = own.some((text) => EXTRACTION_ANY.test(text) && !EXTRACTION_INDICATED.test(text));
+    if (extracted && own.some((text) => EXTRACTION_CAUSE_SAID.test(text))) continue;
+    if (extracted && own.some((text) => EXTRACTION_ANY.test(text) && ROOT_EXTRACTED.test(text)) && ICD11["DA0A.3"]) {
+      const evidence = own.find((text) => EXTRACTION_ANY.test(text) && ROOT_EXTRACTED.test(text)) ?? "";
+      const dx: DiagnosisItem = { id: `dx-deducido-${change.tooth}`, tooth: change.tooth, code: "DA0A.3", title: ICD11["DA0A.3"].title, label: "", evidence: clip(evidence, 400), findings: "", origin: "reglas", suggested: { from: "nota", term: clip(evidence, 120) } };
+      dx.label = diagnosisLabel(dx);
+      suggested.push(dx);
+      continue;
+    }
+    if (extracted) {
+      prompts.push({
+        id: `dxq-${change.tooth}`,
+        tooth: change.tooth,
+        question: `No dictaste el diagnóstico de FDI ${formatFdi(change.tooth)}: ¿cuál fue el motivo de la extracción?`,
+        options: EXTRACTION_REASONS.filter((code) => ICD11[code]).map((code) => ({ code, title: ICD11[code].title })),
+      });
+      continue;
+    }
+    if (change.status === "Implante" && ICD11["DA0A.1"]) {
+      const evidence = own.find((text) => /\bimplantes?\b/i.test(text)) ?? change.sourceText ?? "";
+      const dx: DiagnosisItem = { id: `dx-deducido-${change.tooth}`, tooth: change.tooth, code: "DA0A.1", title: ICD11["DA0A.1"].title, label: "", evidence: clip(evidence, 400), findings: "", origin: "reglas", suggested: { from: "nota", term: clip(evidence, 120) } };
+      dx.label = diagnosisLabel(dx);
+      suggested.push(dx);
+    }
+  }
+  return { prompts, suggested };
+}
+
 /** Texto de la línea de un diagnóstico en la nota. */
 export function diagnosisLabel(item: Pick<DiagnosisItem, "tooth" | "code" | "title" | "findings" | "suggested">): string {
   const where = item.tooth ? `FDI ${formatFdi(item.tooth)}${item.findings ? ` ${item.findings}` : ""}: ` : item.findings ? `${item.findings}: ` : "";
@@ -1579,6 +1640,8 @@ export function structureTranscript(transcript: string, options: { today?: strin
 
     if (/(?<!\p{L})(?:exodoncia|extracci[oó]n)\s+(?:de|del)\s+(?:la\s+|el\s+|los\s+|las\s+)?(?:pieza|diente|molar|premolar|incisivo|canino|muela|cordal|\d)/iu.test(sentence)
       && !EXTRACTION_DONE.test(sentence) && !EXTRACTION_INDICATED.test(sentence)
+      // Un título o motivo («Extracción de la pieza 2.1 e implante») seguido de «se realiza extracción…»: ya está respondido.
+      && !allSentences.some((other) => other !== sentence && EXTRACTION_DONE.test(other))
       && !/(?<!\p{L})(?:planific\p{L}*|se\s+indic\p{L}*|se\s+plante\p{L}*|program\p{L}*|agend\p{L}*|pr[oó]xim\p{L}*|requiere|necesita|futur\p{L}*)(?!\p{L})/iu.test(sentence)) {
       clarifications.push(`¿La exodoncia ya se realizó o solo está indicada? No se cambió el estado de la pieza: «${clip(sentence)}».`);
     }
@@ -3794,7 +3857,16 @@ export async function proposeFromTranscript(
     const doubts = [...lexiconDoubts(text), ...numberingDoubts(text, input.chart ?? []), ...vagueSurfaceClarifications(text), ...chartConsistencyDoubts(text, input.chart ?? [])];
     const clarifications = tidyClarifications([...proposal.clarifications, ...doubts.filter((item) => !proposal.clarifications.includes(item))], proposal.odontogram);
     const evolution = proposal.evolution ? { ...proposal.evolution, body: withDiagnosesSection(proposal.evolution.body, diagnoses.filter((item) => !item.suggested)) } : null;
-    const typed = applyEvolutionPolicy({ ...proposal, evolution, clarifications, diagnoses }, input.chart ?? [], text);
+    const policy = applyEvolutionPolicy({ ...proposal, evolution, clarifications, diagnoses }, input.chart ?? [], text);
+    // Después de la política: un implante que ya figuraba (segunda fase, control) queda con aviso y no se deduce nada para él.
+    const deduced = deducedDiagnoses(policy.odontogram, diagnoses, text);
+    const promptQuestions = deduced.prompts.map((prompt) => prompt.question).filter((question) => !policy.clarifications.includes(question));
+    const typed: DictationProposal = {
+      ...policy,
+      clarifications: [...policy.clarifications, ...promptQuestions],
+      diagnoses: [...(policy.diagnoses ?? []), ...deduced.suggested.filter((dx) => !(policy.diagnoses ?? []).some((done) => done.tooth === dx.tooth))],
+      ...(deduced.prompts.length ? { diagnosisPrompts: deduced.prompts } : {}),
+    };
     const normalizedText = normalizeIdentityNumbers(text);
     const normalizedEvolution = typed.evolution ? normalizeIdentityNumbers(typed.evolution.body) : null;
     return withCatalogCodes(withoutMoney({
