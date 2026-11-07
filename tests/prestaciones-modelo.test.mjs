@@ -39,3 +39,11 @@ test("los candidatos incluyen endodoncia, sellante e implante y el mensaje al mo
 test("el esquema exige «codigo» en cada procedimiento", () => {
   assert.ok(AI_JSON_SCHEMA.properties.procedimientos.items.required.includes("codigo"));
 });
+
+test("una oración codificada por el modelo no se duplica con la regla aunque la nota la reescriba", () => {
+  const out = suggestPrestaciones([], ["Se realiza tratamiento de conductos en la pieza 3.6. Se aplican sellantes en las piezas 1.6 y 2.6."], [
+    { text: "Se aplican sellantes en 1.6", code: "5005012" },
+    { text: "Se aplican sellantes en 2.6", code: "5005012" },
+  ]);
+  assert.deepEqual(out.map((item) => [item.code, item.tooth]), [["5005012", 16], ["5005012", 26]]);
+});
