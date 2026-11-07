@@ -68,3 +68,14 @@ test("extracción de incluido con osteotomía y sutura se da por realizada", asy
   assert.ok(odo(p).includes("38:Ausente"));
   assert.ok(!p.clarifications.some((q) => /ya se realiz/.test(q)));
 });
+
+test("preguntas de la IA duplicadas (marca) o ya resueltas por reglas (prestación) no se repiten", async () => {
+  const T = "Se instala implante en la 3.5, hueso tipo 3, torque 35 newton, marca Arsis, sin carga.";
+  const nota = { motivo: "", anamnesis: "", alergias: "", medicamentos: "", examen: "", diagnostico: "", procedimientos: "Se instala un implante en la pieza 3.5.", plan: "", indicaciones: "", presupuesto: "" };
+  const out = { nota, hallazgos: [], procedimientos: [], presupuesto: [], ficha: [], texto_corregido: T, periodonto: [], pagos: [], citas: [], diagnosticos: [], diagnosticos_sugeridos: [],
+    dudas: ["¿La marca dictada como «Arsis» corresponde a Arcsys u otra marca?", "No hay una prestación candidata que corresponda con certeza a la instalación de un implante realizada hoy; ¿qué código arancelario corresponde?"] };
+  const model = { id: "x", model: "x", complete: async () => ({ usedModel: "x", output: out }) };
+  const p = (await proposeFromTranscript({ transcript: T, chart: [] }, model, () => {}, { today: "2026-11-07" })).proposal;
+  assert.equal(p.clarifications.filter((q) => /^(?:IA: )?¿La marca/.test(q)).length, 1);
+  assert.ok(!p.clarifications.some((q) => /No hay una prestaci/.test(q)));
+});
