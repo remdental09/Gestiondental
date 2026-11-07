@@ -46,6 +46,7 @@ import { CARIES_DEPTH_LABEL, CARIES_DEPTH_QUESTION, cariesDepthFrom, isCariesDep
 import { ICD11, ICD11_CATALOG, cariesIcd11, diagnosisMatches, icd11Label, type SuggestedMapping } from "../icd11.ts";
 import { classifyEvolution, type EvolutionKind } from "./evolution-type.ts";
 import { matchPrestacion } from "../prestaciones-catalog.ts";
+import { procedureLinesOf, suggestPrestaciones, type PrestacionItem } from "./prestaciones.ts";
 export { CARIES_DEPTHS, CARIES_DEPTH_LABEL, CARIES_DEPTH_SHORT, cariesDetail } from "../caries.ts";
 export { cariesIcd11, icd11Label } from "../icd11.ts";
 
@@ -236,6 +237,8 @@ export type DictationProposal = {
   ficha?: FichaChange[];
   /** Procedimientos realizados según el dictado, con su cita. */
   procedures?: ProcedureItem[];
+  /** Prestaciones del arancel sugeridas desde lo realizado hoy (sin dinero); el profesional las acepta o quita. */
+  prestaciones?: PrestacionItem[];
   /** Transcripción literal; se guarda completa al final de la evolución. */
   transcript?: string;
   /** Texto corregido (diccionario + IA validada) y cada cambio hecho sobre lo dictado. */
@@ -2840,9 +2843,10 @@ export function validateAiExtraction(input: unknown, transcript: string, options
       // La profundidad sale de lo dictado (y de su «Aclaración:»); la de la IA solo se compara.
       const reading = cariesDepthFrom(scope);
       const aiDepth = isCariesDepth(item.profundidad) ? item.profundidad : null;
-      if (aiDepth && aiDepth !== reading.depth) clarifications.push(`${heading}: la IA indicó ${CARIES_DEPTH_LABEL[aiDepth].toLowerCase()}, pero el dictado ${reading.depth ? `dice ${CARIES_DEPTH_LABEL[reading.depth].toLowerCase()}` : "no dice la profundidad"}. Se usó lo dictado.`);
+      if (aiDepth && reading.depth && aiDepth !== reading.depth) clarifications.push(`${heading}: la IA indicó ${CARIES_DEPTH_LABEL[aiDepth].toLowerCase()}, pero el dictado ${reading.depth ? `dice ${CARIES_DEPTH_LABEL[reading.depth].toLowerCase()}` : "no dice la profundidad"}. Se usó lo dictado.`);
       finding = { condition: "caries", depth: reading.depth, icdas: (icdasFrom(scope) ?? null) as SurfaceFinding["icdas"], activity: activityFrom(scope) };
-      if (!reading.depth) clarifications.push(depthQuestion(heading, reading.ambiguous, segment));
+      // Un solo aviso por pieza: si la IA sugirió una profundidad que no se dictó, se menciona dentro de la misma pregunta.
+      if (!reading.depth) clarifications.push(depthQuestion(heading, reading.ambiguous ?? (aiDepth ? `la IA sugiere ${CARIES_DEPTH_LABEL[aiDepth].toLowerCase()}, pero el dictado no lo dice` : undefined), segment));
     }
     for (const surface of faces) {
       const earlier = condition === "caries" ? odontogram.find((done) => done.kind === "surface" && done.tooth === mention.tooth && done.surface === surface && done.finding?.condition === "caries") : undefined;
@@ -3670,6 +3674,7 @@ export async function proposeFromTranscript(
     const normalizedEvolution = typed.evolution ? normalizeIdentityNumbers(typed.evolution.body) : null;
     return withCatalogCodes(withoutMoney({
       ...typed,
+      prestaciones: suggestPrestaciones(typed.odontogram, procedureLinesOf(normalizedEvolution?.text ?? typed.evolution?.body ?? "")),
       ...(normalizedEvolution ? { evolution: { ...typed.evolution!, body: normalizedEvolution.text } } : {}),
       transcript,
       corrected: { text: normalizedText.text, corrections: [...corrections, ...normalizedText.corrections] },

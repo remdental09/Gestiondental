@@ -58,6 +58,8 @@ import {
   missingData,
 } from "@/lib/dictation/proposal";
 import { searchDiagnoses } from "@/lib/icd11";
+import { prestacionText, withPrestacionesSection, type PrestacionItem } from "@/lib/dictation/prestaciones";
+import { searchPrestaciones } from "@/lib/prestaciones-catalog";
 import { sameDiagnosisTags, sanitizeDiagnosisTags, type EvolutionDiagnosisTag } from "@/lib/evolution-diagnoses";
 import { evolutionNotices, type EvolutionNoticeKey } from "@/lib/dictation/evolution-notices";
 import { buildFeedback, type ReviewGroup } from "@/lib/dictation/feedback";
@@ -256,6 +258,8 @@ export function ClinicalDictation({
   const [result, setResult] = useState<{ ok: boolean; messages: string[] } | null>(null);
   const [patientConfirmed, setPatientConfirmed] = useState(false);
   const [dxItems, setDxItems] = useState<ReviewDiagnosis[]>([]);
+  const [prestItems, setPrestItems] = useState<Array<PrestacionItem & { decision: Decided }>>([]);
+  const [prestSearch, setPrestSearch] = useState("");
   const [dxSearch, setDxSearch] = useState("");
   // Avisos descartados con «No es necesario ahora»: valen solo para esta evolución.
   const [dismissedNotices, setDismissedNotices] = useState<Set<EvolutionNoticeKey>>(new Set());
@@ -299,6 +303,8 @@ export function ClinicalDictation({
     setAppointmentItems([]);
     setDxItems([]);
     setDxSearch("");
+    setPrestItems([]);
+    setPrestSearch("");
     setDismissedNotices(new Set());
     setAnswers({});
     setResult(null);
@@ -433,6 +439,7 @@ export function ClinicalDictation({
         budgetId: suggestedPaymentBudget(item, (data.proposal.budget ?? []).map((budget) => ({ ...budget, decision: "accepted" as const, amountText: String(budget.amount) })), budgetOptions),
       })));
       // Las caries se derivan en vivo de lo aceptado en el odontograma; el resto se revisa una por una.
+      setPrestItems((data.proposal.prestaciones ?? []).map((item) => ({ ...item, decision: "accepted" as const })));
       setDxItems((data.proposal.diagnoses ?? []).filter((item) => !item.code.startsWith("DA08.0")).map((item) => ({ ...item, decision: item.suggested ? "rejected" as const : "accepted" as const, toothText: item.tooth ? formatFdi(item.tooth) : "", findingsText: item.findings ?? "", codeSearch: "" })));
       setDxSearch("");
       setDismissedNotices(new Set());
@@ -643,7 +650,7 @@ export function ClinicalDictation({
     const acceptedFicha = fichaItems.filter((item) => item.decision === "accepted");
     const fichaUpdate = patient ? planFichaUpdate(patient, acceptedFicha) : null;
     const saveEvolution = evolutionBody.trim().length > 0;
-    const finalBody = saveEvolution ? finalizeEvolution(evolutionBody, acceptedTeeth, dxPlan?.items.length ? dxPlan.items : undefined) : "";
+    const finalBody = saveEvolution ? withPrestacionesSection(finalizeEvolution(evolutionBody, acceptedTeeth, dxPlan?.items.length ? dxPlan.items : undefined), prestItems.filter((item) => item.decision === "accepted")) : "";
     const dxTags = saveEvolution ? dxPlan?.tags ?? [] : [];
     if (!saveEvolution && !acceptedTeeth.length && !acceptedBudgets.length && !fichaUpdate && !acceptedPayments.length && !acceptedAppointments.length && !savePerio) {
       setFormError("No hay una evolución ni cambios estructurados listos para guardar. Revisa la nota o los campos opcionales.");
@@ -1104,6 +1111,23 @@ export function ClinicalDictation({
                 <input className="flex h-9 w-full rounded-md border px-3 text-sm" aria-label="Buscar diagnóstico para agregar" value={dxSearch} onChange={(event) => setDxSearch(event.target.value)} />
               </label>
               {dxSearch.trim().length >= 2 && <ul className="mt-2 space-y-1" data-testid="dictation-diagnosis-search">{searchDiagnoses(dxSearch, 8).map((result) => <li key={`${result.code}|${result.title}`}><button type="button" className="w-full rounded-md border px-2 py-1 text-left text-xs hover:bg-emerald-50" onClick={() => addManualDiagnosis(result.code, result.title)}>{result.code || "Sin código"} · {result.title}{result.matched && result.matched !== result.title ? ` («${result.matched}»)` : ""}</button></li>)}</ul>}
+            </section>
+            <section className="rounded-xl border border-[#dce5e7] p-4" data-testid="dictation-prestaciones">
+              <h3 className="font-semibold">Prestaciones realizadas (arancel)</h3>
+              <p className="mt-1 text-xs text-[#60757a]">Código del catálogo de prestaciones asociado a lo realizado hoy; sin montos. Se guardan en la nota. Quita las que no correspondan o agrega otra.</p>
+              <ul className="mt-2 space-y-2">
+                {prestItems.length === 0 && <li className="rounded-lg border border-dashed border-[#dce5e7] p-3 text-xs text-[#71858b]">No se detectó ninguna prestación; puedes agregarla abajo.</li>}
+                {prestItems.map((item) => <li key={item.id} className={`rounded-lg border p-3 ${item.decision === "accepted" ? "border-emerald-200 bg-white" : "border-[#e4ebed] bg-[#f9fbfb] opacity-80"}`} data-testid="dictation-prestacion">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div><p className="font-semibold">{prestacionText(item)}</p>{item.evidence && <Evidence text={item.evidence} />}</div>
+                    <div className="flex gap-2"><Decision value={item.decision} onChange={(decision) => setPrestItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, decision } : entry))} /><Button type="button" size="sm" variant="outline" onClick={() => setPrestItems((current) => current.filter((entry) => entry.id !== item.id))}>Quitar</Button></div>
+                  </div>
+                </li>)}
+              </ul>
+              <label className="mt-3 block space-y-1 text-xs">Agregar prestación (nombre o código)
+                <input className="flex h-9 w-full rounded-md border px-3 text-sm" aria-label="Buscar prestación para agregar" value={prestSearch} onChange={(event) => setPrestSearch(event.target.value)} />
+              </label>
+              {prestSearch.trim().length >= 2 && <ul className="mt-2 space-y-1">{searchPrestaciones(prestSearch, 6).map((result) => <li key={result.code}><button type="button" className="w-full rounded-md border px-2 py-1 text-left text-xs hover:bg-emerald-50" onClick={() => { setPrestItems((current) => current.some((entry) => entry.code === result.code) ? current : [...current, { id: `pr-manual-${Date.now()}`, code: result.code, name: result.name, tooth: null, evidence: "", decision: "accepted" as const }]); setPrestSearch(""); }}>{result.code} · {result.name}</button></li>)}</ul>}
             </section>
             {(proposal.procedures ?? []).length > 0 && <section className="rounded-xl border border-[#dce5e7] p-4">
               <h3 className="font-semibold">Procedimientos realizados (según la IA)</h3>
