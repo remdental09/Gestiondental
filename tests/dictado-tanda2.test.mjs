@@ -388,3 +388,10 @@ test("alcance clínico: sin presupuesto, pagos, preguntas de dinero ni sección 
   const full = await quick("Caries de dentina en la 3.6 oclusal. Presupuesto de endodoncia por 180 mil pesos. Abonó 50 mil en efectivo.");
   assert.ok(!/Presupuesto|Pagos|\$180|\$50/.test(full.evolution.body), full.evolution.body);
 });
+
+test('«ausencia dental» se asocia a DA0A.1 en CIE-11', async () => {
+  const { diagnosisMatches } = await import('../lib/icd11.ts');
+  for (const text of ['ausencia dental', 'Se diagnostica ausencia dentaria en la pieza 3.1', 'pieza ausente']) {
+    assert.ok(diagnosisMatches(text).some((match) => match.code === 'DA0A.1'), text);
+  }
+});
