@@ -561,7 +561,9 @@ function toothMentions(sentence: string): Mention[] {
     mentions.push(interpretTooth(`${spokenDigit(first)}.${spokenDigit(second)}`, "fdi"));
   }
   for (const [phrase, value] of SPOKEN_CARDINALS) {
-    const labeled = new RegExp(String.raw`\b(pieza|diente|fdi|iso)\s+(?:(fdi|iso|chilena|nacional|universal|estadounidense)\s+)?${phrase}\b`, "g");
+    // «la pieza un implante»: «un» seguido de una palabra es el artículo, no la pieza 1 («pieza uno» sí lo es).
+    const article = phrase === "un" ? String.raw`(?!\s+[a-zñ])` : "";
+    const labeled = new RegExp(String.raw`\b(pieza|diente|fdi|iso)\s+(?:(fdi|iso|chilena|nacional|universal|estadounidense)\s+)?${phrase}\b${article}`, "g");
     for (const match of spoken.matchAll(labeled)) {
       const start = match.index ?? 0;
       const end = start + match[0].length;
@@ -805,6 +807,22 @@ const EXTRACTION_INDICATED = /(?<!\p{L})(?:indicaci[oó]n\s+de\s+exodoncia|indic
 
 /** Exodoncia efectuada en la sesión (no planificada ni indicada): la pieza queda ausente. */
 const EXTRACTION_DONE = /(?<!\p{L})(?:se\s+(?:realiz[aó]|hace|hizo|efect[uú]a|efectu[oó]|practic[aó])\s+(?:la\s+|una\s+)?(?:exodoncia|extracci[oó]n)|se\s+extra(?:e|jo|jeron)|exodoncia\s+(?:realizada|efectuada)|extracci[oó]n\s+(?:realizada|efectuada))(?!\p{L})/iu;
+
+const EXTRACTION_ANY = /(?<!\p{L})(?:extracci[oó]n|exodoncia|extra[ií]d[oa]|se\s+extra(?:e|jo|jeron))(?!\p{L})/iu;
+
+/** Piezas que reciben un implante hoy. */
+function implantedToday(list: OdontogramChange[]): Set<number> {
+  return new Set(list.filter((item) => item.kind === "status" && item.status === "Implante").map((item) => item.tooth));
+}
+
+/**
+ * Implante inmediato: la pieza se extrae y en la misma sesión recibe el implante. Es una secuencia, no dos propuestas
+ * incompatibles: el estado final es Implante; la extracción queda en la nota y en las prestaciones.
+ */
+function withoutExtractionBeforeImplant(list: OdontogramChange[], implanted: Set<number>): OdontogramChange[] {
+  if (!implanted.size) return list;
+  return list.filter((item) => !(item.kind === "status" && item.status === "Ausente" && implanted.has(item.tooth) && EXTRACTION_ANY.test(item.sourceText ?? "")));
+}
 
 function statusFrom(sentence: string): ToothStatus | null {
   if (EXTRACTION_DONE.test(sentence) && !/\b(?:planific|se\s+indic|se\s+plante)/i.test(sentence)) return "Ausente";
@@ -1694,6 +1712,8 @@ export function structureTranscript(transcript: string, options: { today?: strin
     const quoted = note.match(/«([^»]+)»/)?.[1];
     return !(quoted && /caries/i.test(note) && solved.has(normalizeEvidence(quoted.replace(/…$/, ""))));
   });
+  const implanted = implantedToday(odontogram);
+  if (implanted.size) odontogram.splice(0, odontogram.length, ...withoutExtractionBeforeImplant(odontogram, implanted));
   const validated = validateProposal({ evolution: null, odontogram, budget, perio, clarifications: tidyClarifications([...openClarifications, ...numberingDoubts(transcript)], odontogram) });
   const routed = finishRouting({
     ...validated,
@@ -3187,7 +3207,10 @@ export function mergeProposals(ai: AiExtraction, local: DictationProposal, trans
   const odontogram: OdontogramChange[] = [];
   const clarifications = [...ai.clarifications];
   const conflicts = new Set<string>();
-  for (const candidate of ai.odontogram) {
+  const implanted = implantedToday([...ai.odontogram, ...local.odontogram]);
+  const aiOdontogram = withoutExtractionBeforeImplant(ai.odontogram, implanted);
+  const localOdontogram = withoutExtractionBeforeImplant(local.odontogram, implanted);
+  for (const candidate of aiOdontogram) {
     const same = odontogram.find((item) => sameFinding(item, candidate));
     if (same) {
       if (same.origin && candidate.origin) same.origin = originUnion(same.origin, candidate.origin);
@@ -3214,7 +3237,7 @@ export function mergeProposals(ai: AiExtraction, local: DictationProposal, trans
     }
     odontogram.push({ ...candidate });
   }
-  for (const rule of local.odontogram) {
+  for (const rule of localOdontogram) {
     const same = odontogram.find((item) => item.origin !== "reglas" && sameFinding(item, rule));
     if (same) {
       same.origin = "ia+reglas";
