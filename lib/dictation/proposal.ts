@@ -2694,6 +2694,8 @@ function numbersIn(value: string, articlesAsNumbers = true): Set<string> {
   }
   const spoken = speechText(value);
   for (const [phrase, number] of SPOKEN_CARDINALS) {
+    // «un pilar», «un implante»: el artículo no es la cifra 1 (solo cuenta cuando se dicta como número).
+    if (!articlesAsNumbers && phrase === "un") continue;
     if (!new RegExp(String.raw`\b${phrase}\b`).test(spoken)) continue;
     found.add(String(number));
     // «cincuenta y cinco» también se escribe «5.5» en la notación con punto de la app.

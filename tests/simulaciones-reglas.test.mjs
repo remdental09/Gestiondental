@@ -97,3 +97,12 @@ test("retratamiento de conducto sugiere la desobturación del arancel", async ()
   const p = await run("Retratamiento endodóntico de la 4.7, se retira gutapercha y se medica con hidróxido de calcio.");
   assert.ok(p.prestaciones.some((x) => x.code === "5006005"));
 });
+
+test("el artículo «un» de la nota redactada no se toma como la cifra 1 (falso aviso «menciona 1»)", async () => {
+  const T = "Segunda fase del implante de la 2.1, se instala pilar de cicatrización de 4 milímetros.";
+  const nota = { motivo: "", anamnesis: "", alergias: "", medicamentos: "", examen: "", diagnostico: "", procedimientos: "Se realiza la segunda fase del implante en la pieza 2.1 y se instala un pilar de cicatrización de 4 mm.", plan: "", indicaciones: "", presupuesto: "" };
+  const out = { nota, hallazgos: [], procedimientos: [], presupuesto: [], ficha: [], texto_corregido: T, periodonto: [], pagos: [], citas: [], diagnosticos: [], diagnosticos_sugeridos: [], dudas: [] };
+  const model = { id: "x", model: "x", complete: async () => ({ usedModel: "x", output: out }) };
+  const p = (await proposeFromTranscript({ transcript: T, chart: [] }, model, () => {}, { today: "2026-11-07" })).proposal;
+  assert.ok(!p.clarifications.some((q) => /menciona «1»/.test(q)));
+});
