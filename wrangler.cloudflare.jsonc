@@ -8,6 +8,7 @@
     "OPENAI_TRANSCRIPTION_MODEL": "gpt-4o-transcribe",
     "CLINIC_OPEN_REGISTRATION": "true",
     "MCP_OAUTH_ALLOWED_EMAIL": "remdental09@gmail.com",
+    "DICTATION_AGENT_EMAILS": "remdental09@gmail.com",
     "GCAL_CALENDAR_ID": "lpaulr@gmail.com"
   },
   "workers_dev": true,
