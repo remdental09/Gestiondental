@@ -46,3 +46,25 @@ test("prestaciones de implante por reglas: instalación, extracción para implan
   const plan = await run("Plan: instalar implante en la 3.5 en tres meses, por ahora se extrae y se deja injerto.");
   assert.ok(!plan.prestaciones.some((x) => x.code === "5011001"));
 });
+
+test("endodoncia: el arancel sale del grupo dentario y de la vitalidad dictada; sin vitalidad no se adivina", async () => {
+  const { endodonticCode } = await import("../lib/dictation/prestaciones.ts");
+  assert.equal(endodonticCode(16, "pulpitis irreversible"), "5006015");
+  assert.equal(endodonticCode(36, "necrosis pulpar"), "5006009");
+  assert.equal(endodonticCode(24, "pulpitis"), "5006002");
+  assert.equal(endodonticCode(11, "necrosis"), "5006007");
+  assert.equal(endodonticCode(24, "tres conductos"), null);
+  const p = await run("Se realiza endodoncia en la 1.6, pulpitis irreversible, cuatro conductos.");
+  assert.deepEqual(p.prestaciones.map((x) => x.code), ["5006015"]);
+});
+
+test("cambio de amalgama por resina: la prestación es de resina", async () => {
+  const p = await run("Cambio de amalgama por resina en la 2.5 oclusal, caries secundaria.");
+  assert.deepEqual(p.prestaciones.map((x) => x.code), ["5005017"]);
+});
+
+test("extracción de incluido con osteotomía y sutura se da por realizada", async () => {
+  const p = await run("Extracción de la 3.8 incluida, osteotomía y odontosección, sutura con seda 3-0, sin complicaciones.");
+  assert.ok(odo(p).includes("38:Ausente"));
+  assert.ok(!p.clarifications.some((q) => /ya se realiz/.test(q)));
+});

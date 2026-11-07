@@ -815,7 +815,7 @@ const ROOT_CANAL_FILLING = /(?<!\p{L})(?:obturaci\p{L}*\s+(?:de\s+)?(?:los\s+)?c
 const EXTRACTION_INDICATED = /(?<!\p{L})(?:indicaci[oó]n\s+de\s+exodoncia|indica(?:da)?\s+(?:la\s+)?exodoncia|exodoncia\s+indicada|para\s+exodoncia)(?!\p{L})/iu;
 
 /** Exodoncia efectuada en la sesión (no planificada ni indicada): la pieza queda ausente. */
-const EXTRACTION_DONE = /(?<!\p{L})(?:se\s+(?:realiz[aó]|hace|hizo|efect[uú]a|efectu[oó]|practic[aó])\s+(?:la\s+|una\s+)?(?:exodoncia|extracci[oó]n)|se\s+extra(?:e|jo|jeron)|exodoncia\s+(?:realizada|efectuada)|extracci[oó]n\s+(?:realizada|efectuada))(?!\p{L})/iu;
+const EXTRACTION_DONE = /(?<!\p{L})(?:se\s+(?:realiz[aó]|hace|hizo|efect[uú]a|efectu[oó]|practic[aó])\s+(?:la\s+|una\s+)?(?:exodoncia|extracci[oó]n)|se\s+extra(?:e|jo|jeron)|exodoncia\s+(?:realizada|efectuada)|extracci[oó]n\s+(?:realizada|efectuada)|(?:exodoncia|extracci[oó]n)\s+(?:de\s+)?(?:la\s+|el\s+)?(?:pieza\s+)?\d[\d.]*\s*(?:incluid[oa]|retenid[oa]|impactad[oa])?[^.;]*?(?:osteotom|odontosecc|sutur|colgajo)\p{L}*)(?!\p{L})/iu;
 
 /** Implante que se hará después («implante diferido», «se instalará», «en cuatro meses»): aún no figura en el odontograma. */
 const IMPLANT_LATER = /(?<!\p{L})(?:diferid[oa]s?|a\s+futuro|m[aá]s\s+adelante|se\s+(?:instalar|colocar|planific|program|agendar)\p{L}*|planificad[oa]s?|programad[oa]s?|(?:en|dentro\s+de|a\s+los)\s+(?:\d+|un|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|doce)\s+(?:mes(?:es)?|semanas?))(?!\p{L})/iu;
@@ -3913,7 +3913,7 @@ export async function proposeFromTranscript(
     const normalizedEvolution = typed.evolution ? normalizeIdentityNumbers(typed.evolution.body) : null;
     return withCatalogCodes(withoutMoney({
       ...typed,
-      prestaciones: suggestPrestaciones(typed.odontogram, procedureLinesOf(normalizedEvolution?.text ?? typed.evolution?.body ?? ""), (typed.procedures ?? []).map((proc) => ({ text: proc.text, evidence: proc.evidence, code: proc.code }))),
+      prestaciones: suggestPrestaciones(typed.odontogram, procedureLinesOf(normalizedEvolution?.text ?? typed.evolution?.body ?? ""), (typed.procedures ?? []).map((proc) => ({ text: proc.text, evidence: proc.evidence, code: proc.code })), `${text} ${(typed.diagnoses ?? []).map((dx) => dx.title).join(" ")}`),
       ...(normalizedEvolution ? { evolution: { ...typed.evolution!, body: normalizedEvolution.text } } : {}),
       transcript,
       corrected: { text: normalizedText.text, corrections: [...corrections, ...normalizedText.corrections] },

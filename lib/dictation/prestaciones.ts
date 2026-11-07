@@ -29,6 +29,9 @@ type Material = "composite" | "amalgama" | "ionomero";
 
 function materialOf(text: string): Material | null {
   const plain = fold(text);
+  // «Cambio de amalgama por resina»: vale el material nuevo.
+  const replacement = plain.match(/\bpor\s+(?:una?\s+)?(?:restauracion\s+(?:de\s+)?)?(resina|composite|ionomero|amalgama)/);
+  if (replacement && /\b(?:cambio|recambio|reemplazo|reposicion|reemplaz\w*)\b/.test(plain)) return replacement[1] === "amalgama" ? "amalgama" : replacement[1] === "ionomero" ? "ionomero" : "composite";
   if (/amalgama/.test(plain)) return "amalgama";
   if (/ionomero|\bciv\b/.test(plain)) return "ionomero";
   if (/resina|composite|composit|fotocur/.test(plain)) return "composite";
@@ -44,7 +47,21 @@ export function restorationCode(material: Material, tooth: number, faces: number
   return faces >= 3 ? "5005040" : faces === 2 ? "5005018" : "5005017";
 }
 
-const KEYWORDS: Array<{ test: RegExp; code: (text: string) => string | null }> = [
+/** Tratamiento de conductos según grupo dentario y vitalidad (necrosis / lesión apical → «con lesión apical»). Sin saber la vitalidad no se sugiere. */
+export function endodonticCode(tooth: number, context: string): string | null {
+  const unit = tooth % 10;
+  if (tooth >= 50 || unit < 1 || unit > 8) return null;
+  const lesion = /necrosis|necrotic|lesion\s+apical|periodontitis\s+apical|absceso|granuloma|fistula|quiste\s+(?:radicular|periapical)/.test(context);
+  const vital = /pulpitis|vital|pulpectomia\s+de\s+urgencia|pulpitis\s+irreversible/.test(context);
+  if (!lesion && !vital) return null;
+  const upper = Math.floor(tooth / 10) <= 2;
+  if (unit <= 3) return lesion ? "5006007" : "5006001";
+  if (unit <= 5) return lesion ? "5006008" : "5006002";
+  return upper ? (lesion ? "5006016" : "5006015") : (lesion ? "5006009" : "5006003");
+}
+
+const KEYWORDS: Array<{ test: RegExp; code: (text: string, teeth?: number[], context?: string) => string | null }> = [
+  { test: /\btratamiento\s+(?:de\s+)?(?:conductos?|endodontic\w*)|\bendodoncia\b|\bpulpectomia\b|\bbiopulpectomia\b|\bnecropulpectomia\b/, code: (t, teeth = [], context = "") => (/retratamiento|desobtur|apertura\s+(?:cameral\s+)?y\s+medicacion|medicacion\s+intraconducto/.test(t) || teeth.length !== 1 ? null : endodonticCode(teeth[0], `${t} ${context}`)) },
   { test: /\bdestartraje\b|\bprofilaxis\b|\bhigiene\s+(?:oral|dental)\b|\blimpieza\s+(?:dental|coronaria)\b/, code: (t) => (/\buna\s+arcada\b|\bsolo\s+(?:la\s+)?(?:superior|inferior)\b/.test(t) ? "5001039" : /\bseis\s+grupos\b|\bgrupo\s+\d\b|\bsubgingival\b/.test(t) ? null : "5001030") },
   { test: /\bsellantes?\b/, code: () => "5005012" },
   { test: /\bexodoncia\b|\bextraccion\b|\bse\s+extrae\b/, code: (t) => (/\bresto\s+radicular\b/.test(t) ? "5001041" : /\bterce(?:r|ros)\s+molar|\bmuela\s+del\s+juicio\b|\bcordal/.test(t) ? "5003045" : "5003001") },
@@ -71,7 +88,7 @@ export type CodedProcedure = { text: string; evidence?: string; code?: string };
  * Sugiere prestaciones desde las obturaciones del odontograma, los procedimientos con código elegido por el modelo
  * (validado contra el catálogo) y las líneas de «Procedimientos realizados» (reglas y búsqueda por palabras).
  */
-export function suggestPrestaciones(odontogram: OdontogramChange[], procedureLines: string[], coded: CodedProcedure[] = []): PrestacionItem[] {
+export function suggestPrestaciones(odontogram: OdontogramChange[], procedureLines: string[], coded: CodedProcedure[] = [], dictated = ""): PrestacionItem[] {
   const out: PrestacionItem[] = [];
   const push = (item: PrestacionItem | null) => {
     if (!item) return;
@@ -111,6 +128,7 @@ export function suggestPrestaciones(odontogram: OdontogramChange[], procedureLin
     const words = contentWords(sentence);
     return words.size > 0 && modelWords.some((known) => known.size > 0 && [...words].filter((word) => known.has(word)).length / Math.min(words.size, known.size) >= 0.6);
   };
+  const allPlain = fold(`${procedureLines.join(" ")} ${dictated}`);
   const implantTeeth = new Set(odontogram.filter((item) => item.kind === "status" && item.status === "Implante" && !item.advisory).map((item) => item.tooth));
   const sentencesOfLines = procedureLines.flatMap((line) => line.split(/(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑ])/u).map((part) => part.trim()).filter(Boolean));
   for (const line of sentencesOfLines) {
@@ -121,7 +139,7 @@ export function suggestPrestaciones(odontogram: OdontogramChange[], procedureLin
     let ruled = false;
     for (const rule of KEYWORDS) {
       if (!rule.test.test(plain)) continue;
-      let code = rule.code(plain);
+      let code = rule.code(plain, teeth, allPlain);
       // Extracción de una pieza que queda con implante en la misma sesión: «extracción para implante inmediato».
       if (code === "5003001" && teeth.length === 1 && (implantTeeth.has(teeth[0]) || /implante\s+inmediato/.test(plain))) code = "5011018";
       if (code) { ruled = true; push(make(code, teeth.length === 1 ? teeth[0] : null, line, out.length + 1)); }
