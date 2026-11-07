@@ -47,9 +47,19 @@ test("implante en pieza ya ausente: sugiere «Pérdida de dientes…» (DA0A.1) 
   assert.equal(p.diagnosisPrompts?.length ?? 0, 0);
 });
 
-test("si la causa se dictó («por caries»), no se pregunta", async () => {
+test("si la causa se dictó pero no quedó diagnóstico registrado, igual se proponen opciones", async () => {
   const p = await run("Se realiza la extracción de la pieza 14 por caries extensa.");
-  assert.equal(p.diagnosisPrompts?.length ?? 0, 0);
+  assert.ok(p.diagnosisPrompts?.length || p.diagnoses.some((item) => item.tooth === 14));
+});
+
+test("extracción con implante inmediato e «indicación de exodoncia» en el dictado: pregunta el diagnóstico", async () => {
+  const p = await run("Paciente con indicación de exodoncia por fractura. Se realiza exodoncia de la pieza 2.4 con anestesia al 2%. Se instala un implante FGM Arcsys de 3,8 por 7 mm. Se indica amoxicilina por infección.");
+  assert.equal(p.diagnosisPrompts?.[0]?.tooth, 24);
+});
+
+test("exodoncia + implante de la pieza 2.4 sin diagnóstico: pregunta con 4 opciones", async () => {
+  const p = await run("Se realiza exodoncia de la pieza 2.4 con anestesia al 2%. Se instala un implante FGM Arcsys de 3,8 por 7 mm. Se registra un torque de 50 N y no se realiza carga. Se agrega injerto por vestibular y se realiza sutura con seda calibre 5-0.");
+  assert.equal(p.diagnosisPrompts?.[0]?.options.length, 4);
 });
 
 test("una extracción solo indicada no genera pregunta ni sugerencia", async () => {
