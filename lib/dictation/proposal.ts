@@ -45,7 +45,7 @@ export { PAYMENT_METHOD_LABEL, PAYMENT_METHODS } from "./spoken.ts";
 import { CARIES_DEPTH_LABEL, CARIES_DEPTH_QUESTION, cariesDepthFrom, isCariesDepth, type CariesDepth } from "../caries.ts";
 import { ICD11, ICD11_CATALOG, cariesIcd11, diagnosisMatches, icd11Label, nearestDiagnosis, type SuggestedMapping } from "../icd11.ts";
 import { classifyEvolution, type EvolutionKind } from "./evolution-type.ts";
-import { matchPrestacion } from "../prestaciones-catalog.ts";
+import { candidatePrestaciones, matchPrestacion, prestacionByCode, prestacionLabel } from "../prestaciones-catalog.ts";
 import { procedureLinesOf, suggestPrestaciones, type PrestacionItem } from "./prestaciones.ts";
 export { CARIES_DEPTHS, CARIES_DEPTH_LABEL, CARIES_DEPTH_SHORT, cariesDetail } from "../caries.ts";
 export { cariesIcd11, icd11Label } from "../icd11.ts";
@@ -142,7 +142,8 @@ export type OdontogramChange = {
 export type ItemOrigin = "ia" | "reglas" | "ia+reglas";
 export type FichaField = "allergies" | "history" | "medications";
 export type FichaChange = { id: string; field: FichaField; text: string; evidence: string; origin: ItemOrigin };
-export type ProcedureItem = { id: string; text: string; evidence: string; verified: boolean };
+/** `code`: código del catálogo de prestaciones elegido por el modelo entre los candidatos (ya validado); sin él no se asocia. */
+export type ProcedureItem = { id: string; text: string; evidence: string; verified: boolean; code?: string };
 
 export type BudgetChange = {
   id: string;
@@ -2372,6 +2373,7 @@ Examen vs procedimientos: «Examen» recoge solo lo que el profesional OBSERVA o
 - "evidencia": copia EXACTA y continua de la transcripción (mismas palabras, sin corregir) que contenga el número de la pieza y el hallazgo. Si no puedes citar, no incluyas el hallazgo.
 
 3) "procedimientos": lo realizado hoy, cada uno con "texto" y "evidencia" literal. En cirugía bucal, conserva exactamente la técnica, el material y la marca de sutura (por ejemplo, Vicryl / poliglactina 910, Monocryl, PDS, Prolene, nylon o seda), calibre, aguja, material hemostático, injerto, membrana, marca y dimensiones del implante, anestésico, concentración, cantidad de tubetes, dosis y duración de medicamentos, si fueron dictados. Corrige errores claros de reconocimiento y redacta profesionalmente, pero no sustituyas materiales ni completes dosis, calibres, marcas o técnicas por conocimiento general.
+3b) "codigo" de cada procedimiento: si en la sección «Prestaciones candidatas del arancel» del mensaje hay UNA que corresponda claramente al procedimiento realizado hoy, copia su código de 7 dígitos; si ninguna corresponde con certeza, deja "" (no inventes códigos ni uses uno que no esté en esa lista). Elige según lo dictado (tipo de diente, número de conductos, material, vitalidad, arcada), nunca por suposición; con dos candidatas posibles que dependan de un dato no dictado, deja "" y pregunta en «dudas».
 4) "presupuesto": prestaciones presupuestadas con "prestacion", el precio total de cada prestación en pesos (0 si no se dijo) y "evidencia" literal. No sustituyas el precio total por el pago, el abono ni el saldo.
 5) "ficha": alergias, antecedentes médicos y medicamentos que toma el paciente, con "campo" (alergias | antecedentes | medicamentos), "texto" breve y "evidencia" literal. «Niega alergias» también se registra. Si una frase trae alergia y medicamento («alérgica a la penicilina toma losartán»), son dos elementos separados.
 6) "texto_corregido": la misma transcripción con SOLO errores de reconocimiento de voz corregidos (palabras mal oídas: «mecial» → «mesial», «caris» → «caries», «periodo de autograma» → «periodontograma», «de estar traje» → «destartraje», «sub gingival» → «subgingival», «supra gingival» → «supragingival» y «root» → «RUT» solo cuando se pregunta por el RUN/RUT) y números dictados en palabras pasados a cifras («dos cuatro» → «2.4», «cuatro milímetros» → «4 mm», «cincuenta mil» → «50.000»; en implantes: «Flappers» → «flapless», medida «33 × 8» → «3,3 × 8 mm» con coma decimal). En un RUN/RUT explícitamente identificado, escribe cuerpo y dígito verificador en cifras, con puntos de miles y guion, solo si se pueden interpretar sin ambigüedad; para fecha de nacimiento explícita, usa DD/MM/AAAA y acepta números dichos en palabras. Una marca de implante dudosa («Arcis», ¿Arcsys?) no la cambies: pregúntala en dudas. Mantén el orden y las demás palabras; no resumas, no agregues datos, no cambies piezas, caras, cifras, negaciones ni términos clínicos correctos. Si no hay nada que corregir, repite el texto.
@@ -2420,7 +2422,7 @@ export const AI_JSON_SCHEMA = {
     },
     procedimientos: {
       type: "array",
-      items: { type: "object", additionalProperties: false, required: ["texto", "evidencia"], properties: { texto: STRING, evidencia: STRING } },
+      items: { type: "object", additionalProperties: false, required: ["texto", "evidencia", "codigo"], properties: { texto: STRING, evidencia: STRING, codigo: STRING } },
     },
     presupuesto: {
       type: "array",
@@ -2508,7 +2510,9 @@ export function buildModelUserPrompt(input: StructureInput): string {
   const endoPerioContext = buildEndoPerioContext(input.transcript);
   const clinicalContext = [minsalContext, endoPerioContext].filter(Boolean).join("\n\n");
   const toothContext = [...new Set(toothMentions(spokenPunctuation(input.transcript)).flatMap((item) => item.ok ? [item.numberingLabel] : []))];
-  return `Transcripción literal del dictado:\n«${input.transcript.trim()}»${chart}\n\nNumeración resuelta por la aplicación (conserva el sistema de origen): ${toothContext.join("; ") || "sin piezas identificadas"}.\n\n${clinicalContext}\n\nDevuelve el JSON.`;
+  const candidates = candidatePrestaciones(input.transcript, 40);
+  const catalog = candidates.length ? `Prestaciones candidatas del arancel (código · nombre; elige solo de esta lista, sin dinero):\n${candidates.map((item) => `${item.code} · ${prestacionLabel(item.name)}`).join("\n")}\n\n` : "";
+  return `Transcripción literal del dictado:\n«${input.transcript.trim()}»${chart}\n\nNumeración resuelta por la aplicación (conserva el sistema de origen): ${toothContext.join("; ") || "sin piezas identificadas"}.\n\n${catalog}${clinicalContext}\n\nDevuelve el JSON.`;
 }
 
 /** Normaliza para comparar citas: sin tildes, minúsculas y solo letras o números. */
@@ -2880,7 +2884,9 @@ export function validateAiExtraction(input: unknown, transcript: string, options
     if (!textValue) continue;
     // Un plan o una indicación no es un procedimiento realizado.
     if (evidence && (isPlan(evidence) || planContextOfSegment(evidence, transcript)) && !isPerformed(evidence) && !PERFORMED_TODAY.test(textValue)) continue;
-    procedures.push({ id: nextId("proc"), text: textValue, evidence, verified: Boolean(evidence) && evidenceInTranscript(evidence, transcript) });
+    const rawCode = str(item.codigo, 12).replace(/\D/g, "");
+    const code = prestacionByCode(rawCode) ? rawCode : undefined;
+    procedures.push({ id: nextId("proc"), text: textValue, evidence, verified: Boolean(evidence) && evidenceInTranscript(evidence, transcript), ...(code ? { code } : {}) });
   }
 
   // Presupuesto
@@ -3689,7 +3695,7 @@ export async function proposeFromTranscript(
     const normalizedEvolution = typed.evolution ? normalizeIdentityNumbers(typed.evolution.body) : null;
     return withCatalogCodes(withoutMoney({
       ...typed,
-      prestaciones: suggestPrestaciones(typed.odontogram, procedureLinesOf(normalizedEvolution?.text ?? typed.evolution?.body ?? "")),
+      prestaciones: suggestPrestaciones(typed.odontogram, procedureLinesOf(normalizedEvolution?.text ?? typed.evolution?.body ?? ""), (typed.procedures ?? []).map((proc) => ({ text: proc.text, evidence: proc.evidence, code: proc.code }))),
       ...(normalizedEvolution ? { evolution: { ...typed.evolution!, body: normalizedEvolution.text } } : {}),
       transcript,
       corrected: { text: normalizedText.text, corrections: [...corrections, ...normalizedText.corrections] },

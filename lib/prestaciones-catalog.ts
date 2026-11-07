@@ -924,3 +924,35 @@ export function matchPrestacion(text: string): Prestacion | null {
   if (!best || best.score < 0.6 || (second && best.score - second.score < 0.15)) return null;
   return best.item;
 }
+
+/** Código de 7 dígitos del catálogo → prestación; undefined si no existe. */
+export function prestacionByCode(code: string): Prestacion | undefined {
+  return BY_CODE.get(code.trim());
+}
+const BY_CODE = new Map(PRESTACIONES.map((item) => [item.code, item]));
+
+/** Raíz para comparar «sellante/sellantes», «corona/coronas», «obturación/obturaciones» sin lematizar. */
+const stem = (word: string) => (word.length > 6 ? word.slice(0, 6) : word);
+const stemsOf = (value: string) => new Set([...wordsOf(value)].map(stem));
+const STEMS = PRESTACIONES.map((item) => ({ item, stems: stemsOf(item.name) }));
+const GENERIC = new Set(["tratamiento", "simple", "pieza", "por", "unitaria", "adulto", "adultos", "ambas", "arcada", "arcadas", "dentario", "dentaria", "con", "sin", "uso", "instalacion", "retiro", "control", "realiza", "realizo"].map(stem));
+
+/**
+ * Prestaciones del catálogo que podrían corresponder a un texto dictado, para ofrecérselas al modelo como lista
+ * cerrada. Es amplio a propósito (cualquier palabra con contenido en común, ponderada por cuánto del nombre cubre);
+ * la decisión final la toma el modelo y el profesional, y todo código se valida contra el catálogo.
+ */
+export function candidatePrestaciones(text: string, limit = 40): Prestacion[] {
+  const given = stemsOf(text);
+  if (!given.size) return [];
+  const scored: Array<{ item: Prestacion; score: number }> = [];
+  for (const { item, stems } of STEMS) {
+    let specific = 0;
+    let weight = 0;
+    for (const word of stems) if (given.has(word)) { if (GENERIC.has(word)) weight += 0.3; else { specific += 1; weight += 1; } }
+    if (!specific) continue;
+    scored.push({ item, score: weight / Math.sqrt(stems.size) });
+  }
+  scored.sort((a, b) => b.score - a.score || a.item.name.length - b.item.name.length);
+  return scored.slice(0, limit).map((entry) => entry.item);
+}
