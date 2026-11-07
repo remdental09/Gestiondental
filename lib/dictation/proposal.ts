@@ -799,6 +799,8 @@ function crownOnImplantSentence(sentence: string): boolean {
     && !(/\bprovisori[ao]\b/i.test(sentence) && !/\bdefinitiv[ao]\b/i.test(sentence));
 }
 
+/** «Obturación de conductos» / «tratamiento de conductos»: es endodoncia, no una obturación de superficie del odontograma. */
+const ROOT_CANAL_FILLING = /(?<!\p{L})(?:obturaci\p{L}*\s+(?:de\s+)?(?:los\s+)?conductos?|obturaci\p{L}*\s+radicular)(?!\p{L})/iu;
 const EXTRACTION_INDICATED = /(?<!\p{L})(?:indicaci[oó]n\s+de\s+exodoncia|indica(?:da)?\s+(?:la\s+)?exodoncia|exodoncia\s+indicada|para\s+exodoncia)(?!\p{L})/iu;
 
 /** Exodoncia efectuada en la sesión (no planificada ni indicada): la pieza queda ausente. */
@@ -1563,7 +1565,7 @@ export function structureTranscript(transcript: string, options: { today?: strin
     const scope = surfaceScope(sentence);
     const onImplant = crownOnImplantSentence(sentence);
     const status = isPaymentText(sentence) ? null : statusFrom(sentence);
-    const surfaceResult = onImplant || status === "Ausente" || status === "Implante" ? null : findingFrom(scope);
+    const surfaceResult = onImplant || status === "Ausente" || status === "Implante" || ROOT_CANAL_FILLING.test(scope) ? null : findingFrom(scope);
     if (!mentions.length && (status || surfaceResult)) {
       // Dictado conversacional: la pieza puede estar en la frase anterior o en la siguiente.
       // Solo se hereda si el entorno apunta a una única pieza válida; si no, se pregunta.
@@ -2367,6 +2369,7 @@ Examen vs procedimientos: «Examen» recoge solo lo que el profesional OBSERVA o
 - "profundidad" (solo caries): "esmalte" (caries de esmalte, mancha blanca), "dentina_superficial" (dentina superficial o media), "dentina_profunda" (dentina profunda, caries profunda) o "pulpar" (compromiso pulpar, penetrante); "" si no se dijo. No uses ICDAS.
 - «resina», «amalgama» o «ionómero» con una cara (p. ej. «pieza 1.1 resina vestibular») es una obturación existente: condicion "obturacion".
 - «indica exodoncia», «exodoncia indicada» o «para exodoncia» de una pieza es el estado "Indicación de exodoncia" aunque sea una indicación. Otros planes («se indica endodoncia») no van en hallazgos.
+- Una exodoncia o extracción REALIZADA hoy («se realiza exodoncia de la 4.8», «se extrae la 1.8») es el estado "Ausente" de esa pieza, aunque la ficha la tuviera como indicada: inclúyela con evidencia literal. Si solo está indicada o planificada, no es "Ausente".
 - Lo negado («sin caries», «no hay caries») no va en hallazgos.
 - Una fractura, fisura o cúspide fracturada NO es caries ni obturación: no la pongas en hallazgos; va en la nota (examen).
 - "material" y "color" solo para corona, si se dijeron.
@@ -3233,7 +3236,8 @@ export function mergeProposals(ai: AiExtraction, local: DictationProposal, trans
   const aiTeeth = new Set([...ai.odontogram, ...ai.incomplete].map((item) => item.tooth));
   if (aiTeeth.size) {
     for (const item of odontogram) {
-      if (item.origin === "reglas" && !item.conflict && !item.advisory && !aiTeeth.has(item.tooth)) {
+      const explicitExtraction = item.kind === "status" && item.status === "Ausente" && EXTRACTION_DONE.test(item.sourceText ?? "");
+      if (item.origin === "reglas" && !item.conflict && !item.advisory && !aiTeeth.has(item.tooth) && !explicitExtraction) {
         item.advisory = `Solo las reglas detectaron esto en FDI ${formatFdi(item.tooth)}; la IA no lo vio. Revisa que sea la pieza correcta antes de aceptarlo.`;
       }
     }
@@ -3492,6 +3496,38 @@ function fdiMentionsWithIndex(text: string): Array<{ tooth: number; index: numbe
  * Si el dictado nombra otra pieza válida en el mismo contexto (p. ej. «implante 2.6» antes), se sugiere
  * como primera opción, sin marcarla.
  */
+/** Actos clínicos que no caben en una pieza ausente (salvo implantes e injertos) ni en un implante. */
+const ACT_ON_NATURAL_TOOTH = /(?<!\p{L})(?:conductos?|endodoncia|pulpectom\p{L}*|pulpotom\p{L}*|sellantes?|obturaci\p{L}*|restaura\p{L}*|resina|amalgama|exodoncia|extracci\p{L}*|caries)(?!\p{L})/iu;
+const ACT_ON_ABSENT_TOOTH = /(?<!\p{L})(?:conductos?|endodoncia|pulpectom\p{L}*|pulpotom\p{L}*|sellantes?|obturaci\p{L}*|restaura\p{L}*|resina|amalgama|exodoncia|extracci\p{L}*|corona|caries)(?!\p{L})/iu;
+
+/**
+ * Pregunta cuando lo dictado no cuadra con el estado actual de la ficha: un tratamiento de diente natural sobre un
+ * implante, o un acto sobre una pieza registrada como ausente. No cambia nada: solo avisa para que se confirme la pieza.
+ */
+export function chartConsistencyDoubts(text: string, chart: StructureInput["chart"] = []): string[] {
+  if (!chart.length) return [];
+  const byTooth = new Map(chart.map((item) => [item.tooth, item.status]));
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const sentence of text.split(/(?<=[.!?])\s+/)) {
+    if (/(?<!\p{L})(?:ausente|implantes?|pilar|planific\p{L}*|se\s+indica|indicaci[oó]n)(?!\p{L})/iu.test(sentence)) continue;
+    for (const mention of toothMentions(sentence)) {
+      if (!mention.ok) continue;
+      const status = byTooth.get(mention.tooth);
+      if (!status) continue;
+      const label = `FDI ${formatFdi(mention.tooth)}`;
+      const absent = status === "Ausente" && ACT_ON_ABSENT_TOOTH.test(sentence);
+      const implant = /^Implante/.test(status) && ACT_ON_NATURAL_TOOTH.test(sentence);
+      if (!absent && !implant) continue;
+      const key = `${mention.tooth}:${absent ? "a" : "i"}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(`${label} figura como ${absent ? "ausente" : "implante"} en la ficha y se dictó un tratamiento en esa pieza: «${clip(sentence)}». ¿Es la pieza correcta?`);
+    }
+  }
+  return out;
+}
+
 export function numberingDoubts(text: string, chart: StructureInput["chart"] = []): string[] {
   const out: string[] = [];
   const seen = new Set<number>();
@@ -3687,7 +3723,7 @@ export async function proposeFromTranscript(
   const withText = (proposal: DictationProposal, text: string, corrections: TranscriptCorrection[], aiDiagnoses: DiagnosisItem[] = []): DictationProposal => {
     // En la nota solo entran los diagnósticos no sugeridos; las equivalencias sugeridas esperan confirmación.
     const diagnoses = mergeDiagnoses(cariesDiagnoses(proposal.odontogram), textDiagnoses(text), aiDiagnoses);
-    const doubts = [...lexiconDoubts(text), ...numberingDoubts(text, input.chart ?? []), ...vagueSurfaceClarifications(text)];
+    const doubts = [...lexiconDoubts(text), ...numberingDoubts(text, input.chart ?? []), ...vagueSurfaceClarifications(text), ...chartConsistencyDoubts(text, input.chart ?? [])];
     const clarifications = tidyClarifications([...proposal.clarifications, ...doubts.filter((item) => !proposal.clarifications.includes(item))], proposal.odontogram);
     const evolution = proposal.evolution ? { ...proposal.evolution, body: withDiagnosesSection(proposal.evolution.body, diagnoses.filter((item) => !item.suggested)) } : null;
     const typed = applyEvolutionPolicy({ ...proposal, evolution, clarifications, diagnoses }, input.chart ?? [], text);
