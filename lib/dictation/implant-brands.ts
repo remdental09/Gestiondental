@@ -71,7 +71,7 @@ const ROWS: Array<[string, string, string, string[]?]> = [
   ["SIN Implant System", "S.I.N. Sistema de Implante Nacional", "Brasil", ["SIN", "Sin Implante"]],
   ["Implacil De Bortoli", "Implacil De Bortoli", "Brasil", ["Implacil"]],
   ["Bionnovation", "Bionnovation Biomedical", "Brasil"],
-  ["Arcsys", "FGM Produtos Odontológicos", "Brasil", ["FGM", "Arxis", "Arxys", "Arcsis", "Arksis"]],
+  ["Arcsys", "FGM Produtos Odontológicos", "Brasil", ["FGM", "Arxis", "Arxys", "Arcsis", "Arksis", "Arsis", "Arsys", "Arcis"]],
   ["Titanium Fix", "Titanium Fix", "Brasil"],
   ["Signo Vinces", "Signo Vinces", "Brasil"],
   ["Intra-Lock Brasil", "Intra-Lock", "Brasil"],
