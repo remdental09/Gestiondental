@@ -352,6 +352,11 @@ const LEXICON: Array<[RegExp, string]> = [
   [/\bdestartaraje(s)?\b/gi, "destartraje$1"],
   // Solo en contexto gingival: el ASR a veces transcribe «destartraje» como «tatuaje».
   [/\b(de\s+)?tatuaje(?=\s+(?:sub|supra)\s*[- ]?\s*gingival(?:es)?\b)/gi, "$1destartraje"],
+  // Cirugía bucal: «alvéolo» suele oírse «velo» o «a velo». «Velo» solo se corrige con palabras propias del alvéolo
+  // (fresco, postextracción, vacío…); «velo palatino» o «velo del paladar» son términos válidos y no se tocan.
+  [/\b(?:a|al)\s+velo(s)?(?=\s+(?:fresco|frescos|post\s*[- ]?\s*extracci[oó]n|vac[ií]o|vac[ií]os|cicatrizad[oa]s?|remanente|residual|de\s+la\s+pieza|del\s+diente)\b)/gi, "alvéolo$1"],
+  [/\bvelo(s)?(?=\s+(?:fresco|frescos|post\s*[- ]?\s*extracci[oó]n|vac[ií]o|vac[ií]os|cicatrizad[oa]s?)\b)/gi, "alvéolo$1"],
+  [/\b(?:el\s+)?alveolo(s)?\b/gi, "alvéolo$1"],
   [/\bsupra\s*[- ]\s*gingival(es)?\b/gi, "supragingival$1"],
   [/\bsub\s*[- ]\s*gingival(es)?\b/gi, "subgingival$1"],
   [/\bligamento\s+(?:peridontal|periodental)\b/gi, "ligamento periodontal"],
@@ -437,7 +442,8 @@ const UNKNOWN_PHRASES: Array<[RegExp, string]> = [
 /** Dichos que el diccionario no corrige solo: quedan como pregunta para el profesional. */
 export function lexiconDoubts(text: string): string[] {
   const out: string[] = [];
-  const brand = text.match(/\b(?:marca\s+)?(arc[iy]s+(?:\s+dos)?)\b/i);
+  // «Arsis», «Arxis», «Arsys»… solo cuentan como la marca si acompañan a FGM, «marca» o «implante»; «arcis/arcys» ya bastaba solo.
+  const brand = text.match(/\b(?:marca\s+)?(arc[iy]s+(?:\s+dos)?)\b/i) ?? text.match(/\b(?:fgm|marca|implante)\s+(?:de\s+)?(?:marca\s+)?(?:fgm\s+)?(ar[cxks]{1,2}[iy]s+(?:\s+dos)?)\b/i);
   if (brand) out.push(`¿La marca del implante es Arcsys (FGM)? Se oyó «${brand[1]}»: confírmala o corrígela.`);
   const integral = text.match(/\bimplantes?\s+integral(?:es)?\b/i);
   if (integral) out.push(`Se oyó «${integral[0]}»: ¿es un implante oseointegrado o la marca/modelo del implante?`);
