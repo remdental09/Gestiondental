@@ -425,9 +425,13 @@ function splitAtCues(piece: string): string[] {
   return out.filter(Boolean);
 }
 
+/** «extracción de la 2.4 más obturación en la 1.6»: cada procedimiento con su pieza es una frase, para no mezclar estados. */
+const PROCEDURE_JOIN = /\s+(?:m[aá]s|adem[aá]s|y(?:\s+tambi[eé]n)?)\s+(?=(?:se\s+)?(?:obtur|restaur|endodonc|tratamiento\s+de\s+conductos|profilaxis|destartraje|raspado|sellante|blanqueamiento)\p{L}*[^.;]*?(?:\d\.\d|(?:pieza|diente)s?\s+\d))/iu;
+
 function sentences(text: string): string[] {
   return spokenPunctuation(text)
     .split(/\n+|(?<=[.!?;])\s+/)
+    .flatMap((part) => part.split(PROCEDURE_JOIN))
     .map((part) => part.trim())
     .filter(Boolean)
     .flatMap((part) => splitAtCues(part));
@@ -816,6 +820,8 @@ const EXTRACTION_DONE = /(?<!\p{L})(?:se\s+(?:realiz[aó]|hace|hizo|efect[uú]a|
 /** Implante que se hará después («implante diferido», «se instalará», «en cuatro meses»): aún no figura en el odontograma. */
 const IMPLANT_LATER = /(?<!\p{L})(?:diferid[oa]s?|a\s+futuro|m[aá]s\s+adelante|se\s+(?:instalar|colocar|planific|program|agendar)\p{L}*|planificad[oa]s?|programad[oa]s?|(?:en|dentro\s+de|a\s+los)\s+(?:\d+|un|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|doce)\s+(?:mes(?:es)?|semanas?))(?!\p{L})/iu;
 /** Instalación hecha hoy: «se instala/coloca/inserta … implante». */
+/** «finalmente no se instaló», «no se pudo colocar»: el implante no quedó. */
+const IMPLANT_NOT_DONE = /(?<!\p{L})(?:no\s+se\s+(?:pudo\s+|logr[oó]\s+)?(?:instal|coloc|insert|reali)\p{L}*|finalmente\s+no|sin\s+(?:poder\s+)?(?:instalar|colocar)|se\s+(?:descart|suspend)\p{L}*)(?!\p{L})/iu;
 const IMPLANT_INSTALLING = /(?<!\p{L})(?:instal|coloc|insert|pon[eé]|puso)\p{L}*/iu;
 
 const EXTRACTION_ANY = /(?<!\p{L})(?:extracci[oó]n|exodoncia|extra[ií]d[oa]|se\s+extra(?:e|jo|jeron))(?!\p{L})/iu;
@@ -837,18 +843,19 @@ function withoutExtractionBeforeImplant(list: OdontogramChange[], implanted: Set
 function statusFrom(sentence: string): ToothStatus | null {
   if (EXTRACTION_DONE.test(sentence) && !/\b(?:planific|se\s+indic|se\s+plante)/i.test(sentence)) {
     // Extracción e instalación en la misma frase («extracción y se instala un implante en el alvéolo fresco»): queda el implante.
-    const implantNow = /\bimplantes?\b/i.test(sentence) && IMPLANT_INSTALLING.test(sentence) && !IMPLANT_LATER.test(sentence);
+    const implantNow = /\bimplantes?\b/i.test(sentence) && IMPLANT_INSTALLING.test(sentence) && !IMPLANT_LATER.test(sentence) && !IMPLANT_NOT_DONE.test(sentence);
     return implantNow ? "Implante" : "Ausente";
   }
   if (/\bresto\s+radicular\b/i.test(sentence) && /\bendodoncia\b/i.test(sentence)) return "Resto radicular con endodoncia";
   if (EXTRACTION_INDICATED.test(sentence)) return "Indicación de exodoncia";
   if (crownOnImplantSentence(sentence)) return null;
+  if (/\bimplantes?\b/i.test(sentence) && IMPLANT_NOT_DONE.test(sentence)) return null;
   if (/\bimplantes?\b/i.test(sentence) && !/\b(?:corona|pr[oó]tesis\s+fija)\b/i.test(sentence)) {
     if (/\b(?:control\p{L}*|seguimiento|revisi[oó]n|mantenimiento)(?!\p{L})/iu.test(sentence) && !isPerformed(sentence)) return null;
     if (/\b(?:planific|se\s+indic|program)\b/i.test(sentence) || IMPLANT_LATER.test(sentence)) return null;
     return "Implante";
   }
-  if (/\b(?:corona|pr[oó]tesis\s+fija\s+definitiva)\b/i.test(sentence) && !/\bprovisori[ao]\b/i.test(sentence)) return "Corona";
+  if (/\b(?:corona|pr[oó]tesis\s+fija\s+definitiva)\b/i.test(sentence) && !/\bprovisori[ao]\b/i.test(sentence) && !/\b(?:alargamiento|aumento|elongaci[oó]n)\s+(?:de\s+)?(?:la\s+)?corona|corona\s+cl[ií]nica|preparaci[oó]n\s+(?:para|de)\s+(?:la\s+)?corona/i.test(sentence)) return "Corona";
   if (/\b(?:ausente|extra[ií]d[oa]|exodonciad[oa])\b/i.test(sentence)) return "Ausente";
   if (/(?<!\p{L})ausencia\s+(?:de(?:l|\s+la)?\s+)?(?:pieza\s+|diente\s+)?\d/iu.test(sentence)) return "Ausente";
   return null;
@@ -862,7 +869,7 @@ export function depthQuestion(heading: string, ambiguous: string | undefined, qu
 }
 
 /** Restauración hecha en la sesión (no una obturación existente). */
-const TREATED_RESTORATION = /(?<!\p{L})(?:se\s+(?:re)?(?:realiz[aó]|hace|hizo|efect[uú]a|efectu[oó]|obtur[aó]|restaur[aó])|se\s+(?:reemplaz|recambi|repon)\w+|(?:obturad[oa]|restaurad[oa])\s+hoy)(?!\p{L})/iu;
+const TREATED_RESTORATION = /(?<!\p{L})(?:(?:cambio|recambio|reemplazo|reposici[oó]n)\s+de\s+(?:la\s+|una\s+)?(?:amalgama|resina|obturaci\p{L}*|restauraci\p{L}*)|se\s+trat[aó]\s+(?:la\s+|una\s+)?caries|se\s+(?:re)?(?:realiz[aó]|hace|hizo|efect[uú]a|efectu[oó]|obtur[aó]|restaur[aó])|se\s+(?:reemplaz|recambi|repon)\w+|(?:obturad[oa]|restaurad[oa])\s+hoy)(?!\p{L})/iu;
 
 function restorationDetailsFrom(sentence: string): Pick<SurfaceFinding, "restorationStage" | "restorationMaterial"> {
   const restorationStage = /\bprovisori[oa]\b/iu.test(sentence)
@@ -886,12 +893,13 @@ function findingFrom(sentence: string): FindingResult {
   const deniesCaries = /\b(?:sin|no)\s+(?:se\s+observa\s+)?caries\b/i.test(sentence);
   const hasCaries = /\bcaries\b/i.test(sentence) && !deniesCaries;
   // «resina vestibular» o «amalgama oclusal» dictadas solas son una obturación existente.
-  const restored = /\b(?:obturaci[oó]n|obturad[oa]|restauraci[oó]n|restaurad[oa]|resina|amalgama|ion[oó]mero)\b/i.test(sentence);
+  const restored = /\b(?:obturaci[oó]n|obturad[oa]|restauraci[oó]n|restaurad[oa]|resina|amalgama|ion[oó]mero)\b/i.test(sentence) && !NOT_A_RESTORATION.test(sentence);
   const sealant = /\bsellante\b/i.test(sentence);
   const other = /\botra\s+restauraci[oó]n\b/i.test(sentence);
   const sound = /\b(?:sana|sano|sin\s+lesi[oó]n)\b/i.test(sentence) || deniesCaries;
   // «Se realiza obturación … por caries de dentina»: la caries es el motivo; la cara queda obturada.
-  if (hasCaries && restored && !sealant && !other && !sound && TREATED_RESTORATION.test(sentence)) {
+  const nominalTreated = /^\s*(?:obturaci[oó]n|restauraci[oó]n)(?!\p{L})/iu.test(sentence) && /(?<!\p{L})(?:por|debido\s+a|a\s+causa\s+de)\s+(?:una\s+|la\s+)?caries/iu.test(sentence);
+  if (hasCaries && restored && !sealant && !other && !sound && (TREATED_RESTORATION.test(sentence) || nominalTreated)) {
     return { finding: restoredFinding(sentence) };
   }
   // «Caries recurrente bajo la obturación antigua» (sin tratamiento aún): la lesión es la caries; la obturación solo la ubica.
@@ -1208,7 +1216,10 @@ const LIKELY_DIAGNOSES: Record<"extraccion" | "endodoncia" | "restauracion" | "h
   higiene: { label: "higiene periodontal", codes: ["DA0B.Z", "DA0C.Z"] },
 };
 const ENDO_DONE = /(?<!\p{L})(?:endodoncia|tratamiento\s+de\s+(?:conductos?|canales)|pulpectom\p{L}*|biopulpectom\p{L}*|necropulpectom\p{L}*|pulpotom\p{L}*|trepanaci\p{L}*|conductometr\p{L}*|obturaci[oó]n\s+de\s+conductos?)(?!\p{L})/iu;
-const RESTORATION_DONE = /(?<!\p{L})(?:obturaci[oó]n|restauraci[oó]n|resina|composite|amalgama|ion[oó]mero|tapadura|empaste)(?!\p{L})/iu;
+const RESTORATION_DONE_RAW = /(?<!\p{L})(?:obturaci[oó]n|restauraci[oó]n|resina|composite|amalgama|ion[oó]mero|tapadura|empaste)(?!\p{L})/iu;
+/** Obturación de conductos, retrógrada con MTA, ferulización con resina… no son restauraciones de superficie. */
+const NOT_A_RESTORATION = /(?<!\p{L})(?:conductos?|gutapercha|retr[oó]grad\p{L}*|apicectom\p{L}*|ferul\p{L}*|f[eé]rula|alambre|mta)(?!\p{L})/iu;
+const RESTORATION_DONE = { test: (text: string) => RESTORATION_DONE_RAW.test(text) && !NOT_A_RESTORATION.test(text) };
 const HYGIENE_DONE = /(?<!\p{L})(?:destartraje|detartraje|tartrectom\p{L}*|raspado|alisado\s+radicular|pulido\s+radicular|profilaxis|instrumentaci[oó]n\s+subgingival)(?!\p{L})/iu;
 /** La causa o el diagnóstico ya están dichos («por caries», «por fractura», «diagnóstico…»): no se pregunta. */
 const CAUSE_SAID = /(?<!\p{L})(?:diagn[oó]stic\p{L}*|(?:por|debido\s+a|a\s+causa\s+de|motivo)\s+(?:de\s+)?(?:una?\s+|la\s+|el\s+)?(?:caries|fractura|enfermedad|periodont\p{L}*|gingivitis|movilidad|necrosis|pulpitis|absceso|reabsorci\p{L}*|trauma\p{L}*|ortodoncia|indicaci[oó]n|pericoronaritis|infecci[oó]n|quiste|lesi[oó]n|abrasi[oó]n|erosi[oó]n|desgaste))(?!\p{L})/iu;
