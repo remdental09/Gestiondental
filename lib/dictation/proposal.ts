@@ -3911,7 +3911,7 @@ export async function proposeFromTranscript(
     };
     const normalizedText = normalizeIdentityNumbers(text);
     const normalizedEvolution = typed.evolution ? normalizeIdentityNumbers(typed.evolution.body) : null;
-    return withCatalogCodes(withoutMoney({
+    const finished = withCatalogCodes(withoutMoney({
       ...typed,
       prestaciones: suggestPrestaciones(typed.odontogram, procedureLinesOf(normalizedEvolution?.text ?? typed.evolution?.body ?? ""), (typed.procedures ?? []).map((proc) => ({ text: proc.text, evidence: proc.evidence, code: proc.code })), `${text} ${(typed.diagnoses ?? []).map((dx) => dx.title).join(" ")}`),
       ...(normalizedEvolution ? { evolution: { ...typed.evolution!, body: normalizedEvolution.text } } : {}),
@@ -3919,6 +3919,14 @@ export async function proposeFromTranscript(
       corrected: { text: normalizedText.text, corrections: [...corrections, ...normalizedText.corrections] },
       ...(frame.spokenName ? { spokenName: frame.spokenName } : {}),
     }));
+    // Preguntas repetidas o ya resueltas: la marca preguntada por las reglas y por la IA es una sola; y si las reglas ya
+    // sugirieron una prestación, la IA no necesita preguntar «qué código corresponde».
+    const ruleBrandAsked = finished.clarifications.some((item) => /^¿La marca del implante es Arcsys/.test(item));
+    const hasPrestaciones = (finished.prestaciones ?? []).length > 0;
+    return {
+      ...finished,
+      clarifications: finished.clarifications.filter((item) => !(ruleBrandAsked && /^IA: ¿La marca dictada como/.test(item)) && !(hasPrestaciones && /^IA: No hay una prestaci[oó]n candidata/.test(item))),
+    };
   };
   if (!model) return { engine: "reglas-locales", model: null, notice: LOCAL_NOTICE, proposal: withText(localOnly, fixed, lexicon.corrections) };
   const started = Date.now();
