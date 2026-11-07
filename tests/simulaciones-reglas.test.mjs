@@ -79,3 +79,16 @@ test("preguntas de la IA duplicadas (marca) o ya resueltas por reglas (prestaci�
   assert.equal(p.clarifications.filter((q) => /^(?:IA: )?¿La marca/.test(q)).length, 1);
   assert.ok(!p.clarifications.some((q) => /No hay una prestaci/.test(q)));
 });
+
+test("cementación o preparación de corona en pieza natural se titula Prótesis, no Evaluación", async () => {
+  const { classifyEvolution } = await import("../lib/dictation/evolution-type.ts");
+  assert.equal(classifyEvolution("Se realiza cementación de corona metal cerámica en la pieza 3.4 con cemento de ionómero.", "FDI 3.4").type, "protesis");
+  assert.equal(classifyEvolution("Se realiza preparación de la pieza 1.1 para corona de zirconio y toma de impresión digital.", "FDI 1.1").type, "protesis");
+});
+
+test("raspado y alisado radicular sugiere el pulido radicular por sextante del arancel", async () => {
+  const p = await run("Se realiza raspado y alisado radicular en el cuadrante 1 y 2, anestesia local.");
+  assert.ok(p.prestaciones.some((x) => x.code === "5009003"));
+  const deep = await run("Se realiza raspado y alisado radicular en bolsas profundas del cuadrante 3.");
+  assert.ok(deep.prestaciones.some((x) => x.code === "5009012"));
+});

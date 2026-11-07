@@ -125,6 +125,7 @@ export function classifyEvolution(text: string, tooth?: string | null, implantIn
   }
   if (/\b(?:endodoncia|conductometria|biopulpectomia|necropulpectomia|pulpectomia|pulpotomia|trepanacion|instrumentacion|obturacion\s+de\s+conductos?|conductos?\s+radicular)/.test(today) && !/\b(?:se\s+indica|planific|presupuest)\w*\s+(?:la\s+)?endodoncia\b/.test(today)) return make("endodoncia");
   if (/\b(?:se\s+(?:realiza|realizo|hace|hizo)\s+(?:la\s+)?(?:exodoncia|extraccion)|se\s+extra(?:e|jo)|exodoncia\s+(?:simple|quirurgica|de\s+(?:la\s+)?pieza)|extraccion\s+(?:simple|quirurgica))\b/.test(today)) return make("exodoncia");
+  if (/\b(?:corona|carilla|incrustacion|inlay|onlay|puente|nucleo|munon)\b/.test(today) && /\b(?:cementa\w*|preparacion|impresion|prueba|provisori[ao]|escaneo|instala\w*|coloca\w*|toma\s+de)\b/.test(today) && performed) return make("protesis");
   if (/\b(?:obturacion|obtura|restauracion|restaura|resina|amalgama|ionomero)\w*\b/.test(today) && (performed || /\bse\s+(?:obtura|restaura)\b/.test(today))) return make("obturacion");
   if (/\b(?:protesis|ppr|placa\s+acrilica|rebasad\w*|prueba\s+de\s+(?:dientes|enfilado|metal)|enfilado|cubeta\s+individual)\b/.test(today)) return make("protesis", undefined, !performed);
   if (/\b(?:ortodon\w*|ortoped\w*|brackets?|arco|elasticos?|alineador\w*|disyuntor|expansor\w*|placa\s+(?:de\s+)?(?:expansion|hawley|activa)|retenedor\w*|ligaduras?|quad\s*helix)\b/.test(today)) {
