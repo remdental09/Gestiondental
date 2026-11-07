@@ -899,6 +899,7 @@ export function ClinicalDictation({
     addManualDiagnosis(code, title, tooth);
     setAnsweredDxPrompts((current) => [...current, promptId]);
   };
+  const shownClarifications = proposal ? proposal.clarifications.filter((question) => !(proposal.diagnosisPrompts ?? []).some((prompt) => prompt.question === question)) : [];
   const updateDx = (id: string, patch: Partial<ReviewDiagnosis>) => setDxItems((current) => current.map((entry) => entry.id === id ? { ...entry, ...patch } : entry));
 
   return <>
@@ -1012,15 +1013,25 @@ export function ClinicalDictation({
                 </div>
               </li>)}</ul>
             </section>}
+            {(proposal.diagnosisPrompts ?? []).some((prompt) => !answeredDxPrompts.includes(prompt.id)) && <section className="space-y-2" data-testid="dictation-diagnosis-prompts">
+                {(proposal.diagnosisPrompts ?? []).filter((prompt) => !answeredDxPrompts.includes(prompt.id)).map((prompt) => <div key={prompt.id} className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3" data-testid="dictation-diagnosis-prompt">
+                  <p className="text-sm font-semibold text-amber-900">{prompt.question}</p>
+                  <p className="mt-1 text-xs text-amber-800">Te propongo estos diagnósticos del CIE-11 según lo que describiste. Acepta uno, busca otro abajo u omítelo si no corresponde.</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {prompt.options.map((option) => <Button key={option.code} type="button" size="sm" variant="outline" className="h-auto whitespace-normal bg-white text-left" onClick={() => answerDxPrompt(prompt.id, option.code, option.title, prompt.tooth)}><span className="mr-1 font-mono text-[11px]">{option.code}</span>{option.title}</Button>)}
+                    <Button type="button" size="sm" variant="ghost" onClick={() => setAnsweredDxPrompts((current) => [...current, prompt.id])}>Omitir</Button>
+                  </div>
+                </div>)}
+            </section>}
             <div className="flex flex-wrap items-center gap-2 text-sm" data-testid="dictation-speak-alerts">
               <Button type="button" size="sm" variant="outline" className="bg-white" aria-pressed={speakAlerts} onClick={toggleSpeak}>{speakAlerts ? "🔊 Avisos en voz alta: sí" : "🔇 Avisos en voz alta: no"}</Button>
               {alertPhrases.length > 0 && <Button type="button" size="sm" variant="outline" className="bg-white" onClick={speakNow}>Repetir avisos</Button>}
               {speechBlocked && <span className="text-xs text-amber-800">El móvil bloqueó el audio automático: toca «Repetir avisos».</span>}
             </div>
-            {proposal.clarifications.length > 0 && <section className="rounded-xl bg-amber-50 p-4 text-amber-950" data-testid="dictation-clarifications">
-              <h3 className="font-semibold">Aclaraciones opcionales ({proposal.clarifications.length})</h3>
+            {shownClarifications.length > 0 && <section className="rounded-xl bg-amber-50 p-4 text-amber-950" data-testid="dictation-clarifications">
+              <h3 className="font-semibold">Aclaraciones opcionales ({shownClarifications.length})</h3>
               <p className="mt-1 text-xs leading-5">Responde escribiendo o con el micrófono y pulsa «Aplicar respuestas». Lo no respondido no se aplica.</p>
-              <ul className="mt-3 space-y-3">{proposal.clarifications.map((question) => <li key={question}>
+              <ul className="mt-3 space-y-3">{shownClarifications.map((question) => <li key={question}>
                 <p className="text-sm">{question}</p>
                 <div className="mt-1 flex gap-2">
                   <Input className="bg-white text-base sm:text-sm" disabled={transcribing || answering === question} aria-label={`Respuesta: ${question}`} value={answers[question] ?? ""} onChange={(event) => setAnswers((current) => ({ ...current, [question]: event.target.value }))} placeholder="Respuesta" />
@@ -1104,14 +1115,6 @@ export function ClinicalDictation({
             <section className="rounded-xl border border-[#dce5e7] p-4" data-testid="dictation-diagnoses">
               <h3 className="font-semibold">Diagnósticos de la evolución (CIE-11 OMS)</h3>
               <p className="mt-1 text-xs text-[#60757a]">Etiquetas del catálogo CIE-11 verificado (MMS 2026-01). La pieza y los hallazgos se guardan aparte del código. Las equivalencias sugeridas (AAE, caries con compromiso pulpar) parten sin aceptar: confírmalas solo si corresponden. Las caries siguen lo aceptado en el odontograma.</p>
-              {(proposal.diagnosisPrompts ?? []).filter((prompt) => !answeredDxPrompts.includes(prompt.id)).map((prompt) => <div key={prompt.id} className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3" data-testid="dictation-diagnosis-prompt">
-                <p className="text-sm font-semibold text-amber-900">{prompt.question}</p>
-                <p className="mt-1 text-xs text-amber-800">Te propongo estos diagnósticos del CIE-11 según lo que describiste. Acepta uno, busca otro abajo u omítelo si no corresponde.</p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {prompt.options.map((option) => <Button key={option.code} type="button" size="sm" variant="outline" className="h-auto whitespace-normal bg-white text-left" onClick={() => answerDxPrompt(prompt.id, option.code, option.title, prompt.tooth)}><span className="mr-1 font-mono text-[11px]">{option.code}</span>{option.title}</Button>)}
-                  <Button type="button" size="sm" variant="ghost" onClick={() => setAnsweredDxPrompts((current) => [...current, prompt.id])}>Omitir</Button>
-                </div>
-              </div>)}
               <ul className="mt-2 space-y-2">
                 {cariesDiagnoses(teeth.filter((item) => item.decision === "accepted")).filter((item) => item.code.startsWith("DA08.0")).map((item) => <li key={item.id} className="rounded-lg bg-[#f4f7f8] p-3" data-testid="dictation-diagnosis-caries">{item.label}<span className="ml-2 text-xs text-[#71858b]">(desde el odontograma)</span><Evidence text={item.evidence} /></li>)}
                 {dxItems.map((item) => {
