@@ -3,7 +3,7 @@
  * Reglas determinísticas: una obturación se clasifica por material, tipo de diente (anterior/posterior) y número de
  * caras; el resto de los procedimientos se busca por palabras clave. Nada se guarda sin que el profesional lo acepte.
  */
-import { PRESTACIONES, prestacionLabel } from "../prestaciones-catalog.ts";
+import { PRESTACIONES, matchPrestacion, prestacionLabel } from "../prestaciones-catalog.ts";
 import type { OdontogramChange } from "./proposal.ts";
 
 export type PrestacionItem = { id: string; code: string; name: string; tooth: number | null; evidence: string };
@@ -42,7 +42,7 @@ export function restorationCode(material: Material, tooth: number, faces: number
 
 const KEYWORDS: Array<{ test: RegExp; code: (text: string) => string | null }> = [
   { test: /\bdestartraje\b|\bprofilaxis\b|\bhigiene\s+(?:oral|dental)\b|\blimpieza\s+(?:dental|coronaria)\b/, code: (t) => (/\buna\s+arcada\b|\bsolo\s+(?:la\s+)?(?:superior|inferior)\b/.test(t) ? "5001039" : /\bseis\s+grupos\b|\bgrupo\s+\d\b|\bsubgingival\b/.test(t) ? null : "5001030") },
-  { test: /\bsellante\b/, code: () => "5005012" },
+  { test: /\bsellantes?\b/, code: () => "5005012" },
   { test: /\bexodoncia\b|\bextraccion\b|\bse\s+extrae\b/, code: (t) => (/\bresto\s+radicular\b/.test(t) ? "5001041" : /\bterce(?:r|ros)\s+molar|\bmuela\s+del\s+juicio\b|\bcordal/.test(t) ? "5003045" : "5003001") },
   { test: /\bradiografia\s+retroalveolar\b/, code: () => "5002001" },
   { test: /\bradiografia\s+panoramica\b|\bortopantomografia\b/, code: () => "5002010" },
@@ -57,8 +57,14 @@ function teethOf(text: string): number[] {
   return out;
 }
 
-/** Sugiere prestaciones desde las obturaciones del odontograma y las líneas de «Procedimientos realizados». */
-export function suggestPrestaciones(odontogram: OdontogramChange[], procedureLines: string[]): PrestacionItem[] {
+/** Procedimiento realizado hoy, con el código que el modelo eligió del catálogo (si eligió alguno). */
+export type CodedProcedure = { text: string; evidence?: string; code?: string };
+
+/**
+ * Sugiere prestaciones desde las obturaciones del odontograma, los procedimientos con código elegido por el modelo
+ * (validado contra el catálogo) y las líneas de «Procedimientos realizados» (reglas y búsqueda por palabras).
+ */
+export function suggestPrestaciones(odontogram: OdontogramChange[], procedureLines: string[], coded: CodedProcedure[] = []): PrestacionItem[] {
   const out: PrestacionItem[] = [];
   const push = (item: PrestacionItem | null) => {
     if (!item) return;
@@ -81,14 +87,30 @@ export function suggestPrestaciones(odontogram: OdontogramChange[], procedureLin
     const code = restorationCode(material, tooth, entry.faces.size);
     if (code) { push(make(code, tooth, line || entry.text.trim(), out.length + 1)); covered.add(tooth); }
   }
+  const skipRestoration = (plain: string, teeth: number[]) => teeth.length > 0 && teeth.every((tooth) => covered.has(tooth)) && /obturaci|restauraci|composite|resina/.test(plain);
+  // Código elegido por el modelo: solo vale si existe en el catálogo; la pieza sale del texto del procedimiento.
+  for (const proc of coded) {
+    const code = (proc.code ?? "").trim();
+    if (!code || !byCode.has(code)) continue;
+    const teeth = teethOf(proc.text);
+    if (skipRestoration(fold(proc.text), teeth)) continue;
+    push(make(code, teeth.length === 1 ? teeth[0] : null, proc.evidence || proc.text, out.length + 1));
+  }
+  const modelCoded = new Set(coded.filter((proc) => proc.code && byCode.has(proc.code.trim())).map((proc) => fold(proc.text)));
   for (const line of procedureLines) {
     const plain = fold(line);
     const teeth = teethOf(line);
-    if (teeth.length && teeth.every((tooth) => covered.has(tooth)) && /obturaci|restauraci|composite|resina/.test(plain)) continue;
+    if (skipRestoration(plain, teeth)) continue;
+    let ruled = false;
     for (const rule of KEYWORDS) {
       if (!rule.test.test(plain)) continue;
       const code = rule.code(plain);
-      if (code) push(make(code, teeth.length === 1 ? teeth[0] : null, line, out.length + 1));
+      if (code) { ruled = true; push(make(code, teeth.length === 1 ? teeth[0] : null, line, out.length + 1)); }
+    }
+    // Sin regla ni código del modelo: búsqueda por palabras, solo si la coincidencia es clara (si hay duda, no se asigna).
+    if (!ruled && ![...modelCoded].some((text) => text && (plain.includes(text) || text.includes(plain)))) {
+      const found = matchPrestacion(line.replace(/\b[1-8]\.[1-8]\b/g, " "));
+      if (found) push(make(found.code, teeth.length === 1 ? teeth[0] : null, line, out.length + 1));
     }
   }
   return out;
