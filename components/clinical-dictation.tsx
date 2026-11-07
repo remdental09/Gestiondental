@@ -58,7 +58,7 @@ import {
   missingData,
 } from "@/lib/dictation/proposal";
 import { searchDiagnoses } from "@/lib/icd11";
-import { prestacionText, withPrestacionesSection, type PrestacionItem } from "@/lib/dictation/prestaciones";
+import { prestacionName, withPrestacionesSection, type PrestacionItem } from "@/lib/dictation/prestaciones";
 import { searchPrestaciones } from "@/lib/prestaciones-catalog";
 import { sameDiagnosisTags, sanitizeDiagnosisTags, type EvolutionDiagnosisTag } from "@/lib/evolution-diagnoses";
 import { evolutionNotices, type EvolutionNoticeKey } from "@/lib/dictation/evolution-notices";
@@ -965,6 +965,23 @@ export function ClinicalDictation({
                 <Textarea className="mt-2 border-emerald-200 bg-emerald-50" aria-label="Cuerpo de la evolución" rows={9} value={evolutionBody} onChange={(event) => setEvolutionBody(event.target.value)} />
               </> : <p className="mt-3 text-[#71858b]">El dictado no produjo una evolución.</p>}
             </section>
+            <section className="rounded-xl border border-[#dce5e7] p-4" data-testid="dictation-prestaciones">
+              <h3 className="font-semibold">Prestaciones realizadas (arancel)</h3>
+              <p className="mt-1 text-xs text-[#60757a]">Prestaciones del arancel que la app identificó en lo que dictaste hoy (sin montos). Se guardan en la nota. Quita las que no correspondan o agrega otra.</p>
+              <ul className="mt-2 space-y-2">
+                {prestItems.length === 0 && <li className="rounded-lg border border-dashed border-[#dce5e7] p-3 text-xs text-[#71858b]">No se detectó ninguna prestación; puedes agregarla abajo.</li>}
+                {prestItems.map((item) => <li key={item.id} className={`rounded-lg border p-3 ${item.decision === "accepted" ? "border-emerald-200 bg-white" : "border-[#e4ebed] bg-[#f9fbfb] opacity-80"}`} data-testid="dictation-prestacion">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div><p className="font-semibold">{prestacionName(item)}</p>{item.evidence && <Evidence text={item.evidence} />}</div>
+                    <div className="flex gap-2"><Decision value={item.decision} onChange={(decision) => setPrestItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, decision } : entry))} /><Button type="button" size="sm" variant="outline" onClick={() => setPrestItems((current) => current.filter((entry) => entry.id !== item.id))}>Quitar</Button></div>
+                  </div>
+                </li>)}
+              </ul>
+              <label className="mt-3 block space-y-1 text-xs">Agregar prestación (nombre o código)
+                <input className="flex h-9 w-full rounded-md border px-3 text-sm" aria-label="Buscar prestación para agregar" value={prestSearch} onChange={(event) => setPrestSearch(event.target.value)} />
+              </label>
+              {prestSearch.trim().length >= 2 && <ul className="mt-2 space-y-1">{searchPrestaciones(prestSearch, 6).map((result) => <li key={result.code}><button type="button" className="w-full rounded-md border px-2 py-1 text-left text-xs hover:bg-emerald-50" onClick={() => { setPrestItems((current) => current.some((entry) => entry.code === result.code) ? current : [...current, { id: `pr-manual-${Date.now()}`, code: result.code, name: result.name, tooth: null, evidence: "", decision: "accepted" as const }]); setPrestSearch(""); }}>{result.code} · {result.name}</button></li>)}</ul>}
+            </section>
             {missing.length > 0 && <section className="rounded-xl border border-[#dbe7e8] bg-white p-3 text-sm text-[#31575b]" data-testid="dictation-missing">
               <p><strong>Falta (opcional):</strong> {missing.join(" · ")}</p>
               <p className="mt-1 text-xs text-[#60757a]">No es obligatorio y no impide guardar la evolución. Puedes aclararlo después.</p>
@@ -1111,23 +1128,6 @@ export function ClinicalDictation({
                 <input className="flex h-9 w-full rounded-md border px-3 text-sm" aria-label="Buscar diagnóstico para agregar" value={dxSearch} onChange={(event) => setDxSearch(event.target.value)} />
               </label>
               {dxSearch.trim().length >= 2 && <ul className="mt-2 space-y-1" data-testid="dictation-diagnosis-search">{searchDiagnoses(dxSearch, 8).map((result) => <li key={`${result.code}|${result.title}`}><button type="button" className="w-full rounded-md border px-2 py-1 text-left text-xs hover:bg-emerald-50" onClick={() => addManualDiagnosis(result.code, result.title)}>{result.code || "Sin código"} · {result.title}{result.matched && result.matched !== result.title ? ` («${result.matched}»)` : ""}</button></li>)}</ul>}
-            </section>
-            <section className="rounded-xl border border-[#dce5e7] p-4" data-testid="dictation-prestaciones">
-              <h3 className="font-semibold">Prestaciones realizadas (arancel)</h3>
-              <p className="mt-1 text-xs text-[#60757a]">Código del catálogo de prestaciones asociado a lo realizado hoy; sin montos. Se guardan en la nota. Quita las que no correspondan o agrega otra.</p>
-              <ul className="mt-2 space-y-2">
-                {prestItems.length === 0 && <li className="rounded-lg border border-dashed border-[#dce5e7] p-3 text-xs text-[#71858b]">No se detectó ninguna prestación; puedes agregarla abajo.</li>}
-                {prestItems.map((item) => <li key={item.id} className={`rounded-lg border p-3 ${item.decision === "accepted" ? "border-emerald-200 bg-white" : "border-[#e4ebed] bg-[#f9fbfb] opacity-80"}`} data-testid="dictation-prestacion">
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div><p className="font-semibold">{prestacionText(item)}</p>{item.evidence && <Evidence text={item.evidence} />}</div>
-                    <div className="flex gap-2"><Decision value={item.decision} onChange={(decision) => setPrestItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, decision } : entry))} /><Button type="button" size="sm" variant="outline" onClick={() => setPrestItems((current) => current.filter((entry) => entry.id !== item.id))}>Quitar</Button></div>
-                  </div>
-                </li>)}
-              </ul>
-              <label className="mt-3 block space-y-1 text-xs">Agregar prestación (nombre o código)
-                <input className="flex h-9 w-full rounded-md border px-3 text-sm" aria-label="Buscar prestación para agregar" value={prestSearch} onChange={(event) => setPrestSearch(event.target.value)} />
-              </label>
-              {prestSearch.trim().length >= 2 && <ul className="mt-2 space-y-1">{searchPrestaciones(prestSearch, 6).map((result) => <li key={result.code}><button type="button" className="w-full rounded-md border px-2 py-1 text-left text-xs hover:bg-emerald-50" onClick={() => { setPrestItems((current) => current.some((entry) => entry.code === result.code) ? current : [...current, { id: `pr-manual-${Date.now()}`, code: result.code, name: result.name, tooth: null, evidence: "", decision: "accepted" as const }]); setPrestSearch(""); }}>{result.code} · {result.name}</button></li>)}</ul>}
             </section>
             {(proposal.procedures ?? []).length > 0 && <section className="rounded-xl border border-[#dce5e7] p-4">
               <h3 className="font-semibold">Procedimientos realizados (según la IA)</h3>

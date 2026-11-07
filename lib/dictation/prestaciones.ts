@@ -16,6 +16,10 @@ const fold = (value: string) => value.normalize("NFD").replace(/[̀-ͯ]/g, "").t
 export const prestacionText = (item: Pick<PrestacionItem, "code" | "name" | "tooth">): string =>
   `${item.code} · ${prestacionLabel(item.name)}${item.tooth ? ` (FDI ${Math.floor(item.tooth / 10)}.${item.tooth % 10})` : ""}`;
 
+/** Nombre de la prestación para mostrar en pantalla: sin código, con la pieza si la hay. */
+export const prestacionName = (item: Pick<PrestacionItem, "name" | "tooth">): string =>
+  `${prestacionLabel(item.name)}${item.tooth ? ` (FDI ${Math.floor(item.tooth / 10)}.${item.tooth % 10})` : ""}`;
+
 function make(code: string, tooth: number | null, evidence: string, index: number): PrestacionItem | null {
   const found = byCode.get(code);
   return found ? { id: `pr-${index}`, code, name: found.name, tooth, evidence: evidence.slice(0, 300) } : null;
@@ -96,8 +100,17 @@ export function suggestPrestaciones(odontogram: OdontogramChange[], procedureLin
     if (skipRestoration(fold(proc.text), teeth)) continue;
     push(make(code, teeth.length === 1 ? teeth[0] : null, proc.evidence || proc.text, out.length + 1));
   }
-  const modelCoded = new Set(coded.filter((proc) => proc.code && byCode.has(proc.code.trim())).map((proc) => fold(proc.text)));
-  for (const line of procedureLines) {
+  // Una oración que el modelo ya codificó no se vuelve a evaluar con reglas ni búsqueda: evita duplicados (p. ej. un
+  // sellante por pieza del modelo más el sellante de la regla) cuando la nota reescribe la frase.
+  const contentWords = (value: string) => new Set(fold(value).replace(/[^a-z0-9.\s]/g, " ").split(/\s+/).filter((word) => word.length > 3 || /^\d\.\d$/.test(word)).map((word) => word.slice(0, 6)));
+  const modelWords = coded.filter((proc) => proc.code && byCode.has(proc.code.trim())).map((proc) => contentWords(proc.text));
+  const modelCovers = (sentence: string) => {
+    const words = contentWords(sentence);
+    return words.size > 0 && modelWords.some((known) => known.size > 0 && [...words].filter((word) => known.has(word)).length / Math.min(words.size, known.size) >= 0.6);
+  };
+  const sentencesOfLines = procedureLines.flatMap((line) => line.split(/(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑ])/u).map((part) => part.trim()).filter(Boolean));
+  for (const line of sentencesOfLines) {
+    if (modelCovers(line)) continue;
     const plain = fold(line);
     const teeth = teethOf(line);
     if (skipRestoration(plain, teeth)) continue;
@@ -108,7 +121,7 @@ export function suggestPrestaciones(odontogram: OdontogramChange[], procedureLin
       if (code) { ruled = true; push(make(code, teeth.length === 1 ? teeth[0] : null, line, out.length + 1)); }
     }
     // Sin regla ni código del modelo: búsqueda por palabras, solo si la coincidencia es clara (si hay duda, no se asigna).
-    if (!ruled && ![...modelCoded].some((text) => text && (plain.includes(text) || text.includes(plain)))) {
+    if (!ruled) {
       const found = matchPrestacion(line.replace(/\b[1-8]\.[1-8]\b/g, " "));
       if (found) push(make(found.code, teeth.length === 1 ? teeth[0] : null, line, out.length + 1));
     }
