@@ -14,15 +14,15 @@ test("extracción sin causa: pregunta el motivo con opciones verificadas del CIE
   assert.equal(p.diagnosisPrompts?.length, 1);
   const [prompt] = p.diagnosisPrompts;
   assert.equal(prompt.tooth, 21);
-  assert.match(prompt.question, /motivo de la extracción/);
-  assert.ok(prompt.options.length >= 5);
+  assert.match(prompt.question, /Es probable que hayas olvidado el diagnóstico de FDI 2\.1 \(extracción\)/);
+  assert.equal(prompt.options.length, 4);
   for (const option of prompt.options) assert.equal(ICD11[option.code]?.title, option.title, `${option.code} existe en el catálogo`);
   assert.deepEqual(p.diagnoses, []);
 });
 
 test("la pregunta también se dice en voz alta", async () => {
   const p = await run(SIN_CAUSA);
-  assert.ok(spokenAlerts(p.clarifications, []).some((phrase) => /motivo de la extracción/.test(phrase)));
+  assert.ok(spokenAlerts(p.clarifications, []).some((phrase) => /olvidado el diagnóstico de pieza 2 punto 1/.test(phrase)));
 });
 
 test("ya no pregunta «¿la exodoncia ya se realizó?» si luego se dicta que se realizó", async () => {
@@ -62,4 +62,37 @@ test("segunda fase de un implante que ya existe: no se sugiere diagnóstico", as
   const p = await run("Segunda fase del implante de la pieza 36. Se realiza el descubrimiento del implante con bisturí y se instala un pilar de cicatrización de 4 milímetros de altura.");
   assert.ok(!p.diagnoses.some((item) => item.suggested?.from === "nota"));
   assert.equal(p.diagnosisPrompts?.length ?? 0, 0);
+});
+
+test("endodoncia sin diagnóstico: propone pulpitis, necrosis, periodontitis apical y absceso", async () => {
+  const p = await run("Se realiza trepanación y conductometría en la pieza 3.6, medicación intraconducto con hidróxido de calcio.");
+  const prompt = p.diagnosisPrompts?.find((item) => item.tooth === 36);
+  assert.ok(prompt);
+  assert.equal(prompt.procedure, "endodoncia");
+  assert.deepEqual(prompt.options.map((item) => item.code), ["DA09.0", "DA09.1", "DA09.71", "DA09.62"]);
+});
+
+test("endodoncia con diagnóstico dictado: no pregunta", async () => {
+  const p = await run("Diagnóstico pulpitis irreversible sintomática de la pieza 3.6. Se realiza trepanación y conductometría en la pieza 3.6.");
+  assert.equal(p.diagnosisPrompts?.length ?? 0, 0);
+});
+
+test("restauración sin caries ni diagnóstico: propone caries, fractura, abrasión y erosión", async () => {
+  const p = await run("Se realiza restauración de composite en la pieza 1.1 por vestibular.");
+  const prompt = p.diagnosisPrompts?.find((item) => item.tooth === 11);
+  assert.ok(prompt);
+  assert.equal(prompt.procedure, "restauración");
+  assert.equal(prompt.options[0].code, "DA08.0");
+});
+
+test("higiene periodontal sin diagnóstico: pregunta uno general (sin pieza)", async () => {
+  const p = await run("Se realiza destartraje supragingival y subgingival en ambas arcadas y pulido coronario.");
+  const prompt = p.diagnosisPrompts?.find((item) => item.procedure === "higiene periodontal");
+  assert.ok(prompt);
+  assert.equal(prompt.tooth, undefined);
+});
+
+test("nunca más de 3 preguntas por dictado", async () => {
+  const p = await run("Se realiza restauración de composite en la pieza 1.1, en la pieza 1.2, en la pieza 2.1 y en la pieza 2.2.");
+  assert.ok((p.diagnosisPrompts?.length ?? 0) <= 3);
 });

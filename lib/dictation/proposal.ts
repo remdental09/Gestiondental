@@ -101,7 +101,7 @@ export type SurfaceFinding = {
  * la pieza (`tooth`, FDI almacenado como 24) y los hallazgos (`findings`) se guardan aparte del código.
  * `suggested`: equivalencia propuesta (términos AAE, caries con compromiso pulpar) que el profesional debe confirmar.
  */
-export type DiagnosisPrompt = { id: string; tooth: number; question: string; options: Array<{ code: string; title: string }> };
+export type DiagnosisPrompt = { id: string; tooth?: number; procedure: string; question: string; options: Array<{ code: string; title: string }> };
 
 export type DiagnosisItem = {
   id: string;
@@ -1197,60 +1197,90 @@ function diagnosisUncertaintyAnswered(sentence: string, transcript: string): boo
   });
 }
 
-/** Motivos habituales de una extracción, todos verificados en el catálogo CIE-11. */
-const EXTRACTION_REASONS = ["DA08.0", "DA09.1", "DA0C.Z", "NA0D.06", "NA0D.04", "DA0A.3"];
-/** La causa ya está dicha («por caries», «por fractura», «diagnóstico…»): no se pregunta. */
-const EXTRACTION_CAUSE_SAID = /(?<!\p{L})(?:diagn[oó]stic\p{L}*|(?:por|debido\s+a|a\s+causa\s+de|motivo)\s+(?:de\s+)?(?:una?\s+|la\s+|el\s+)?(?:caries|fractura|enfermedad|periodont\p{L}*|movilidad|necrosis|absceso|reabsorci\p{L}*|trauma\p{L}*|ortodoncia|indicaci[oó]n|pericoronaritis|infecci[oó]n|quiste|lesi[oó]n))(?!\p{L})/iu;
+/**
+ * Diagnósticos CIE-11 más probables según lo que se hizo, cuando el profesional no dictó el diagnóstico.
+ * Todos verificados en el catálogo de la aplicación; se ofrecen como opciones, nunca se guardan solos.
+ */
+const LIKELY_DIAGNOSES: Record<"extraccion" | "endodoncia" | "restauracion" | "higiene", { label: string; codes: string[] }> = {
+  extraccion: { label: "extracción", codes: ["DA08.0", "DA09.1", "DA0C.Z", "NA0D.06"] },
+  endodoncia: { label: "endodoncia", codes: ["DA09.0", "DA09.1", "DA09.71", "DA09.62"] },
+  restauracion: { label: "restauración", codes: ["DA08.0", "NA0D.02", "DA08.11", "DA08.12"] },
+  higiene: { label: "higiene periodontal", codes: ["DA0B.Z", "DA0C.Z"] },
+};
+const ENDO_DONE = /(?<!\p{L})(?:endodoncia|tratamiento\s+de\s+(?:conductos?|canales)|pulpectom\p{L}*|biopulpectom\p{L}*|necropulpectom\p{L}*|pulpotom\p{L}*|trepanaci\p{L}*|conductometr\p{L}*|obturaci[oó]n\s+de\s+conductos?)(?!\p{L})/iu;
+const RESTORATION_DONE = /(?<!\p{L})(?:obturaci[oó]n|restauraci[oó]n|resina|composite|amalgama|ion[oó]mero|tapadura|empaste)(?!\p{L})/iu;
+const HYGIENE_DONE = /(?<!\p{L})(?:destartraje|detartraje|tartrectom\p{L}*|raspado|alisado\s+radicular|pulido\s+radicular|profilaxis|instrumentaci[oó]n\s+subgingival)(?!\p{L})/iu;
+/** La causa o el diagnóstico ya están dichos («por caries», «por fractura», «diagnóstico…»): no se pregunta. */
+const CAUSE_SAID = /(?<!\p{L})(?:diagn[oó]stic\p{L}*|(?:por|debido\s+a|a\s+causa\s+de|motivo)\s+(?:de\s+)?(?:una?\s+|la\s+|el\s+)?(?:caries|fractura|enfermedad|periodont\p{L}*|gingivitis|movilidad|necrosis|pulpitis|absceso|reabsorci\p{L}*|trauma\p{L}*|ortodoncia|indicaci[oó]n|pericoronaritis|infecci[oó]n|quiste|lesi[oó]n|abrasi[oó]n|erosi[oó]n|desgaste))(?!\p{L})/iu;
 /** Lo extraído era una raíz o resto radicular: se deduce «Raíz dental retenida». */
 const ROOT_EXTRACTED = /(?<!\p{L})(?:ra[ií]z|ra[ií]ces|resto\s+radicular|restos\s+radiculares)(?!\p{L})/iu;
+const MAX_DIAGNOSIS_PROMPTS = 3;
 
 /**
- * Diagnósticos que el código deduce o pregunta cuando el profesional describió extracciones o implantes y no dictó diagnóstico:
- * - extracción (con o sin implante inmediato): no se adivina la causa; se pregunta con opciones del catálogo.
- * - implante en una pieza que ya estaba ausente: se sugiere «Pérdida de dientes…» (DA0A.1), por confirmar.
- * No depende del modelo. Nada se guarda sin que el profesional lo elija o lo acepte.
+ * Lo que el código completa cuando el profesional describió lo que hizo y no dictó el diagnóstico (no depende del modelo):
+ * - si se puede deducir, una sugerencia por confirmar: raíz extraída → DA0A.3; implante en pieza ya ausente → DA0A.1;
+ * - si no, una pregunta «es probable que hayas olvidado el diagnóstico» con hasta 4 opciones del CIE-11 según el procedimiento
+ *   (extracción, endodoncia, restauración, higiene periodontal).
+ * No actúa si ya hay diagnóstico para la pieza, si la causa se dictó, si el procedimiento solo está indicado
+ * o si el cambio es de algo que ya figuraba (segunda fase, control). Nada se guarda sin que el profesional lo elija.
  */
 export function deducedDiagnoses(odontogram: OdontogramChange[], diagnoses: DiagnosisItem[], transcript: string): { prompts: DiagnosisPrompt[]; suggested: DiagnosisItem[] } {
   const prompts: DiagnosisPrompt[] = [];
   const suggested: DiagnosisItem[] = [];
   const covered = new Set(diagnoses.filter((dx) => dx.tooth !== undefined && dx.code).map((dx) => dx.tooth));
-  const all = sentences(transcript);
-  const named = new Set(all.flatMap((text) => toothMentions(text).filter((m) => m.ok).map((m) => (m as { tooth: number }).tooth)));
-  const sentencesOf = (tooth: number) => {
-    const own = all.filter((text) => toothMentions(text).some((m) => m.ok && m.tooth === tooth));
-    return named.size === 1 ? all : own;
+  const all = sentences(transcript).filter((text) => !isPlan(text) && !EXTRACTION_INDICATED.test(text));
+  const toothOf = (text: string) => toothMentions(text).filter((m) => m.ok).map((m) => (m as { tooth: number }).tooth);
+  const named = new Set(all.flatMap(toothOf));
+  const sentencesOf = (tooth: number) => (named.size === 1 ? all : all.filter((text) => toothOf(text).includes(tooth)));
+  const option = (code: string) => ({ code, title: ICD11[code].title });
+  const ask = (tooth: number | undefined, kind: keyof typeof LIKELY_DIAGNOSES) => {
+    if (prompts.length >= MAX_DIAGNOSIS_PROMPTS) return;
+    const where = tooth === undefined ? "" : ` de FDI ${formatFdi(tooth)}`;
+    prompts.push({
+      id: `dxq-${kind}-${tooth ?? "general"}`,
+      ...(tooth === undefined ? {} : { tooth }),
+      procedure: LIKELY_DIAGNOSES[kind].label,
+      question: `Es probable que hayas olvidado el diagnóstico${where} (${LIKELY_DIAGNOSES[kind].label}): elige uno de los propuestos.`,
+      options: LIKELY_DIAGNOSES[kind].codes.filter((code) => ICD11[code]).map(option),
+    });
   };
-  const done = new Set<number>();
-  for (const change of odontogram) {
-    // Un cambio con aviso (p. ej. el implante ya figuraba: segunda fase o control) no es un tratamiento nuevo: no se deduce nada.
-    if (change.kind !== "status" || change.advisory || (change.status !== "Ausente" && change.status !== "Implante") || done.has(change.tooth) || covered.has(change.tooth)) continue;
-    done.add(change.tooth);
-    const own = sentencesOf(change.tooth);
-    const extracted = own.some((text) => EXTRACTION_ANY.test(text) && !EXTRACTION_INDICATED.test(text));
-    if (extracted && own.some((text) => EXTRACTION_CAUSE_SAID.test(text))) continue;
-    if (extracted && own.some((text) => EXTRACTION_ANY.test(text) && ROOT_EXTRACTED.test(text)) && ICD11["DA0A.3"]) {
-      const evidence = own.find((text) => EXTRACTION_ANY.test(text) && ROOT_EXTRACTED.test(text)) ?? "";
-      const dx: DiagnosisItem = { id: `dx-deducido-${change.tooth}`, tooth: change.tooth, code: "DA0A.3", title: ICD11["DA0A.3"].title, label: "", evidence: clip(evidence, 400), findings: "", origin: "reglas", suggested: { from: "nota", term: clip(evidence, 120) } };
-      dx.label = diagnosisLabel(dx);
-      suggested.push(dx);
-      continue;
-    }
+  const suggest = (tooth: number, code: string, evidence: string) => {
+    if (!ICD11[code]) return;
+    const dx: DiagnosisItem = { id: `dx-deducido-${tooth}`, tooth, code, title: ICD11[code].title, label: "", evidence: clip(evidence, 400), findings: "", origin: "reglas", suggested: { from: "nota", term: clip(evidence, 120) } };
+    dx.label = diagnosisLabel(dx);
+    suggested.push(dx);
+  };
+
+  // Piezas tratadas hoy: cambios del odontograma (sin aviso) y piezas nombradas en frases de endodoncia o restauración.
+  const teeth: number[] = [];
+  const add = (tooth: number) => { if (!teeth.includes(tooth)) teeth.push(tooth); };
+  for (const change of odontogram) if (!change.advisory) add(change.tooth);
+  for (const text of all) if (ENDO_DONE.test(text) || RESTORATION_DONE.test(text)) for (const tooth of toothOf(text)) add(tooth);
+  const adviseOnly = new Set(odontogram.filter((change) => change.advisory).map((change) => change.tooth));
+
+  for (const tooth of teeth) {
+    if (covered.has(tooth) || adviseOnly.has(tooth)) continue;
+    const own = sentencesOf(tooth);
+    if (own.some((text) => CAUSE_SAID.test(text))) continue;
+    const status = odontogram.find((change) => change.tooth === tooth && change.kind === "status" && !change.advisory)?.status;
+    const extracted = (status === "Ausente" || status === "Implante") && own.some((text) => EXTRACTION_ANY.test(text));
     if (extracted) {
-      prompts.push({
-        id: `dxq-${change.tooth}`,
-        tooth: change.tooth,
-        question: `No dictaste el diagnóstico de FDI ${formatFdi(change.tooth)}: ¿cuál fue el motivo de la extracción?`,
-        options: EXTRACTION_REASONS.filter((code) => ICD11[code]).map((code) => ({ code, title: ICD11[code].title })),
-      });
+      const root = own.find((text) => EXTRACTION_ANY.test(text) && ROOT_EXTRACTED.test(text));
+      if (root) suggest(tooth, "DA0A.3", root);
+      else ask(tooth, "extraccion");
       continue;
     }
-    if (change.status === "Implante" && ICD11["DA0A.1"]) {
-      const evidence = own.find((text) => /\bimplantes?\b/i.test(text)) ?? change.sourceText ?? "";
-      const dx: DiagnosisItem = { id: `dx-deducido-${change.tooth}`, tooth: change.tooth, code: "DA0A.1", title: ICD11["DA0A.1"].title, label: "", evidence: clip(evidence, 400), findings: "", origin: "reglas", suggested: { from: "nota", term: clip(evidence, 120) } };
-      dx.label = diagnosisLabel(dx);
-      suggested.push(dx);
+    if (status === "Implante") {
+      suggest(tooth, "DA0A.1", own.find((text) => /\bimplantes?\b/i.test(text)) ?? "");
+      continue;
     }
+    if (own.some((text) => ENDO_DONE.test(text))) { ask(tooth, "endodoncia"); continue; }
+    const restored = odontogram.some((change) => change.tooth === tooth && change.kind === "surface" && change.finding?.condition === "restored" && !change.advisory);
+    if (restored || own.some((text) => RESTORATION_DONE.test(text) && !/\b(?:corona|carilla|incrustaci)/i.test(text))) ask(tooth, "restauracion");
   }
+  // Higiene periodontal: diagnóstico general (sin pieza) si no hay ninguno gingival o periodontal.
+  const periodontalSaid = diagnoses.some((dx) => /^DA0[BC]/.test(dx.code)) || all.some((text) => CAUSE_SAID.test(text) && /gingiv|periodont/i.test(text));
+  if (!periodontalSaid && all.some((text) => HYGIENE_DONE.test(text))) ask(undefined, "higiene");
   return { prompts, suggested };
 }
 

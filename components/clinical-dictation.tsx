@@ -895,7 +895,7 @@ export function ClinicalDictation({
     setDxItems((current) => [...current, { id: `dx-manual-${Date.now()}`, code, title, label: title, evidence: "", origin: "manual", decision: "accepted", toothText: tooth ? formatFdi(tooth) : "", findingsText: "", codeSearch: "", ...(tooth ? { tooth } : {}) }]);
     setDxSearch("");
   };
-  const answerDxPrompt = (promptId: string, code: string, title: string, tooth: number) => {
+  const answerDxPrompt = (promptId: string, code: string, title: string, tooth?: number) => {
     addManualDiagnosis(code, title, tooth);
     setAnsweredDxPrompts((current) => [...current, promptId]);
   };
@@ -1106,7 +1106,7 @@ export function ClinicalDictation({
               <p className="mt-1 text-xs text-[#60757a]">Etiquetas del catálogo CIE-11 verificado (MMS 2026-01). La pieza y los hallazgos se guardan aparte del código. Las equivalencias sugeridas (AAE, caries con compromiso pulpar) parten sin aceptar: confírmalas solo si corresponden. Las caries siguen lo aceptado en el odontograma.</p>
               {(proposal.diagnosisPrompts ?? []).filter((prompt) => !answeredDxPrompts.includes(prompt.id)).map((prompt) => <div key={prompt.id} className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3" data-testid="dictation-diagnosis-prompt">
                 <p className="text-sm font-semibold text-amber-900">{prompt.question}</p>
-                <p className="mt-1 text-xs text-amber-800">Elige el motivo para agregarlo como diagnóstico CIE-11 de esta pieza, o búscalo abajo. Si no corresponde, déjalo así.</p>
+                <p className="mt-1 text-xs text-amber-800">Te propongo estos diagnósticos del CIE-11 según lo que describiste. Acepta uno, busca otro abajo u omítelo si no corresponde.</p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {prompt.options.map((option) => <Button key={option.code} type="button" size="sm" variant="outline" className="h-auto whitespace-normal bg-white text-left" onClick={() => answerDxPrompt(prompt.id, option.code, option.title, prompt.tooth)}><span className="mr-1 font-mono text-[11px]">{option.code}</span>{option.title}</Button>)}
                   <Button type="button" size="sm" variant="ghost" onClick={() => setAnsweredDxPrompts((current) => [...current, prompt.id])}>Omitir</Button>
