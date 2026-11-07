@@ -193,6 +193,7 @@ export async function GET() {
       payments: pays.map(paymentView),
       calendarEvents: [...ces.filter(e => e.status !== "cancelled").map(e => ({ id: e.id, title: e.title, startAt: e.startAt, endAt: e.endAt, sourceTimeZone: e.sourceTimeZone, htmlLink: e.htmlLink, status: e.status, allDay: e.allDay, patientId: e.patientId })), ...snapshot.events],
       calendarSnapshotAt: snapshot.events.length ? snapshot.capturedAt : null,
+      calendarSyncedAt: ces.reduce<string | null>((latest, e) => (e.importedAt && (!latest || e.importedAt > latest) ? e.importedAt : latest), null),
       viewer: { name: viewer?.displayName || "" },
       periodontalExams: Object.fromEntries(ps.map(p => [p.id, (examsByPatient.get(p.id) ?? []).map(x => ({ id: x.id, recordedAt: x.recordedAt, ...normalizePerio(JSON.parse(x.teeth)) }))])),
       toothStatuses: charts,
