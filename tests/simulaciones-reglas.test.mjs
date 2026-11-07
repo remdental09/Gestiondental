@@ -92,3 +92,8 @@ test("raspado y alisado radicular sugiere el pulido radicular por sextante del a
   const deep = await run("Se realiza raspado y alisado radicular en bolsas profundas del cuadrante 3.");
   assert.ok(deep.prestaciones.some((x) => x.code === "5009012"));
 });
+
+test("retratamiento de conducto sugiere la desobturación del arancel", async () => {
+  const p = await run("Retratamiento endodóntico de la 4.7, se retira gutapercha y se medica con hidróxido de calcio.");
+  assert.ok(p.prestaciones.some((x) => x.code === "5006005"));
+});

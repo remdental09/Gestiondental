@@ -63,6 +63,7 @@ export function endodonticCode(tooth: number, context: string): string | null {
 const KEYWORDS: Array<{ test: RegExp; code: (text: string, teeth?: number[], context?: string) => string | null }> = [
   { test: /\btratamiento\s+(?:de\s+)?(?:conductos?|endodontic\w*)|\bendodoncia\b|\bpulpectomia\b|\bbiopulpectomia\b|\bnecropulpectomia\b/, code: (t, teeth = [], context = "") => (/retratamiento|desobtur|apertura\s+(?:cameral\s+)?y\s+medicacion|medicacion\s+intraconducto/.test(t) || teeth.length !== 1 ? null : endodonticCode(teeth[0], `${t} ${context}`)) },
   { test: /\bdestartraje\b|\bprofilaxis\b|\bhigiene\s+(?:oral|dental)\b|\blimpieza\s+(?:dental|coronaria)\b/, code: (t) => (/\buna\s+arcada\b|\bsolo\s+(?:la\s+)?(?:superior|inferior)\b/.test(t) ? "5001039" : /\bseis\s+grupos\b|\bgrupo\s+\d\b|\bsubgingival\b/.test(t) ? null : "5001030") },
+  { test: /\bretratamiento\b|\bdesobturacion\b|\bretiro\s+de\s+(?:la\s+)?gutapercha\b|\bse\s+retira\s+(?:la\s+)?gutapercha\b/, code: () => "5006005" },
   { test: /\bsellantes?\b/, code: () => "5005012" },
   // En el arancel, «pulido radicular» es el raspado y alisado por sextante: moderado a avanzado si hay bolsas profundas.
   { test: /\braspado\s+y\s+alisado\b|\balisado\s+radicular\b|\bpulido\s+radicular\b|\braspaje\b/, code: (t) => (/avanzad|bolsas?\s+profundas?|\b[6-9]\s*(?:mm|milimetros)\b/.test(t) ? "5009012" : "5009003") },
