@@ -1,0 +1,72 @@
+import { defineSpecialty } from "../specialty.ts";
+
+export const REHABILITACION = defineSpecialty({
+  id: "rehabilitacion",
+  nombre: "Rehabilitación oral",
+  oficial: "Rehabilitación oral",
+  senales: [
+    "corona", "coronas", "puente", "protesis", "carilla", "incrustacion", "onlay", "inlay", "overlay", "perno", "poste", "muñon",
+    "cementacion", "cementa", "provisorio", "impresion", "escaneo", "tallado", "preparacion biologicamente", "zirconio", "circonio",
+    "disilicato", "metal ceramica", "sobredentadura", "dimension vertical", "relacion centrica", "articulador", "color",
+  ],
+  notas: [
+    "Conserva el material (disilicato de litio, circonio, metal-cerámica), el color (escala Vita) y el cemento tal como se dictaron.",
+    "Prueba de metal, prueba de bizcocho y cementación son etapas distintas de una corona: no las confundas.",
+    "Corona sobre diente y corona sobre implante son prestaciones distintas.",
+    "Los colores Vita (A1–A4, B1–B4, C1–C4, D2–D4 o 3D-Master como 2M2) no son piezas dentales.",
+  ],
+  procedimientos: [
+    "tallado", "preparación para corona", "preparación para carilla", "preparación para incrustación", "línea de terminación en chamfer",
+    "línea de terminación en hombro", "retracción gingival", "toma de impresión", "impresión con silicona de adición", "impresión con poliéter",
+    "impresión con alginato", "escaneo intraoral", "registro de mordida", "registro oclusal", "toma de color", "arco facial",
+    "montaje en articulador", "encerado diagnóstico", "mock-up", "provisorio", "provisorio directo", "prueba de estructura", "prueba de metal",
+    "prueba de bizcocho", "prueba estética", "cementación", "cementación adhesiva", "cementación convencional", "ajuste oclusal",
+    "pulido", "glaseado", "perno muñón colado", "poste de fibra de vidrio", "reconstrucción de muñón", "corona metal cerámica",
+    "corona de disilicato de litio", "corona de circonio", "corona monolítica", "corona estratificada", "carilla de cerámica",
+    "carilla de resina", "incrustación", "onlay", "overlay", "endocorona", "puente fijo", "puente adhesivo", "prótesis fija plural",
+    "prótesis removible", "prótesis parcial removible metálica", "prótesis parcial removible acrílica", "prótesis total", "prótesis inmediata",
+    "rebasado", "rebasado directo", "rebasado indirecto", "reparación de prótesis", "ajuste de prótesis", "alivio de prótesis",
+    "sobredentadura", "rehabilitación de boca completa", "aumento de dimensión vertical", "diseño de sonrisa", "CAD/CAM", "fresado",
+  ],
+  materiales: [
+    "disilicato de litio", "circonio", "zirconia", "circonio translúcido", "circonio multicapa", "metal cerámica", "cerámica feldespática",
+    "cerámica híbrida", "resina nanocerámica", "PMMA", "bis-acrílico", "acrílico de autocurado", "acrílico de termocurado", "cromo cobalto",
+    "aleación noble", "titanio", "silicona de adición", "silicona de condensación", "poliéter", "alginato", "hilo retractor",
+    "cemento de resina", "cemento autoadhesivo", "cemento de ionómero de vidrio", "cemento de fosfato de zinc", "cemento provisorio",
+    "ácido fluorhídrico", "silano", "adhesivo universal", "poste de fibra", "perno colado", "atache", "retenedor", "gancho", "conector mayor",
+    "conector menor", "base acrílica", "dientes acrílicos",
+  ],
+  marcas: [
+    ["IPS e.max", "Ivoclar"], ["IPS e.max CAD", "Ivoclar"], ["IPS e.max Press", "Ivoclar"], ["Variolink", "Ivoclar"], ["Multilink", "Ivoclar"],
+    ["Telio", "Ivoclar"], ["Katana", "Kuraray Noritake"], ["Panavia V5", "Kuraray Noritake"], ["Panavia SA Cement", "Kuraray Noritake"],
+    ["Clearfil", "Kuraray Noritake"], ["Lava", "Solventum (3M)"], ["RelyX U200", "Solventum (3M)"], ["RelyX Unicem", "Solventum (3M)"],
+    ["Protemp", "Solventum (3M)"], ["Impregum", "Solventum (3M)"], ["Express", "Solventum (3M)"], ["Ketac Cem", "Solventum (3M)"],
+    ["Prettau", "Zirkonzahn"], ["Vita Enamic", "VITA Zahnfabrik"], ["Vita Classical", "VITA Zahnfabrik"], ["Vita 3D-Master", "VITA Zahnfabrik"],
+    ["Celtra Duo", "Dentsply Sirona"], ["CEREC", "Dentsply Sirona"], ["Primescan", "Dentsply Sirona"], ["iTero", "Align Technology"],
+    ["TRIOS", "3Shape"], ["Medit", "Medit"], ["Virtual", "Ivoclar"], ["Fuji I", "GC"], ["Fuji Plus", "GC"], ["Structur", "VOCO"],
+  ],
+  instrumentos: [
+    "fresa diamantada", "fresa de chamfer", "fresa troncocónica", "turbina", "micromotor", "cubeta", "cubeta individual", "pistola de silicona",
+    "mezcladora", "articulador semiajustable", "arco facial", "guía de color", "papel de articular", "cinta Shimstock", "calibrador", "lámpara de fotocurado",
+  ],
+  hallazgos: [
+    "corona desadaptada", "filtración marginal", "caries secundaria", "fractura de cerámica", "chipping", "descementación",
+    "prótesis desadaptada", "estomatitis subprotésica", "pérdida de dimensión vertical", "colapso de mordida", "desgaste dentario",
+    "diente tratado endodónticamente", "remanente coronario insuficiente", "efecto férula", "espacio edéntulo", "brecha edéntula",
+    "Kennedy clase I", "Kennedy clase II", "Kennedy clase III", "Kennedy clase IV", "contacto prematuro", "interferencia oclusal",
+  ],
+  conceptos: ["dimensión vertical oclusal", "dimensión vertical de reposo", "relación céntrica", "máxima intercuspidación", "guía anterior", "guía canina", "función de grupo", "plano oclusal", "perfil de emergencia", "espesor de cerámica", "color A1", "color A2", "color A3", "color A3.5", "color B1"],
+  sinonimos: [
+    ["circonio", ["zirconio", "zirconia", "óxido de circonio"]],
+    ["prótesis parcial removible metálica", ["prótesis esquelética", "PPR metálica"]],
+    ["bis-acrílico", ["bisacrílico"]],
+  ],
+  oidoMal: [
+    ["disilicato de litio", ["di silicato de litio", "disilicato de lítio"]],
+    ["IPS e.max", ["emax", "i max", "e max"]],
+    ["Katana", ["catana"]],
+    ["chamfer", ["chanfer", "champer"]],
+    ["Panavia", ["panabia"]],
+    ["RelyX", ["relix", "reli x"]],
+  ],
+});

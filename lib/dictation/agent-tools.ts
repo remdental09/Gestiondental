@@ -1,6 +1,7 @@
 import { searchPrestaciones, candidatePrestaciones, prestacionLabel } from "../prestaciones-catalog.ts";
 import { searchDiagnoses } from "../icd11.ts";
 import { IMPLANT_BRANDS, findImplantBrand } from "./implant-brands.ts";
+import { searchKnowledge } from "../knowledge/index.ts";
 
 /**
  * Herramientas de SOLO LECTURA que el agente de dictado puede consultar antes de devolver la propuesta.
@@ -46,6 +47,15 @@ export const AGENT_TOOLS: AgentToolDefinition[] = [
       description: "Comprueba una marca o empresa de implantes dictada (la voz suele deformarlas). Devuelve coincidencias exactas o parecidas con su empresa. Si no hay una coincidencia clara, conserva lo dictado y pregunta en «dudas».",
       strict: true,
       parameters: queryParams("Marca o empresa tal como se oyó, p. ej. «Arxis ET de FSM»"),
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "buscar_termino_odontologico",
+      description: "Busca en la base de conocimiento odontológico por especialidad (implantología, cirugía, endodoncia, periodoncia, rehabilitación, operatoria, ortodoncia, odontopediatría, patología oral, ATM, imagenología, odontogeriatría) un término, material, marca, instrumento o medicamento que la voz pudo transcribir mal. Devuelve el término correcto, su especialidad y su empresa si es marca. Úsala cuando una palabra no tenga sentido clínico o suene a marca o material.",
+      strict: true,
+      parameters: queryParams("Palabra o frase tal como se oyó, p. ej. «vicril 4-0», «bio os», «pro taper», «velo fresco»"),
     },
   },
 ];
@@ -119,6 +129,10 @@ export function runAgentTool(name: string, rawArguments: string): string {
     case "buscar_marca_implante": {
       const results = searchImplantBrands(query);
       return JSON.stringify({ resultados: results, nota: results.length ? "Si el parecido es menor a 1, confírmalo en «dudas» antes de darlo por hecho." : "Marca no reconocida: consérvala tal como se dictó." });
+    }
+    case "buscar_termino_odontologico": {
+      const results = searchKnowledge(query, { limit: 6 });
+      return JSON.stringify({ resultados: results, nota: results.length ? "Corrige a «termino» solo si el contexto clínico del dictado lo respalda; si hay varias lecturas posibles, pregunta en «dudas»." : "Sin coincidencias: conserva lo dictado." });
     }
     default:
       return JSON.stringify({ error: `Herramienta desconocida: ${name}` });
