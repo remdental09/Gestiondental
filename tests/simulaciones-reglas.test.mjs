@@ -112,3 +112,12 @@ test("restauración con causa no cariosa («por abrasión cervical») conserva l
   assert.deepEqual(odo(p), ["27:V/restored"]);
   assert.ok(!p.clarifications.some((q) => /Falta la superficie/.test(q)));
 });
+
+test("carilla de porcelana propuesta por la IA como superficie no pregunta la cara", async () => {
+  const T = "Carilla de porcelana en la 1.1, color A1, cementación adhesiva.";
+  const nota = { motivo: "", anamnesis: "", alergias: "", medicamentos: "", examen: "", diagnostico: "", procedimientos: "Cementación adhesiva de carilla de porcelana en la pieza 1.1, color A1.", plan: "", indicaciones: "", presupuesto: "" };
+  const out = { nota, hallazgos: [{ pieza: "1.1", tipo: "superficie", superficie: "", condicion: "otra_restauracion", estado: "", evidencia: "Carilla de porcelana en la 1.1" }], procedimientos: [], presupuesto: [], ficha: [], texto_corregido: T, periodonto: [], pagos: [], citas: [], diagnosticos: [], diagnosticos_sugeridos: [], dudas: [] };
+  const model = { id: "x", model: "x", complete: async () => ({ usedModel: "x", output: out }) };
+  const p = (await proposeFromTranscript({ transcript: T, chart: [] }, model, () => {}, { today: "2026-11-07" })).proposal;
+  assert.ok(!p.clarifications.some((q) => /Falta la cara/.test(q)));
+});
