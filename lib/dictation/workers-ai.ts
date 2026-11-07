@@ -9,12 +9,22 @@ import {
   type ModelAnswer,
 } from "./proposal.ts";
 import { isReasoningModel, OPENAI_STRUCTURE_MODEL, runOpenAiStructure, type OpenAiUsage } from "./openai-structure.ts";
+import { AGENT_TOTAL_MS, runOpenAiAgent, type AgentTrace } from "./openai-agent.ts";
 
 type AiRunner = {
   run(model: string, input: Record<string, unknown>): Promise<unknown>;
 };
 
 export type OpenAiFallback = { apiKey?: string; model?: string; fetcher?: typeof fetch; onUsage?: (usage: OpenAiUsage) => void };
+
+/** Tiempo que se deja a la pasada única de OpenAI si el agente falla. */
+const AGENT_FALLBACK_MS = 25_000;
+
+export function agentNote(trace: AgentTrace): string {
+  if (!trace.toolCalls.length) return "Agente: respondió sin consultar catálogos";
+  const names = [...new Set(trace.toolCalls.map((call) => call.name.replace(/^buscar_/, "").replace(/_/g, " ")))];
+  return `Agente: ${trace.toolCalls.length} consulta${trace.toolCalls.length === 1 ? "" : "s"} (${names.join(", ")})`;
+}
 
 /** Tiempo reservado para OpenAI cuando hay clave: Workers AI no puede consumir todo el presupuesto. */
 const OPENAI_RESERVE_MS = 18_000;
@@ -34,7 +44,7 @@ function timeout<T>(promise: Promise<T>, ms: number, model: string): Promise<T> 
  * preferOpenAi invierte ese orden cuando la clave está disponible. Un error 4006 salta directo al respaldo.
  * Si todo falla, proposal.ts deja las reglas locales. El resultado se valida contra la transcripción.
  */
-export function createWorkersAiModel(ai: AiRunner | null | undefined, options: { perModelMs?: number; totalMs?: number; openAi?: OpenAiFallback; preferOpenAi?: boolean } = {}): ClinicalModel {
+export function createWorkersAiModel(ai: AiRunner | null | undefined, options: { perModelMs?: number; totalMs?: number; openAi?: OpenAiFallback; preferOpenAi?: boolean; agent?: boolean } = {}): ClinicalModel {
   const chain = ai ? [WORKERS_AI_MODEL, ...WORKERS_AI_FALLBACKS] : [];
   const perModelMs = options.perModelMs ?? 30_000;
   const totalMs = options.totalMs ?? 45_000;
@@ -48,10 +58,22 @@ export function createWorkersAiModel(ai: AiRunner | null | undefined, options: {
       const started = Date.now();
       const failures: string[] = [];
       let quota = false;
+      if (openAiKey && options.preferOpenAi && options.agent) {
+        // Agente con herramientas de solo lectura; si falla, sigue la pasada única de siempre.
+        let trace: AgentTrace = { turns: 0, toolCalls: [] };
+        try {
+          const content = await runOpenAiAgent(input, openAiKey, { model: openAiModel, fetcher: options.openAi?.fetcher, totalMs: Math.min(AGENT_TOTAL_MS, Math.max(5_000, totalMs - AGENT_FALLBACK_MS)), onUsage: options.openAi?.onUsage, onTrace: (value) => { trace = value; } });
+          const output = validateModelOutput(modelOutputToJson(content));
+          return { usedModel: `openai-agente/${openAiModel}`, output, note: agentNote(trace) };
+        } catch (cause) {
+          failures.push(`agente ${openAiModel}: ${(cause instanceof Error ? cause.message : String(cause)).slice(0, 80)}`);
+        }
+      }
       if (openAiKey && options.preferOpenAi) {
+        const left = totalMs - (Date.now() - started);
         // Un solo modelo de OpenAI: si falla, el error (HTTP/código) queda visible y se sigue con Workers AI y reglas.
         try {
-          const content = await runOpenAiStructure(input, openAiKey, { model: openAiModel, fetcher: options.openAi?.fetcher, timeoutMs: Math.min(isReasoningModel(openAiModel) ? 30_000 : 20_000, totalMs), onUsage: options.openAi?.onUsage });
+          const content = await runOpenAiStructure(input, openAiKey, { model: openAiModel, fetcher: options.openAi?.fetcher, timeoutMs: Math.max(5_000, Math.min(isReasoningModel(openAiModel) ? 30_000 : 20_000, left)), onUsage: options.openAi?.onUsage });
           const output = validateModelOutput(modelOutputToJson(content));
           return { usedModel: `openai/${openAiModel}`, output };
         } catch (cause) {
