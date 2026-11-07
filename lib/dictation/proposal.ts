@@ -2687,7 +2687,8 @@ export function evidenceInTranscript(evidence: string, transcript: string): bool
 
 function numbersIn(value: string, articlesAsNumbers = true): Set<string> {
   const found = new Set<string>();
-  const plain = value.replace(/(\d)\.(?=\d{3}\b)/g, "$1");
+  // «50.000» es 50000, pero «0.016» (calibre de arco, 0,016) es un decimal.
+  const plain = value.replace(/(?<![\d.,])(\d+)\.(?=\d{3}\b)/g, (whole, integer: string) => (integer === "0" ? whole : integer));
   for (const match of plain.matchAll(/\d+(?:[.,]\d+)?/g)) {
     found.add(match[0].replace(",", "."));
     // «la 37» se escribe «3.7» en la notación con punto de la app (FDI 33–48 y 51–85).

@@ -121,3 +121,12 @@ test("carilla de porcelana propuesta por la IA como superficie no pregunta la ca
   const p = (await proposeFromTranscript({ transcript: T, chart: [] }, model, () => {}, { today: "2026-11-07" })).proposal;
   assert.ok(!p.clarifications.some((q) => /Falta la cara/.test(q)));
 });
+
+test("calibre «0.016» del dictado y «0,016» de la nota no generan aviso de cifra", async () => {
+  const T = "Control de ortodoncia, se cambia arco a 0.016 niti superior.";
+  const nota = { motivo: "", anamnesis: "", alergias: "", medicamentos: "", examen: "", diagnostico: "", procedimientos: "Control de ortodoncia. Se cambia el arco superior por uno de NiTi 0,016.", plan: "", indicaciones: "", presupuesto: "" };
+  const out = { nota, hallazgos: [], procedimientos: [], presupuesto: [], ficha: [], texto_corregido: T, periodonto: [], pagos: [], citas: [], diagnosticos: [], diagnosticos_sugeridos: [], dudas: [] };
+  const model = { id: "x", model: "x", complete: async () => ({ usedModel: "x", output: out }) };
+  const p = (await proposeFromTranscript({ transcript: T, chart: [] }, model, () => {}, { today: "2026-11-07" })).proposal;
+  assert.ok(!p.clarifications.some((q) => /menciona «0[.,]016»/.test(q)));
+});
