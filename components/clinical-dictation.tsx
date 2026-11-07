@@ -261,6 +261,8 @@ export function ClinicalDictation({
   const [prestItems, setPrestItems] = useState<Array<PrestacionItem & { decision: Decided }>>([]);
   const [prestSearch, setPrestSearch] = useState("");
   const [dxSearch, setDxSearch] = useState("");
+  // Preguntas de diagnóstico ya respondidas (por id) en esta revisión.
+  const [answeredDxPrompts, setAnsweredDxPrompts] = useState<string[]>([]);
   // Avisos descartados con «No es necesario ahora»: valen solo para esta evolución.
   const [dismissedNotices, setDismissedNotices] = useState<Set<EvolutionNoticeKey>>(new Set());
   // Al terminar un dictado (Detener, corte de Safari o error) se corrige solo con IA, una vez por dictado.
@@ -303,6 +305,7 @@ export function ClinicalDictation({
     setAppointmentItems([]);
     setDxItems([]);
     setDxSearch("");
+    setAnsweredDxPrompts([]);
     setPrestItems([]);
     setPrestSearch("");
     setDismissedNotices(new Set());
@@ -442,6 +445,7 @@ export function ClinicalDictation({
       setPrestItems((data.proposal.prestaciones ?? []).map((item) => ({ ...item, decision: "accepted" as const })));
       setDxItems((data.proposal.diagnoses ?? []).filter((item) => !item.code.startsWith("DA08.0")).map((item) => ({ ...item, decision: item.suggested ? "rejected" as const : "accepted" as const, toothText: item.tooth ? formatFdi(item.tooth) : "", findingsText: item.findings ?? "", codeSearch: "" })));
       setDxSearch("");
+    setAnsweredDxPrompts([]);
       setDismissedNotices(new Set());
       setAppointmentItems((data.proposal.appointments ?? []).map((item) => ({ ...item, decision: item.day && item.time && !item.timeDoubt ? "accepted" : "rejected", dayValue: item.day ?? "", timeValue: item.time ?? "" })));
     } catch (cause) {
@@ -887,9 +891,13 @@ export function ClinicalDictation({
     return { items, tags: parsed.tags };
   }
 
-  const addManualDiagnosis = (code: string, title: string) => {
-    setDxItems((current) => [...current, { id: `dx-manual-${Date.now()}`, code, title, label: title, evidence: "", origin: "manual", decision: "accepted", toothText: "", findingsText: "", codeSearch: "" }]);
+  const addManualDiagnosis = (code: string, title: string, tooth?: number) => {
+    setDxItems((current) => [...current, { id: `dx-manual-${Date.now()}`, code, title, label: title, evidence: "", origin: "manual", decision: "accepted", toothText: tooth ? formatFdi(tooth) : "", findingsText: "", codeSearch: "", ...(tooth ? { tooth } : {}) }]);
     setDxSearch("");
+  };
+  const answerDxPrompt = (promptId: string, code: string, title: string, tooth?: number) => {
+    addManualDiagnosis(code, title, tooth);
+    setAnsweredDxPrompts((current) => [...current, promptId]);
   };
   const updateDx = (id: string, patch: Partial<ReviewDiagnosis>) => setDxItems((current) => current.map((entry) => entry.id === id ? { ...entry, ...patch } : entry));
 
@@ -1096,6 +1104,14 @@ export function ClinicalDictation({
             <section className="rounded-xl border border-[#dce5e7] p-4" data-testid="dictation-diagnoses">
               <h3 className="font-semibold">Diagnósticos de la evolución (CIE-11 OMS)</h3>
               <p className="mt-1 text-xs text-[#60757a]">Etiquetas del catálogo CIE-11 verificado (MMS 2026-01). La pieza y los hallazgos se guardan aparte del código. Las equivalencias sugeridas (AAE, caries con compromiso pulpar) parten sin aceptar: confírmalas solo si corresponden. Las caries siguen lo aceptado en el odontograma.</p>
+              {(proposal.diagnosisPrompts ?? []).filter((prompt) => !answeredDxPrompts.includes(prompt.id)).map((prompt) => <div key={prompt.id} className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3" data-testid="dictation-diagnosis-prompt">
+                <p className="text-sm font-semibold text-amber-900">{prompt.question}</p>
+                <p className="mt-1 text-xs text-amber-800">Te propongo estos diagnósticos del CIE-11 según lo que describiste. Acepta uno, busca otro abajo u omítelo si no corresponde.</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {prompt.options.map((option) => <Button key={option.code} type="button" size="sm" variant="outline" className="h-auto whitespace-normal bg-white text-left" onClick={() => answerDxPrompt(prompt.id, option.code, option.title, prompt.tooth)}><span className="mr-1 font-mono text-[11px]">{option.code}</span>{option.title}</Button>)}
+                  <Button type="button" size="sm" variant="ghost" onClick={() => setAnsweredDxPrompts((current) => [...current, prompt.id])}>Omitir</Button>
+                </div>
+              </div>)}
               <ul className="mt-2 space-y-2">
                 {cariesDiagnoses(teeth.filter((item) => item.decision === "accepted")).filter((item) => item.code.startsWith("DA08.0")).map((item) => <li key={item.id} className="rounded-lg bg-[#f4f7f8] p-3" data-testid="dictation-diagnosis-caries">{item.label}<span className="ml-2 text-xs text-[#71858b]">(desde el odontograma)</span><Evidence text={item.evidence} /></li>)}
                 {dxItems.map((item) => {
