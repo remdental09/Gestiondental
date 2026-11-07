@@ -3001,6 +3001,8 @@ export function validateAiExtraction(input: unknown, transcript: string, options
     const faces = aiFaces.length ? aiFaces.filter((face) => resolved.surfaces.includes(face)) : resolved.surfaces;
     const dropped = aiFaces.filter((face) => !resolved.surfaces.includes(face));
     if (dropped.length) clarifications.push(`${heading}: la IA marcó la cara ${dropped.join(", ")}, que no está en la cita. No se marcó.`);
+    // Carillas, coronas, puentes e incrustaciones no son una cara del odontograma: no se pregunta la cara, el procedimiento va en la nota.
+    if (!faces.length && /(?<!\p{L})(?:carillas?|coronas?|puentes?|incrustaci\p{L}*|inlay|onlay|n[uú]cleos?|mu[ñn]ones?)(?!\p{L})/iu.test(segment)) continue;
     if (!faces.length) { reject(`Falta la cara del hallazgo en ${heading}: «${clip(segment)}».`); continue; }
     let finding: SurfaceFinding = { condition, depth: null, icdas: null, activity: null };
     if (condition === "caries") {
