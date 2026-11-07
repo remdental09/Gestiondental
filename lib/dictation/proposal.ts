@@ -1261,8 +1261,9 @@ export function deducedDiagnoses(odontogram: OdontogramChange[], diagnoses: Diag
   for (const tooth of teeth) {
     if (covered.has(tooth) || adviseOnly.has(tooth)) continue;
     const own = sentencesOf(tooth);
-    if (own.some((text) => CAUSE_SAID.test(text))) continue;
-    const status = odontogram.find((change) => change.tooth === tooth && change.kind === "status" && !change.advisory)?.status;
+    // Si dijo la causa pero no quedó ningún diagnóstico registrado para la pieza (covered), igual se propone: nada queda sin diagnóstico.
+    const statuses = odontogram.filter((change) => change.tooth === tooth && change.kind === "status" && !change.advisory).map((change) => change.status);
+    const status = statuses.includes("Implante") ? "Implante" : statuses.includes("Ausente") ? "Ausente" : statuses[0];
     const extracted = (status === "Ausente" || status === "Implante") && own.some((text) => EXTRACTION_ANY.test(text));
     if (extracted) {
       const root = own.find((text) => EXTRACTION_ANY.test(text) && ROOT_EXTRACTED.test(text));
