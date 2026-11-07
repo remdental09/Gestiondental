@@ -68,6 +68,9 @@ const KEYWORDS: Array<{ test: RegExp; code: (text: string, teeth?: number[], con
   // En el arancel, «pulido radicular» es el raspado y alisado por sextante: moderado a avanzado si hay bolsas profundas.
   { test: /\braspado\s+y\s+alisado\b|\balisado\s+radicular\b|\bpulido\s+radicular\b|\braspaje\b/, code: (t) => (/avanzad|bolsas?\s+profundas?|\b[6-9]\s*(?:mm|milimetros)\b/.test(t) ? "5009012" : "5009003") },
   { test: /\bdestartraje\s+subgingival\b/, code: () => "5009013" },
+  // En el arancel hay dos «gingivectomía unitaria» (5006014 en endodoncia y 5009008 en periodoncia): se usa la de periodoncia.
+  // Varias piezas o un sector (sextante, grupo, arcada) → por sextante. Con láser no se asigna (queda a elección).
+  { test: /\bgingivectomia\b/, code: (t, teeth = []) => (/\blaser\b/.test(t) ? null : /\bsextante|\bgrupo\b|\bsector\b|\barcada\b|\banteriores?\b|\bposteriores?\b/.test(t) || teeth.length > 1 ? "5009023" : teeth.length === 1 ? "5009008" : null) },
   { test: /\bexodoncia\b|\bextraccion\b|\bse\s+extrae\b/, code: (t) => (/\bresto\s+radicular\b/.test(t) ? "5001041" : /\bterce(?:r|ros)\s+molar|\bmuela\s+del\s+juicio\b|\bcordal/.test(t) ? "5003045" : "5003001") },
   { test: /\b(?:se\s+)?(?:instal|coloc)\w*\s+(?:un\s+|el\s+|los\s+|dos\s+)?implantes?\b|\binstalacion\s+de\s+(?:un\s+)?implante|\bimplantes?\s+(?:inmediato|unitario)\b/, code: (t) => (/corona|pilar\s+de\s+cicatrizacion|provisori|segunda\s+fase|control|\binstalar|\bcolocar|\bplan\b|\ben\s+\w+\s+meses|se\s+planifica|diferid/.test(t) ? null : "5011001") },
   { test: /\belevacion\s+(?:de\s+)?(?:del\s+)?seno|\bantrotomia\b|\bsinus\s+lift\b/, code: () => "5011005" },
@@ -151,7 +154,9 @@ export function suggestPrestaciones(odontogram: OdontogramChange[], procedureLin
     // Sin regla ni código del modelo: búsqueda por palabras, solo si la coincidencia es clara (si hay duda, no se asigna).
     if (!ruled) {
       const found = matchPrestacion(line.replace(/\b[1-8]\.[1-8]\b/g, " "));
-      if (found) push(make(found.code, teeth.length === 1 ? teeth[0] : null, line, out.length + 1));
+      // «Ajuste oclusal» tras cementar/instalar/probar una restauración indirecta es parte de ese acto, no un ajuste de plano oclusal.
+      const partOfCementation = found?.code === "5013035" && /cementa|instalacion|se\s+(?:coloca|instala|prueba)|prueba\s+de|corona|carilla|incrustacion|puente|protesis/.test(allPlain);
+      if (found && !partOfCementation) push(make(found.code, teeth.length === 1 ? teeth[0] : null, line, out.length + 1));
     }
   }
   return out;
@@ -181,4 +186,23 @@ export function withPrestacionesSection(body: string, items: Pick<PrestacionItem
   const end = cut >= 0 ? cut : lines.length;
   lines.splice(end, 0, ...(end > 0 && lines[end - 1].trim() !== "" ? [""] : []), PRESTACIONES_HEADER, ...items.map(prestacionText), "");
   return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/**
+ * Tratamiento de conductos de una pieza sin saber si estaba vital o con lesión apical: el arancel distingue ambos,
+ * así que se pregunta en vez de adivinar. Solo cuando ninguna prestación de conductos quedó asignada a esa pieza.
+ */
+export function endodonticQuestions(procedureLines: string[], prestaciones: Pick<PrestacionItem, "code" | "tooth">[]): string[] {
+  const out: string[] = [];
+  for (const line of procedureLines.flatMap((item) => item.split(/(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑ])/u))) {
+    const plain = fold(line);
+    if (!/\btratamiento\s+(?:de\s+)?(?:conductos?|endodontic\w*)|\bendodoncia\b|\bpulpectomia\b|\bbiopulpectomia\b|\bnecropulpectomia\b/.test(plain)) continue;
+    if (/retratamiento|desobtur|apertura\s+(?:cameral\s+)?y\s+medicacion|medicacion\s+intraconducto|\bno\s+se\s+realiz/.test(plain)) continue;
+    const teeth = [...new Set(teethOf(line))];
+    if (teeth.length !== 1) continue;
+    const tooth = teeth[0];
+    if (prestaciones.some((item) => item.tooth === tooth && /^50060(?:01|02|03|07|08|09|15|16)$/.test(item.code))) continue;
+    out.push(`¿La pieza ${Math.floor(tooth / 10)}.${tooth % 10} estaba vital o con lesión apical (necrosis, absceso)? El arancel tiene un código distinto para cada caso y no se sugirió ninguno.`);
+  }
+  return [...new Set(out)];
 }
