@@ -529,7 +529,7 @@ function toothMentions(sentence: string): Mention[] {
   // «en la 3.6» sin etiqueta: la forma con punto es FDI (la corrección convierte «tres seis» en 3.6).
   // No se lee como pieza si es una medida («4.5 mm») o parte de otro número («50.000», «10.30»).
   const unlabeled = sentence.replace(numbered, (whole) => " ".repeat(whole.length));
-  for (const match of unlabeled.matchAll(/(?<![\p{L}\d.,])(?<![x×]\s?)(?<!\b(?:color|colores|tono|tinte|matiz|vita|escala)\s+(?:de\s+)?)([1-8])\.([1-8])(?![\d.,]?\d)(?!\s*(?:mm|mil[ií]metros?|cm|%|hrs?|horas?|h\b|[x×]\s*\d))/giu)) {
+  for (const match of unlabeled.matchAll(/(?<![\p{L}\d.,])(?<![x×]\s?)(?<!\b(?:color|colores|tono|tinte|matiz|vita|escala|dimensiones?|di[aá]metro|medidas?|ancho|largo|longitud|espesor)\s+(?:de\s+)?)([1-8])\.([1-8])(?![\d.,]?\d)(?!\s*(?:de\s+(?:ancho|largo|alto|di[aá]metro|longitud|espesor)|por\s+\d|mm|mil[ií]metros?|cm|%|hrs?|horas?|h\b|[x×]\s*\d))/giu)) {
     mentions.push(interpretTooth(`${match[1]}.${match[2]}`, "fdi"));
   }
   // «las piezas 16 y 26», «dientes 1.6, 2.6 y 3.6»: la etiqueta se comparte con toda la lista.
@@ -2620,6 +2620,18 @@ type AiExtraction = {
   diagnoses?: DiagnosisItem[];
 };
 
+/** ¿El número aparece en la cita solo como medida («3,3 mm», «3.3 de ancho», «de 4,5 de diámetro»)? Entonces no es una pieza. */
+function onlyAsMeasure(raw: string, evidence: string): boolean {
+  const digits = raw.replace(/[.,]/, "[.,]").replace(/[()]/g, "");
+  const all = [...evidence.matchAll(new RegExp(`(?<![\\d.,])${digits}(?![\\d]|[.,]\\d)`, "g"))];
+  if (!all.length) return false;
+  return all.every((hit) => {
+    const after = evidence.slice((hit.index ?? 0) + hit[0].length, (hit.index ?? 0) + hit[0].length + 24);
+    const before = evidence.slice(Math.max(0, (hit.index ?? 0) - 24), hit.index ?? 0);
+    return /^\s*(?:mm|mil[ií]metros?|cm|%|de\s+(?:ancho|largo|alto|di[aá]metro|longitud|espesor|profundidad)|por\s+\d)/i.test(after) || /(?:dimensiones?|di[aá]metro|medidas?|ancho|largo|longitud)\s+(?:de\s+|es\s+de\s+)?$/i.test(before);
+  });
+}
+
 function resolveAiTooth(pieza: string, sistema: string, evidence: string): Mention {
   const inQuote = toothMentions(evidence);
   const good = inQuote.filter((item): item is Extract<Mention, { ok: true }> => item.ok);
@@ -2637,7 +2649,7 @@ function resolveAiTooth(pieza: string, sistema: string, evidence: string): Menti
   }
   const failed = inQuote.find((item) => !item.ok);
   if (failed && !failed.ok) return failed;
-  if (intended?.ok && raw && numbersIn(evidence).has(raw.replace(",", ".")) && (sistema === "FDI" ? raw.includes(".") : true)) return intended;
+  if (intended?.ok && raw && numbersIn(evidence).has(raw.replace(",", ".")) && (sistema === "FDI" ? raw.includes(".") : true) && !onlyAsMeasure(raw, evidence)) return intended;
   return { ok: false, reason: `La IA propuso la pieza «${raw || "sin número"}», pero la cita no la contiene: «${clip(evidence, 120)}».` };
 }
 

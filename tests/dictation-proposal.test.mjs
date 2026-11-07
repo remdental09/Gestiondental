@@ -497,3 +497,24 @@ test('un implante automático rechazado se restituye y la relectura lo comprueba
   const restored = verifyDictationSave({ patientId: 7, before, note: null, accepted: [], budgets: [] }, { notes: [], budgets: [], toothStatuses: { 7: before } });
   assert.equal(restored.ok, true);
 });
+
+test('una medida con coma o punto («3,3 mm de ancho») no se toma como pieza aunque la IA la proponga', async () => {
+  const t = 'Se realiza cirugía de implante en la pieza 3.1. Se instala un implante con dimensiones de 3,3 mm de ancho por 8 mm de largo.';
+  const out = { hallazgos: [
+    { tipo: 'estado', pieza: '3.1', sistema: 'FDI', estado: 'Implante', evidencia: 'Se realiza cirugía de implante en la pieza 3.1' },
+    { tipo: 'estado', pieza: '3.3', sistema: 'FDI', estado: 'Implante', evidencia: 'dimensiones de 3,3 mm de ancho por 8 mm de largo' },
+  ], procedimientos: [], presupuesto: [], ficha: [], periodonto: [], pagos: [], citas: [], diagnosticos: [], dudas: [], nota: {}, texto_corregido: t };
+  const result = await proposeFromTranscript({ transcript: t, chart: [] }, { complete: async () => JSON.stringify(out), model: 'x' }, () => {});
+  assert.deepEqual(result.proposal.odontogram.map((item) => item.tooth), [31]);
+});
+
+test('medidas de implante con punto («3.3 de ancho», «diámetro 3.3») no se leen como pieza FDI', async () => {
+  for (const text of [
+    'Se realiza cirugía de implante en la pieza 3.1. Se instala un implante con dimensiones de 3.3 de ancho por 8 de largo.',
+    'Se realiza cirugía de implante en la pieza 3.1. Implante diámetro 3.3 y largo 8.',
+    'Se realiza cirugía de implante en la pieza 3.1. Implante de 3.3 mm por 8 mm.',
+  ]) {
+    const proposal = structureTranscript(text, { today: '2026-11-06' });
+    assert.deepEqual(proposal.odontogram.map((item) => item.tooth), [31], text);
+  }
+});
