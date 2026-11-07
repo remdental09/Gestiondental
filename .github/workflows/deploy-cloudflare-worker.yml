@@ -40,4 +40,4 @@ jobs:
           if [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
             unset CLOUDFLARE_ACCOUNT_ID
           fi
-          pnpm exec wrangler deploy --config dist/server/wrangler.json
+          pnpm exec wrangler deploy --config dist/server/wrangler.json --keep-vars
