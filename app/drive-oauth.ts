@@ -72,6 +72,7 @@ export async function googleDriveStatus(user: ChatGPTUser) {
     email: connection?.google_email ?? null,
     connectedAt: connection?.connected_at ?? null,
     lastRun: connection ? await lastBackupRun(user.userId) : null,
+    mirrors: await mirrorStatus(user.userId),
   };
 }
 
@@ -130,6 +131,7 @@ function redirectWithDriveStatus(request: Request, returnTo: string, status: str
   if (clearCookies) {
     headers.append("Set-Cookie", "__Host-gd-drive-state=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0");
     headers.append("Set-Cookie", "__Host-gd-drive-verifier=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0");
+    headers.append("Set-Cookie", "__Host-gd-drive-mode=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0");
   }
   return new Response(null, { status: 302, headers });
 }
@@ -160,6 +162,8 @@ export async function beginGoogleDriveConnect(request: Request, user: ChatGPTUse
   const headers = new Headers({ Location: authorization.toString(), "Cache-Control": "no-store" });
   headers.append("Set-Cookie", "__Host-gd-drive-state=" + stateValue + "; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=600");
   headers.append("Set-Cookie", "__Host-gd-drive-verifier=" + verifier + "; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=600");
+  // ?mirror=1 conecta una segunda cuenta de Google Drive como copia adicional, sin reemplazar la principal.
+  headers.append("Set-Cookie", "__Host-gd-drive-mode=" + (new URL(request.url).searchParams.get("mirror") === "1" ? "mirror" : "primary") + "; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=600");
   return new Response(null, { status: 302, headers });
 }
 
@@ -248,6 +252,18 @@ export async function finishGoogleDriveConnect(request: Request, user: ChatGPTUs
     if (!profileResponse.ok) throw new Error("No se pudo confirmar la cuenta de Google.");
     const profile = await profileResponse.json() as { sub?: string; email?: string; email_verified?: boolean };
     if (!profile.sub || !profile.email || profile.email_verified === false) throw new Error("No se pudo verificar el correo de Google.");
+
+    if (cookieValue(request, "__Host-gd-drive-mode") === "mirror") {
+      const primary = await connectionFor(user.userId);
+      if (primary && primary.google_sub === profile.sub) return redirectWithDriveStatus(request, returnTo, "mirror-same", true);
+      await ensureMirrorTables();
+      const stamp = now();
+      await database().prepare(
+        "INSERT INTO google_drive_mirrors (owner_id, google_sub, google_email, refresh_token_ciphertext, root_folder_id, connected_at, updated_at) VALUES (?, ?, ?, ?, NULL, ?, ?) " +
+        "ON CONFLICT(owner_id, google_sub) DO UPDATE SET google_email = excluded.google_email, refresh_token_ciphertext = excluded.refresh_token_ciphertext, updated_at = excluded.updated_at"
+      ).bind(user.userId, profile.sub, profile.email, await encryptRefreshToken(user.userId, tokens.refresh_token, config.clientSecret), stamp, stamp).run();
+      return redirectWithDriveStatus(request, returnTo, "mirror-connected", true);
+    }
 
     const db = database();
     await ensureConnectionTable();
@@ -513,7 +529,8 @@ export async function syncGoogleDrive(user: ChatGPTUser, body: unknown) {
     try {
       const single = await backupPatient(user, patientId);
       await recordBackupRun(user.userId, "manual", Boolean(single.saved), single.saved ? "ficha " + patientId + " respaldada" : String((single as { message?: string }).message || "no se respaldó"));
-      return { configured: true, connected: true, results: [single], complete: true };
+      const extra = await syncDriveMirrors(user, "manual", 1, patientId).catch(() => ({ results: [] as Array<Record<string, unknown>> }));
+      return { configured: true, connected: true, results: [single, ...extra.results], complete: true };
     } catch (error) {
       const message = error instanceof Error ? error.message : "error";
       await recordBackupRun(user.userId, "manual", false, "ficha " + patientId + ": " + message);
@@ -536,6 +553,12 @@ export async function syncGoogleDrive(user: ChatGPTUser, body: unknown) {
     }
   }
   if (results.length && results.every(item => item.saved)) await recordBackupRun(user.userId, "manual", true, results.length + " fichas respaldadas");
+  // Cuando la cuenta principal terminó, se copian las cuentas adicionales de a 3 fichas por página.
+  if (queue.nextAfterPatientId === null) {
+    const extra = await syncDriveMirrors(user, "manual", 3);
+    results.push(...extra.results);
+    if (extra.budget <= 0) return { configured: true, connected: true, results, nextAfterPatientId: 0, complete: false };
+  }
   return {
     configured: true,
     connected: true,
@@ -584,5 +607,147 @@ export async function runScheduledDriveBackup(maxPatients = 6) {
       after = queue.nextAfterPatientId;
     }
   }
+  for (const connection of connections) {
+    if (budget <= 0) break;
+    const user: ChatGPTUser = { userId: connection.owner_id, displayName: "", email: connection.google_email, fullName: null };
+    try {
+      const extra = await syncDriveMirrors(user, "cron", budget);
+      results.push(...extra.results);
+      budget = extra.budget;
+    } catch (error) {
+      results.push({ ownerId: connection.owner_id, saved: false, error: error instanceof Error ? error.message : "error en copia adicional" });
+    }
+  }
   return { configured: true, owners: connections.length, results, budgetLeft: budget };
+}
+
+// ---------------------------------------------------------------------------
+// Copias adicionales: una o más cuentas de Google Drive que reciben la misma ficha.
+// La cuenta principal no cambia; cada copia lleva su propia carpeta «Pacientes» y su propio control de versión.
+
+type MirrorConnection = DriveConnection;
+type MirrorBackup = { patient_id: number; document_id: string; folder_id: string | null; snapshot_digest: string; verified_at: string };
+
+async function ensureMirrorTables() {
+  await database().prepare(
+    "CREATE TABLE IF NOT EXISTS google_drive_mirrors (owner_id TEXT NOT NULL, google_sub TEXT NOT NULL, google_email TEXT NOT NULL, " +
+    "refresh_token_ciphertext TEXT NOT NULL, root_folder_id TEXT, connected_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (owner_id, google_sub))"
+  ).run();
+  await database().prepare(
+    "CREATE TABLE IF NOT EXISTS drive_mirror_backups (owner_id TEXT NOT NULL, google_sub TEXT NOT NULL, patient_id INTEGER NOT NULL, " +
+    "document_id TEXT NOT NULL, folder_id TEXT, snapshot_digest TEXT NOT NULL, verified_at TEXT NOT NULL, PRIMARY KEY (owner_id, google_sub, patient_id))"
+  ).run();
+}
+
+async function mirrorsFor(ownerId: string): Promise<MirrorConnection[]> {
+  await ensureMirrorTables();
+  const { results } = await database().prepare(
+    "SELECT owner_id, google_sub, google_email, refresh_token_ciphertext, root_folder_id, connected_at, updated_at FROM google_drive_mirrors WHERE owner_id = ? ORDER BY connected_at"
+  ).bind(ownerId).all<MirrorConnection>();
+  return results;
+}
+
+async function mirrorStatus(ownerId: string) {
+  try {
+    const mirrors = await mirrorsFor(ownerId);
+    const total = await database().prepare("SELECT COUNT(*) AS n FROM patients WHERE owner_id = ?").bind(ownerId).first<{ n: number }>();
+    return await Promise.all(mirrors.map(async (mirror) => {
+      const row = await database().prepare(
+        "SELECT COUNT(*) AS n, MAX(verified_at) AS last FROM drive_mirror_backups WHERE owner_id = ? AND google_sub = ?"
+      ).bind(ownerId, mirror.google_sub).first<{ n: number; last: string | null }>();
+      return { email: mirror.google_email, backedUp: row?.n ?? 0, total: total?.n ?? 0, lastVerifiedAt: row?.last ?? null };
+    }));
+  } catch {
+    return [];
+  }
+}
+
+async function ensureMirrorRoot(mirror: MirrorConnection, accessToken: string) {
+  if (mirror.root_folder_id) {
+    try {
+      const existing = await getGoogleFile(accessToken, mirror.root_folder_id);
+      if (existing.mimeType === GOOGLE_FOLDER) return existing.id;
+    } catch { /* carpeta revocada o borrada: se crea otra */ }
+  }
+  const created = await createGoogleFolder(accessToken, "Pacientes");
+  if (!created.id) throw new Error("No se pudo crear la carpeta de respaldos en la cuenta adicional.");
+  await database().prepare("UPDATE google_drive_mirrors SET root_folder_id = ?, updated_at = ? WHERE owner_id = ? AND google_sub = ?")
+    .bind(created.id, now(), mirror.owner_id, mirror.google_sub).run();
+  mirror.root_folder_id = created.id;
+  return created.id;
+}
+
+async function mirrorBackupOf(mirror: MirrorConnection, patientId: number) {
+  return database().prepare(
+    "SELECT patient_id, document_id, folder_id, snapshot_digest, verified_at FROM drive_mirror_backups WHERE owner_id = ? AND google_sub = ? AND patient_id = ?"
+  ).bind(mirror.owner_id, mirror.google_sub, patientId).first<MirrorBackup>();
+}
+
+/** Copia una ficha a una cuenta adicional. Relee el documento antes de darla por respaldada. */
+async function backupPatientToMirror(user: ChatGPTUser, mirror: MirrorConnection, patientId: number, tokens: Map<string, string>) {
+  const config = configuration();
+  const snapshot = await getDriveSnapshot(user.userId, patientId);
+  if (!snapshot) return { saved: false, patientId, message: "Ficha no encontrada." };
+  const previous = await mirrorBackupOf(mirror, patientId);
+  if (previous && previous.snapshot_digest === snapshot.digest) return { saved: true, skipped: true, patientId };
+
+  const key = "mirror:" + mirror.google_sub;
+  const accessToken = tokens.get(key) || await getAccessToken(user, mirror, config.clientSecret);
+  tokens.set(key, accessToken);
+  const root = await ensureMirrorRoot(mirror, accessToken);
+  const folder = await ensurePatientFolder(accessToken, root, patientId, snapshot.name, previous?.folder_id ?? null);
+  let documentId = previous?.document_id ?? null;
+  if (documentId) {
+    try {
+      const existing = await getGoogleFile(accessToken, documentId);
+      if (existing.mimeType !== GOOGLE_DOC) documentId = null;
+    } catch { documentId = null; }
+  }
+  if (!documentId) {
+    const created = await createGoogleDocument(accessToken, snapshot.documentTitle, folder.id);
+    if (!created.id) throw new Error("No se pudo crear el documento de respaldo en la cuenta adicional.");
+    documentId = created.id;
+  }
+  await replaceDocumentText(accessToken, documentId, snapshot.documentText);
+  const current = await getDriveSnapshot(user.userId, patientId);
+  if (!current || current.digest !== snapshot.digest) return { saved: false, patientId, message: "La ficha cambió durante el respaldo; se copiará en el próximo intento." };
+  await database().prepare(
+    "INSERT INTO drive_mirror_backups (owner_id, google_sub, patient_id, document_id, folder_id, snapshot_digest, verified_at) VALUES (?, ?, ?, ?, ?, ?, ?) " +
+    "ON CONFLICT(owner_id, google_sub, patient_id) DO UPDATE SET document_id = excluded.document_id, folder_id = excluded.folder_id, snapshot_digest = excluded.snapshot_digest, verified_at = excluded.verified_at"
+  ).bind(user.userId, mirror.google_sub, patientId, documentId, folder.id, snapshot.digest, now()).run();
+  return { saved: true, patientId };
+}
+
+/**
+ * Copia a todas las cuentas adicionales las fichas que cambiaron. `budget` limita cuántas fichas se escriben
+ * (cada ficha usa ~6 llamadas a Google). Devuelve resultados y el presupuesto restante.
+ */
+export async function syncDriveMirrors(user: ChatGPTUser, source: "manual" | "cron", budget = 6, onlyPatientId?: number) {
+  const config = configuration();
+  if (!config.configured) return { results: [] as Array<Record<string, unknown>>, budget };
+  const mirrors = await mirrorsFor(user.userId);
+  const results: Array<Record<string, unknown>> = [];
+  const tokens = new Map<string, string>();
+  for (const mirror of mirrors) {
+    const { results: ids } = onlyPatientId
+      ? { results: [{ id: onlyPatientId }] }
+      : await database().prepare("SELECT id FROM patients WHERE owner_id = ? ORDER BY id").bind(user.userId).all<{ id: number }>();
+    for (const { id } of ids) {
+      if (budget <= 0) break;
+      try {
+        const result = await backupPatientToMirror(user, mirror, id, tokens);
+        if ((result as { skipped?: boolean }).skipped) continue;
+        budget--;
+        results.push({ mirror: mirror.google_email, ...result });
+        await recordBackupRun(user.userId, source, Boolean(result.saved), "copia en " + mirror.google_email + ": ficha " + id + (result.saved ? " respaldada" : " " + String((result as { message?: string }).message || "")));
+      } catch (error) {
+        budget--;
+        const message = error instanceof Error ? error.message : "error";
+        results.push({ mirror: mirror.google_email, saved: false, patientId: id, message });
+        await recordBackupRun(user.userId, source, false, "copia en " + mirror.google_email + ": ficha " + id + ": " + message);
+        if (!tokens.has("mirror:" + mirror.google_sub)) break; // token inválido: no insistir con esta cuenta
+      }
+    }
+  }
+  return { results, budget };
 }

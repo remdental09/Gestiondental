@@ -7,6 +7,7 @@ type DriveStatus = {
   connected: boolean;
   email?: string | null;
   lastRun?: { source: string; ranAt: string; ok: number; detail: string } | null;
+  mirrors?: Array<{ email: string; backedUp: number; total: number; lastVerifiedAt: string | null }>;
 };
 type SyncResult = { saved?: boolean; message?: string };
 const fechaChile = (iso: string) => new Intl.DateTimeFormat("es-CL", { dateStyle: "short", timeStyle: "short", timeZone: "America/Santiago" }).format(new Date(iso));
@@ -94,6 +95,8 @@ export function GoogleDriveBackup() {
         if (outcome === "connected") setMessage("Google Drive autorizado. Preparando los respaldos.");
         if (outcome === "denied") setMessage("No se autorizó Google Drive. Las fichas siguen guardándose en la aplicación.");
         if (outcome === "scope-missing") setMessage("Google no dio permiso para Drive. Vuelve a conectar y deja marcada la casilla que permite ver y crear archivos en Drive.");
+        if (outcome === "mirror-connected") setMessage("Segunda cuenta de Drive conectada. Copiando las fichas también ahí.");
+        if (outcome === "mirror-same") setMessage("Esa es la misma cuenta principal. Para la copia adicional elige otra cuenta de Google.");
         if (outcome === "error") setMessage("No se pudo completar la autorización de Google Drive. Puedes intentarlo otra vez.");
         if (outcome === "not-configured") setMessage("Google Drive todavía requiere configuración para esta aplicación.");
         if (outcome) {
@@ -103,7 +106,7 @@ export function GoogleDriveBackup() {
         }
         if (!next.connected) return;
         const key = "gestion-dental-drive-synced:" + (next.email || "account");
-        const shouldSync = outcome === "connected" || window.sessionStorage.getItem(key) !== "1";
+        const shouldSync = outcome === "connected" || outcome === "mirror-connected" || window.sessionStorage.getItem(key) !== "1";
         if (shouldSync) {
           const success = await syncQueue();
           if (success) window.sessionStorage.setItem(key, "1");
@@ -147,6 +150,8 @@ export function GoogleDriveBackup() {
         <p className="font-semibold text-emerald-950">Respaldo automático activo en {status.email || "Google Drive"}.</p>
         {message && <p className="mt-1 text-emerald-900">{message}</p>}
         {status.lastRun && !status.lastRun.ok && status.lastRun.detail.includes("insufficientPermissions") && <p className="mt-1"><a href="/api/drive/connect" className="font-semibold text-emerald-950 underline">Volver a conectar Google Drive</a> y dejar marcada la casilla de Drive.</p>}
+        {(status.mirrors ?? []).map(mirror => <p key={mirror.email} className="mt-1 text-xs text-emerald-800">Copia adicional en {mirror.email}: {mirror.backedUp} de {mirror.total} fichas{mirror.lastVerifiedAt ? " (última " + fechaChile(mirror.lastVerifiedAt) + ")" : ""}.</p>)}
+        <p className="mt-1 text-xs"><a href="/api/drive/connect?mirror=1" className="text-emerald-900 underline">{(status.mirrors ?? []).length ? "Agregar otra cuenta de Drive" : "Respaldar también en otra cuenta de Drive"}</a></p>
         {status.lastRun && <p className={"mt-1 text-xs " + (status.lastRun.ok ? "text-emerald-800" : "text-rose-800")}>Último intento {status.lastRun.source === "cron" ? "automático" : "manual"} ({fechaChile(status.lastRun.ranAt)}): {status.lastRun.ok ? "correcto" : status.lastRun.detail}</p>}
       </div>
       {syncError && (
