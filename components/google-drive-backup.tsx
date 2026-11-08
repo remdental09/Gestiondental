@@ -93,6 +93,7 @@ export function GoogleDriveBackup() {
         const outcome = query.get("drive");
         if (outcome === "connected") setMessage("Google Drive autorizado. Preparando los respaldos.");
         if (outcome === "denied") setMessage("No se autorizó Google Drive. Las fichas siguen guardándose en la aplicación.");
+        if (outcome === "scope-missing") setMessage("Google no dio permiso para Drive. Vuelve a conectar y deja marcada la casilla que permite ver y crear archivos en Drive.");
         if (outcome === "error") setMessage("No se pudo completar la autorización de Google Drive. Puedes intentarlo otra vez.");
         if (outcome === "not-configured") setMessage("Google Drive todavía requiere configuración para esta aplicación.");
         if (outcome) {
@@ -145,6 +146,7 @@ export function GoogleDriveBackup() {
       <div>
         <p className="font-semibold text-emerald-950">Respaldo automático activo en {status.email || "Google Drive"}.</p>
         {message && <p className="mt-1 text-emerald-900">{message}</p>}
+        {status.lastRun && !status.lastRun.ok && status.lastRun.detail.includes("insufficientPermissions") && <p className="mt-1"><a href="/api/drive/connect" className="font-semibold text-emerald-950 underline">Volver a conectar Google Drive</a> y dejar marcada la casilla de Drive.</p>}
         {status.lastRun && <p className={"mt-1 text-xs " + (status.lastRun.ok ? "text-emerald-800" : "text-rose-800")}>Último intento {status.lastRun.source === "cron" ? "automático" : "manual"} ({fechaChile(status.lastRun.ranAt)}): {status.lastRun.ok ? "correcto" : status.lastRun.detail}</p>}
       </div>
       {syncError && (

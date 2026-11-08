@@ -237,6 +237,10 @@ export async function finishGoogleDriveConnect(request: Request, user: ChatGPTUs
     if (!tokenResponse.ok) throw new Error("Google no pudo completar la autorización.");
     const tokens = await tokenResponse.json() as GoogleTokens;
     if (!tokens.access_token || !tokens.refresh_token) throw new Error("Google no entregó autorización permanente para Drive.");
+    // Google permite desmarcar el permiso de Drive en la pantalla de consentimiento: sin él, todo respaldo falla con 403.
+    if (!(tokens.scope || "").split(/\s+/).includes("https://www.googleapis.com/auth/drive.file")) {
+      return redirectWithDriveStatus(request, returnTo, "scope-missing", true);
+    }
 
     const profileResponse = await fetch("https://openidconnect.googleapis.com/v1/userinfo", {
       headers: { Authorization: "Bearer " + tokens.access_token },
@@ -329,7 +333,7 @@ async function googleApi<T>(accessToken: string, url: string, init?: RequestInit
   if (!response.ok) {
     const reason = await googleErrorReason(response);
     const service = new URL(url).hostname.startsWith("docs") ? "Docs" : "Drive";
-    throw new Error("Google " + service + " rechazó una operación de respaldo (" + reason + ").");
+    throw new Error("Google " + service + " rechazó una operación de respaldo (" + reason + ")." + (reason.includes("insufficientPermissions") ? " Falta el permiso de Drive: vuelve a conectar Google Drive y deja marcada la casilla de Drive." : ""));
   }
   if (response.status === 204) return {} as T;
   return response.json() as Promise<T>;
