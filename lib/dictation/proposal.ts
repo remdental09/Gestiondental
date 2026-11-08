@@ -1448,7 +1448,9 @@ function withoutSection(lines: string[], header: string): string[] {
 /** Agrega (o reemplaza) la sección de diagnósticos CIE-11 dictados, antes de la transcripción literal. */
 export function withDiagnosesSection(body: string, diagnoses: DiagnosisItem[]): string {
   const lines = withoutSection(body.replace(/\r\n/g, "\n").split("\n"), DIAGNOSES_HEADER);
-  const textOnly = diagnoses.filter((item) => !item.code.startsWith("DA08.0")).map((item) => ({ ...item, label: item.label || diagnosisLabel(item) }));
+  // Un mismo código sin pieza sobra si ya está con pieza («FDI 4.3: Pérdida de dientes…» y «Pérdida de dientes…»).
+  const withTooth = new Set(diagnoses.filter((item) => item.tooth).map((item) => item.code));
+  const textOnly = diagnoses.filter((item) => !item.code.startsWith("DA08.0") && !(!item.tooth && withTooth.has(item.code))).map((item) => ({ ...item, label: item.label || diagnosisLabel(item) }));
   if (!textOnly.length) return lines.join("\n").trim();
   const cut = lines.findIndex((line) => line.trim() === TRANSCRIPT_HEADER);
   const at = cut >= 0 ? cut : lines.length;
@@ -3945,11 +3947,17 @@ export async function proposeFromTranscript(
     // Preguntas repetidas o ya resueltas: la marca preguntada por las reglas y por la IA es una sola; y si las reglas ya
     // sugirieron una prestación, la IA no necesita preguntar «qué código corresponde».
     const ruleBrandAsked = finished.clarifications.some((item) => /^¿La marca del implante es Arcsys/.test(item));
+    // «La IA propuso la pieza 4.3, pero la cita no la contiene»: si esa pieza ya quedó en el odontograma o en el texto, la pregunta sobra.
+    const placedTeeth = new Set([...finished.odontogram.map((item) => item.tooth), ...(finished.diagnoses ?? []).flatMap((item) => (item.tooth ? [item.tooth] : []))]);
+    const alreadyPlaced = (item: string) => {
+      const match = /^La IA propuso la pieza «([1-8])\.([1-8])», pero la cita no la contiene/.exec(item);
+      return Boolean(match && placedTeeth.has(Number(match[1]) * 10 + Number(match[2])));
+    };
     const hasPrestaciones = (finished.prestaciones ?? []).length > 0;
     const endoQuestions = endodonticQuestions(procedureLinesOf(finished.evolution?.body ?? ""), finished.prestaciones ?? []).filter((item) => !finished.clarifications.includes(item));
     return {
       ...finished,
-      clarifications: [...finished.clarifications, ...endoQuestions].filter((item) => !(ruleBrandAsked && /^IA: ¿La marca dictada como/.test(item)) && !(hasPrestaciones && /^IA: No hay una prestaci[oó]n candidata/.test(item))),
+      clarifications: [...finished.clarifications, ...endoQuestions].filter((item) => !(ruleBrandAsked && /^IA: ¿La marca dictada como/.test(item)) && !(hasPrestaciones && /^IA: No hay una prestaci[oó]n candidata/.test(item)) && !alreadyPlaced(item)),
     };
   };
   if (!model) return { engine: "reglas-locales", model: null, notice: LOCAL_NOTICE, proposal: withText(localOnly, fixed, lexicon.corrections) };

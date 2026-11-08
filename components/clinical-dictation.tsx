@@ -253,6 +253,10 @@ export function ClinicalDictation({
   const [appointmentItems, setAppointmentItems] = useState<ReviewAppointment[]>([]);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [answering, setAnswering] = useState<string | null>(null);
+  // Respuesta dictada: se detiene sola (60 s como máximo, u 8 s de silencio después de hablar) y se aplica al texto al terminar.
+  const answerLimit = useRef<{ hard?: ReturnType<typeof setTimeout>; quiet?: ReturnType<typeof setTimeout> }>({});
+  const [applyPending, setApplyPending] = useState(false);
+  const clearAnswerLimit = () => { clearTimeout(answerLimit.current.hard); clearTimeout(answerLimit.current.quiet); answerLimit.current = {}; };
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
   const [result, setResult] = useState<{ ok: boolean; messages: string[] } | null>(null);
@@ -381,11 +385,17 @@ export function ClinicalDictation({
     }
 
     setAnswering(question);
+    clearAnswerLimit();
+    const finish = () => { clearAnswerLimit(); answerEngine.current.stop(); };
+    answerLimit.current.hard = setTimeout(finish, 60_000);
     answerEngine.current.start(answers[question] ?? "", {
       onStatus: (status) => { setTranscribing(status === "transcribing"); if (status !== "error") setAudioRetry(null); },
-      onTranscript: (text, spoken) => setAnswers((current) => ({ ...current, [question]: spoken ? `${text} ${spoken}`.trim() : text })),
-      onError: (message) => { setSpeechError(message); setAudioRetry(answerEngine.current.hasPendingAudio?.() ? "answer" : null); setAnswering(null); },
-      onEnd: () => setAnswering(null),
+      onTranscript: (text, spoken) => {
+        setAnswers((current) => ({ ...current, [question]: spoken ? `${text} ${spoken}`.trim() : text }));
+        if (`${text} ${spoken ?? ""}`.trim()) { clearTimeout(answerLimit.current.quiet); answerLimit.current.quiet = setTimeout(finish, 8_000); }
+      },
+      onError: (message) => { clearAnswerLimit(); setSpeechError(message); setAudioRetry(answerEngine.current.hasPendingAudio?.() ? "answer" : null); setAnswering(null); },
+      onEnd: () => { clearAnswerLimit(); setAnswering(null); setApplyPending(true); },
     });
   };
 
@@ -507,6 +517,15 @@ export function ClinicalDictation({
     // structure depende del estado actual del odontograma; solo se dispara con cada pedido nuevo.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [request?.nonce]);
+
+  // Al terminar de dictar una respuesta (y de transcribirla), se aplica sola al texto de la evolución.
+  useEffect(() => {
+    if (!applyPending || answering || transcribing || structuring) return;
+    setApplyPending(false);
+    if (outcome && Object.values(answers).some((value) => value.trim())) applyAnswers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [applyPending, answering, transcribing, structuring]);
+  useEffect(() => () => clearAnswerLimit(), []);
 
   /** Responde una aclaración por voz: el texto dictado llena su campo. */
   const applyAnswers = () => {
@@ -1030,11 +1049,11 @@ export function ClinicalDictation({
             </div>
             {shownClarifications.length > 0 && <section className="rounded-xl bg-amber-50 p-4 text-amber-950" data-testid="dictation-clarifications">
               <h3 className="font-semibold">Aclaraciones opcionales ({shownClarifications.length})</h3>
-              <p className="mt-1 text-xs leading-5">Responde escribiendo o con el micrófono y pulsa «Aplicar respuestas». Lo no respondido no se aplica.</p>
+              <p className="mt-1 text-xs leading-5">Responde con el micrófono: al terminar de hablar (8 s de silencio, o 1 minuto como máximo) se detiene solo y corrige el texto. Si escribes, pulsa Enter o «Aplicar respuestas». Lo no respondido no se aplica.</p>
               <ul className="mt-3 space-y-3">{shownClarifications.map((question) => <li key={question}>
                 <p className="text-sm">{question}</p>
                 <div className="mt-1 flex gap-2">
-                  <Input className="bg-white text-base sm:text-sm" disabled={transcribing || answering === question} aria-label={`Respuesta: ${question}`} value={answers[question] ?? ""} onChange={(event) => setAnswers((current) => ({ ...current, [question]: event.target.value }))} placeholder="Respuesta" />
+                  <Input className="bg-white text-base sm:text-sm" disabled={transcribing || answering === question} aria-label={`Respuesta: ${question}`} value={answers[question] ?? ""} onChange={(event) => setAnswers((current) => ({ ...current, [question]: event.target.value }))} onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing) { event.preventDefault(); applyAnswers(); } }} placeholder={answering === question ? "Escuchando… se detiene solo" : "Respuesta"} />
                   <Button type="button" variant={answering === question ? "default" : "outline"} size="icon" className={`shrink-0 ${answering === question ? "bg-[#087f83] hover:bg-[#07676b]" : ""}`} disabled={transcribing || listening} aria-label={answering === question ? "Detener respuesta dictada" : "Dictar respuesta"} aria-pressed={answering === question} onClick={() => void dictateAnswer(question)}>{answering === question ? <MicOff className="size-4" /> : <Mic className="size-4" />}</Button>
                 </div>
               </li>)}</ul>
