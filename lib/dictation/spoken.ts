@@ -388,6 +388,17 @@ const LEXICON: Array<[RegExp, string]> = [
   [/\b(incisi[oó]n(?:es)?)(\s+(?:supra\s*|para\s*|medio\s*)?)cristal(es)?\b/giu, "$1$2crestal$3"],
   [/\b(incisi[oó]n(?:es)?|colgajos?)(\s+)festonad([oa]s?)\b/giu, "$1$2festonead$3"],
   [/\b(?:oxen|oschen|ochen|oksen)\s*bein(?:\s*[- ]?\s*(?:luebke|lubke|luque|lueke|lucke))?\b/giu, "Ochsenbein-Luebke"],
+  // Cirugía: «descarga de human parcial» → Neumann (también tras «incisión/colgajo de», ya cubierto arriba).
+  [/\b(descargas?\s+de\s+)(?:human|humman|huemann|new\s?man|neu\s?man|nueva\s+man|neuman|newmann|numan|noiman|nayman)\b/giu, "$1Neumann"],
+  // «encía herida» → «encía adherida» cuando se habla de incisiones, descargas o colgajos.
+  [/\b((?:incisi[oó]n|descarga|colgajo)[^.]{0,100}?\benc[ií]a\s+)(?:herida|aderida|aderente|adherente)\b/giu, "$1adherida"],
+  // Suturas: Vicryl mal oído («bicril», «vicril», «bicri»).
+  [/\b(?:bicril|vicril|bicryl|bicri|vicri|bicrilo)\b/giu, "Vicryl"],
+  // Torque del implante: «45 newton centímetro cuadrado» → «45 N·cm».
+  [/\bnewtons?\s+cent[ií]metros?(?:\s+cuadrados?)?\b/giu, "N·cm"],
+  // Anestesia: «cuatro tubos de anestesia» → «tubetes».
+  [/\btubos(?=\s+(?:de\s+)?(?:anestesia|anest[eé]sico|lidoca[ií]na|artica[ií]na|mepivaca[ií]na)\b)/giu, "tubetes"],
+  [/\btubo(?=\s+(?:de\s+)?(?:anestesia|anest[eé]sico|lidoca[ií]na|artica[ií]na|mepivaca[ií]na)\b)/giu, "tubete"],
   // Implantes: «técnica Flappers» → flapless (sin colgajo); «pieza 2,6» → 2.6 (FDI con punto).
   [/\bflap+(?:ers?|les+|leis|lis|ess)\b/gi, "flapless"],
   [/\b(pieza|diente)\s+([1-8]),([1-8])(?![\d,.])/gi, "$1 $2.$3"],
