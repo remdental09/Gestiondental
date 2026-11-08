@@ -65,3 +65,11 @@ test("ajuste oclusal tras cementar una corona no sugiere ajuste de plano oclusal
   const alone = suggestPrestaciones([], ["Ajuste oclusal."], [], "Ajuste oclusal por contacto prematuro.");
   assert.ok(alone.some((item) => item.code === "5013035"));
 });
+
+test("un diagnóstico sin pieza no se repite si ya está con pieza", async () => {
+  const { withDiagnosesSection } = await import("../lib/dictation/proposal.ts");
+  const dx = { code: "DA0A.1", title: "Pérdida de dientes por traumatismo, extracción o enfermedad periodontal focal" };
+  const body = withDiagnosesSection("Examen\nAusencia de la 4.3.", [{ id: "a", tooth: 43, ...dx }, { id: "b", ...dx }]);
+  assert.equal(body.split("\n").filter((line) => line.includes("DA0A.1")).length, 1);
+  assert.match(body, /FDI 4\.3/);
+});
