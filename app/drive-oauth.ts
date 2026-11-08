@@ -366,7 +366,7 @@ async function ensureRootFolder(connection: DriveConnection, accessToken: string
       // Si se revocó la carpeta antigua, se crea una nueva dentro del Drive autorizado.
     }
   }
-  const created = await createGoogleFolder(accessToken, "Paciente");
+  const created = await createGoogleFolder(accessToken, "Pacientes");
   if (!created.id) throw new Error("No se pudo crear la carpeta de respaldos.");
   await database().prepare(
     "UPDATE google_drive_connections SET root_folder_id = ?, updated_at = ? WHERE owner_id = ?"
