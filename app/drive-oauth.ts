@@ -71,6 +71,7 @@ export async function googleDriveStatus(user: ChatGPTUser) {
     connected: Boolean(connection),
     email: connection?.google_email ?? null,
     connectedAt: connection?.connected_at ?? null,
+    lastRun: connection ? await lastBackupRun(user.userId) : null,
   };
 }
 
@@ -266,6 +267,39 @@ export async function finishGoogleDriveConnect(request: Request, user: ChatGPTUs
   }
 }
 
+/** Estado HTTP y motivo que informa Google (por ejemplo «403 accessNotConfigured»); nunca incluye datos clínicos. */
+async function googleErrorReason(response: Response): Promise<string> {
+  let detail = "";
+  try {
+    const body = await response.json() as { error?: string | { status?: string; errors?: Array<{ reason?: string }>; message?: string }; error_description?: string };
+    if (typeof body.error === "string") detail = body.error;
+    else if (body.error) detail = body.error.errors?.[0]?.reason || body.error.status || "";
+  } catch { /* cuerpo no JSON */ }
+  return ("HTTP " + response.status + (detail ? " " + detail : "")).replace(/[^\w .:-]/g, "").slice(0, 80);
+}
+
+async function ensureRunLogTable() {
+  await database().prepare(
+    "CREATE TABLE IF NOT EXISTS backup_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, owner_id TEXT NOT NULL, source TEXT NOT NULL, ran_at TEXT NOT NULL, ok INTEGER NOT NULL, detail TEXT NOT NULL)"
+  ).run();
+}
+
+/** Registra el resultado de un respaldo (manual o automático) para poder ver por qué falla. Solo guarda mensajes de error, sin datos de pacientes. */
+async function recordBackupRun(ownerId: string, source: "manual" | "cron", ok: boolean, detail: string) {
+  try {
+    await ensureRunLogTable();
+    await database().prepare("INSERT INTO backup_runs (owner_id, source, ran_at, ok, detail) VALUES (?,?,?,?,?)").bind(ownerId, source, now(), ok ? 1 : 0, detail.slice(0, 300)).run();
+    await database().prepare("DELETE FROM backup_runs WHERE owner_id = ? AND id NOT IN (SELECT id FROM backup_runs WHERE owner_id = ? ORDER BY id DESC LIMIT 60)").bind(ownerId, ownerId).run();
+  } catch { /* el registro nunca debe impedir el respaldo */ }
+}
+
+async function lastBackupRun(ownerId: string) {
+  try {
+    await ensureRunLogTable();
+    return await database().prepare("SELECT source, ran_at AS ranAt, ok, detail FROM backup_runs WHERE owner_id = ? ORDER BY id DESC LIMIT 1").bind(ownerId).first<{ source: string; ranAt: string; ok: number; detail: string }>();
+  } catch { return null; }
+}
+
 async function getAccessToken(user: ChatGPTUser, connection: DriveConnection, clientSecret: string) {
   const refreshToken = await decryptRefreshToken(user.userId, connection.refresh_token_ciphertext, clientSecret);
   const response = await fetch("https://oauth2.googleapis.com/token", {
@@ -278,7 +312,10 @@ async function getAccessToken(user: ChatGPTUser, connection: DriveConnection, cl
       grant_type: "refresh_token",
     }),
   });
-  if (!response.ok) throw new Error("La autorización de Google Drive venció. Vuelve a conectarla.");
+  if (!response.ok) {
+    const reason = await googleErrorReason(response);
+    throw new Error("La autorización de Google Drive venció o fue rechazada (" + reason + "). Vuelve a conectarla.");
+  }
   const tokens = await response.json() as GoogleTokens;
   if (!tokens.access_token) throw new Error("Google no entregó un token de acceso.");
   return tokens.access_token;
@@ -289,7 +326,11 @@ async function googleApi<T>(accessToken: string, url: string, init?: RequestInit
   headers.set("Authorization", "Bearer " + accessToken);
   if (init?.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   const response = await fetch(url, { ...init, headers });
-  if (!response.ok) throw new Error("Google Drive o Docs rechazó una operación de respaldo.");
+  if (!response.ok) {
+    const reason = await googleErrorReason(response);
+    const service = new URL(url).hostname.startsWith("docs") ? "Docs" : "Drive";
+    throw new Error("Google " + service + " rechazó una operación de respaldo (" + reason + ").");
+  }
   if (response.status === 204) return {} as T;
   return response.json() as Promise<T>;
 }
@@ -464,7 +505,15 @@ export async function syncGoogleDrive(user: ChatGPTUser, body: unknown) {
   const input = body && typeof body === "object" && !Array.isArray(body) ? body as Record<string, unknown> : {};
   const patientId = Number(input.patientId);
   if (Number.isSafeInteger(patientId) && patientId > 0) {
-    return { configured: true, connected: true, results: [await backupPatient(user, patientId)], complete: true };
+    try {
+      const single = await backupPatient(user, patientId);
+      await recordBackupRun(user.userId, "manual", Boolean(single.saved), single.saved ? "ficha " + patientId + " respaldada" : String((single as { message?: string }).message || "no se respaldó"));
+      return { configured: true, connected: true, results: [single], complete: true };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "error";
+      await recordBackupRun(user.userId, "manual", false, "ficha " + patientId + ": " + message);
+      return { configured: true, connected: true, results: [{ saved: false, patientId, message }], complete: true };
+    }
   }
 
   const afterPatientId = Number.isSafeInteger(Number(input.afterPatientId)) && Number(input.afterPatientId) >= 0
@@ -475,10 +524,13 @@ export async function syncGoogleDrive(user: ChatGPTUser, body: unknown) {
   for (const item of queue.pending) {
     try {
       results.push(await backupPatient(user, item.patientId));
-    } catch {
-      results.push({ saved: false, patientId: item.patientId, message: "No se pudo respaldar esta ficha; se puede reintentar." });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No se pudo respaldar esta ficha; se puede reintentar.";
+      results.push({ saved: false, patientId: item.patientId, message });
+      await recordBackupRun(user.userId, "manual", false, "ficha " + item.patientId + ": " + message);
     }
   }
+  if (results.length && results.every(item => item.saved)) await recordBackupRun(user.userId, "manual", true, results.length + " fichas respaldadas");
   return {
     configured: true,
     connected: true,
@@ -515,8 +567,11 @@ export async function runScheduledDriveBackup(maxPatients = 6) {
         try {
           const result = await backupPatient(user, item.patientId, tokens);
           results.push({ ownerId: user.userId, patientId: item.patientId, saved: Boolean(result.saved) });
+          await recordBackupRun(user.userId, "cron", Boolean(result.saved), "ficha " + item.patientId + (result.saved ? " respaldada" : ": " + String((result as { message?: string }).message || "no se respaldó")));
         } catch (error) {
-          results.push({ ownerId: user.userId, patientId: item.patientId, saved: false, error: error instanceof Error ? error.message : "error" });
+          const message = error instanceof Error ? error.message : "error";
+          results.push({ ownerId: user.userId, patientId: item.patientId, saved: false, error: message });
+          await recordBackupRun(user.userId, "cron", false, "ficha " + item.patientId + ": " + message);
           if (!tokens.has(user.userId)) { ownerFailed = true; break; } // token refresh failed: skip owner
         }
       }
