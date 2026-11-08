@@ -380,6 +380,14 @@ const LEXICON: Array<[RegExp, string]> = [
   [/\bsupura(?:sion|zion)\b/gi, "supuración"],
   [/\ba\s+bono\b/gi, "abonó"],
   [/\bre\s?d\s?compra\b/gi, "Redcompra"],
+  // Incisiones y colgajos: solo se corrige junto a «incisión» o «colgajo» (y sus plurales), para no tocar otras frases.
+  [/\b(incisi[oó]n(?:es)?|colgajos?)(\s+(?:de\s+tipo\s+|tipo\s+|en\s+forma\s+)?)(?:semi\s*[- ]?\s*(?:nueva|nuevo|humana|humano|lunar|lunal|luna|lunas|unar|lular)|seminueva|seminuevo|semihumana|semilunal|semilunas)\b/giu, "$1$2semilunar"],
+  [/\b(incisi[oó]n(?:es)?|colgajos?)(\s+(?:de\s+)?)(?:new\s?man|neu\s?man|nueva\s+man|neuman|newmann|nauman|naumann)\b/giu, "$1$2Neumann"],
+  [/\b(incisi[oó]n(?:es)?|colgajos?)(\s+(?:de\s+)?)(?:parch|parsh|partch|parts|pars)\b/giu, "$1$2Partsch"],
+  [/\b(incisi[oó]n(?:es)?|colgajos?)(\s+)(?:intra\s*[- ]?\s*(?:circular|surcular|sulcular|sulcar|surcar)|intrasulcar|intrasurcar|intracircular)\b/giu, "$1$2intrasurcular"],
+  [/\b(incisi[oó]n(?:es)?)(\s+(?:supra\s*|para\s*|medio\s*)?)cristal(es)?\b/giu, "$1$2crestal$3"],
+  [/\b(incisi[oó]n(?:es)?|colgajos?)(\s+)festonad([oa]s?)\b/giu, "$1$2festonead$3"],
+  [/\b(?:oxen|oschen|ochen|oksen)\s*bein(?:\s*[- ]?\s*(?:luebke|lubke|luque|lueke|lucke))?\b/giu, "Ochsenbein-Luebke"],
   // Implantes: «técnica Flappers» → flapless (sin colgajo); «pieza 2,6» → 2.6 (FDI con punto).
   [/\bflap+(?:ers?|les+|leis|lis|ess)\b/gi, "flapless"],
   [/\b(pieza|diente)\s+([1-8]),([1-8])(?![\d,.])/gi, "$1 $2.$3"],

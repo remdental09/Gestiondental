@@ -96,6 +96,30 @@ const BASE_DICTIONARY = {
     "impresión dental", "escaneo intraoral", "ajuste oclusal", "cementación",
     "zirconio", "zirconia", "acrílico",
   ],
+  // Incisiones y colgajos intraorales (cirugía bucal, maxilofacial, periodontal, endodóntica e implantológica).
+  // Fuentes: UPV/EHU «Incisiones y suturas en Odontología»; Gay Escoda, «Tiempos operatorios en Cirugía Bucal»;
+  // García Calderón, «Incisiones y colgajos en la cavidad bucal»; Gargallo, Herráez y Gay Escoda (UB), colgajos para implantes.
+  incisiones_y_colgajos: [
+    "incisión semilunar", "incisión de Partsch", "colgajo semilunar", "colgajo en ojal",
+    "incisión de Neumann", "incisión de Neumann completa", "incisión de Neumann parcial", "incisión de Neumann modificada",
+    "incisión de Ochsenbein-Luebke", "colgajo de Ochsenbein-Luebke", "incisión submarginal", "colgajo submarginal festoneado",
+    "incisión intrasurcular", "incisión intrasulcular", "incisión intracrevicular", "incisión sulcular",
+    "incisión crestal", "incisión supracrestal", "incisión mediocrestal", "incisión paracrestal", "incisión palatinizada",
+    "incisión horizontal", "incisión lineal", "incisión festoneada", "incisión festoneada lineal",
+    "incisión de descarga", "descarga vertical", "incisión liberadora", "incisión relajante", "incisión oblicua",
+    "incisión en bayoneta", "incisión en L", "incisión en T", "incisión en Y", "incisión en doble Y", "incisión en H", "incisión en V",
+    "incisión en cuña distal", "cuña distal", "incisión retromolar", "incisión de bisel interno", "incisión de bisel inverso",
+    "incisión de bisel externo", "incisión paramarginal", "incisión circunvestibular", "incisión en fondo de vestíbulo",
+    "incisión vestibular", "incisión palatina", "incisión lingual", "incisión oval", "zetaplastia", "Z-plastia",
+    "colgajo en sobre", "colgajo envolvente", "colgajo gingival", "colgajo triangular", "colgajo trapezoidal",
+    "colgajo rectangular", "colgajo piramidal", "colgajo de espesor total", "colgajo de espesor parcial", "colgajo de espesor mixto",
+    "colgajo desplazado coronalmente", "colgajo de avance coronal", "colgajo desplazado apicalmente", "colgajo desplazado lateralmente",
+    "colgajo de reposición coronal", "colgajo pediculado palatino", "colgajo de Widman modificado", "colgajo de Kirkland",
+    "colgajo con preservación de papila", "técnica de preservación de papila", "técnica de túnel", "técnica VISTA",
+    "técnica de roll", "colgajo de Palacci", "colgajo de Ward", "colgajo de Szmyd", "incisión de Caldwell-Luc",
+    "punch", "sacabocado", "bisturí circular", "hoja de bisturí 15", "hoja 15C", "hoja 12", "mango de bisturí 3",
+    "periostotomía", "incisión perióstica", "despegamiento", "decolado", "legrado", "periostótomo", "legra",
+  ],
   cirugia_e_implantes: [
     "cirugía bucal", "cirugía oral", "cirugía implantológica", "flapless", "cirugía sin colgajo",
     "exodoncia", "extracción dental", "extracción dentaria", "cordal",
@@ -287,6 +311,18 @@ export const DENTAL_SPEECH_HINTS = [
   { phrase: "clorhexidina", boost: 7 },
   { phrase: "bloqueo del nervio dentario inferior", boost: 8 },
   { phrase: "incisión y drenaje", boost: 8 },
+  { phrase: "incisión semilunar", boost: 9 },
+  { phrase: "incisión de Partsch", boost: 9 },
+  { phrase: "incisión de Neumann", boost: 9 },
+  { phrase: "incisión intrasurcular", boost: 9 },
+  { phrase: "incisión crestal", boost: 9 },
+  { phrase: "incisión supracrestal", boost: 8 },
+  { phrase: "incisión de descarga", boost: 8 },
+  { phrase: "incisión festoneada", boost: 8 },
+  { phrase: "colgajo de espesor total", boost: 8 },
+  { phrase: "colgajo triangular", boost: 7 },
+  { phrase: "colgajo trapezoidal", boost: 7 },
+  { phrase: "colgajo en sobre", boost: 7 },
   { phrase: "alta odontológica integral", boost: 7 },
 ] as const;
 
@@ -316,6 +352,7 @@ export const DENTAL_DICTIONARY_HINTS = [
   "En contexto periodontal, «tatuaje subgingival» o «tatuaje supragingival» puede ser un error del reconocimiento de voz por «destartraje»; corrígelo solo cuando acompañe a supra/ subgingival o a términos de periodoncia.",
   "En cirugía bucal, conserva la marca, el material y el calibre de suturas, la técnica y las dimensiones del implante. Corrige solo errores claros de reconocimiento; no sustituyas materiales ni completes datos que no fueron dictados.",
   "Marcas y empresas de implantes (lista no exhaustiva): conserva el nombre como se dictó. Si lo dictado suena parecido a una de la lista y el contexto es un implante, corrígelo a la forma de la lista; si no está en la lista, déjalo tal cual y no lo cambies, no lo asocies a otra empresa ni inventes datos de origen. Errores frecuentes del reconocimiento: «Arxis», «Arxys» o «Arcsis» son el sistema Arcsys, y «FSM» o «efe ge eme» es la empresa FGM (Brasil). Un número con coma o punto junto a mm, «de ancho» o «de largo» es una medida del implante, nunca una pieza dental.",
+  "Incisiones y colgajos: los nombres propios se escriben así: Partsch (semilunar), Neumann (completa, parcial o modificada), Ochsenbein-Luebke (submarginal), Widman modificado, Kirkland, Palacci, Ward, Szmyd, Caldwell-Luc. Errores frecuentes del reconocimiento: «seminueva», «semi nueva», «semi humana», «semi lunar», «semilunal» o «semilunas» junto a incisión o colgajo es «semilunar»; «Newman», «Neuman» o «nueva man» es «Neumann»; «intra circular», «intrasulcar» o «intra surcular» es «intrasurcular»; «incisión cristal» es «incisión crestal»; «festonada» es «festoneada»; «Oxenbein», «Oschenbein» o «Luque» con Neumann/submarginal es «Ochsenbein-Luebke»; «Parch», «Parsh» o «Partch» es «Partsch». Si lo dictado junto a «incisión» o «colgajo» no corresponde a ninguno de estos, pregunta en «dudas» ofreciendo el más parecido.",
   "CORDURA CLÍNICA: eres un cirujano dentista revisando el texto. Si una palabra o frase no tiene sentido anatómico o clínico en ese contexto, es casi seguro un error del reconocimiento de voz: reemplázala por el término odontológico foneticamente más parecido que sí encaje (por ejemplo, en una extracción o instalación de implante, «velo fresco» o «a velo fresco» es «alvéolo fresco»; «velo post extracción» es «alvéolo post extracción»; en cambio «velo palatino» o «velo del paladar» es válido y se conserva). No dejes una frase absurda tal cual ni la propongas como hallazgo o procedimiento. Si hay dos lecturas posibles y no puedes decidir por el contexto, conserva lo oído y pregunta en «dudas».",
   "Si se dicta «la mitad» o «50 por ciento» de un total único, calcula el abono y mantén separado el precio total del presupuesto; pregunta si hay más de un total posible.",
 ].join("\n");
