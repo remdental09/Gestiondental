@@ -9,7 +9,7 @@ import { decodeBudgetData } from "@/lib/budget-plans";
 const hex = (bytes: ArrayBuffer) => Array.from(new Uint8Array(bytes))
   .map(byte => byte.toString(16).padStart(2, "0")).join("");
 
-export async function getDriveSnapshot(ownerId: string, patientId: number) {
+export async function getDriveSnapshot(ownerId: string, patientId: number, connectedAt: string | null = null) {
   const db = getDb();
   const [patient] = await db.select().from(patients)
     .where(and(eq(patients.ownerId, ownerId), eq(patients.id, patientId))).limit(1);
@@ -79,19 +79,20 @@ export async function getDriveSnapshot(ownerId: string, patientId: number) {
     documentText, digest,
     previousDocumentId: backup?.documentId ?? null,
     verifiedAt: backup?.verifiedAt ?? null,
-    pending: !backup || backup.snapshotDigest !== digest,
+    // Un respaldo anterior a la conexión actual de Drive está en otro Drive (o en el sistema anterior): se vuelve a copiar.
+    pending: !backup || backup.snapshotDigest !== digest || Boolean(connectedAt && backup.verifiedAt < connectedAt),
     attachmentCount: images.length,
   };
 }
 
-export async function listDriveBackupQueue(ownerId: string, afterPatientId: number, limit = 10) {
+export async function listDriveBackupQueue(ownerId: string, afterPatientId: number, limit = 10, connectedAt: string | null = null) {
   const db = getDb();
   const page = await db.select({ id: patients.id }).from(patients)
     .where(and(eq(patients.ownerId, ownerId), gt(patients.id, afterPatientId)))
     .orderBy(asc(patients.id)).limit(limit + 1);
   const hasMore = page.length > limit;
   const selected = page.slice(0, limit);
-  const snapshots = await Promise.all(selected.map(p => getDriveSnapshot(ownerId, p.id)));
+  const snapshots = await Promise.all(selected.map(p => getDriveSnapshot(ownerId, p.id, connectedAt)));
   return {
     pending: snapshots.filter(s => s?.pending).map(s => ({
       patientId: s!.patientId, name: s!.name, driveFolderId: s!.driveFolderId,
@@ -102,8 +103,8 @@ export async function listDriveBackupQueue(ownerId: string, afterPatientId: numb
   };
 }
 
-export async function confirmDriveSnapshot(ownerId: string, patientId: number, documentId: string, digest: string, folderId: string | null, allowReplacement = false) {
-  const snapshot = await getDriveSnapshot(ownerId, patientId);
+export async function confirmDriveSnapshot(ownerId: string, patientId: number, documentId: string, digest: string, folderId: string | null, allowReplacement = false, connectedAt: string | null = null) {
+  const snapshot = await getDriveSnapshot(ownerId, patientId, connectedAt);
   if (!snapshot) return { saved: false, error: "Ficha no encontrada." };
   if (snapshot.digest !== digest) return { saved: false, stale: true, message: "La ficha cambió durante el respaldo. Vuelve a copiar la versión actual." };
   if (snapshot.previousDocumentId && snapshot.previousDocumentId !== documentId && !allowReplacement) {

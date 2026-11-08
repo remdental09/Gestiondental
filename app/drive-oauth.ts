@@ -452,7 +452,7 @@ async function backupPatient(user: ChatGPTUser, patientId: number, tokenCache?: 
   const connection = await connectionFor(user.userId);
   if (!connection) return { saved: false, configured: true, connected: false, message: "Conecta un Google Drive para activar el respaldo." };
 
-  const snapshot = await getDriveSnapshot(user.userId, patientId);
+  const snapshot = await getDriveSnapshot(user.userId, patientId, connection.connected_at);
   if (!snapshot) return { saved: false, configured: true, connected: true, message: "No se encontró la ficha de este usuario." };
   if (!snapshot.pending) return { saved: true, skipped: true, patientId };
 
@@ -487,7 +487,8 @@ async function backupPatient(user: ChatGPTUser, patientId: number, tokenCache?: 
     documentId,
     snapshot.digest,
     patientFolder.id,
-    replacedDocument || patientFolder.replaced,
+    replacedDocument || patientFolder.replaced || Boolean(snapshot.verifiedAt && snapshot.verifiedAt < connection.connected_at),
+    connection.connected_at,
   );
   if (!confirmed.saved) throw new Error(confirmed.message || confirmed.error || "No se pudo confirmar el respaldo.");
   return {
@@ -523,7 +524,7 @@ export async function syncGoogleDrive(user: ChatGPTUser, body: unknown) {
   const afterPatientId = Number.isSafeInteger(Number(input.afterPatientId)) && Number(input.afterPatientId) >= 0
     ? Number(input.afterPatientId)
     : 0;
-  const queue = await listDriveBackupQueue(user.userId, afterPatientId, 3);
+  const queue = await listDriveBackupQueue(user.userId, afterPatientId, 3, connection.connected_at);
   const results: Array<Record<string, unknown>> = [];
   for (const item of queue.pending) {
     try {
@@ -554,8 +555,8 @@ export async function runScheduledDriveBackup(maxPatients = 6) {
   if (!config.configured) return { configured: false, results: [] as Array<Record<string, unknown>> };
   await ensureConnectionTable();
   const { results: connections } = await database().prepare(
-    "SELECT owner_id, google_email FROM google_drive_connections ORDER BY owner_id"
-  ).all<{ owner_id: string; google_email: string }>();
+    "SELECT owner_id, google_email, connected_at FROM google_drive_connections ORDER BY owner_id"
+  ).all<{ owner_id: string; google_email: string; connected_at: string }>();
   const tokens = new Map<string, string>();
   const results: Array<Record<string, unknown>> = [];
   let budget = maxPatients;
@@ -564,7 +565,7 @@ export async function runScheduledDriveBackup(maxPatients = 6) {
     let after = 0;
     let ownerFailed = false;
     while (budget > 0 && !ownerFailed) {
-      const queue = await listDriveBackupQueue(user.userId, after, 20);
+      const queue = await listDriveBackupQueue(user.userId, after, 20, connection.connected_at);
       for (const item of queue.pending) {
         if (budget <= 0) break;
         budget--;
