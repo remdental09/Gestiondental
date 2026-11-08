@@ -27,3 +27,18 @@ test("el modelo recibe la lista de incisiones y sus errores frecuentes", () => {
   assert.match(DENTAL_DICTIONARY_HINTS, /incisión de Partsch/);
   assert.match(DENTAL_DICTIONARY_HINTS, /«seminueva».*«semilunar»/);
 });
+
+test("cirugía de implante: errores de voz del dictado real se corrigen con código", () => {
+  const heard = "una descarga de human parcial hacia el diente 4.3, y otra descarga pasando por la encía herida, con cuatro tubos de anestesia de lidocaina. Quedó a 45 newton centímetro cuadrado, cierre con sutura bicril.";
+  const out = applyLexicon(heard).text;
+  assert.match(out, /descarga de Neumann parcial/);
+  assert.match(out, /encía adherida/);
+  assert.match(out, /cuatro tubetes de anestesia/);
+  assert.match(out, /45 N·cm/);
+  assert.match(out, /sutura Vicryl/);
+});
+
+test("«encía herida» sin incisión ni colgajo se conserva (puede ser una herida real)", () => {
+  assert.equal(applyLexicon("Paciente con la encía herida por un cepillo duro.").text, "Paciente con la encía herida por un cepillo duro.");
+  assert.equal(applyLexicon("Se usaron dos tubos de ensayo.").text, "Se usaron dos tubos de ensayo.");
+});
