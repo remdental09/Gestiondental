@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, Circle, Plus, Trash2, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -78,6 +78,14 @@ function PrestacionField({ value, onChange, onPick, hidden, names, customs, onPi
   </div>;
 }
 
+/** Arancel propio de una prestación: por código del catálogo o, si no tiene código, por el nombre de una prestación propia. */
+export function arancelFor(item: Pick<BudgetItem, "code" | "label">, prices: Record<string, number>, customs: Array<{ name: string; price: number | null }>): number | null {
+  if (item.code && prices[item.code]) return prices[item.code];
+  const label = item.label.trim().toLowerCase();
+  if (!label) return null;
+  return customs.find(own => own.price && own.name.trim().toLowerCase() === label)?.price ?? null;
+}
+
 export function BudgetItemsEditor({ items, onChange }: { items: BudgetItem[]; onChange: (items: BudgetItem[]) => void }) {
   const [prices, setPrices] = useState<Record<string, number>>({});
   const [customs, setCustoms] = useState<OwnPrestacion[]>([]);
@@ -91,6 +99,22 @@ export function BudgetItemsEditor({ items, onChange }: { items: BudgetItem[]; on
     return () => { cancelled = true; };
   }, []);
   const update = (index: number, patch: Partial<BudgetItem>) => onChange(items.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item));
+  // Si una prestación llega ya puesta (desde Aranceles, el dictado o una plantilla) o el arancel se cargó después,
+  // el valor vacío se completa con el arancel propio. Una sola vez por prestación: si el clínico borra el valor, no se vuelve a rellenar.
+  const autofilled = useRef(new Set<string>());
+  useEffect(() => {
+    let changed = false;
+    const next = items.map((item, index) => {
+      if (item.amount > 0) return item;
+      const price = arancelFor(item, prices, customs);
+      const key = `${index}|${item.code ?? ""}|${item.label.trim().toLowerCase()}`;
+      if (!price || autofilled.current.has(key)) return item;
+      autofilled.current.add(key);
+      changed = true;
+      return { ...item, amount: price };
+    });
+    if (changed) onChange(next);
+  }, [items, prices, customs, onChange]);
   return <div className="space-y-4">
     <div className="flex items-center justify-between gap-3">
       <div><h3 className="font-semibold">Prestaciones y fases</h3><p className="text-xs text-[#6e6a8c]">Agrúpalas por etapa del tratamiento.</p></div>
@@ -102,7 +126,7 @@ export function BudgetItemsEditor({ items, onChange }: { items: BudgetItem[]; on
         <label className="space-y-1 text-sm font-medium sm:col-span-2">Prestación<PrestacionField value={item.label} onChange={label => update(index, { label, code: undefined })} onPick={(label, code) => update(index, { label, code, ...(prices[code] && !item.amount ? { amount: prices[code] } : {}) })} hidden={hidden} names={names} customs={customs} onPickCustom={own => update(index, { label: own.name, code: undefined, ...(own.price && !item.amount ? { amount: own.price } : {}) })}/></label>
         <label className="space-y-1 text-sm font-medium">Fase<Input maxLength={80} value={item.phase ?? ""} onChange={event => update(index, { phase: event.target.value })} placeholder="Fase 1 · Resolución"/></label>
         <label className="space-y-1 text-sm font-medium">Piezas (FDI)<Input key={`teeth-${index}-${(item.teeth ?? []).join("-")}`} inputMode="decimal" maxLength={120} defaultValue={(item.teeth ?? []).map(formatFdi).join(", ")} onBlur={event => { const teeth = parseTeethText(event.target.value); update(index, { teeth: teeth.length ? teeth : undefined }); }} placeholder={itemTeeth(item).length ? itemTeeth(item).map(formatFdi).join(", ") + " (del nombre)" : "Ej.: 3.6, 4.6 · vacío si no aplica"}/><span className="block text-xs font-normal text-[#6e6a8c]">Se marca en el odontograma.</span></label>
-        <label className="space-y-1 text-sm font-medium">Valor CLP<Input type="number" inputMode="numeric" min="1" step="1" value={item.amount || ""} onChange={event => update(index, { amount: Number(event.target.value) })} placeholder="790000"/>{item.code && prices[item.code] ? <span className="block text-xs font-normal text-[#6e6a8c]">Tu arancel: {money(prices[item.code])}</span> : null}</label>
+        <label className="space-y-1 text-sm font-medium">Valor CLP<Input type="number" inputMode="numeric" min="1" step="1" value={item.amount || ""} onChange={event => update(index, { amount: Number(event.target.value) })} placeholder="790000"/>{arancelFor(item, prices, customs) ? <span className="block text-xs font-normal text-[#6e6a8c]">Tu arancel: {money(arancelFor(item, prices, customs)!)}</span> : null}</label>
         <label className="space-y-1 text-sm font-medium">Descuento (%)<Input type="number" inputMode="numeric" min="0" max="100" step="1" value={item.discountPercent ?? 0} onChange={event => update(index, { discountPercent: Number(event.target.value) })}/></label>
         <div className="flex items-end justify-between gap-3 pb-2 text-sm"><span className="text-[#6e6a8c]">Total de la prestación</span><strong>{money(budgetItemTotal(item))}</strong></div>
       </div>
