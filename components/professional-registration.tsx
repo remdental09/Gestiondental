@@ -6,7 +6,7 @@ import { SPECIALTIES, checkProfile, displayName, formatRut, type ClinicianProfil
 /** Registro mínimo en el primer ingreso: nombre, apellido, RUT y especialidad. Bloquea la app hasta completarlo. */
 export function ProfessionalRegistration({ email, onSaved }: { email: string; onSaved: (profile: ClinicianProfile) => void }) {
   const [form, setForm] = useState({ firstName: "", lastName: "", rut: "", specialty: "" });
-  const [error, setError] = useState(""), [saving, setSaving] = useState(false);
+  const [error, setError] = useState(""), [saving, setSaving] = useState(false), [connectDrive, setConnectDrive] = useState(true);
   const set = (key: keyof typeof form) => (value: string) => setForm((current) => ({ ...current, [key]: value }));
   const field = "mt-1 block min-h-11 w-full rounded-lg border border-[#cddadc] bg-white px-3 text-base text-[#20343b] focus-visible:outline-2 focus-visible:outline-[#087f83]";
 
@@ -20,6 +20,8 @@ export function ProfessionalRegistration({ email, onSaved }: { email: string; on
       const data = (await response.json().catch(() => ({}))) as { error?: string; profile?: ClinicianProfile };
       if (!response.ok) { setError(data.error || "No se pudo guardar. Inténtalo de nuevo."); return; }
       onSaved(data.profile as ClinicianProfile);
+      // Con la casilla marcada, sigue a Google para dar el permiso de Drive con la misma cuenta.
+      if (connectDrive) window.location.assign("/api/drive/connect?auto=1");
     } catch {
       setError("No se pudo conectar. Revisa tu conexión e inténtalo de nuevo.");
     } finally {
@@ -46,6 +48,10 @@ export function ProfessionalRegistration({ email, onSaved }: { email: string; on
             </select>
           </label>
         </div>
+        <label className="mt-4 flex items-start gap-3 rounded-lg border border-[#cddadc] bg-[#f7fbfb] p-3 text-sm text-[#20343b]">
+          <input type="checkbox" className="mt-0.5 size-5 shrink-0 accent-[#087f83]" checked={connectDrive} onChange={(e) => setConnectDrive(e.target.checked)} />
+          <span><strong>Respaldar mis fichas en mi Google Drive</strong><span className="mt-1 block text-[#60757a]">Se conectará con <b>{email}</b> y guardará una copia automática de cada ficha. En el siguiente paso Google te pedirá permiso; marca la casilla de Drive. Puedes hacerlo después desde Inicio.</span></span>
+        </label>
         {error && <p role="alert" className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-800">{error}</p>}
         <button type="submit" disabled={saving} className="mt-5 min-h-11 w-full rounded-lg bg-[#087f83] px-4 text-base font-semibold text-white hover:bg-[#066d71] disabled:opacity-60">{saving ? "Guardando…" : "Guardar y entrar"}</button>
         <p className="mt-3 text-center text-xs text-[#71858b]">Se mostrará como {form.firstName.trim() && form.lastName.trim() ? displayName(form) : "Dr(a). Nombre Apellido"}.</p>

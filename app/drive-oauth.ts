@@ -154,7 +154,10 @@ export async function beginGoogleDriveConnect(request: Request, user: ChatGPTUse
   authorization.searchParams.set("scope", "openid email https://www.googleapis.com/auth/drive.file");
   authorization.searchParams.set("access_type", "offline");
   authorization.searchParams.set("include_granted_scopes", "true");
-  authorization.searchParams.set("prompt", "consent select_account");
+  // ?auto=1 (registro): Google parte con la misma cuenta con que se entró y no muestra el selector de cuentas.
+  const auto = new URL(request.url).searchParams.get("auto") === "1" && new URL(request.url).searchParams.get("mirror") !== "1";
+  if (auto && user.email) authorization.searchParams.set("login_hint", user.email);
+  authorization.searchParams.set("prompt", auto && user.email ? "consent" : "consent select_account");
   authorization.searchParams.set("state", stateValue);
   authorization.searchParams.set("code_challenge", challenge);
   authorization.searchParams.set("code_challenge_method", "S256");
