@@ -158,7 +158,7 @@ export function ArancelesPanel() {
     return <li key={item.id} className="grid grid-cols-[minmax(0,1fr)_150px] items-center gap-x-3 gap-y-1 px-4 py-2 text-sm sm:grid-cols-[minmax(0,1fr)_170px_72px]" data-testid={`${scope}-row-${item.id}`}>
       {renaming === item.id
         ? <Input autoFocus maxLength={120} value={renameDraft} onChange={event => setRenameDraft(event.target.value)} onBlur={() => commitRename(item)} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setRenaming(null); }} aria-label="Nombre de la prestación" className="h-9"/>
-        : <span className={item.price !== null ? "font-medium text-[#1f1b3a]" : "text-[#4f4a74]"}>{item.name}{scope === "group" && <span className="ml-2 rounded-full bg-[#ece6fb] px-2 py-0.5 text-[11px] font-semibold text-[#6a3fc8]" data-testid={`own-badge-${item.id}`}>Mía</span>}</span>}
+        : <span className={item.price !== null ? "font-medium text-[#1f1b3a]" : "text-[#4f4a74]"}>{item.name}{scope === "group" && <span className="ml-2 rounded-full bg-[#ece6fb] px-2 py-0.5 text-[11px] font-semibold text-[#6a3fc8]" data-testid={`own-badge-${item.id}`}>Mis prestaciones</span>}</span>}
       <span className="flex items-center gap-1"><span className="text-[#6e6a8c]">$</span><Input type="text" inputMode="numeric" aria-label={`Precio de ${item.name}`} placeholder="Sin precio" value={value} data-testid={`${scope}-price-${item.id}`}
         onChange={event => setCustomDrafts(previous => ({ ...previous, [item.id]: event.target.value }))} onBlur={() => commitCustom(item)} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); }} className="h-9 text-right"/></span>
       <span className="col-span-2 flex justify-end gap-1 sm:col-span-1">
