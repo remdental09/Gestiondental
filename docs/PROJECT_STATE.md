@@ -205,3 +205,6 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 - Borrar prestaciones del catálogo: botón de basurero en cada fila de Aranceles, con pregunta «¿Quieres borrar esta prestación?»; se oculta solo en la lista de ese profesional (tabla `hidden_prestaciones`, creada sola; POST `/api/aranceles` {code, hidden}) y deja de ofrecerse en presupuestos. Se recupera desde «Prestaciones borradas».
 - Editar el nombre de cualquier prestación del catálogo (lápiz en cada fila de Aranceles): cambio solo para ese profesional (tabla `prestacion_names`, creada sola; POST `/api/aranceles` {code, name}); se marca «(editada)», se busca y se ofrece en presupuestos con el nombre nuevo; dejar el campo vacío o igual al original vuelve al nombre original.
 - Aranceles dentro de la ficha del paciente: cada prestación tiene «Agregar»; las elegidas quedan en una barra («Para el presupuesto de …») y «Llevar al presupuesto» abre un presupuesto nuevo o agrega a uno existente del paciente, con precio del arancel (o sin precio si no hay).
+
+## Dirección del paciente
+- Calle y número, comuna y país (por defecto Chile) en crear/editar paciente y visible en la ficha. Se guarda en la tabla `patient_addresses` (creada al vuelo, aislada por `owner_id`), sin migración de drizzle. `lib/patient-address.ts` normaliza y da formato.
