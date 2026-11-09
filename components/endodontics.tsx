@@ -99,7 +99,18 @@ export function EndodonticsPanel({ data: saved, onSave, focusTooth, patientName,
   const editCase = (patch: Partial<EndoCase> | ((c: EndoCase) => Partial<EndoCase>)) => { setData(d => ({ ...d, cases: d.cases.map(c => c.id === selectedId ? { ...c, ...(typeof patch === "function" ? patch(c) : patch) } : c) })); setDirty(true); setMessage(""); };
   const withCase = (update: (c: EndoCase) => EndoCase): EndoData => ({ ...dataRef.current, cases: dataRef.current.cases.map(c => c.id === selectedId ? update(c) : c) });
 
+  const deleteCase = (c: EndoCase) => {
+    const extra = [c.sessions.length && `${c.sessions.length} ${c.sessions.length === 1 ? "sesión" : "sesiones"}`, c.rx.length && `${c.rx.length} RX`].filter(Boolean).join(" y ");
+    if (!window.confirm(`¿Desea eliminar este diente (FDI ${fdi(c.tooth)}) del endograma?${extra ? `\n\nSe borrará su ficha con ${extra}.` : ""}\nLas evoluciones ya registradas en la historia clínica no se borran.`)) return;
+    const ids = c.rx.map(r => r.imageId);
+    void persist({ ...dataRef.current, cases: dataRef.current.cases.filter(x => x.id !== c.id) }, `Pieza ${fdi(c.tooth)} eliminada del endograma.`).then(async () => {
+      if (selectedId === c.id) setSelectedId("");
+      for (const id of ids) await onRemoveImage(id).catch(() => undefined);
+    }).catch(() => undefined);
+  };
   const createCase = () => {
+    const open = data.cases.find(x => x.tooth === newTooth && !x.closedReason && !x.obturation.date);
+    if (open && !window.confirm(`La pieza ${fdi(newTooth)} ya tiene una ficha abierta. ¿Crear otra de todas formas?\n\nPulsa «Cancelar» para abrir la que ya existe.`)) { setSelectedId(open.id); setSection("Diagnóstico"); return; }
     const c = { ...newCase(uid(), newTooth, day), type: newType };
     void persist({ ...data, cases: [...data.cases, c] }, `Ficha endodóntica abierta en FDI ${fdi(newTooth)}.`).then(() => { setSelectedId(c.id); setSection("Diagnóstico"); }).catch(() => undefined);
   };
@@ -317,12 +328,12 @@ export function EndodonticsPanel({ data: saved, onSave, focusTooth, patientName,
     <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
       <div className="flex gap-2 overflow-x-auto pb-1" role="list" aria-label="Fichas endodónticas">
         {casesSorted.length === 0 && <p className="text-sm text-[#6e6a8c]">Este paciente aún no tiene fichas endodónticas.</p>}
-        {casesSorted.map(c => { const status = caseStatus(c, day); const missing = missingDocumentation(c).length; return <button key={c.id} role="listitem" type="button" onClick={() => { if (dirty && !window.confirm("Hay cambios sin guardar. ¿Cambiar de ficha y descartarlos?")) return; setData(saved); setDirty(false); setSelectedId(c.id); setSection("Diagnóstico"); setMessage(""); setError(""); }} className={`shrink-0 rounded-xl border px-3 py-2 text-left ${c.id === selectedId ? "border-[#0f766e] bg-teal-50/60 ring-1 ring-[#0f766e]" : "border-[#e4def3] bg-white hover:bg-[#fbf9ff]"}`} data-testid={`endo-case-${c.tooth}`}>
+        {casesSorted.map(c => { const status = caseStatus(c, day); const missing = missingDocumentation(c).length; return <div key={c.id} role="listitem" className="relative shrink-0"><button type="button" aria-label={`Abrir ficha FDI ${fdi(c.tooth)}`} onClick={() => { if (dirty && !window.confirm("Hay cambios sin guardar. ¿Cambiar de ficha y descartarlos?")) return; setData(saved); setDirty(false); setSelectedId(c.id); setSection("Diagnóstico"); setMessage(""); setError(""); }} className={`rounded-xl border py-2 pl-3 pr-9 text-left ${c.id === selectedId ? "border-[#0f766e] bg-teal-50/60 ring-1 ring-[#0f766e]" : "border-[#e4def3] bg-white hover:bg-[#fbf9ff]"}`} data-testid={`endo-case-${c.tooth}`}>
           <span className="block text-base font-semibold">FDI {fdi(c.tooth)}</span>
           <span className="block text-xs text-[#625e82]">{c.type}</span>
           <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${statusStyle[status]}`}>{status}</span>
           {missing > 0 && <span className="ml-1 text-[11px] text-amber-800">{missing} pendientes</span>}
-        </button>; })}
+        </button><button type="button" aria-label={`Eliminar pieza ${fdi(c.tooth)} del endograma`} title="Eliminar este diente" disabled={saving} onClick={() => deleteCase(c)} className="absolute right-1.5 top-1.5 rounded-md p-1.5 text-[#8c4a51] hover:bg-rose-50 disabled:opacity-40" data-testid={`endo-delete-${c.tooth}`}><Trash2 className="size-4" /></button></div>; })}
       </div>
       <div className="flex flex-wrap items-end gap-2 rounded-xl border border-[#e4def3] p-2">
         <label className="text-xs font-medium">Pieza<select className={field + " h-9"} value={newTooth} onChange={e => setNewTooth(Number(e.target.value))}>{[...PERMANENT, ...PRIMARY].map(t => <option key={t} value={t}>{fdi(t)}</option>)}</select></label>
@@ -333,7 +344,7 @@ export function EndodonticsPanel({ data: saved, onSave, focusTooth, patientName,
 
     {current ? <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3"><h4 className="text-lg font-semibold">Pieza {fdi(current.tooth)} · {current.type}</h4><span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusStyle[caseStatus(current, day)]}`}>{caseStatus(current, day)}</span>
-        {current.nextControlDate && <span className="text-sm text-[#625e82]">Próximo control: {fdate(current.nextControlDate)}</span>}</div>
+        {current.nextControlDate && <span className="text-sm text-[#625e82]">Próximo control: {fdate(current.nextControlDate)}</span>}<Button variant="outline" size="sm" className="ml-auto border-rose-200 text-[#a43542] hover:bg-rose-50" disabled={saving} onClick={() => deleteCase(current)} data-testid="endo-delete-current"><Trash2 className="mr-1 size-4" />Eliminar diente</Button></div>
       {(() => { const missing = missingDocumentation(current); return missing.length > 0 && <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950" data-testid="endo-missing">Para que el caso quede bien documentado falta: {missing.join(", ")}.</p>; })()}
       <div role="tablist" aria-label="Secciones del endograma" className="flex gap-1 overflow-x-auto rounded-xl border border-[#ddd6f0] bg-[#f4fbfa] p-1">{SECTIONS.map(name => <button key={name} type="button" role="tab" aria-selected={section === name} onClick={() => setSection(name)} className={`shrink-0 rounded-lg px-3 py-2 text-sm font-semibold ${section === name ? "bg-white text-[#0f766e] shadow-sm" : "text-[#625e82]"}`}>{name}{name === "RX" && current.rx.length ? ` (${current.rx.length})` : ""}</button>)}</div>
       {section === "Diagnóstico" && renderDiagnosis(current)}
@@ -344,12 +355,12 @@ export function EndodonticsPanel({ data: saved, onSave, focusTooth, patientName,
       {section === "Controles" && renderFollowUps(current)}
       {section === "Informe" && renderReport(current)}
       {saveBar(current)}
-      <details className="rounded-xl border border-[#e4def3] p-3 text-sm"><summary className="cursor-pointer font-semibold text-[#565277]">Cerrar o eliminar la ficha</summary>
+      <details className="rounded-xl border border-[#e4def3] p-3 text-sm"><summary className="cursor-pointer font-semibold text-[#565277]">Cerrar o eliminar la ficha de esta pieza</summary>
         <div className="mt-3 flex flex-wrap items-end gap-3">
           {current.closedReason ? <Button variant="outline" size="sm" disabled={saving} onClick={() => void persist(withCase(x => ({ ...x, closedReason: "" })), "Ficha reabierta.").catch(() => undefined)}>Reabrir ficha</Button> : <>
             <label className="text-sm font-medium">Motivo<select className={field + " h-9"} value={closeReason} onChange={e => setCloseReason(e.target.value)}>{CLOSE_REASONS.map(r => <option key={r}>{r}</option>)}</select></label>
             <Button variant="outline" size="sm" disabled={saving} onClick={() => void persist(withCase(x => ({ ...x, closedReason: closeReason })), "Ficha cerrada.").catch(() => undefined)}>Cerrar ficha</Button></>}
-          <Button variant="ghost" size="sm" className="text-[#a43542]" disabled={saving} onClick={() => { if (!window.confirm(`¿Eliminar la ficha endodóntica de la pieza ${fdi(current.tooth)}? Las evoluciones ya registradas no se borran; las RX del caso sí.`)) return; const ids = current.rx.map(r => r.imageId); void persist({ ...data, cases: data.cases.filter(c => c.id !== current.id) }, "Ficha eliminada.").then(async () => { setSelectedId(""); for (const id of ids) await onRemoveImage(id).catch(() => undefined); }).catch(() => undefined); }}><Trash2 className="mr-1 size-4" />Eliminar ficha</Button>
+          <Button variant="ghost" size="sm" className="text-[#a43542]" disabled={saving} onClick={() => deleteCase(current)}><Trash2 className="mr-1 size-4" />Eliminar este diente</Button>
         </div></details>
     </div> : casesSorted.length > 0 && <p className="text-sm text-[#6e6a8c]">Elige una ficha para verla.</p>}
   </div>;
