@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { formatFdi, type ClinicalImage, type OdontogramData, type PerioExam } from "@/app/clinical-data";
-import { createAudioTranscription, AUDIO_DICTATION_NOTICE } from "@/lib/dictation/audio-transcription";
+import { createAudioTranscription, AUDIO_DICTATION_NOTICE, MAX_DICTATION_MS } from "@/lib/dictation/audio-transcription";
 import { checkPatientMentions, patientVariantNote, patientWarning } from "@/lib/dictation/patient-check";
 import { WordDiffView } from "@/components/text-correction";
 import { VoiceCommandCard, type AnnulHandler } from "@/components/evolution-annul";
@@ -233,6 +233,7 @@ export function ClinicalDictation({
   const [audioRetry, setAudioRetry] = useState<"main" | "answer" | null>(null);
   const [speechError, setSpeechError] = useState("");
   const [transcript, setTranscript] = useState("");
+  const [elapsed, setElapsed] = useState(0);
   const [interim, setInterim] = useState("");
   const [structuring, setStructuring] = useState(false);
   const [outcome, setOutcome] = useState<StructureOutcome | null>(null);
@@ -276,6 +277,13 @@ export function ClinicalDictation({
   // Una orden dictada (anular/reemplazar una evolución) no se corrige como nota: se muestra su tarjeta.
   const [commandIgnored, setCommandIgnored] = useState(false);
   const isCommand = (text: string) => !!onAnnul && !!parseVoiceCommand(text, chileTodayIso());
+  useEffect(() => {
+    if (!listening) { setElapsed(0); return; }
+    const startedAt = Date.now();
+    const timer = setInterval(() => setElapsed(Math.min(MAX_DICTATION_MS, Date.now() - startedAt)), 500);
+    return () => clearInterval(timer);
+  }, [listening]);
+  const clock = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, "0")}`;
   const command = useMemo(() => listening || commandIgnored || !onAnnul ? null : parseVoiceCommand(transcript, chileTodayIso()), [transcript, listening, commandIgnored, onAnnul]);
   // Chequeo de paciente en el navegador: el nombre y el RUT de la ficha no viajan a la IA.
   const patientCheck = outcome ? checkPatientMentions([transcript, workingText].filter(Boolean).join("\n"), { name: patientName, rut: patient?.rut }) : null;
@@ -926,9 +934,8 @@ export function ClinicalDictation({
         <div className="space-y-4 text-sm">
           {!supported && <p className="rounded-lg bg-[#f3f0fa] p-3 leading-6 text-[#3d2f73]" role="status">{unsupportedMessage}</p>}
           <div className="flex flex-wrap gap-2">
-            <Button type="button" variant={listening ? "default" : "outline"} className={listening ? "bg-[#6a3fc8] hover:bg-[#5632a3]" : ""} disabled={transcribing || !!answering} onClick={listening ? stop : () => void start()} aria-pressed={listening} data-testid="dictation-mic">
-              {listening ? <MicOff className="mr-2 size-4" /> : <Mic className="mr-2 size-4" />}
-              {listening ? "Detener" : "Dictar"}
+            <Button type="button" size="lg" className={`h-16 w-full flex-1 whitespace-normal text-lg font-semibold shadow-md sm:min-w-64 ${listening ? "bg-[#4b2a99] ring-4 ring-[#b9a3f5] hover:bg-[#3d2f73]" : "bg-[#6a3fc8] hover:bg-[#5632a3]"}`} disabled={transcribing || !!answering} onClick={listening ? stop : () => void start()} aria-pressed={listening} data-testid="dictation-mic">
+              {listening ? <><span className="mr-3 size-3 shrink-0 animate-pulse rounded-full bg-[#e5977c]" aria-hidden="true" /><MicOff className="mr-2 size-6" />Detener · {clock(elapsed)} / {clock(MAX_DICTATION_MS)}</> : <><Mic className="mr-2 size-6" />{transcript.trim() ? "Añadir al dictado" : "Dictar"}</>}
             </Button>
             <Button type="button" variant="outline" onClick={() => { stopWithoutCorrecting(); setTranscript(EXAMPLE); setInterim(""); resetReview(); }} data-testid="dictation-example">Cargar ejemplo</Button>
             <Button type="button" className="bg-[#6a3fc8] hover:bg-[#5632a3]" disabled={transcribing || structuring || listening || transcript.trim().length < 3} onClick={() => void structure(transcript)} data-testid="dictation-structure"><Sparkles className="mr-2 size-4" aria-hidden="true" />{structuring ? "Corrigiendo texto…" : outcome ? "Volver a corregir texto" : "Corregir texto"}</Button>
