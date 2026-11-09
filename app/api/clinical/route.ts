@@ -10,7 +10,7 @@ import { cementedCrownFromEvolution } from "@/app/crown-evidence";
 import { fullNameRequiredMessage, hasFourNameParts } from "@/app/patient-identity";
 import { getDb } from "@/db";
 import { appointments, budgets, calendarEvents, clinicalImages, evolutionDiagnoses, evolutions, patients, payments, periodontalExams, toothStatuses } from "@/db/schema";
-import { budgetTotals, decodeBudgetData, encodeBudgetData, normalizeBudgetItems } from "@/lib/budget-plans";
+import { budgetTotals, decodeBudgetData, encodeBudgetData, normalizeBudgetItems, validIsoDate } from "@/lib/budget-plans";
 import { sanitizeDiagnosisTags } from "@/lib/evolution-diagnoses";
 import type { OdontogramData, OdontogramSurface, SurfaceFinding } from "@/app/clinical-data";
 import { appendToothHistory, toothHistorySnapshot } from "@/app/odontogram-history";
@@ -483,6 +483,25 @@ export async function POST(request: Request) {
         if (updatedTotal < paid) return error("El total del plan no puede quedar por debajo de los pagos ya registrados. Revisa los abonos antes de reducirlo.", 409);
       }
       const [b] = await db.update(budgets).set({ title, items: encodeBudgetData(items, relationship) }).where(and(eq(budgets.id, budgetId), eq(budgets.patientId, patientId), eq(budgets.ownerId, ownerId))).returning();
+      return Response.json({ budget: budgetView(b) });
+    }
+    if (action === "setBudgetItemDone") {
+      const budgetId = Number(input.budgetId), index = Number(input.index);
+      const done = input.done === true;
+      const doneOn = typeof input.doneOn === "string" ? input.doneOn : "";
+      if (!Number.isSafeInteger(budgetId) || budgetId < 1 || !Number.isInteger(index) || index < 0) return error("Prestación inválida.");
+      if (done && !validIsoDate(doneOn)) return error("Indica la fecha en que se realizó la prestación.");
+      const [existing] = await db.select().from(budgets).where(and(eq(budgets.id, budgetId), eq(budgets.patientId, patientId), eq(budgets.ownerId, ownerId)));
+      if (!existing) return error("Presupuesto no encontrado.", 404);
+      const data = decodeBudgetData(existing.items);
+      if (data.isAlternative) return error("Las alternativas son solo cotizaciones; establece esta opción como plan principal para registrar avances.", 409);
+      if (index >= data.items.length) return error("La prestación ya no existe en este plan.", 404);
+      const items = data.items.map((item, itemIndex) => {
+        if (itemIndex !== index) return item;
+        const { doneOn: _previous, ...rest } = item;
+        return done ? { ...rest, doneOn } : rest;
+      });
+      const [b] = await db.update(budgets).set({ items: encodeBudgetData(items, data) }).where(and(eq(budgets.id, budgetId), eq(budgets.patientId, patientId), eq(budgets.ownerId, ownerId))).returning();
       return Response.json({ budget: budgetView(b) });
     }
     if (action === "selectBudgetAlternative") {

@@ -18,7 +18,7 @@ import { BudgetCard, BudgetItemsEditor, type BudgetPlan } from "@/components/bud
 import { BudgetPaymentDialog, type ManualPaymentInput } from "@/components/budget-payment-dialog";
 import { BudgetPrintDialog } from "@/components/budget-print-dialog";
 import { PatientPaymentSummary } from "@/components/patient-payment-summary";
-import { budgetTotals, normalizeBudgetItems } from "@/lib/budget-plans";
+import { budgetTotals, normalizeBudgetItems, plannedByTooth } from "@/lib/budget-plans";
 import { buildAppUrl, parseAppUrl, resolveAppUrl, type ParsedAppUrl } from "@/lib/app-url";
 const Periodontogram = lazy(() => import("@/components/periodontogram").then(module => ({ default: module.Periodontogram })));
 const Odontogram = lazy(() => import("@/components/odontogram").then(module => ({ default: module.Odontogram })));
@@ -215,6 +215,7 @@ export default function Home(){
   const patientNotesAll=notes.filter(n=>n.patientId===selectedId),annulledCount=patientNotesAll.length-patientNotesAll.filter(n=>n.status!=="anulada").length;
   const patientNotes=patientNotesAll.filter(n=>n.status!=="anulada"),patientBudgets=budgets.filter(b=>b.patientId===selectedId),patientPayments=payments.filter(p=>p.patientId===selectedId);
   const printingBudget=patientBudgets.find(b=>b.id===printingBudgetId)??null;
+  const plannedTeeth=plannedByTooth(patientBudgets);
   const paymentTargetBudget=patientBudgets.find(b=>b.id===paymentBudgetId)??null;
   const paymentTargetPaid=paymentTargetBudget?patientPayments.filter(p=>p.budgetId===paymentTargetBudget.id).reduce((sum,p)=>sum+p.amount,0):0;
   const toothEvolutionHistory:ToothHistoryEvent[]=patientNotes.flatMap(note=>(note.diagnoses??[]).filter(diagnosis=>diagnosis.tooth!==null).map((diagnosis,index)=>({
@@ -417,6 +418,10 @@ export default function Home(){
   const editBudget=(budget:Budget)=>{if(!patient||budget.patientId!==selectedId)return;setEditingBudgetId(budget.id);setAlternativeParentBudgetId(null);setBudgetTitle(budget.title);setBudgetItems(budget.items.map(item=>({label:item.label,amount:item.amount,phase:item.phase||"Fase 1",discountPercent:item.discountPercent??0})));setModal("editBudget")};
   const startNewBudget=()=>{setBudgetTitle("");setBudgetItems([{label:"",amount:0,phase:"Fase 1",discountPercent:0}]);setEditingBudgetId(null);setAlternativeParentBudgetId(null);setModal("budget")};
   const startBudgetAlternative=(budget:Budget)=>{setBudgetTitle(budget.title+" · Alternativa");setBudgetItems(budget.items.map(item=>({label:item.label,amount:item.amount,phase:item.phase||"Fase 1",discountPercent:item.discountPercent??0})));setEditingBudgetId(null);setAlternativeParentBudgetId(budget.id);setModal("budget")};
+  const setBudgetItemDone=async(budgetId:number,index:number,doneOn:string|null)=>{
+    const data=await persist({action:"setBudgetItemDone",patientId:selectedId,budgetId,index,done:doneOn!==null,...(doneOn?{doneOn}:{})});
+    setBudgets(previous=>previous.map(b=>b.id===budgetId?data.budget:b));
+  };
   const selectBudgetAlternative=async(budget:Budget)=>{
     if(!patient||budget.patientId!==selectedId||!budget.isAlternative)return;
     if(!window.confirm("¿Establecer «"+budget.title+"» como plan principal? El plan actual pasará a ser una alternativa. No se trasladarán pagos."))return;
@@ -645,13 +650,13 @@ export default function Home(){
   }}
   onAnnul={note => setAnnulTarget(note)}
 /></div></TabsContent>
-            <TabsContent value="odontograma"><Suspense fallback={<div className="min-h-[320px] rounded-xl bg-white p-5 text-sm text-[#6e6a8c]" role="status">Cargando odontograma…</div>}><Odontogram key={selectedId} onDeleteEvent={deleteToothEvent} onEditEvent={editToothEvent} data={toothStatuses[selectedId]??emptyOdontogram()} evolutionEvents={toothEvolutionHistory} onSetStatus={updateTooth} onSetMissingReason={updateMissingReason} onSetSurface={updateSurface} onSetCrownDetails={updateCrownDetails}/></Suspense></TabsContent>
+            <TabsContent value="odontograma"><Suspense fallback={<div className="min-h-[320px] rounded-xl bg-white p-5 text-sm text-[#6e6a8c]" role="status">Cargando odontograma…</div>}><Odontogram key={selectedId} planned={plannedTeeth} onSetPlannedDone={setBudgetItemDone} onOpenPlan={()=>setActiveTab("presupuestos")} onDeleteEvent={deleteToothEvent} onEditEvent={editToothEvent} data={toothStatuses[selectedId]??emptyOdontogram()} evolutionEvents={toothEvolutionHistory} onSetStatus={updateTooth} onSetMissingReason={updateMissingReason} onSetSurface={updateSurface} onSetCrownDetails={updateCrownDetails}/></Suspense></TabsContent>
             <TabsContent value="presupuestos"><div className="surface"><div className="flex justify-between gap-3"><div><h3 className="font-semibold">Planes de tratamiento y presupuestos</h3><p className="mt-1 text-sm text-[#625e82]">Organiza prestaciones por fases y revisa total, abonos y saldo en cada plan.</p></div><Button variant="outline" size="sm" onClick={startNewBudget}>Añadir plan</Button></div><div className="mt-5 space-y-4">{patientBudgets.length?<>
               {patientBudgets.filter(b=>!b.isAlternative).map(primary=>{
                 const paid=patientPayments.filter(payment=>payment.budgetId===primary.id).reduce((sum,payment)=>sum+payment.amount,0);
                 const alternatives=patientBudgets.filter(budget=>budget.isAlternative&&budget.parentBudgetId===primary.id);
                 return <section key={primary.id} className="space-y-3">
-                  <BudgetCard budget={primary} paid={paid} payments={patientPayments.filter(payment=>payment.budgetId===primary.id)} onRegisterPayment={()=>openManualPayment(primary)} onEdit={()=>editBudget(primary)} onPrint={()=>setPrintingBudgetId(primary.id)} onCreateAlternative={paid===0&&alternatives.length<12?()=>startBudgetAlternative(primary):undefined}/>
+                  <BudgetCard budget={primary} paid={paid} payments={patientPayments.filter(payment=>payment.budgetId===primary.id)} onRegisterPayment={()=>openManualPayment(primary)} onSetItemDone={(index,doneOn)=>setBudgetItemDone(primary.id,index,doneOn)} onEdit={()=>editBudget(primary)} onPrint={()=>setPrintingBudgetId(primary.id)} onCreateAlternative={paid===0&&alternatives.length<12?()=>startBudgetAlternative(primary):undefined}/>
                   {paid>0&&alternatives.length>0&&<p className="ml-4 text-xs text-[#8a5b1c]">Este plan tiene abonos; no se puede cambiar la alternativa principal para conservar el historial financiero.</p>}
                   {alternatives.length>0&&<div className="ml-4 space-y-3 border-l-2 border-amber-200 pl-4">
                     <h4 className="text-sm font-semibold text-[#4f4a74]">Opciones alternativas</h4>
