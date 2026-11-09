@@ -64,6 +64,7 @@ import { sameDiagnosisTags, sanitizeDiagnosisTags, type EvolutionDiagnosisTag } 
 import { evolutionNotices, type EvolutionNoticeKey } from "@/lib/dictation/evolution-notices";
 import { buildFeedback, type ReviewGroup } from "@/lib/dictation/feedback";
 import { spokenAlerts } from "@/lib/dictation/spoken-alerts";
+import { toothMismatch } from "@/lib/dictation/tooth-mismatch";
 import { speakPhrases, unlockSpeech } from "@/lib/dictation/speech";
 
 type Reload = {
@@ -984,12 +985,14 @@ export function ClinicalDictation({
                 <p className="mt-2 whitespace-pre-wrap rounded-lg bg-[#f7f4f4] p-3 text-sm text-[#6e6a8c]">{latestNote ? `${latestNote.title}\n${latestNote.body}` : "Sin evoluciones registradas"}</p>
               </details>
               {proposal.evolution ? <>
-                <p className="mt-3 text-xs text-[#6e6a8c]">Nota clínica redactada (editable).</p>
+                <p className="mt-3 text-sm font-medium text-[#3d2f73]">Nota clínica redactada · <span className="font-normal text-[#625e82]">toca el texto y corrígelo libremente antes de guardar</span></p>
                 <Input className="mt-1" aria-label="Título de la evolución" value={evolutionTitle} onChange={(event) => setEvolutionTitle(event.target.value)} />
                 <label className="mt-2 block text-xs text-[#6e6a8c]">Fecha de atención (opcional; vacío = hoy)
                   <Input className="mt-1" type="date" aria-label="Fecha de atención" max={new Date().toISOString().slice(0, 10)} value={attentionDate} onChange={(event) => setAttentionDate(event.target.value)} />
                 </label>
-                <Textarea className="mt-2 border-emerald-200 bg-emerald-50" aria-label="Cuerpo de la evolución" rows={9} value={evolutionBody} onChange={(event) => setEvolutionBody(event.target.value)} />
+                <Textarea className="mt-2 min-h-56 cursor-text border-2 border-emerald-300 bg-emerald-50 text-base leading-6 focus-visible:border-[#6a3fc8] focus-visible:bg-white sm:text-sm" aria-label="Cuerpo de la evolución (editable)" spellCheck lang="es" rows={10} value={evolutionBody} onChange={(event) => setEvolutionBody(event.target.value)} data-testid="dictation-evolution-body" />
+                {(() => { const mismatch = toothMismatch(evolutionTitle, evolutionBody); return mismatch && <p role="alert" className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-sm text-amber-950" data-testid="dictation-tooth-mismatch">El título menciona la pieza {mismatch.title.join(", ")} pero el texto habla de la pieza {mismatch.body.join(", ")}. Corrige el que esté mal antes de guardar.</p>; })()}
+                <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-[#625e82]"><span>Una vez guardada, la evolución queda cerrada: solo puede anularse y registrarse otra.</span>{proposal.evolution && (evolutionBody !== proposal.evolution.body || evolutionTitle !== proposal.evolution.title) && <button type="button" className="font-semibold text-[#6a3fc8] underline" onClick={() => { if (window.confirm("¿Descartar tus cambios y volver al texto propuesto?")) { setEvolutionTitle(proposal.evolution?.title ?? ""); setEvolutionBody(proposal.evolution?.body ?? ""); } }}>Volver al texto propuesto</button>}</div>
               </> : <p className="mt-3 text-[#6e6a8c]">El dictado no produjo una evolución.</p>}
             </section>
             <section className="rounded-xl border border-[#ddd6f0] p-4" data-testid="dictation-prestaciones">
