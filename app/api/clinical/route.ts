@@ -3,6 +3,8 @@ import { isCariesDepth } from "@/lib/caries";
 import { env } from "cloudflare:workers";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { loadProfile } from "@/app/clinician-profile-db";
+import { loadAddresses, saveAddress } from "@/app/patient-address-db";
+import { emptyAddress } from "@/lib/patient-address";
 import { displayName } from "@/lib/clinician-profile";
 import { ClinicalImportError, runDriveRecordImport } from "@/app/clinical-import";
 import { syncInstalledImplants } from "@/app/sync-odontogram";
@@ -146,6 +148,7 @@ export async function GET() {
     const db = getDb();
     let profileFailed = false;
     const profile = await loadProfile(ownerId).catch(() => { profileFailed = true; return null; });
+    const addresses = await loadAddresses(ownerId);
     const [ps, ns, bs, as, pe, ts, imgs, ces, pays, dxs] = await Promise.all([
       db.select().from(patients).where(eq(patients.ownerId, ownerId)).orderBy(patients.name),
       db.select().from(evolutions).where(eq(evolutions.ownerId, ownerId)).orderBy(desc(evolutions.clinicalDate), desc(evolutions.recordedAt)),
@@ -190,7 +193,7 @@ export async function GET() {
       return [p.id, chart];
     }));
     return Response.json({
-      patients: ps.map(p => ({ ...p, rut: p.rut || "" })),
+      patients: ps.map(p => ({ ...p, rut: p.rut || "", address: addresses.get(p.id) ?? emptyAddress() })),
       notes: ns.map(n => ({ id: n.id, patientId: n.patientId, date: displayDate(n.clinicalDate), clinicalDate: n.clinicalDate, recordedAt: n.recordedAt, title: n.title, body: n.body, sourceDocumentId: n.sourceDocumentId, backupStatus: n.backupStatus, diagnoses: diagnosesByNote.get(n.id) ?? [], ...annulView(n) })),
       budgets: bs.map(budgetView),
       appointments: as.map(a => ({ id: a.id, patientId: a.patientId, day: a.day.split("-").reverse().join("-"), time: a.time, reason: a.reason })),
@@ -251,7 +254,8 @@ export async function POST(request: Request) {
       if (rut && (await db.select({ id: patients.id }).from(patients).where(and(eq(patients.ownerId, ownerId), eq(patients.rut, rut)))).length) return error("Ya existe un paciente con ese RUT.", 409);
       const t = now();
       const [p] = await db.insert(patients).values({ ownerId, name, birthDate, rut, phone, email, reason: string(input.reason, 240) || "Evaluación", status: "Evaluación", allergies: "Sin registrar", history: "Sin registrar", createdAt: t, updatedAt: t }).returning();
-      return Response.json({ patient: { ...p, rut: rutRaw || "" } }, { status: 201 });
+      const address = await saveAddress(ownerId, p.id, input.address).catch(() => emptyAddress());
+      return Response.json({ patient: { ...p, rut: rutRaw || "", address } }, { status: 201 });
     }
     if (action === "previewDriveRecords" || action === "importDriveRecords") {
       try {
@@ -314,7 +318,10 @@ export async function POST(request: Request) {
       const history = hasHistory ? string(input.history, 10000) || "Sin registrar" : patient.history;
       const changes = { name: nameInput, birthDate, phone, email, allergies, history, updatedAt: now(), ...(hasRut ? { rut } : {}) };
       const [updated] = await db.update(patients).set(changes).where(and(eq(patients.id, patientId), eq(patients.ownerId, ownerId))).returning();
-      return Response.json({ patient: { ...updated, rut: updated.rut || "" } });
+      const address = Object.prototype.hasOwnProperty.call(input, "address")
+        ? await saveAddress(ownerId, patientId, input.address)
+        : (await loadAddresses(ownerId)).get(patientId) ?? emptyAddress();
+      return Response.json({ patient: { ...updated, rut: updated.rut || "", address } });
     }
     if (action === "addNote") {
       const title = string(input.title, 180) || "Evolución clínica", body = string(input.body, 30000);
