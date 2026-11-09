@@ -613,6 +613,25 @@ function toothMentions(sentence: string): Mention[] {
   return mentions;
 }
 
+const NEIGHBOUR_MARKER = /(?<!\p{L})(?:adyacentes?|vecin[oa]s?|contigu[oa]s?|colindantes?|junto\s+a|al\s+lado\s+de|pr[oó]xim[oa]s?\s+a)(?!\p{L})/iu;
+
+/**
+ * «La pieza 20 está adyacente al implante de la pieza 19»: lo que va después de «adyacente» describe a la OTRA pieza.
+ * Devuelve solo el trozo de la frase que habla de `tooth`, para no atribuirle el implante (o la caries) del vecino.
+ */
+export function neighbourScoped(sentence: string, tooth: number): string {
+  const marker = NEIGHBOUR_MARKER.exec(sentence);
+  if (!marker) return sentence;
+  const mentions = (text: string) => toothMentions(text).some((item) => item.ok && item.tooth === tooth);
+  const before = sentence.slice(0, marker.index), after = sentence.slice(marker.index + marker[0].length);
+  const inBefore = mentions(before), inAfter = mentions(after);
+  if (inBefore === inAfter) return sentence;
+  const side = inBefore ? before : after;
+  // «… del implante de la 19 y la pieza 21 se observa sana»: cada «y la pieza …» es otra afirmación.
+  const clauses = side.split(/(?<!\p{L})y\s+(?=(?:la|el)\s+(?:pieza|diente)(?!\p{L}))/iu);
+  return clauses.find(mentions) ?? side;
+}
+
 const PERFORMED = /(?:^|\P{L})(?:se\s+(?:instal(?:[oó]|an)|coloc(?:[oó]|an)|cement[oó]|realiz[oó]|efectu[oó]|insert[oó])|cementad[oa])(?!\p{L})/iu;
 const NEGATED_PERFORMED = /(?:^|\P{L})no\s+se\s+(?:instal[oó]|coloc[oó]|cement[oó]|realiz[oó]|efectu[oó]|insert[oó])(?!\p{L})/iu;
 
@@ -1739,6 +1758,11 @@ export function structureTranscript(transcript: string, options: { today?: strin
       if (!mention.ok) {
         clarifications.push(mention.reason);
         continue;
+      }
+      if (mentions.filter((m) => m.ok).length > 1 && NEIGHBOUR_MARKER.test(sentence)) {
+        // «la 20 está adyacente al implante de la 19»: el implante es de la 19, no de la 20.
+        const own = neighbourScoped(sentence, mention.tooth);
+        if (own !== sentence && (onImplant ? !crownOnImplantSentence(own) : status ? statusFrom(own) !== status : false)) continue;
       }
       if (onImplant || status) {
         const base = {
@@ -2976,7 +3000,7 @@ export function validateAiExtraction(input: unknown, transcript: string, options
     evidence = answerContext(evidence, transcript);
     const mention = resolveAiTooth(pieza, str(item.sistema), evidence);
     if (!mention.ok) { reject(mention.reason); continue; }
-    const segment = segmentFor(evidence, mention.tooth);
+    const segment = neighbourScoped(segmentFor(evidence, mention.tooth), mention.tooth);
     const scope = surfaceScope(segment);
     const base = { tooth: mention.tooth, numbering: mention.numbering, numberingLabel: mention.numberingLabel, sourceText: clip(segment, 400), evidence: clip(evidence, 400), origin: "ia" as const };
     const heading = `FDI ${formatFdi(mention.tooth)}`;
@@ -3127,7 +3151,7 @@ export function validateAiExtraction(input: unknown, transcript: string, options
     evidence = answerContext(evidence, transcript);
     const mention = resolveAiTooth(pieza, str(item.sistema), evidence);
     if (!mention.ok) { reject(mention.reason); continue; }
-    const segment = segmentFor(evidence, mention.tooth);
+    const segment = neighbourScoped(segmentFor(evidence, mention.tooth), mention.tooth);
     const reading = perioReading(segment);
     const aiDepth = Number(item.profundidad);
     const depth = reading.depth;

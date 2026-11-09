@@ -212,3 +212,6 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 ## Anamnesis médico-odontológica (separada del ingreso, por ahora)
 - Botón rojo «Anamnesis» sobre las pestañas de la ficha (`components/anamnesis-dialog.tsx`): formulario (alergias, medicamentos, anticoagulantes, enfermedades por casillas, cirugías, hospitalizaciones, anestesia, embarazo, hábitos, antecedentes dentales) + dictado por audio (mismo motor que el resto) y «Ordenar en el formulario» (OpenAI, solo lo dicho, `lib/dictation/openai-anamnesis.ts`). Lo dictado completa, no borra; el clínico revisa y guarda.
 - Tabla `patient_anamnesis` (lazy, por `owner_id`), API `/api/anamnesis` (GET/PUT/POST). Pendiente: integrarla al flujo de ingreso del paciente y a la exportación/respaldo.
+
+## Implante del vecino (corregido)
+- «La pieza 20 está adyacente al implante de la pieza 19» marcaba Implante en las piezas 4.5, 4.6 y 4.4. `neighbourScoped` (lib/dictation/proposal.ts) limita cada frase con «adyacente/vecino/contiguo/junto a/al lado de» a la parte que habla de esa pieza, en el camino de reglas y en el de la IA.
