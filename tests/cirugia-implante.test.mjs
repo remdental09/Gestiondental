@@ -23,3 +23,11 @@ test("no se activa sin implante ni con cirugías combinadas", () => {
   assert.equal(implantSurgeryLines("Se realiza profilaxis y control."), null);
   assert.equal(implantSurgeryLines(applyLexicon(DICTADO + " Se hizo elevación de seno.").text), null);
 });
+
+import { surgeryQuestions } from "../lib/dictation/surgery-template.ts";
+test("cirugía ambigua: pregunta por colgajo y descargas", () => {
+  const q = surgeryQuestions(applyLexicon(DICTADO).text);
+  assert.equal(q.length, 2);
+  assert.match(q[0], /colgajo de espesor total/);
+  assert.deepEqual(surgeryQuestions("Control de rutina."), []);
+});

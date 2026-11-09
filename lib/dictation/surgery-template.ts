@@ -79,3 +79,17 @@ export function implantSurgeryLines(transcript: string): SurgeryLine[] | null {
 
 /** Línea que el código reemplaza: el modelo no la repite si el código ya la escribió. */
 export const SURGERY_TOPIC = /anestesi|tubos?\s+de|tubetes?|lidoca|incisi[oó]n|descarga|colgajo|flapless|implante|torque|injerto|sutura|cierre|puntos?\b|vicryl/i;
+
+/** Preguntas amarillas cuando el dictado de una cirugía de implante es ambiguo (no se adivina). */
+export function surgeryQuestions(transcript: string): string[] {
+  const text = transcript.replace(/\s+/g, " ");
+  if (!implantSurgeryLines(text)) return [];
+  const questions: string[] = [];
+  if (/descargas?\s+de\s+espesor\s+(total|parcial)/i.test(text) && !/colgajo\s+de\s+espesor/i.test(text)) {
+    questions.push("IA: Dictaste «descarga de espesor total». ¿Quisiste decir «colgajo de espesor total»? Si es así, se agrega «Se levanta colgajo de espesor total».");
+  }
+  if ((text.match(/\bdescargas?\b/gi) ?? []).length >= 3 && /descargas?\s+hasta\s+(?:la\s+)?mucosa/i.test(text)) {
+    questions.push("IA: Aparecen varias «descargas» en el dictado (Neumann, «hasta la mucosa»). ¿Es una sola descarga o hay más de una? Indica cuántas y en qué piezas.");
+  }
+  return questions;
+}

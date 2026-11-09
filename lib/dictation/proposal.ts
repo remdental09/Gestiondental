@@ -46,7 +46,7 @@ import { CARIES_DEPTH_LABEL, CARIES_DEPTH_QUESTION, cariesDepthFrom, isCariesDep
 import { ICD11, ICD11_CATALOG, cariesIcd11, diagnosisMatches, icd11Label, nearestDiagnosis, type SuggestedMapping } from "../icd11.ts";
 import { classifyEvolution, type EvolutionKind } from "./evolution-type.ts";
 import { candidatePrestaciones, matchPrestacion, prestacionByCode, prestacionLabel } from "../prestaciones-catalog.ts";
-import { implantSurgeryLines, SURGERY_TOPIC } from "./surgery-template.ts";
+import { implantSurgeryLines, SURGERY_TOPIC, surgeryQuestions } from "./surgery-template.ts";
 import { endodonticQuestions, procedureLinesOf, suggestPrestaciones, type PrestacionItem } from "./prestaciones.ts";
 import { buildSpecialtyContext } from "../knowledge/index.ts";
 export { CARIES_DEPTHS, CARIES_DEPTH_LABEL, CARIES_DEPTH_SHORT, cariesDetail } from "../caries.ts";
@@ -3967,9 +3967,10 @@ export async function proposeFromTranscript(
     };
     const hasPrestaciones = (finished.prestaciones ?? []).length > 0;
     const endoQuestions = endodonticQuestions(procedureLinesOf(finished.evolution?.body ?? ""), finished.prestaciones ?? []).filter((item) => !finished.clarifications.includes(item));
+    const surgeryAsks = surgeryQuestions(fixed).filter((item) => !finished.clarifications.includes(item));
     return {
       ...finished,
-      clarifications: [...finished.clarifications, ...endoQuestions].filter((item) => !(ruleBrandAsked && /^IA: ¿La marca dictada como/.test(item)) && !(hasPrestaciones && /^IA: No hay una prestaci[oó]n candidata/.test(item)) && !alreadyPlaced(item)),
+      clarifications: [...finished.clarifications, ...endoQuestions, ...surgeryAsks].filter((item) => !(ruleBrandAsked && /^IA: ¿La marca dictada como/.test(item)) && !(hasPrestaciones && /^IA: No hay una prestaci[oó]n candidata/.test(item)) && !alreadyPlaced(item)),
     };
   };
   if (!model) return { engine: "reglas-locales", model: null, notice: LOCAL_NOTICE, proposal: withText(localOnly, fixed, lexicon.corrections) };
