@@ -39,3 +39,12 @@ test("checkNewItems valida especialidad, nombres y precios", () => {
   assert.equal(checkNewItems({ specialty: "general", items: Array.from({ length: 31 }, (_, i) => ({ name: `Prestación ${i}`, price: 1000 })) }).ok, false);
   assert.equal(checkNewItems(null).ok, false);
 });
+
+import { SPECIALTY_CATALOG_GROUP } from "../lib/custom-prestaciones.ts";
+import { PRESTACION_GROUPS } from "../lib/prestaciones-catalog.ts";
+
+test("cada especialidad se asocia a un grupo real del catálogo (o a ninguno)", () => {
+  const groups = new Set(PRESTACION_GROUPS.map(group => group.name));
+  assert.deepEqual(Object.keys(SPECIALTY_CATALOG_GROUP).sort(), [...SPECIALTY_KEYS].sort());
+  for (const [key, group] of Object.entries(SPECIALTY_CATALOG_GROUP)) assert.ok(group === null || groups.has(group), `${key} → ${group}`);
+});

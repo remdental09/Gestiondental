@@ -89,6 +89,24 @@ export const PRESTACION_SPECIALTIES: PrestacionSpecialty[] = [
   ] },
 ];
 
+/** Grupo del catálogo donde también se muestra la prestación propia de cada especialidad (null: sin grupo equivalente, se muestra en uno aparte). */
+export const SPECIALTY_CATALOG_GROUP: Record<string, string | null> = {
+  operatoria: "OPERATORIA",
+  endodoncia: "ENDODONCIA",
+  "protesis-fija": "PROTESIS FIJA",
+  "protesis-removible": "PROTESIS REMOVIBLE",
+  cirugia: "CIRUGIA BUCAL",
+  periodoncia: "PERIODONCIA",
+  implantologia: "IMPLANTES UNITARIOS",
+  ortodoncia: "ORTODONCIA",
+  odontopediatria: "ODONTOPEDIATRIA",
+  preventiva: "PREVENTIVA",
+  radiologia: "RADIOLOGIA",
+  ttm: "DISFUNCION (TTM)",
+  estetica: null,
+  general: "PRESTACIONES DENTALES GENERALES",
+};
+
 export const SPECIALTY_KEYS = PRESTACION_SPECIALTIES.map(item => item.key);
 export const specialtyLabel = (key: string) => PRESTACION_SPECIALTIES.find(item => item.key === key)?.label ?? key;
 

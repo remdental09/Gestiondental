@@ -7,20 +7,26 @@ import { normalizePrice, type PriceMap } from "@/lib/aranceles";
 import { PRESTACIONES, PRESTACION_GROUPS, prestacionLabel } from "@/lib/prestaciones-catalog";
 import { suggestedRange } from "@/lib/prestaciones-referencia";
 import { CreatePrestacionDialog } from "@/components/create-prestacion-dialog";
-import { PRESTACION_SPECIALTIES, specialtyLabel, type CustomPrestacion } from "@/lib/custom-prestaciones";
+import { PRESTACION_SPECIALTIES, SPECIALTY_CATALOG_GROUP, specialtyLabel, type CustomPrestacion } from "@/lib/custom-prestaciones";
 
 const money = (amount: number) => "$" + amount.toLocaleString("es-CL");
 const fold = (value: string) => value.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
+const OWN_ONLY_GROUP = "__propias-estetica";
 const GROUPS = PRESTACION_GROUPS.map(group => ({
   name: group.name,
   label: prestacionLabel(group.name),
   items: PRESTACIONES.filter(item => item.group === group.name).map(item => ({ code: item.code, label: prestacionLabel(item.name), text: fold(item.name) })),
 }));
 
+GROUPS.push({ name: OWN_ONLY_GROUP, label: "Estética y blanqueamiento (tus prestaciones)", items: [] });
+const groupOfSpecialty = (specialty: string) => SPECIALTY_CATALOG_GROUP[specialty] ?? OWN_ONLY_GROUP;
+
 /** Aranceles: cada profesional fija el precio de las prestaciones que realiza. Se guarda al salir del campo. */
 export function ArancelesPanel() {
   const [prices, setPrices] = useState<PriceMap>({});
+  const [hidden, setHiddenCodes] = useState<string[]>([]);
+  const [showHidden, setShowHidden] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [query, setQuery] = useState("");
@@ -40,9 +46,9 @@ export function ArancelesPanel() {
   useEffect(() => {
     let cancelled = false;
     fetch("/api/aranceles").then(async response => {
-      const result = await response.json() as { prices?: PriceMap; error?: string };
+      const result = await response.json() as { prices?: PriceMap; hidden?: string[]; error?: string };
       if (!response.ok) throw new Error(result.error || "No se pudo leer el arancel.");
-      if (!cancelled) { setPrices(result.prices ?? {}); setLoaded(true); }
+      if (!cancelled) { setPrices(result.prices ?? {}); setHiddenCodes(result.hidden ?? []); setLoaded(true); }
     }).catch(error => { if (!cancelled) { setLoadError(error instanceof Error ? error.message : "No se pudo leer el arancel."); setLoaded(true); } });
     return () => { cancelled = true; };
   }, []);
@@ -58,12 +64,20 @@ export function ArancelesPanel() {
 
   const words = useMemo(() => fold(query).trim().split(/\s+/).filter(Boolean), [query]);
   const searching = words.length > 0;
-  const visible = useMemo(() => GROUPS.map(group => ({
-    ...group,
-    shown: group.items.filter(item => (!onlyPriced || prices[item.code] !== undefined) && (!searching || words.every(word => item.text.includes(word) || item.code.startsWith(word)))),
-    priced: group.items.filter(item => prices[item.code] !== undefined).length,
-  })).filter(group => group.shown.length > 0), [onlyPriced, prices, searching, words]);
-  const totalPriced = Object.keys(prices).length;
+  const customVisible = useMemo(() => customs.filter(item => (!onlyPriced || item.price !== null) && (!searching || words.every(word => fold(item.name + " " + specialtyLabel(item.specialty)).includes(word)))), [customs, onlyPriced, searching, words]);
+  const hiddenSet = useMemo(() => new Set(hidden), [hidden]);
+  const visible = useMemo(() => GROUPS.map(group => {
+    const own = customVisible.filter(item => groupOfSpecialty(item.specialty) === group.name);
+    const ownAll = customs.filter(item => groupOfSpecialty(item.specialty) === group.name);
+    return {
+      ...group,
+      own,
+      shown: group.items.filter(item => !hiddenSet.has(item.code) && (!onlyPriced || prices[item.code] !== undefined) && (!searching || words.every(word => item.text.includes(word) || item.code.startsWith(word)))),
+      priced: group.items.filter(item => !hiddenSet.has(item.code) && prices[item.code] !== undefined).length + ownAll.filter(item => item.price !== null).length,
+      total: group.items.filter(item => !hiddenSet.has(item.code)).length + ownAll.length,
+    };
+  }).filter(group => group.shown.length > 0 || group.own.length > 0), [customs, customVisible, hiddenSet, onlyPriced, prices, searching, words]);
+  const totalPriced = Object.keys(prices).filter(code => !hiddenSet.has(code)).length;
 
   const commit = async (code: string, label: string) => {
     const draft = drafts[code];
@@ -92,7 +106,6 @@ export function ArancelesPanel() {
     finally { setSaving(previous => ({ ...previous, [code]: false })); }
   };
 
-  const customVisible = customs.filter(item => (!onlyPriced || item.price !== null) && (!searching || words.every(word => fold(item.name + " " + specialtyLabel(item.specialty)).includes(word))));
   const customRequest = async (method: string, body: object, failure: string) => {
     const response = await fetch("/api/aranceles/custom", { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const result = await response.json() as { error?: string };
@@ -121,10 +134,38 @@ export function ArancelesPanel() {
     catch (error) { setMessage(error instanceof Error ? error.message : "No se pudo cambiar el nombre."); }
   };
   const removeCustom = async (item: CustomPrestacion) => {
-    if (!window.confirm(`¿Eliminar tu prestación «${item.name}»? Los presupuestos ya hechos no cambian.`)) return;
+    if (!window.confirm(`¿Quieres borrar esta prestación?\n\n«${item.name}»\n\nLos presupuestos ya hechos no cambian.`)) return;
     setMessage("");
     try { await customRequest("DELETE", { id: item.id }, "No se pudo eliminar la prestación."); setCustoms(previous => previous.filter(entry => entry.id !== item.id)); }
     catch (error) { setMessage(error instanceof Error ? error.message : "No se pudo eliminar la prestación."); }
+  };
+
+  const setCatalogHidden = async (code: string, label: string, value: boolean) => {
+    if (value && !window.confirm(`¿Quieres borrar esta prestación?\n\n«${label}»\n\nDejará de aparecer en tu lista y en tus presupuestos. Puedes recuperarla en «Prestaciones borradas».`)) return;
+    setMessage("");
+    try {
+      await (async () => {
+        const response = await fetch("/api/aranceles", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code, hidden: value }) });
+        const result = await response.json() as { error?: string };
+        if (!response.ok) throw new Error(result.error || "No se pudo actualizar la prestación.");
+      })();
+      setHiddenCodes(previous => value ? [...new Set([...previous, code])] : previous.filter(entry => entry !== code));
+    } catch (error) { setMessage(error instanceof Error ? error.message : "No se pudo actualizar la prestación."); }
+  };
+
+  const customRow = (item: CustomPrestacion, scope: "mine" | "group") => {
+    const value = customDrafts[item.id] ?? (item.price !== null ? String(item.price) : "");
+    return <li key={item.id} className="grid grid-cols-[minmax(0,1fr)_150px] items-center gap-x-3 gap-y-1 px-4 py-2 text-sm sm:grid-cols-[minmax(0,1fr)_170px_72px]" data-testid={`${scope}-row-${item.id}`}>
+      {renaming === item.id
+        ? <Input autoFocus maxLength={120} value={renameDraft} onChange={event => setRenameDraft(event.target.value)} onBlur={() => commitRename(item)} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setRenaming(null); }} aria-label="Nombre de la prestación" className="h-9"/>
+        : <span className={item.price !== null ? "font-medium text-[#1f1b3a]" : "text-[#4f4a74]"}>{item.name}{scope === "group" && <span className="ml-2 rounded-full bg-[#ece6fb] px-2 py-0.5 text-[11px] font-semibold text-[#6a3fc8]" data-testid={`own-badge-${item.id}`}>Mía</span>}</span>}
+      <span className="flex items-center gap-1"><span className="text-[#6e6a8c]">$</span><Input type="text" inputMode="numeric" aria-label={`Precio de ${item.name}`} placeholder="Sin precio" value={value} data-testid={`${scope}-price-${item.id}`}
+        onChange={event => setCustomDrafts(previous => ({ ...previous, [item.id]: event.target.value }))} onBlur={() => commitCustom(item)} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); }} className="h-9 text-right"/></span>
+      <span className="col-span-2 flex justify-end gap-1 sm:col-span-1">
+        <button type="button" aria-label={`Cambiar nombre de ${item.name}`} onClick={() => { setRenameDraft(item.name); setRenaming(item.id); }} className="rounded p-2 text-[#4f4a74] hover:bg-[#f3effd]"><Pencil className="size-4"/></button>
+        <button type="button" aria-label={`Eliminar ${item.name}`} onClick={() => removeCustom(item)} className="rounded p-2 text-[#8c4a51] hover:bg-rose-50" data-testid={`${scope}-delete-${item.id}`}><Trash2 className="size-4"/></button>
+      </span>
+    </li>;
   };
 
   return <div className="surface space-y-5" data-testid="aranceles">
@@ -137,10 +178,16 @@ export function ArancelesPanel() {
     <div className="flex flex-wrap items-center gap-3">
       <label className="relative min-w-[240px] flex-1"><span className="sr-only">Buscar prestación</span><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#6e6a8c]"/><Input value={query} onChange={event => setQuery(event.target.value)} placeholder="Buscar prestación o código…" className="pl-9" data-testid="aranceles-search"/></label>
       <label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" className="size-4" checked={onlyPriced} onChange={event => setOnlyPriced(event.target.checked)} data-testid="aranceles-only-priced"/>Solo con precio</label>
-      <span className="text-sm text-[#625e82]" data-testid="aranceles-count">{totalPriced} de {PRESTACIONES.length} con precio</span>
+      <span className="text-sm text-[#625e82]" data-testid="aranceles-count">{totalPriced} de {PRESTACIONES.length - hidden.length} con precio</span>
     </div>
     {loadError && <p role="alert" className="rounded-lg bg-rose-50 p-3 text-sm text-rose-800">{loadError}</p>}
     {message && <p role="alert" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-950" data-testid="aranceles-message">{message}</p>}
+    {hidden.length > 0 && <div className="rounded-xl border border-[#e4def3] bg-[#fbf9ff] p-3 text-sm" data-testid="hidden-panel">
+      <button type="button" aria-expanded={showHidden} onClick={() => setShowHidden(open => !open)} className="font-semibold text-[#6a3fc8] hover:underline" data-testid="toggle-hidden">Prestaciones borradas ({hidden.length}) {showHidden ? "▲" : "▼"}</button>
+      {showHidden && <ul className="mt-2 divide-y divide-[#eee9fa]">
+        {hidden.map(code => ({ code, item: PRESTACIONES.find(entry => entry.code === code) })).filter(entry => entry.item).map(({ code, item }) => <li key={code} className="flex items-center justify-between gap-3 py-2"><span className="text-[#4f4a74]"><span className="mr-2 font-mono text-xs text-[#6e6a8c]">{code}</span>{prestacionLabel(item!.name)}</span><button type="button" onClick={() => setCatalogHidden(code, prestacionLabel(item!.name), false)} className="shrink-0 rounded-lg border border-[#d3cbe8] px-3 py-1 text-xs font-semibold text-[#4f4a74] hover:bg-[#f3effd]" data-testid={`restore-${code}`}>Recuperar</button></li>)}
+      </ul>}
+    </div>}
     {notice && <p role="status" className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-900" data-testid="aranceles-notice">{notice}</p>}
     {!loaded && <p role="status" className="text-sm text-[#6e6a8c]">Cargando tu arancel…</p>}
     <div className="space-y-2">
@@ -154,18 +201,7 @@ export function ArancelesPanel() {
             <p className="bg-[#faf8ff] px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-[#6e6a8c]">{spec.label}</p>
             <ul className="divide-y divide-[#eee9fa]">
               {customVisible.filter(item => item.specialty === spec.key).map(item => {
-                const value = customDrafts[item.id] ?? (item.price !== null ? String(item.price) : "");
-                return <li key={item.id} className="grid grid-cols-[minmax(0,1fr)_150px] items-center gap-x-3 gap-y-1 px-4 py-2 text-sm sm:grid-cols-[minmax(0,1fr)_170px_72px]" data-testid={`custom-row-${item.id}`}>
-                  {renaming === item.id
-                    ? <Input autoFocus maxLength={120} value={renameDraft} onChange={event => setRenameDraft(event.target.value)} onBlur={() => commitRename(item)} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setRenaming(null); }} aria-label="Nombre de la prestación" className="h-9"/>
-                    : <span className={item.price !== null ? "font-medium text-[#1f1b3a]" : "text-[#4f4a74]"}>{item.name}</span>}
-                  <span className="flex items-center gap-1"><span className="text-[#6e6a8c]">$</span><Input type="text" inputMode="numeric" aria-label={`Precio de ${item.name}`} placeholder="Sin precio" value={value} data-testid={`custom-price-${item.id}`}
-                    onChange={event => setCustomDrafts(previous => ({ ...previous, [item.id]: event.target.value }))} onBlur={() => commitCustom(item)} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); }} className="h-9 text-right"/></span>
-                  <span className="col-span-2 flex justify-end gap-1 sm:col-span-1">
-                    <button type="button" aria-label={`Cambiar nombre de ${item.name}`} onClick={() => { setRenameDraft(item.name); setRenaming(item.id); }} className="rounded p-2 text-[#4f4a74] hover:bg-[#f3effd]"><Pencil className="size-4"/></button>
-                    <button type="button" aria-label={`Eliminar ${item.name}`} onClick={() => removeCustom(item)} className="rounded p-2 text-[#8c4a51] hover:bg-rose-50" data-testid={`custom-delete-${item.id}`}><Trash2 className="size-4"/></button>
-                  </span>
-                </li>;
+                return customRow(item, "mine");
               })}
             </ul>
           </div>)}
@@ -176,13 +212,14 @@ export function ArancelesPanel() {
         return <section key={group.name} className="overflow-hidden rounded-xl border border-[#ddd6f0] bg-white">
           <button type="button" aria-expanded={!!open} onClick={() => setOpenGroups(previous => ({ ...previous, [group.name]: !previous[group.name] }))} className="flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-1 bg-[#f8f5ff] px-4 py-3 text-left hover:bg-[#f0eafc]" data-testid={`arancel-group-${group.name}`}>
             <span className="flex min-w-0 items-center gap-2 font-semibold text-[#1f1b3a]">{open ? <ChevronDown className="size-4 shrink-0 text-[#6a3fc8]"/> : <ChevronRight className="size-4 shrink-0 text-[#6a3fc8]"/>}{group.label}</span>
-            <span className="pl-6 text-xs font-medium text-[#6a3fc8] sm:pl-0">{group.priced} con precio · {group.items.length} prestaciones</span>
+            <span className="pl-6 text-xs font-medium text-[#6a3fc8] sm:pl-0">{group.priced} con precio · {group.total} prestaciones</span>
           </button>
           {open && <ul className="divide-y divide-[#eee9fa]">
+            {group.own.map(item => customRow(item, "group"))}
             {group.shown.map(item => {
               const range = suggestedRange(item.code);
               const value = drafts[item.code] ?? (prices[item.code] !== undefined ? String(prices[item.code]) : "");
-              return <li key={item.code} className="grid grid-cols-[minmax(0,1fr)_150px] items-center gap-x-3 gap-y-1 px-4 py-2 text-sm sm:grid-cols-[84px_minmax(0,1fr)_190px_170px]">
+              return <li key={item.code} className="grid grid-cols-[minmax(0,1fr)_150px] items-center gap-x-3 gap-y-1 px-4 py-2 text-sm sm:grid-cols-[84px_minmax(0,1fr)_190px_220px]">
                 <span className="hidden font-mono text-xs text-[#6e6a8c] sm:block">{item.code}</span>
                 <span className={`order-1 sm:order-none ${prices[item.code] !== undefined ? "font-medium text-[#1f1b3a]" : "text-[#4f4a74]"}`}>{item.label}</span>
                 {range ? <span className="order-3 col-span-2 text-xs text-[#9a96b5] sm:order-none sm:col-span-1 sm:text-right" title={`Sugerencia orientativa: 60%–110% del valor referencial 2026 del arancel (${money(range.reference)}). No es un precio oficial.`} data-testid={`arancel-range-${item.code}`}>{money(range.low)} – {money(range.high)}</span> : <span className="order-3 hidden sm:block"/>}
@@ -194,6 +231,7 @@ export function ArancelesPanel() {
                     onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); }}
                     className="h-9 text-right"/>
                   {prices[item.code] !== undefined && drafts[item.code] === undefined && <span className="sr-only">{money(prices[item.code])}</span>}
+                  <button type="button" aria-label={`Borrar ${item.label}`} onClick={() => setCatalogHidden(item.code, item.label, true)} className="rounded p-2 text-[#8c4a51] hover:bg-rose-50" data-testid={`arancel-delete-${item.code}`}><Trash2 className="size-4"/></button>
                 </span>
               </li>;
             })}

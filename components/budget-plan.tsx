@@ -38,10 +38,10 @@ type CatalogModule = typeof import("@/lib/prestaciones-catalog");
 type OwnPrestacion = { id: number; name: string; price: number | null; specialty: string };
 const foldText = (text: string) => text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 
-function PrestacionField({ value, onChange, onPick, customs, onPickCustom }: { value: string; onChange: (label: string) => void; onPick: (label: string, code: string) => void; customs: OwnPrestacion[]; onPickCustom: (item: OwnPrestacion) => void }) {
+function PrestacionField({ value, onChange, onPick, hidden, customs, onPickCustom }: { value: string; onChange: (label: string) => void; onPick: (label: string, code: string) => void; hidden: string[]; customs: OwnPrestacion[]; onPickCustom: (item: OwnPrestacion) => void }) {
   const [catalog, setCatalog] = useState<CatalogModule | null>(null);
   const [open, setOpen] = useState(false);
-  const matches = useMemo<Prestacion[]>(() => (catalog && open ? catalog.searchPrestaciones(value, 6) : []), [catalog, open, value]);
+  const matches = useMemo<Prestacion[]>(() => (catalog && open ? catalog.searchPrestaciones(value, 6 + hidden.length).filter(item => !hidden.includes(item.code)).slice(0, 6) : []), [catalog, hidden, open, value]);
   const ownMatches = useMemo(() => {
     const words = foldText(value).trim().split(/\s+/).filter(Boolean);
     return open && words.length > 0 && words.join("").length >= 2 ? customs.filter(item => words.every(word => foldText(item.name).includes(word))).slice(0, 5) : [];
@@ -74,10 +74,11 @@ function PrestacionField({ value, onChange, onPick, customs, onPickCustom }: { v
 export function BudgetItemsEditor({ items, onChange }: { items: BudgetItem[]; onChange: (items: BudgetItem[]) => void }) {
   const [prices, setPrices] = useState<Record<string, number>>({});
   const [customs, setCustoms] = useState<OwnPrestacion[]>([]);
+  const [hidden, setHidden] = useState<string[]>([]);
   // Aranceles propios del profesional: al elegir una prestación del catálogo se completa el valor si estaba vacío.
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/aranceles").then(response => response.ok ? response.json() as Promise<{ prices?: Record<string, number> }> : null).then(result => { if (!cancelled && result?.prices) setPrices(result.prices); }).catch(() => {});
+    fetch("/api/aranceles").then(response => response.ok ? response.json() as Promise<{ prices?: Record<string, number>; hidden?: string[] }> : null).then(result => { if (cancelled || !result) return; if (result.prices) setPrices(result.prices); if (result.hidden) setHidden(result.hidden); }).catch(() => {});
     fetch("/api/aranceles/custom").then(response => response.ok ? response.json() as Promise<{ items?: OwnPrestacion[] }> : null).then(result => { if (!cancelled && result?.items) setCustoms(result.items); }).catch(() => {});
     return () => { cancelled = true; };
   }, []);
@@ -90,7 +91,7 @@ export function BudgetItemsEditor({ items, onChange }: { items: BudgetItem[]; on
     {items.map((item, index) => <section key={index} className="rounded-xl border border-[#e4def3] bg-[#fbf9ff] p-3" aria-label={`Prestación ${index + 1}`}>
       <div className="mb-3 flex items-center justify-between gap-3"><span className="text-xs font-semibold uppercase tracking-wide text-[#4f4a74]">Prestación {index + 1}</span>{items.length > 1 && <button type="button" aria-label={`Quitar prestación ${index + 1}`} className="rounded p-1 text-[#8c4a51] hover:bg-rose-50" onClick={() => onChange(items.filter((_, itemIndex) => itemIndex !== index))}><Trash2 className="size-4"/></button>}</div>
       <div className="grid gap-3 sm:grid-cols-2">
-        <label className="space-y-1 text-sm font-medium sm:col-span-2">Prestación<PrestacionField value={item.label} onChange={label => update(index, { label, code: undefined })} onPick={(label, code) => update(index, { label, code, ...(prices[code] && !item.amount ? { amount: prices[code] } : {}) })} customs={customs} onPickCustom={own => update(index, { label: own.name, code: undefined, ...(own.price && !item.amount ? { amount: own.price } : {}) })}/></label>
+        <label className="space-y-1 text-sm font-medium sm:col-span-2">Prestación<PrestacionField value={item.label} onChange={label => update(index, { label, code: undefined })} onPick={(label, code) => update(index, { label, code, ...(prices[code] && !item.amount ? { amount: prices[code] } : {}) })} hidden={hidden} customs={customs} onPickCustom={own => update(index, { label: own.name, code: undefined, ...(own.price && !item.amount ? { amount: own.price } : {}) })}/></label>
         <label className="space-y-1 text-sm font-medium">Fase<Input maxLength={80} value={item.phase ?? ""} onChange={event => update(index, { phase: event.target.value })} placeholder="Fase 1 · Resolución"/></label>
         <label className="space-y-1 text-sm font-medium">Piezas (FDI)<Input key={`teeth-${index}-${(item.teeth ?? []).join("-")}`} inputMode="decimal" maxLength={120} defaultValue={(item.teeth ?? []).map(formatFdi).join(", ")} onBlur={event => { const teeth = parseTeethText(event.target.value); update(index, { teeth: teeth.length ? teeth : undefined }); }} placeholder={itemTeeth(item).length ? itemTeeth(item).map(formatFdi).join(", ") + " (del nombre)" : "Ej.: 3.6, 4.6 · vacío si no aplica"}/><span className="block text-xs font-normal text-[#6e6a8c]">Se marca en el odontograma.</span></label>
         <label className="space-y-1 text-sm font-medium">Valor CLP<Input type="number" inputMode="numeric" min="1" step="1" value={item.amount || ""} onChange={event => update(index, { amount: Number(event.target.value) })} placeholder="790000"/>{item.code && prices[item.code] ? <span className="block text-xs font-normal text-[#6e6a8c]">Tu arancel: {money(prices[item.code])}</span> : null}</label>
