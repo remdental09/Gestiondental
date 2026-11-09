@@ -18,7 +18,7 @@ export async function POST(request: Request) {
     const data = await request.formData();
     const file = data.get("file"), patientId = Number(data.get("patientId"));
     const kind = data.get("kind"), note = String(data.get("note") || "").trim().slice(0, 2000);
-    if (!(file instanceof Blob) || !Number.isSafeInteger(patientId) || patientId < 1 || !["Radiografía", "Captura CBCT"].includes(String(kind))) return fail("Archivo o paciente inválido.");
+    if (!(file instanceof Blob) || !Number.isSafeInteger(patientId) || patientId < 1 || !["Radiografía", "Captura CBCT", "Foto ortodoncia", "RX ortodoncia"].includes(String(kind))) return fail("Archivo o paciente inválido.");
     if (!["image/jpeg", "image/png", "image/webp", "application/pdf"].includes(file.type) || file.size < 1 || file.size > 12 * 1024 * 1024) return fail("Usa un archivo JPG, PNG, WebP o PDF de hasta 12 MB.");
     if (file.type === "application/pdf") {
       const signature = new Uint8Array(await file.slice(0, 5).arrayBuffer());
