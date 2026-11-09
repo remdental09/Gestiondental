@@ -46,6 +46,7 @@ import { CARIES_DEPTH_LABEL, CARIES_DEPTH_QUESTION, cariesDepthFrom, isCariesDep
 import { ICD11, ICD11_CATALOG, cariesIcd11, diagnosisMatches, icd11Label, nearestDiagnosis, type SuggestedMapping } from "../icd11.ts";
 import { classifyEvolution, type EvolutionKind } from "./evolution-type.ts";
 import { candidatePrestaciones, matchPrestacion, prestacionByCode, prestacionLabel } from "../prestaciones-catalog.ts";
+import { implantSurgeryLines, SURGERY_TOPIC } from "./surgery-template.ts";
 import { endodonticQuestions, procedureLinesOf, suggestPrestaciones, type PrestacionItem } from "./prestaciones.ts";
 import { buildSpecialtyContext } from "../knowledge/index.ts";
 export { CARIES_DEPTHS, CARIES_DEPTH_LABEL, CARIES_DEPTH_SHORT, cariesDetail } from "../caries.ts";
@@ -3057,6 +3058,17 @@ export function validateAiExtraction(input: unknown, transcript: string, options
     const rawCode = str(item.codigo, 12).replace(/\D/g, "");
     const code = prestacionByCode(rawCode) ? rawCode : undefined;
     procedures.push({ id: nextId("proc"), text: textValue, evidence, verified: Boolean(evidence) && evidenceInTranscript(evidence, transcript), ...(code ? { code } : {}) });
+  }
+
+  // Cirugía de implante clara: el código escribe anestesia, incisión, colgajo, implante, injerto y cierre desde el dictado;
+  // se descartan las frases equivalentes del modelo para que no se repitan ni se mezclen.
+  const surgery = implantSurgeryLines(transcript);
+  if (surgery) {
+    const firstIndex = procedures.findIndex((item) => SURGERY_TOPIC.test(item.text));
+    const kept = procedures.filter((item) => !SURGERY_TOPIC.test(item.text));
+    const written = surgery.map((line): ProcedureItem => ({ id: nextId("proc"), text: line.text, evidence: line.evidence, verified: true }));
+    kept.splice(firstIndex < 0 ? 0 : Math.min(firstIndex, kept.length), 0, ...written);
+    procedures.splice(0, procedures.length, ...kept);
   }
 
   // Presupuesto
