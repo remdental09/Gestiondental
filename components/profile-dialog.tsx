@@ -7,7 +7,7 @@ const field = "mt-1 block min-h-11 w-full rounded-lg border border-[#d3cbe8] bg-
 
 /** «Mi perfil»: el profesional corrige sus datos o suma un título. Queda ligado al correo con el que ingresó; el correo no se edita aquí. */
 export function ProfileDialog({ email, onClose, onSaved }: { email: string; onClose: () => void; onSaved: (profile: ClinicianProfile) => void }) {
-  const [form, setForm] = useState({ firstName: "", lastName: "", rut: "", specialty: "", extraTitles: "" });
+  const [form, setForm] = useState({ firstName: "", lastName: "", rut: "", specialty: "", extraTitles: "", clinicName: "" });
   const [original, setOriginal] = useState<typeof form | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(""), [saving, setSaving] = useState(false), [done, setDone] = useState("");
@@ -21,7 +21,7 @@ export function ProfileDialog({ email, onClose, onSaved }: { email: string; onCl
         const response = await fetch("/api/profile", { cache: "no-store" });
         const data = await response.json() as { profile?: ClinicianProfile | null; error?: string };
         if (!response.ok) throw new Error(data.error || "No se pudo leer tu perfil.");
-        const loaded = { firstName: data.profile?.firstName ?? "", lastName: data.profile?.lastName ?? "", rut: data.profile?.rut ?? "", specialty: data.profile?.specialty ?? "", extraTitles: data.profile?.extraTitles ?? "" };
+        const loaded = { firstName: data.profile?.firstName ?? "", lastName: data.profile?.lastName ?? "", rut: data.profile?.rut ?? "", specialty: data.profile?.specialty ?? "", extraTitles: data.profile?.extraTitles ?? "", clinicName: data.profile?.clinicName ?? "" };
         if (active) { setForm(loaded); setOriginal(loaded); setLoading(false); setTimeout(() => firstRef.current?.focus(), 0); }
       } catch (e) { if (active) { setError(e instanceof Error ? e.message : "No se pudo leer tu perfil."); setLoading(false); } }
     })();
@@ -48,7 +48,7 @@ export function ProfileDialog({ email, onClose, onSaved }: { email: string; onCl
       const response = await fetch("/api/profile", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
       const data = await response.json().catch(() => ({})) as { error?: string; profile?: ClinicianProfile };
       if (!response.ok || !data.profile) { setError(data.error || "No se pudo guardar. Inténtalo de nuevo."); return; }
-      const saved = { firstName: data.profile.firstName, lastName: data.profile.lastName, rut: data.profile.rut, specialty: data.profile.specialty, extraTitles: data.profile.extraTitles ?? "" };
+      const saved = { firstName: data.profile.firstName, lastName: data.profile.lastName, rut: data.profile.rut, specialty: data.profile.specialty, extraTitles: data.profile.extraTitles ?? "", clinicName: data.profile.clinicName ?? "" };
       setForm(saved); setOriginal(saved); setDone("Perfil actualizado.");
       onSaved(data.profile);
     } catch { setError("No se pudo conectar. Revisa tu conexión e inténtalo de nuevo."); }
@@ -78,6 +78,10 @@ export function ProfileDialog({ email, onClose, onSaved }: { email: string; onCl
               {SPECIALTIES.map(item => <option key={item} value={item}>{item}</option>)}
             </select>
             <span className="mt-1 block text-xs font-normal text-[#625e82]">Si obtuviste un nuevo título, cámbiala aquí o súmalo abajo.</span>
+          </label>
+          <label className="text-sm font-medium text-[#1f1b3a]">Nombre de tu clínica o consulta <span className="font-normal text-[#6e6a8c]">(opcional)</span>
+            <input className={field} maxLength={60} value={form.clinicName} onChange={e => set("clinicName")(e.target.value)} placeholder="Ej. Clínica Sonrisa Sur" data-testid="profile-clinic" />
+            <span className="mt-1 block text-xs font-normal text-[#625e82]">Se muestra arriba en el menú y en tus presupuestos. Vacío = «Gestión Dental».</span>
           </label>
           <label className="text-sm font-medium text-[#1f1b3a]">Otros títulos o especialidades <span className="font-normal text-[#6e6a8c]">(opcional)</span>
             <textarea className={field + " min-h-20 py-2"} rows={2} maxLength={300} value={form.extraTitles} onChange={e => set("extraTitles")(e.target.value)} placeholder="Ej. Diplomado en implantología; magíster en…" />

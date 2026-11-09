@@ -15,7 +15,7 @@ export const SPECIALTIES = [
   "Otra",
 ] as const;
 
-export type ClinicianProfile = { firstName: string; lastName: string; rut: string; specialty: string; /** Otros títulos o especialidades (texto libre, opcional). */ extraTitles?: string };
+export type ClinicianProfile = { firstName: string; lastName: string; rut: string; specialty: string; /** Otros títulos o especialidades (texto libre, opcional). */ extraTitles?: string; /** Nombre de la clínica o consulta que se muestra arriba (opcional, hasta 60 caracteres). */ clinicName?: string };
 export type ProfileCheck = { ok: true; profile: ClinicianProfile } | { ok: false; error: string };
 
 const clean = (value: string) => value.toUpperCase().replace(/[^0-9K]/g, "");
@@ -47,7 +47,8 @@ export function checkProfile(input: unknown): ProfileCheck {
   if (!validRut(rut)) return { ok: false, error: "El RUT no es válido. Revisa el número y el dígito verificador." };
   if (!(SPECIALTIES as readonly string[]).includes(specialty)) return { ok: false, error: "Elige tu especialidad." };
   const extraTitles = tidy(raw.extraTitles).slice(0, 300);
-  return { ok: true, profile: { firstName, lastName, rut: formatRut(rut), specialty, extraTitles } };
+  const clinicName = tidy(raw.clinicName).slice(0, 60);
+  return { ok: true, profile: { firstName, lastName, rut: formatRut(rut), specialty, extraTitles, clinicName } };
 }
 
 export const displayName = (profile: Pick<ClinicianProfile, "firstName" | "lastName">) => `Dr(a). ${profile.firstName} ${profile.lastName}`;

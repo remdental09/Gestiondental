@@ -17,7 +17,7 @@ const modes: Array<{ value: PrintMode; title: string; description: string }> = [
 ];
 
 export function BudgetPrintDialog({
-  open, onOpenChange, budget, patientName, professionalName = "",
+  open, onOpenChange, budget, patientName, professionalName = "", clinicName = "",
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -25,6 +25,7 @@ export function BudgetPrintDialog({
   patientName: string;
   /** Nombre del profesional que emite el documento (el de su perfil). */
   professionalName?: string;
+  clinicName?: string;
 }) {
   const [mode, setMode] = useState<PrintMode>("detailed");
   useEffect(() => {
@@ -57,7 +58,7 @@ export function BudgetPrintDialog({
 
       <article id="budget-print-document" data-budget-print-document className="mt-5 rounded-xl border border-[#ddd6f0] bg-white p-6 text-[#1f1b3a]">
         <header className="border-b border-[#ddd6f0] pb-4">
-          <p className="text-xs font-bold uppercase tracking-[.16em] text-[#7a52d6]">{professionalName ? `Gestión Dental · ${professionalName}` : "Gestión Dental"}</p>
+          <p className="text-xs font-bold uppercase tracking-[.16em] text-[#7a52d6]">{professionalName ? `${clinicName || "Gestión Dental"} · ${professionalName}` : clinicName || "Gestión Dental"}</p>
           <h2 className="mt-2 text-2xl font-semibold">{budget.isAlternative ? "Alternativa de tratamiento" : "Presupuesto de tratamiento"}</h2>
           <p className="mt-1 text-sm text-[#625e82]">{budget.title}</p>
           <div className="mt-4 grid gap-1 text-sm sm:grid-cols-2">
