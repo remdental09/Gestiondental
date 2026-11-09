@@ -1,12 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { HeartPulse, Loader2, Mic, Sparkles, Square } from "lucide-react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { AlertTriangle, HeartPulse, Loader2, Mic, Pill, Plus, Sparkles, Square, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Input } from "@/components/ui/input";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
 import { createAudioTranscription } from "@/lib/dictation/audio-transcription";
 import { anamnesisAlerts, anamnesisSummary, CONDITIONS, emptyAnamnesis, mergeAnamnesis, type Anamnesis, type ConditionId, type YesNo } from "@/lib/anamnesis";
@@ -22,6 +22,7 @@ const req = async (url: string, init?: RequestInit) => {
 export function AnamnesisButton({ patientId, patientName }: { patientId: number; patientName: string }) {
   const [open, setOpen] = useState(false);
   const [peek, setPeek] = useState(false);
+  const [origin, setOrigin] = useState({ x: 0, y: 0 });
   const [touch, setTouch] = useState(false);
   const [saved, setSaved] = useState<Anamnesis | null>(null);
   useEffect(() => { let live = true; setSaved(null); req(`/api/anamnesis?patientId=${patientId}`).then(a => { if (live) setSaved(a); }).catch(() => undefined); return () => { live = false; }; }, [patientId]);
@@ -29,7 +30,7 @@ export function AnamnesisButton({ patientId, patientName }: { patientId: number;
   useEffect(() => { const q = window.matchMedia("(hover: none)"); const sync = () => setTouch(q.matches); sync(); q.addEventListener("change", sync); return () => q.removeEventListener("change", sync); }, []);
   const alerts = saved ? anamnesisAlerts(saved) : [];
   const summary = saved ? anamnesisSummary(saved) : [];
-  const trigger = (onClick?: () => void) => <Button type="button" onClick={onClick} data-testid="anamnesis-button" className="h-11 shrink-0 gap-2 rounded-xl bg-[#d62839] px-5 font-semibold text-white shadow-md hover:bg-[#b81f2f]">
+  const trigger = (onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void) => <Button type="button" onClick={onClick} data-testid="anamnesis-button" className="h-11 shrink-0 gap-2 rounded-xl bg-[#d62839] px-5 font-semibold text-white shadow-md hover:bg-[#b81f2f]">
     <HeartPulse className="size-5" />Anamnesis{alerts.length > 0 && <span className="rounded-full bg-white px-2 text-xs font-bold text-[#d62839]">{alerts.length}</span>}
   </Button>;
   const panelClass = "max-h-[70vh] w-96 max-w-[92vw] overflow-y-auto border-[#f0b7bd] bg-white";
@@ -41,13 +42,7 @@ export function AnamnesisButton({ patientId, patientName }: { patientId: number;
   </>;
   return <>
     {touch
-      ? <Popover open={peek} onOpenChange={setPeek}>
-          <PopoverTrigger asChild>{trigger()}</PopoverTrigger>
-          <PopoverContent align="end" className={panelClass} data-testid="anamnesis-touch-panel">
-            {panel}
-            <Button type="button" onClick={() => { setPeek(false); setOpen(true); }} data-testid="anamnesis-edit" className="mt-3 w-full bg-[#d62839] text-white hover:bg-[#b81f2f]">{summary.length ? "Editar o dictar" : "Registrar o dictar"}</Button>
-          </PopoverContent>
-        </Popover>
+      ? trigger(e => { const r = e.currentTarget.getBoundingClientRect(); setOrigin({ x: r.left + r.width / 2, y: r.top + r.height / 2 }); setPeek(true); })
       : <HoverCard openDelay={80} closeDelay={120}>
           <HoverCardTrigger asChild>{trigger(() => setOpen(true))}</HoverCardTrigger>
           <HoverCardContent align="end" className={panelClass} data-testid="anamnesis-hover">
@@ -55,8 +50,63 @@ export function AnamnesisButton({ patientId, patientName }: { patientId: number;
             <p className="mt-2 text-xs text-[#6e6a8c]">Haz clic para {summary.length ? "editar o dictar" : "registrarla o dictarla"}.</p>
           </HoverCardContent>
         </HoverCard>}
+    {peek && <AnamnesisReveal patientName={patientName} saved={saved} origin={origin} onClose={() => setPeek(false)} onAdd={() => { setPeek(false); setOpen(true); }} />}
     {open && <AnamnesisDialog patientId={patientId} patientName={patientName} initial={saved} onClose={() => setOpen(false)} onSaved={setSaved} />}
   </>;
+}
+
+const REVEAL_CSS = `
+@keyframes anam-funnel{0%{opacity:0;transform:translate(var(--dx),var(--dy)) scale(.08,.03);border-radius:999px;filter:blur(10px)}
+ 55%{opacity:1;filter:blur(2px)}100%{opacity:1;transform:none;border-radius:28px;filter:none}}
+@keyframes anam-fade{from{opacity:0}to{opacity:1}}
+@keyframes anam-rise{from{opacity:0;transform:translateY(18px) scale(.97)}to{opacity:1;transform:none}}
+.anam-back{animation:anam-fade .35s ease-out both}
+.anam-panel{animation:anam-funnel .62s cubic-bezier(.16,1,.3,1) both}
+.anam-item{animation:anam-rise .5s cubic-bezier(.16,1,.3,1) both;animation-delay:calc(.28s + var(--i) * 85ms)}
+@media (prefers-reduced-motion:reduce){.anam-back,.anam-panel,.anam-item{animation:none}}`;
+
+/** Al tocar en celular: el resumen «sale» del botón como en una presentación y destaca lo que más importa. */
+function AnamnesisReveal({ patientName, saved, origin, onClose, onAdd }: { patientName: string; saved: Anamnesis | null; origin: { x: number; y: number }; onClose: () => void; onAdd: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [vars, setVars] = useState<React.CSSProperties>({ opacity: 0 });
+  useLayoutEffect(() => {
+    const r = ref.current?.getBoundingClientRect();
+    if (r) setVars({ "--dx": `${origin.x - (r.left + r.width / 2)}px`, "--dy": `${origin.y - (r.top + r.height / 2)}px` } as React.CSSProperties);
+  }, [origin]);
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", key);
+    return () => { window.removeEventListener("keydown", key); document.body.style.overflow = prev; };
+  }, [onClose]);
+  const alerts = saved ? anamnesisAlerts(saved) : [];
+  const rest = (saved ? anamnesisSummary(saved) : []).filter(([k]) => k !== "Alergias" && k !== "Medicamentos");
+  const meds = saved?.medications ?? "";
+  const first = patientName.split(/\s+/)[0];
+  let i = 0;
+  const idx = () => ({ "--i": i++ }) as React.CSSProperties;
+  if (typeof document === "undefined") return null;
+  return createPortal(<div className="fixed inset-0 z-[70]" role="dialog" aria-modal="true" aria-label="Resumen de anamnesis" data-testid="anamnesis-reveal">
+    <style>{REVEAL_CSS}</style>
+    <div className="anam-back absolute inset-0 bg-[#1a0f2e]/60 backdrop-blur-md" onClick={onClose} />
+    <div ref={ref} style={vars} className="anam-panel absolute inset-x-3 top-[7vh] mx-auto flex max-h-[86vh] max-w-lg flex-col overflow-hidden bg-white shadow-2xl ring-1 ring-black/5">
+      <div className="flex items-start justify-between gap-3 bg-gradient-to-br from-[#d62839] to-[#8f1a27] px-5 pb-4 pt-5 text-white">
+        <div style={idx()} className="anam-item"><p className="text-xs font-semibold uppercase tracking-widest text-white/75">Anamnesis</p>
+          <h2 className="text-2xl font-semibold leading-tight">{alerts.length ? `Lo que debes saber de ${first}` : `${first}: sin alertas críticas`}</h2></div>
+        <button type="button" onClick={onClose} aria-label="Cerrar" className="rounded-full bg-white/20 p-2"><X className="size-5" /></button>
+      </div>
+      <div className="flex-1 space-y-3 overflow-y-auto px-5 py-4">
+        {alerts.map(a => <div key={a} style={idx()} className="anam-item flex items-start gap-3 rounded-2xl border border-[#f0b7bd] bg-[#fff0f1] p-4"><AlertTriangle className="mt-0.5 size-6 shrink-0 text-[#d62839]" /><p className="text-lg font-semibold leading-snug text-[#8f1a27]">{a}</p></div>)}
+        {!alerts.length && <div style={idx()} className="anam-item rounded-2xl border border-[#d9efe0] bg-[#f1fbf4] p-4 text-base font-medium text-[#1d6b3a]">{saved ? "No hay alergias ni condiciones de riesgo registradas." : "Aún no hay anamnesis registrada."}</div>}
+        {meds && <div style={idx()} className="anam-item flex items-start gap-3 rounded-2xl border border-[#ddd6f0] bg-[#f7f4fe] p-4"><Pill className="mt-0.5 size-5 shrink-0 text-[#4b2a99]" /><div><p className="text-[11px] font-semibold uppercase tracking-wide text-[#6e6a8c]">Medicamentos</p><p className="text-base text-[#1f1b3a]">{meds}</p></div></div>}
+        {rest.map(([k, v]) => <div key={k} style={idx()} className="anam-item rounded-xl border border-[#ebe6f6] px-4 py-3"><p className="text-[11px] font-semibold uppercase tracking-wide text-[#6e6a8c]">{k}</p><p className="text-base text-[#1f1b3a]">{v}</p></div>)}
+      </div>
+      <div style={idx()} className="anam-item flex gap-2 border-t border-[#ebe6f6] bg-white p-4">
+        <Button type="button" onClick={onAdd} data-testid="anamnesis-edit" className="h-12 flex-1 gap-2 rounded-xl bg-[#d62839] text-base font-semibold text-white hover:bg-[#b81f2f]"><Plus className="size-5" />Agregar antecedentes</Button>
+      </div>
+    </div>
+  </div>, document.body);
 }
 
 function Yn({ label, value, onChange }: { label: string; value: YesNo; onChange: (v: YesNo) => void }) {
