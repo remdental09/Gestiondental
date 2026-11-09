@@ -4,10 +4,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { HeartPulse, Loader2, Mic, Sparkles, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { createAudioTranscription } from "@/lib/dictation/audio-transcription";
-import { anamnesisAlerts, CONDITIONS, emptyAnamnesis, mergeAnamnesis, type Anamnesis, type ConditionId, type YesNo } from "@/lib/anamnesis";
+import { anamnesisAlerts, anamnesisSummary, CONDITIONS, emptyAnamnesis, mergeAnamnesis, type Anamnesis, type ConditionId, type YesNo } from "@/lib/anamnesis";
 
 const req = async (url: string, init?: RequestInit) => {
   const r = await fetch(url, { ...init, headers: { "Content-Type": "application/json" } });
@@ -22,10 +23,22 @@ export function AnamnesisButton({ patientId, patientName }: { patientId: number;
   const [saved, setSaved] = useState<Anamnesis | null>(null);
   useEffect(() => { let live = true; setSaved(null); req(`/api/anamnesis?patientId=${patientId}`).then(a => { if (live) setSaved(a); }).catch(() => undefined); return () => { live = false; }; }, [patientId]);
   const alerts = saved ? anamnesisAlerts(saved) : [];
+  const summary = saved ? anamnesisSummary(saved) : [];
   return <>
-    <Button type="button" onClick={() => setOpen(true)} data-testid="anamnesis-button" className="h-11 shrink-0 gap-2 rounded-xl bg-[#d62839] px-5 font-semibold text-white shadow-md hover:bg-[#b81f2f]">
-      <HeartPulse className="size-5" />Anamnesis{alerts.length > 0 && <span className="rounded-full bg-white px-2 text-xs font-bold text-[#d62839]">{alerts.length}</span>}
-    </Button>
+    <HoverCard openDelay={80} closeDelay={120}>
+      <HoverCardTrigger asChild>
+        <Button type="button" onClick={() => setOpen(true)} data-testid="anamnesis-button" className="h-11 shrink-0 gap-2 rounded-xl bg-[#d62839] px-5 font-semibold text-white shadow-md hover:bg-[#b81f2f]">
+          <HeartPulse className="size-5" />Anamnesis{alerts.length > 0 && <span className="rounded-full bg-white px-2 text-xs font-bold text-[#d62839]">{alerts.length}</span>}
+        </Button>
+      </HoverCardTrigger>
+      <HoverCardContent align="end" className="max-h-[70vh] w-96 max-w-[92vw] overflow-y-auto border-[#f0b7bd] bg-white" data-testid="anamnesis-hover">
+        <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-[#b81f2f]"><HeartPulse className="size-4" />Anamnesis · {patientName}</p>
+        {alerts.length > 0 && <ul className="mb-2 list-disc rounded-lg border border-[#d62839] bg-[#fff0f1] py-2 pl-6 pr-2 text-xs font-medium text-[#8f1a27]">{alerts.map(a => <li key={a}>{a}</li>)}</ul>}
+        {summary.length ? <dl className="space-y-1.5 text-sm">{summary.map(([k, v]) => <div key={k}><dt className="text-[11px] font-semibold uppercase tracking-wide text-[#6e6a8c]">{k}</dt><dd className="text-[#1f1b3a]">{v}</dd></div>)}</dl>
+          : <p className="text-sm text-[#625e82]">{saved ? "Sin datos registrados." : "Aún no hay anamnesis registrada."} Haz clic para registrarla o dictarla.</p>}
+        {summary.length > 0 && <p className="mt-2 text-xs text-[#6e6a8c]">Haz clic para editar o dictar.</p>}
+      </HoverCardContent>
+    </HoverCard>
     {open && <AnamnesisDialog patientId={patientId} patientName={patientName} initial={saved} onClose={() => setOpen(false)} onSaved={setSaved} />}
   </>;
 }

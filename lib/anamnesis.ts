@@ -85,3 +85,19 @@ export function anamnesisAlerts(a: Anamnesis): string[] {
   if (a.anesthesiaReactions) out.push(`Reacción a anestesia: ${a.anesthesiaReactions}`);
   return out;
 }
+
+const PREGNANCY: Record<string, string> = { no: "No", embarazada: "Embarazada", lactancia: "En lactancia", "no-aplica": "No aplica" };
+
+/** Líneas legibles «etiqueta → valor» solo de lo registrado, para la vista rápida al pasar el mouse. */
+export function anamnesisSummary(a: Anamnesis): Array<[string, string]> {
+  const yes = (v: YesNo) => v === "si" ? "Sí" : v === "no" ? "No" : "";
+  const rows: Array<[string, string]> = [
+    ["Alergias", a.allergies], ["Medicamentos", a.medications], ["Anticoagulantes", yes(a.anticoagulants)],
+    ["Enfermedades", [...a.conditions.map(id => CONDITIONS.find(([c]) => c === id)?.[1] ?? ""), a.otherConditions].filter(Boolean).join(", ")],
+    ["Cirugías", a.surgeries], ["Hospitalizaciones", a.hospitalizations], ["Reacciones a anestesia", a.anesthesiaReactions],
+    ["Embarazo / lactancia", PREGNANCY[a.pregnancy] ?? ""], ["Tabaco", a.smoking], ["Alcohol", a.alcohol],
+    ["Bruxismo", yes(a.bruxism)], ["Sangrado de encías", yes(a.gumBleeding)], ["Última visita dental", a.lastDentalVisit],
+    ["Antecedentes odontológicos", a.dentalHistory], ["Observaciones", a.observations],
+  ];
+  return rows.filter(([, v]) => v);
+}
