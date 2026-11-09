@@ -1,6 +1,8 @@
 "use client";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { viewerInitials } from "@/app/access-owners";
+import { ProfessionalRegistration } from "@/components/professional-registration";
+import { displayName as clinicianDisplayName } from "@/lib/clinician-profile";
 import { Activity, ArrowLeft, CalendarDays, ChevronLeft, ChevronRight, ClipboardList, Download, Home as HomeIcon, FilePlus2, LayoutDashboard, LogOut, Menu, Mic, Plus, Search, Stethoscope, Trash2, Users, Wallet, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -40,7 +42,7 @@ type WeekDay = { key:string; label:string; date:number };
 type Modal = "patient"|"editPatient"|"note"|"budget"|"editBudget"|"appointment"|"editAppointment"|null;
 type PatientDraft = { name:string; birthDate:string; rut:string; phone:string; email:string; reason:string };
 type PatientDraftValidation = { missingFields:string[]; invalidFields:string[]; valid:boolean };
-type ClinicalLoadResponse = { error?:string; viewer?:{name?:string;email?:string}; patients:Patient[]; notes:Note[]; budgets:Budget[]; payments?:Payment[]; appointments:Appointment[]; calendarEvents:CalendarEvent[]; calendarSnapshotAt?:string|null; calendarSyncedAt?:string|null; periodontalExams:Record<number,PerioExam[]>; toothStatuses:Record<number,OdontogramData>; clinicalImages:ClinicalImage[] };
+type ClinicalLoadResponse = { error?:string; viewer?:{name?:string;email?:string;registered?:boolean}; patients:Patient[]; notes:Note[]; budgets:Budget[]; payments?:Payment[]; appointments:Appointment[]; calendarEvents:CalendarEvent[]; calendarSnapshotAt?:string|null; calendarSyncedAt?:string|null; periodontalExams:Record<number,PerioExam[]>; toothStatuses:Record<number,OdontogramData>; clinicalImages:ClinicalImage[] };
 type ClinicalMutationResponse = { error?:string; odontogram:OdontogramData; exam:PerioExam; deleted?:boolean; patient:Patient; note:Note; budget:Budget; budgets?:Budget[]; payment?:Payment; appointment:Appointment; image:ClinicalImage; chart?:{odontogram?:OdontogramData;updatedTeeth?:number[];warning?:string} };
 type ClinicalReview = { patientId:number; heading:string; details:string[]; body?:string };
 type WebMcpRegistry = { registerTool(tool:{name:string;title?:string;description:string;inputSchema:object;execute:(input:unknown)=>unknown|Promise<unknown>},options?:{signal?:AbortSignal}):void|Promise<void> };
@@ -97,7 +99,7 @@ function WeeklyAgendaMosaic({days,events}:{days:WeekDay[];events:CalendarEvent[]
 export default function Home(){
   const [patients,setPatients]=useState(initialPatients),[notes,setNotes]=useState(initialNotes),[budgets,setBudgets]=useState(initialBudgets),[payments,setPayments]=useState<Payment[]>([]),[appointments,setAppointments]=useState(initialAppointments),[calendarEvents,setCalendarEvents]=useState(initialCalendarEvents);
   const [calendarSnapshotAt,setCalendarSnapshotAt]=useState<string|null>(null),[calendarSyncedAt,setCalendarSyncedAt]=useState<string|null>(null);
-  const [viewerName,setViewerName]=useState(""),[viewerEmail,setViewerEmail]=useState("");
+  const [viewerName,setViewerName]=useState(""),[viewerEmail,setViewerEmail]=useState(""),[needsRegistration,setNeedsRegistration]=useState(false);
   const [periodontalExams,setPeriodontalExams]=useState<Record<number,PerioExam[]>>({}),[clinicalImages,setClinicalImages]=useState<ClinicalImage[]>([]);
   const [weekStart,setWeekStart]=useState(()=>mondayOfAgendaWeek(santiagoDateISO(new Date())));
   const weekEnd=shiftAgendaWeek(weekStart,1);
@@ -139,7 +141,7 @@ export default function Home(){
         const data=await response.json() as ClinicalLoadResponse;
         if(!response.ok)throw new Error(data.error||"No se pudo abrir la base de datos.");
         if(!active)return;
-        setPatients(data.patients);setNotes(data.notes);setBudgets(data.budgets);setPayments(data.payments??[]);setAppointments(data.appointments);setCalendarEvents(data.calendarEvents||[]);setCalendarSnapshotAt(data.calendarSnapshotAt||null);setCalendarSyncedAt(data.calendarSyncedAt||null);setViewerName(data.viewer?.name||"");setViewerEmail(data.viewer?.email||"");
+        setPatients(data.patients);setNotes(data.notes);setBudgets(data.budgets);setPayments(data.payments??[]);setAppointments(data.appointments);setCalendarEvents(data.calendarEvents||[]);setCalendarSnapshotAt(data.calendarSnapshotAt||null);setCalendarSyncedAt(data.calendarSyncedAt||null);setViewerName(data.viewer?.name||"");setViewerEmail(data.viewer?.email||"");setNeedsRegistration(data.viewer?.registered===false);
         setPeriodontalExams(data.periodontalExams);setToothStatuses(data.toothStatuses);setClinicalImages(data.clinicalImages);setLoadError("");
       }catch(e){if(active)setLoadError(e instanceof Error?e.message:"No se pudo cargar la ficha.");}
       finally{requestRunning=false;if(active)setLoading(false)}
@@ -589,6 +591,7 @@ export default function Home(){
     <div className="fixed inset-y-0 left-0 z-30 hidden w-[248px] flex-col bg-[#102e37] text-white lg:flex">{sidebarContent}</div>
     {mobileNav&&<div className="fixed inset-0 z-40 bg-black/40 lg:hidden" onClick={()=>setMobileNav(false)}><div className="flex h-full w-[260px] flex-col bg-[#102e37] text-white" onClick={e=>e.stopPropagation()}>{sidebarContent}</div></div>}
     <div className="lg:pl-[248px]">
+      {needsRegistration&&<ProfessionalRegistration email={viewerEmail} onSaved={profile=>{setViewerName(clinicianDisplayName(profile));setNeedsRegistration(false);}}/>}
       <header ref={headerRef} className="sticky top-0 z-20 border-b border-[#dce5e7] bg-white/95 backdrop-blur">
         <div className="flex h-[76px] items-center justify-between px-5 md:px-9">
           <div className="flex min-w-0 items-center gap-3">
