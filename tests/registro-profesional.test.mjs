@@ -26,7 +26,7 @@ test("formatRut da puntos y guion", () => {
 test("checkProfile valida y normaliza", () => {
   const ok = checkProfile({ firstName: "  Luis ", lastName: "Rodríguez  M", rut: "123456785", specialty: "Implantología oral" });
   assert.equal(ok.ok, true);
-  assert.deepEqual(ok.profile, { firstName: "Luis", lastName: "Rodríguez M", rut: "12.345.678-5", specialty: "Implantología oral", extraTitles: "" });
+  assert.deepEqual(ok.profile, { firstName: "Luis", lastName: "Rodríguez M", rut: "12.345.678-5", specialty: "Implantología oral", extraTitles: "", clinicName: "" });
   assert.equal(displayName(ok.profile), "Dr(a). Luis Rodríguez M");
 });
 
@@ -49,4 +49,12 @@ test("perfil editable: otros títulos opcionales, recortados y con espacios limp
   assert.equal(checkProfile({ ...base, extraTitles: "x".repeat(900) }).profile.extraTitles.length, 300);
   assert.equal(checkProfile({ ...base, specialty: "Inventada" }).ok, false);
   assert.equal(checkProfile({ ...base, rut: "12.345.678-9" }).ok, false);
+});
+
+test("nombre de la clínica: opcional, sin espacios de más, máximo 60 caracteres", () => {
+  const base = { firstName: "Luis", lastName: "Rodríguez", rut: "123456785", specialty: "Implantología oral" };
+  assert.equal(checkProfile(base).profile.clinicName, "");
+  assert.equal(checkProfile({ ...base, clinicName: "  Clínica   Sonrisa  Sur " }).profile.clinicName, "Clínica Sonrisa Sur");
+  assert.equal(checkProfile({ ...base, clinicName: "x".repeat(200) }).profile.clinicName.length, 60);
+  assert.equal(checkProfile({ ...base, clinicName: 5 }).profile.clinicName, "");
 });
