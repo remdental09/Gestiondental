@@ -63,7 +63,7 @@ export function BudgetItemsEditor({ items, onChange }: { items: BudgetItem[]; on
   // Aranceles propios del profesional: al elegir una prestación del catálogo se completa el valor si estaba vacío.
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/aranceles").then(response => response.ok ? response.json() : null).then((result: { prices?: Record<string, number> } | null) => { if (!cancelled && result?.prices) setPrices(result.prices); }).catch(() => {});
+    fetch("/api/aranceles").then(response => response.ok ? response.json() as Promise<{ prices?: Record<string, number> }> : null).then(result => { if (!cancelled && result?.prices) setPrices(result.prices); }).catch(() => {});
     return () => { cancelled = true; };
   }, []);
   const update = (index: number, patch: Partial<BudgetItem>) => onChange(items.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item));
