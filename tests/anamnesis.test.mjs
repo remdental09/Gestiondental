@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { normalizeAnamnesis, emptyAnamnesis, mergeAnamnesis, anamnesisAlerts, hasAnamnesis } from "../lib/anamnesis.ts";
+import { anamnesisSummary, normalizeAnamnesis, emptyAnamnesis, mergeAnamnesis, anamnesisAlerts, hasAnamnesis } from "../lib/anamnesis.ts";
 import { structureAnamnesis } from "../lib/dictation/openai-anamnesis.ts";
 
 test("normaliza: descarta ids inválidos y recorta", () => {
@@ -46,4 +46,13 @@ test("botón rojo en la ficha y API aislada por dueño", () => {
   assert.match(comp, /bg-\[#d62839\]/);
   assert.match(comp, /createAudioTranscription/);
   assert.match(api, /eq\(patients\.ownerId, ownerId\)/);
+});
+
+test("vista rápida: solo lo registrado y botón con tarjeta al pasar el mouse", () => {
+  assert.deepEqual(anamnesisSummary(emptyAnamnesis()), []);
+  const rows = anamnesisSummary({ ...emptyAnamnesis(), allergies: "Penicilina", conditions: ["asma"], otherConditions: "migraña", bruxism: "si" });
+  assert.deepEqual(rows, [["Alergias", "Penicilina"], ["Enfermedades", "Asma / enfermedad respiratoria, migraña"], ["Bruxismo", "Sí"]]);
+  const comp = readFileSync(new URL("../components/anamnesis-dialog.tsx", import.meta.url), "utf8");
+  assert.match(comp, /<HoverCard /);
+  assert.match(comp, /data-testid="anamnesis-hover"/);
 });
