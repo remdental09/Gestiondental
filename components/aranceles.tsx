@@ -26,6 +26,9 @@ const groupOfSpecialty = (specialty: string) => SPECIALTY_CATALOG_GROUP[specialt
 export function ArancelesPanel() {
   const [prices, setPrices] = useState<PriceMap>({});
   const [hidden, setHiddenCodes] = useState<string[]>([]);
+  const [names, setNames] = useState<Record<string, string>>({});
+  const [renamingCode, setRenamingCode] = useState<string | null>(null);
+  const [codeDraft, setCodeDraft] = useState("");
   const [showHidden, setShowHidden] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState("");
@@ -46,9 +49,9 @@ export function ArancelesPanel() {
   useEffect(() => {
     let cancelled = false;
     fetch("/api/aranceles").then(async response => {
-      const result = await response.json() as { prices?: PriceMap; hidden?: string[]; error?: string };
+      const result = await response.json() as { prices?: PriceMap; hidden?: string[]; names?: Record<string, string>; error?: string };
       if (!response.ok) throw new Error(result.error || "No se pudo leer el arancel.");
-      if (!cancelled) { setPrices(result.prices ?? {}); setHiddenCodes(result.hidden ?? []); setLoaded(true); }
+      if (!cancelled) { setPrices(result.prices ?? {}); setHiddenCodes(result.hidden ?? []); setNames(result.names ?? {}); setLoaded(true); }
     }).catch(error => { if (!cancelled) { setLoadError(error instanceof Error ? error.message : "No se pudo leer el arancel."); setLoaded(true); } });
     return () => { cancelled = true; };
   }, []);
@@ -72,11 +75,11 @@ export function ArancelesPanel() {
     return {
       ...group,
       own,
-      shown: group.items.filter(item => !hiddenSet.has(item.code) && (!onlyPriced || prices[item.code] !== undefined) && (!searching || words.every(word => item.text.includes(word) || item.code.startsWith(word)))),
+      shown: group.items.filter(item => !hiddenSet.has(item.code) && (!onlyPriced || prices[item.code] !== undefined) && (!searching || words.every(word => item.text.includes(word) || item.code.startsWith(word) || (names[item.code] !== undefined && fold(names[item.code]).includes(word))))),
       priced: group.items.filter(item => !hiddenSet.has(item.code) && prices[item.code] !== undefined).length + ownAll.filter(item => item.price !== null).length,
       total: group.items.filter(item => !hiddenSet.has(item.code)).length + ownAll.length,
     };
-  }).filter(group => group.shown.length > 0 || group.own.length > 0), [customs, customVisible, hiddenSet, onlyPriced, prices, searching, words]);
+  }).filter(group => group.shown.length > 0 || group.own.length > 0), [customs, customVisible, hiddenSet, names, onlyPriced, prices, searching, words]);
   const totalPriced = Object.keys(prices).filter(code => !hiddenSet.has(code)).length;
 
   const commit = async (code: string, label: string) => {
@@ -140,6 +143,21 @@ export function ArancelesPanel() {
     catch (error) { setMessage(error instanceof Error ? error.message : "No se pudo eliminar la prestación."); }
   };
 
+  const commitCatalogName = async (code: string, original: string) => {
+    const draft = codeDraft.replace(/\s+/g, " ").trim();
+    const current = names[code] ?? original;
+    setRenamingCode(null);
+    if (draft === current) return;
+    const reset = draft === "" || draft === original;
+    if (!reset && draft.length < 3) { setMessage("El nombre debe tener al menos 3 letras."); return; }
+    setMessage("");
+    try {
+      const response = await fetch("/api/aranceles", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code, name: reset ? null : draft }) });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error || "No se pudo cambiar el nombre.");
+      setNames(previous => { const next = { ...previous }; if (reset) delete next[code]; else next[code] = draft; return next; });
+    } catch (error) { setMessage(error instanceof Error ? error.message : "No se pudo cambiar el nombre."); }
+  };
   const setCatalogHidden = async (code: string, label: string, value: boolean) => {
     if (value && !window.confirm(`¿Quieres borrar esta prestación?\n\n«${label}»\n\nDejará de aparecer en tu lista y en tus presupuestos. Puedes recuperarla en «Prestaciones borradas».`)) return;
     setMessage("");
@@ -219,9 +237,11 @@ export function ArancelesPanel() {
             {group.shown.map(item => {
               const range = suggestedRange(item.code);
               const value = drafts[item.code] ?? (prices[item.code] !== undefined ? String(prices[item.code]) : "");
-              return <li key={item.code} className="grid grid-cols-[minmax(0,1fr)_150px] items-center gap-x-3 gap-y-1 px-4 py-2 text-sm sm:grid-cols-[84px_minmax(0,1fr)_190px_220px]">
+              return <li key={item.code} className="grid grid-cols-[minmax(0,1fr)_150px] items-center gap-x-3 gap-y-1 px-4 py-2 text-sm sm:grid-cols-[84px_minmax(0,1fr)_190px_260px]">
                 <span className="hidden font-mono text-xs text-[#6e6a8c] sm:block">{item.code}</span>
-                <span className={`order-1 sm:order-none ${prices[item.code] !== undefined ? "font-medium text-[#1f1b3a]" : "text-[#4f4a74]"}`}>{item.label}</span>
+                {renamingCode === item.code
+                  ? <Input autoFocus maxLength={120} value={codeDraft} onChange={event => setCodeDraft(event.target.value)} onBlur={() => commitCatalogName(item.code, item.label)} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setRenamingCode(null); }} aria-label="Nombre de la prestación" className="order-1 h-9 sm:order-none" data-testid={`arancel-name-input-${item.code}`}/>
+                  : <span className={`order-1 sm:order-none ${prices[item.code] !== undefined ? "font-medium text-[#1f1b3a]" : "text-[#4f4a74]"}`}>{names[item.code] ?? item.label}{names[item.code] && <span className="ml-2 text-[11px] font-normal text-[#9a96b5]" title={`Nombre original: ${item.label}`}>(editada)</span>}</span>}
                 {range ? <span className="order-3 col-span-2 text-xs text-[#9a96b5] sm:order-none sm:col-span-1 sm:text-right" title={`Sugerencia orientativa: 60%–110% del valor referencial 2026 del arancel (${money(range.reference)}). No es un precio oficial.`} data-testid={`arancel-range-${item.code}`}>{money(range.low)} – {money(range.high)}</span> : <span className="order-3 hidden sm:block"/>}
                 <span className="order-2 flex items-center gap-1 sm:order-none">
                   <span className="text-[#6e6a8c]">$</span>
@@ -231,7 +251,8 @@ export function ArancelesPanel() {
                     onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); }}
                     className="h-9 text-right"/>
                   {prices[item.code] !== undefined && drafts[item.code] === undefined && <span className="sr-only">{money(prices[item.code])}</span>}
-                  <button type="button" aria-label={`Borrar ${item.label}`} onClick={() => setCatalogHidden(item.code, item.label, true)} className="rounded p-2 text-[#8c4a51] hover:bg-rose-50" data-testid={`arancel-delete-${item.code}`}><Trash2 className="size-4"/></button>
+                  <button type="button" aria-label={`Cambiar nombre de ${names[item.code] ?? item.label}`} onClick={() => { setCodeDraft(names[item.code] ?? item.label); setRenamingCode(item.code); }} className="rounded p-2 text-[#4f4a74] hover:bg-[#f3effd]" data-testid={`arancel-rename-${item.code}`}><Pencil className="size-4"/></button>
+                  <button type="button" aria-label={`Borrar ${names[item.code] ?? item.label}`} onClick={() => setCatalogHidden(item.code, names[item.code] ?? item.label, true)} className="rounded p-2 text-[#8c4a51] hover:bg-rose-50" data-testid={`arancel-delete-${item.code}`}><Trash2 className="size-4"/></button>
                 </span>
               </li>;
             })}

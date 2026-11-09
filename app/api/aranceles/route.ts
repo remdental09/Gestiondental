@@ -1,6 +1,7 @@
 import { getChatGPTUser } from "@/app/chatgpt-auth";
-import { loadHidden, loadPrices, savePrice, setHidden } from "@/app/aranceles-db";
+import { loadHidden, loadNames, loadPrices, savePrice, setHidden, setName } from "@/app/aranceles-db";
 import { normalizePrice } from "@/lib/aranceles";
+import { normalizeName } from "@/lib/custom-prestaciones";
 import { prestacionByCode } from "@/lib/prestaciones-catalog";
 
 export const runtime = "edge";
@@ -11,7 +12,7 @@ const fail = (error: string, status = 400) => Response.json({ error }, { status,
 export async function GET() {
   const ownerId = (await getChatGPTUser())?.userId;
   if (!ownerId) return fail("Inicia sesión.", 401);
-  try { const [prices, hidden] = await Promise.all([loadPrices(ownerId), loadHidden(ownerId)]); return Response.json({ prices, hidden }, { headers }); } catch { return fail("No se pudo leer el arancel.", 500); }
+  try { const [prices, hidden, names] = await Promise.all([loadPrices(ownerId), loadHidden(ownerId), loadNames(ownerId)]); return Response.json({ prices, hidden, names }, { headers }); } catch { return fail("No se pudo leer el arancel.", 500); }
 }
 
 /** Fija (price = número) o quita (price = null) el precio de una prestación del catálogo. */
@@ -39,9 +40,16 @@ export async function POST(request: Request) {
   const origin = request.headers.get("origin");
   if (origin && origin !== new URL(request.url).origin) return fail("Origen no permitido.", 403);
   try {
-    const body = await request.json() as { code?: unknown; hidden?: unknown };
+    const body = await request.json() as { code?: unknown; hidden?: unknown; name?: unknown };
     const code = typeof body.code === "string" ? body.code.trim() : "";
     if (!prestacionByCode(code)) return fail("Prestación no encontrada en el catálogo.");
+    if ("name" in body) {
+      if (body.name === null) { await setName(ownerId, code, null); return Response.json({ code, name: null }, { headers }); }
+      const name = normalizeName(body.name);
+      if (!name) return fail("El nombre debe tener entre 3 y 120 letras.");
+      await setName(ownerId, code, name);
+      return Response.json({ code, name }, { headers });
+    }
     if (typeof body.hidden !== "boolean") return fail("Solicitud no válida.");
     await setHidden(ownerId, code, body.hidden);
     return Response.json({ code, hidden: body.hidden }, { headers });
