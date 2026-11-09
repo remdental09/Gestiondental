@@ -184,7 +184,7 @@ export function GlobalDictation({ patients, notes = [], onUsePatient, onCreatePa
     && validPhoneValue(fields.phone.trim())
     && validEmailValue(fields.email.trim());
   const missingRequired = [
-    ...(!fourNames(fields.name) ? ["nombre completo (dos nombres y dos apellidos)"] : []),
+    ...(!fourNames(fields.name) ? ["nombre completo (nombre y dos apellidos)"] : []),
     ...(!validBirthDate ? ["fecha de nacimiento"] : []),
   ];
   const missingOptional = [
@@ -291,7 +291,7 @@ export function GlobalDictation({ patients, notes = [], onUsePatient, onCreatePa
               </ul>
             </section>}
             {choice === "new" && <div className="space-y-2 rounded-lg border border-[#ddd6f0] bg-white p-3" data-testid="global-dictation-new-patient">
-              <p className="text-xs leading-5 text-[#625e82]">Para crear la ficha la app pide los dos nombres y los dos apellidos y la fecha de nacimiento. Lo demás es opcional y se puede completar después.</p>
+              <p className="text-xs leading-5 text-[#625e82]">Para crear la ficha la app pide el nombre y los dos apellidos (el segundo nombre es opcional) y la fecha de nacimiento. Lo demás es opcional y se puede completar después.</p>
               <p className="text-xs leading-5 text-[#625e82]">El dictado ya se distribuyó en los campos detectados. Los datos marcados en rojo quedan pendientes; el RUT, teléfono y correo se pueden completar después.</p>
               <label className="block space-y-1 font-medium">Nombre completo *
                 <Input aria-invalid={!fourNames(fields.name)} className={fourNames(fields.name) ? "text-base sm:text-sm" : "border-rose-400 text-base text-rose-900 ring-1 ring-rose-300 sm:text-sm"} value={fields.name} onChange={(event) => setFields((current) => ({ ...current, name: event.target.value }))} autoCapitalize="words" data-testid="global-dictation-new-name" />

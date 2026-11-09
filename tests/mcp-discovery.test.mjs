@@ -22,7 +22,7 @@ const imports = {
   '@/app/clinical-import': { ClinicalImportError: class ClinicalImportError extends Error {}, runDriveRecordImport: () => { throw new Error('Unexpected import'); } },
   '@/app/drive-backup': { confirmDriveSnapshot() {}, getDriveSnapshot() {}, listDriveBackupQueue() {} },
   '@/app/sync-odontogram': { syncInstalledImplants: async () => ({ updatedTeeth: [] }) },
-  '@/app/patient-identity': { hasFourNameParts: value => typeof value === 'string' && value.trim().split(/\s+/).filter(Boolean).length >= 4, fullNameRequiredMessage: () => 'Completa los dos nombres y los dos apellidos del paciente antes de guardar.' },
+  '@/app/patient-identity': { hasFourNameParts: value => typeof value === 'string' && value.trim().split(/\s+/).filter(Boolean).length >= 3, fullNameRequiredMessage: () => 'Completa los dos nombres y los dos apellidos del paciente antes de guardar.' },
   '@/db': { getDb: () => { throw new Error('Unexpected database access'); } },
   '@/db/schema': { patients: patientColumns, evolutions: {} },
 };

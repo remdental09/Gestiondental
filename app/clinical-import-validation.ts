@@ -40,7 +40,7 @@ const text = (value: unknown, max: number, field: string, { optional = false } =
 
 const validDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
 const driveIdPattern = /^[A-Za-z0-9_-]{15,100}$/;
-const hasFourNameParts = (value: string) => value.trim().split(/\s+/).filter(Boolean).length >= 4;
+const hasFourNameParts = (value: string) => value.trim().split(/\s+/).filter(Boolean).length >= 3;
 export const normalizeName = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 export const requestIdFor = (note: DriveNote) => `drive:${note.sourceDocumentId}:${note.clinicalDate}`;
 

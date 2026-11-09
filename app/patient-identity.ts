@@ -1,16 +1,16 @@
 /**
- * A clinical write requires a patient name with at least two given-name and
- * two surname tokens. This deliberately checks only completeness; it does not
+ * A clinical write requires a patient name with at least one given name and
+ * two surname tokens (many people have no second name). This deliberately checks only completeness; it does not
  * guess where compound names or surnames begin and end.
  */
 export function hasFourNameParts(value: unknown): value is string {
   if (typeof value !== "string") return false;
   const parts = value.trim().split(/\s+/).filter(Boolean);
-  return parts.length >= 4 && parts.every(part => /[\p{L}]/u.test(part));
+  return parts.length >= 3 && parts.every(part => /[\p{L}]/u.test(part));
 }
 
 export function fullNameRequiredMessage() {
-  return "Completa los dos nombres y los dos apellidos del paciente antes de guardar.";
+  return "Completa el nombre y los dos apellidos del paciente antes de guardar (el segundo nombre es opcional).";
 }
 
 export function normalizePatientName(value: string): string {
