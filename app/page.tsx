@@ -599,7 +599,7 @@ export default function Home(){
           </div>
           <div className="flex shrink-0 items-center gap-3">
             <span className="hidden rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800 sm:inline">Ficha privada</span>
-            {viewerEmail&&<span className="hidden max-w-[16rem] truncate text-sm text-[#53686e] md:inline" title={viewerEmail}>{viewerName&&viewerName!==viewerEmail?<><strong className="font-semibold text-[#20343b]">{viewerName}</strong> · </>:null}{viewerEmail}</span>}
+            {viewerEmail&&<span className="hidden max-w-[20rem] truncate text-sm font-medium text-[#20343b] sm:inline" title={viewerName?`${viewerName} · ${viewerEmail}`:viewerEmail}>{viewerEmail}</span>}
             {/* Cloudflare Access cierra la sesión en esta ruta y vuelve a la pantalla de ingreso, para entrar con otra cuenta. */}
             <a href="/cdn-cgi/access/logout" className="flex min-h-10 items-center gap-2 rounded-lg border border-[#dce5e7] px-3 text-sm font-medium text-[#53686e] hover:border-[#7bbdb9] hover:bg-[#f7fbfb] hover:text-[#145b60]" aria-label="Cerrar sesión para entrar con otra cuenta"><LogOut className="size-4"/><span className="hidden sm:inline">Cerrar sesión</span></a>
           </div>
