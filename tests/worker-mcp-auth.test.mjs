@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
 import { resolveOwner, resolveOwnerWithRegistration } from '../app/access-owners.ts';
+import { aboutPage, privacyPage } from '../lib/public-pages.ts';
 
 const source = readFileSync(new URL('../worker.ts', import.meta.url), 'utf8');
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText;
@@ -29,6 +30,7 @@ function worker() {
       return Response.json({ owner: request.headers.get('oai-authenticated-user-id'), clinic: request.headers.get('x-clinic-access-owner-id') });
     } } },
     './app/access-owners': { resolveOwner, resolveOwnerWithRegistration },
+    './lib/public-pages': { aboutPage, privacyPage },
   };
   runInNewContext(compiled, { exports: exported, require: name => { assert.ok(name in imports, name); return imports[name]; }, Request, Response, Headers, URL, Map, atob, console });
   return {
@@ -81,4 +83,16 @@ test('la identidad de Access y la identidad MCP se inyectan solo en sus respecti
   const mcpResponse = await instance.mcp(request('/mcp'), env, { props: { ownerId } });
   assert.deepEqual(await mcpResponse.json(), { owner: ownerId, clinic: null });
   assert.equal(instance.count(), 2);
+});
+
+test('las páginas /acerca y /privacidad son públicas y no delegan a la aplicación', async () => {
+  const w = worker();
+  for (const path of ['/acerca', '/privacidad']) {
+    const response = await w.fetch(new Request(`https://example.test${path}`), env, {});
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type'), /text\/html/);
+  }
+  assert.equal(w.count(), 0);
+  const posted = await w.fetch(new Request('https://example.test/privacidad', { method: 'POST' }), env, {});
+  assert.equal(posted.status, 401);
 });
