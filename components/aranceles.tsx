@@ -132,7 +132,7 @@ export function ArancelesPanel() {
       <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-xl font-semibold">Aranceles de las prestaciones</h2>
         <button type="button" onClick={() => { setNotice(""); setCreating(true); }} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-[#6a3fc8] px-4 text-sm font-semibold text-white hover:bg-[#5a33b0]" data-testid="open-create-prestacion"><Plus className="size-4"/>Crear prestación</button></div>
       <p className="mt-1 text-sm text-[#625e82]">Abre cada grupo y escribe el precio (CLP) solo de las prestaciones que tú realizas. Las demás quedan sin precio. Estos valores son tuyos: ningún otro profesional los ve, y se usan para completar el valor al armar un presupuesto.</p>
-      <p className="mt-1 text-xs text-[#8a86a8]">El rango en gris es solo una sugerencia orientativa: entre el 60% y el 110% del valor referencial 2026 del arancel de isapre Colmena (la fuente de este catálogo), pensado para precios de consulta privada. No es un precio oficial ni de mercado verificado; decide tú.</p>
+      <p className="mt-1 text-xs text-[#8a86a8]">El rango en gris es solo una sugerencia orientativa: entre el 60% y el 110% del valor referencial 2026 de un arancel de aseguradoras de salud (la fuente de este catálogo), pensado para precios de consulta privada. No es un precio oficial ni de mercado verificado; decide tú.</p>
     </div>
     <div className="flex flex-wrap items-center gap-3">
       <label className="relative min-w-[240px] flex-1"><span className="sr-only">Buscar prestación</span><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#6e6a8c]"/><Input value={query} onChange={event => setQuery(event.target.value)} placeholder="Buscar prestación o código…" className="pl-9" data-testid="aranceles-search"/></label>
@@ -185,7 +185,7 @@ export function ArancelesPanel() {
               return <li key={item.code} className="grid grid-cols-[minmax(0,1fr)_150px] items-center gap-x-3 gap-y-1 px-4 py-2 text-sm sm:grid-cols-[84px_minmax(0,1fr)_190px_170px]">
                 <span className="hidden font-mono text-xs text-[#6e6a8c] sm:block">{item.code}</span>
                 <span className={`order-1 sm:order-none ${prices[item.code] !== undefined ? "font-medium text-[#1f1b3a]" : "text-[#4f4a74]"}`}>{item.label}</span>
-                {range ? <span className="order-3 col-span-2 text-xs text-[#9a96b5] sm:order-none sm:col-span-1 sm:text-right" title={`Sugerencia orientativa: 60%–110% del valor referencial Colmena 2026 (${money(range.reference)}). No es un precio oficial.`} data-testid={`arancel-range-${item.code}`}>{money(range.low)} – {money(range.high)}</span> : <span className="order-3 hidden sm:block"/>}
+                {range ? <span className="order-3 col-span-2 text-xs text-[#9a96b5] sm:order-none sm:col-span-1 sm:text-right" title={`Sugerencia orientativa: 60%–110% del valor referencial 2026 del arancel (${money(range.reference)}). No es un precio oficial.`} data-testid={`arancel-range-${item.code}`}>{money(range.low)} – {money(range.high)}</span> : <span className="order-3 hidden sm:block"/>}
                 <span className="order-2 flex items-center gap-1 sm:order-none">
                   <span className="text-[#6e6a8c]">$</span>
                   <Input type="text" inputMode="numeric" aria-label={`Precio de ${item.label}`} placeholder="Sin precio" value={value} disabled={!!saving[item.code]} data-testid={`arancel-price-${item.code}`}

@@ -18,10 +18,10 @@ test("normalizePriceMap conserva solo códigos de 7 dígitos con precio válido"
   assert.deepEqual(normalizePriceMap(null), {});
 });
 
-test("el catálogo agrupa las 830 prestaciones en 18 grupos, todas con grupo conocido", () => {
-  assert.equal(PRESTACIONES.length, 830);
+test("el catálogo agrupa las 789 prestaciones en 17 grupos, todas con grupo conocido", () => {
+  assert.equal(PRESTACIONES.length, 789);
   const names = new Set(PRESTACION_GROUPS.map(group => group.name));
-  assert.equal(names.size, 18);
+  assert.equal(names.size, 17);
   assert.ok(PRESTACIONES.every(item => names.has(item.group)));
 });
 

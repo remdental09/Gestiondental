@@ -1,6 +1,5 @@
 /**
- * Valor referencial de cada prestación del catálogo (CLP): Arancel referencial 2026 de Colmena (Producto Adicional
- * Dental Plus RedSalud), la misma fuente del catálogo. Es un valor de isapre, no un precio de mercado ni una
+ * Valor referencial de cada prestación del catálogo (CLP): Arancel referencial 2026 de Colmena, la misma fuente del catálogo. Es un valor de isapre, no un precio de mercado ni una
  * recomendación: sirve de ancla para sugerir un rango orientativo. Cada profesional fija su propio precio.
  * Prestaciones sin valor en la fuente (5104086) no tienen sugerencia.
  */
@@ -793,47 +792,6 @@ export const REFERENCE_PRICES: Record<string, number> = {
   "5107040": 108214,
   "5107041": 89970,
   "5107042": 97985,
-  "5108003": 105917,
-  "5108004": 111864,
-  "5108007": 26321,
-  "5108009": 127501,
-  "5108010": 578766,
-  "5108011": 463012,
-  "5108012": 159071,
-  "5108013": 318141,
-  "5108014": 320298,
-  "5108015": 282497,
-  "5108016": 564994,
-  "5108017": 323464,
-  "5108018": 685880,
-  "5108019": 1048298,
-  "5108020": 47770,
-  "5108021": 94804,
-  "5108022": 147011,
-  "5108023": 205170,
-  "5108024": 105732,
-  "5109003": 95100,
-  "5109004": 138743,
-  "5109005": 139399,
-  "5109006": 255844,
-  "5109007": 182523,
-  "5109008": 105159,
-  "5109009": 233794,
-  "5109010": 133407,
-  "5109011": 255167,
-  "5109012": 344342,
-  "5109013": 65937,
-  "5109014": 206021,
-  "5109015": 114062,
-  "5109016": 105837,
-  "5109017": 143587,
-  "5109018": 142298,
-  "5109019": 51547,
-  "5109020": 41914,
-  "5109021": 138210,
-  "5109022": 33532,
-  "5109023": 33326,
-  "5109024": 143586,
 };
 
 /** Rango orientativo: entre el 60% y el 110% del valor referencial (los precios de clínicas suelen quedar bajo el arancel de isapre), redondeado a cifras cómodas de cobrar. */

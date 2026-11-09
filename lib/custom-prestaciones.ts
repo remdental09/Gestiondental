@@ -1,6 +1,6 @@
 import { normalizePrice } from "./aranceles.ts";
 
-/** Prestaciones propias de cada profesional (las que no están en el catálogo de 830). */
+/** Prestaciones propias de cada profesional (las que no están en el catálogo de 789). */
 export type VariantDimension = { id: string; label: string; options: string[] };
 export type PrestacionSpecialty = { key: string; label: string; dimensions: VariantDimension[] };
 
