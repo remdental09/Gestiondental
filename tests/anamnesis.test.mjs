@@ -56,3 +56,10 @@ test("vista rápida: solo lo registrado y botón con tarjeta al pasar el mouse",
   assert.match(comp, /<HoverCard /);
   assert.match(comp, /data-testid="anamnesis-hover"/);
 });
+
+test("en pantallas táctiles un toque despliega el resumen y ofrece editar", () => {
+  const comp = readFileSync(new URL("../components/anamnesis-dialog.tsx", import.meta.url), "utf8");
+  assert.match(comp, /\(hover: none\)/);
+  assert.match(comp, /data-testid="anamnesis-touch-panel"/);
+  assert.match(comp, /data-testid="anamnesis-edit"/);
+});
