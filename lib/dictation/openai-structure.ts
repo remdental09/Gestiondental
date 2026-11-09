@@ -68,3 +68,31 @@ export async function runOpenAiStructure(
 export function openAiCostUsd(usage: OpenAiUsage): number {
   return (usage.prompt_tokens * OPENAI_PRICE_PER_MTOK.input + usage.completion_tokens * OPENAI_PRICE_PER_MTOK.output) / 1_000_000;
 }
+
+/** Segunda opinión clínica: devuelve el JSON de observaciones (lo interpreta clinical-review.ts). */
+export async function runOpenAiReview(
+  system: string,
+  payload: string,
+  apiKey: string,
+  options: { model?: string; fetcher?: typeof fetch; timeoutMs?: number; onUsage?: (usage: OpenAiUsage) => void } = {},
+): Promise<string> {
+  const fetcher = options.fetcher ?? fetch;
+  const model = options.model || OPENAI_STRUCTURE_MODEL;
+  const response = await fetcher(OPENAI_CHAT_URL, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    signal: AbortSignal.timeout(options.timeoutMs ?? 18_000),
+    body: JSON.stringify({
+      model,
+      ...(isReasoningModel(model) ? { max_completion_tokens: 4000, reasoning_effort: "low" } : { temperature: 0, max_tokens: 1200 }),
+      response_format: { type: "json_object" },
+      messages: [{ role: "system", content: system }, { role: "user", content: payload }],
+    }),
+  });
+  if (!response.ok) throw new Error(`OpenAI respondió HTTP ${response.status}`);
+  const body = await response.json() as { choices?: Array<{ message?: { content?: unknown } }>; usage?: OpenAiUsage };
+  if (body.usage && options.onUsage) options.onUsage(body.usage);
+  const content = body.choices?.[0]?.message?.content;
+  if (typeof content !== "string" || !content.trim()) throw new Error("OpenAI no devolvió la revisión");
+  return content;
+}

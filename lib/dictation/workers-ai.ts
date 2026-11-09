@@ -8,7 +8,7 @@ import {
   type ClinicalModel,
   type ModelAnswer,
 } from "./proposal.ts";
-import { isReasoningModel, OPENAI_STRUCTURE_MODEL, runOpenAiStructure, type OpenAiUsage } from "./openai-structure.ts";
+import { isReasoningModel, OPENAI_STRUCTURE_MODEL, runOpenAiReview, runOpenAiStructure, type OpenAiUsage } from "./openai-structure.ts";
 import { AGENT_TOTAL_MS, runOpenAiAgent, type AgentTrace } from "./openai-agent.ts";
 
 type AiRunner = {
@@ -54,6 +54,10 @@ export function createWorkersAiModel(ai: AiRunner | null | undefined, options: {
   return {
     id: "workers-ai",
     model: options.preferOpenAi && openAiKey ? `openai/${openAiModel}` : chain[0] ?? `openai/${openAiModel}`,
+    async review(system, payload) {
+      if (!openAiKey) throw new Error("sin clave de OpenAI para la revisión");
+      return runOpenAiReview(system, payload, openAiKey, { model: openAiModel, fetcher: options.openAi?.fetcher, onUsage: options.openAi?.onUsage });
+    },
     async complete(input): Promise<ModelAnswer> {
       const started = Date.now();
       const failures: string[] = [];
