@@ -43,6 +43,8 @@ export function OrthodonticsPanel({ patientId, patientName, images, onUploadImag
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [draft, setDraft] = useState<OrthoControl & { nextControlDate: string; toChart: boolean }>({ id: "", date: today(), upperArch: "", lowerArch: "", aligner: "", elastics: "", hygiene: "", notes: "", nextControlDate: "", toChart: true });
+  const [rxType, setRxType] = useState(RX_TYPES[0]);
   const dataRef = useRef(data);
   dataRef.current = data;
 
@@ -178,7 +180,6 @@ export function OrthodonticsPanel({ patientId, patientName, images, onUploadImag
   </div>;
 
   /* ───────── Controles ───────── */
-  const [draft, setDraft] = useState<OrthoControl & { nextControlDate: string; toChart: boolean }>({ id: "", date: today(), upperArch: "", lowerArch: "", aligner: "", elastics: "", hygiene: "", notes: "", nextControlDate: "", toChart: true });
   const saveControl = async () => {
     if (!draft.date || draft.date > today()) { setError("Indica la fecha del control; no puede ser futura."); return; }
     const control: OrthoControl = { id: uid(), date: draft.date, upperArch: draft.upperArch, lowerArch: draft.lowerArch, aligner: draft.aligner, elastics: draft.elastics, hygiene: draft.hygiene, notes: draft.notes };
@@ -220,7 +221,6 @@ export function OrthodonticsPanel({ patientId, patientName, images, onUploadImag
   </div>;
 
   /* ───────── RX y CF ───────── */
-  const [rxType, setRxType] = useState(RX_TYPES[0]);
   const rxImages = images.filter(image => image.kind === "RX ortodoncia");
   const uploadRx = async (file: File | undefined) => {
     if (!file) return;
