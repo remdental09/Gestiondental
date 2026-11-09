@@ -2,8 +2,9 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { viewerInitials } from "@/app/access-owners";
 import { ProfessionalRegistration } from "@/components/professional-registration";
+import { ProfileDialog } from "@/components/profile-dialog";
 import { displayName as clinicianDisplayName } from "@/lib/clinician-profile";
-import { Activity, ArrowLeft, CalendarDays, ChevronLeft, ChevronRight, ClipboardList, Download, Home as HomeIcon, FilePlus2, LayoutDashboard, LogOut, Menu, Mic, Plus, Search, Stethoscope, Trash2, Users, Wallet, X } from "lucide-react";
+import { Activity, ArrowLeft, CalendarDays, ChevronLeft, ChevronRight, ClipboardList, Download, Home as HomeIcon, FilePlus2, LayoutDashboard, LogOut, Menu, Mic, Plus, Search, Stethoscope, Trash2, UserRound, Users, Wallet, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -112,7 +113,7 @@ function WeeklyAgendaMosaic({days,events}:{days:WeekDay[];events:CalendarEvent[]
 export default function Home(){
   const [patients,setPatients]=useState(initialPatients),[notes,setNotes]=useState(initialNotes),[budgets,setBudgets]=useState(initialBudgets),[payments,setPayments]=useState<Payment[]>([]),[appointments,setAppointments]=useState(initialAppointments),[calendarEvents,setCalendarEvents]=useState(initialCalendarEvents);
   const [calendarSnapshotAt,setCalendarSnapshotAt]=useState<string|null>(null),[calendarSyncedAt,setCalendarSyncedAt]=useState<string|null>(null);
-  const [viewerName,setViewerName]=useState(""),[viewerEmail,setViewerEmail]=useState(""),[needsRegistration,setNeedsRegistration]=useState(false);
+  const [viewerName,setViewerName]=useState(""),[viewerEmail,setViewerEmail]=useState(""),[needsRegistration,setNeedsRegistration]=useState(false),[profileOpen,setProfileOpen]=useState(false);
   const [periodontalExams,setPeriodontalExams]=useState<Record<number,PerioExam[]>>({}),[clinicalImages,setClinicalImages]=useState<ClinicalImage[]>([]);
   const [weekStart,setWeekStart]=useState(()=>mondayOfAgendaWeek(santiagoDateISO(new Date())));
   const weekEnd=shiftAgendaWeek(weekStart,1);
@@ -642,6 +643,7 @@ export default function Home(){
     <div className="fixed inset-y-0 left-0 z-30 hidden w-[248px] flex-col bg-[linear-gradient(180deg,#1b1245_0%,#2a1a5e_60%,#3a2380_100%)] text-white lg:flex">{sidebarContent}</div>
     {mobileNav&&<div className="fixed inset-0 z-40 bg-black/40 lg:hidden" onClick={()=>setMobileNav(false)}><div className="flex h-full w-[260px] flex-col bg-[linear-gradient(180deg,#1b1245_0%,#2a1a5e_60%,#3a2380_100%)] text-white" onClick={e=>e.stopPropagation()}>{sidebarContent}</div></div>}
     <div className="lg:pl-[248px]">
+      {profileOpen&&!needsRegistration&&<ProfileDialog email={viewerEmail} onClose={()=>setProfileOpen(false)} onSaved={profile=>setViewerName(clinicianDisplayName(profile))}/>}
       {needsRegistration&&<ProfessionalRegistration email={viewerEmail} onSaved={profile=>{setViewerName(clinicianDisplayName(profile));setNeedsRegistration(false);}}/>}
       <header ref={headerRef} className="sticky top-0 z-20 border-b border-[#ddd6f0] bg-white/95 backdrop-blur">
         <div className="flex h-[76px] items-center justify-between px-5 md:px-9">
@@ -653,7 +655,7 @@ export default function Home(){
           </div>
           <div className="flex shrink-0 items-center gap-3">
             <span className="hidden rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800 sm:inline">Ficha privada</span>
-            {viewerEmail&&<span className="hidden max-w-[20rem] truncate text-sm font-medium text-[#1f1b3a] sm:inline" title={viewerName?`${viewerName} · ${viewerEmail}`:viewerEmail}>{viewerEmail}</span>}
+            {viewerEmail&&<button type="button" onClick={()=>setProfileOpen(true)} className="flex min-h-10 min-w-0 items-center gap-2 rounded-lg border border-[#ddd6f0] bg-[#f8f5ff] px-3 text-sm font-semibold text-[#4b2a99] hover:border-[#a78bf0] hover:bg-[#ece6fb]" title={viewerName?`${viewerName} · ${viewerEmail} — editar mi perfil`:`${viewerEmail} — editar mi perfil`} aria-label="Mi perfil: editar mis datos" data-testid="open-profile"><UserRound className="size-4 shrink-0"/><span className="hidden max-w-[16rem] truncate sm:inline">{viewerName||viewerEmail}</span><span className="sm:hidden">Mi perfil</span></button>}
             {/* Cloudflare Access cierra la sesión en esta ruta y vuelve a la pantalla de ingreso, para entrar con otra cuenta. */}
             <a href="/cdn-cgi/access/logout" className="flex min-h-10 items-center gap-2 rounded-lg border border-[#ddd6f0] px-3 text-sm font-medium text-[#565277] hover:border-[#a78bf0] hover:bg-[#f8f5ff] hover:text-[#4b2a99]" aria-label="Cerrar sesión para entrar con otra cuenta"><LogOut className="size-4"/><span className="hidden sm:inline">Cerrar sesión</span></a>
           </div>
