@@ -33,12 +33,12 @@ test("cirugía de implante: errores de voz del dictado real se corrigen con cód
   const out = applyLexicon(heard).text;
   assert.match(out, /descarga de Neumann parcial/);
   assert.match(out, /encía adherida/);
-  assert.match(out, /cuatro tubetes de anestesia/);
+  assert.match(out, /cuatro tubos de anestesia/);
   assert.match(out, /45 N·cm/);
   assert.match(out, /sutura Vicryl/);
 });
 
 test("«encía herida» sin incisión ni colgajo se conserva (puede ser una herida real)", () => {
   assert.equal(applyLexicon("Paciente con la encía herida por un cepillo duro.").text, "Paciente con la encía herida por un cepillo duro.");
-  assert.equal(applyLexicon("Se usaron dos tubos de ensayo.").text, "Se usaron dos tubos de ensayo.");
+  assert.equal(applyLexicon("Se usaron dos tubos de anestesia.").text, "Se usaron dos tubos de anestesia.");
 });

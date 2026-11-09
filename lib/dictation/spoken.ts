@@ -396,9 +396,6 @@ const LEXICON: Array<[RegExp, string]> = [
   [/\b(?:bicril|vicril|bicryl|bicri|vicri|bicrilo)\b/giu, "Vicryl"],
   // Torque del implante: «45 newton centímetro cuadrado» → «45 N·cm».
   [/\bnewtons?\s+cent[ií]metros?(?:\s+cuadrados?)?\b/giu, "N·cm"],
-  // Anestesia: «cuatro tubos de anestesia» → «tubetes».
-  [/\btubos(?=\s+(?:de\s+)?(?:anestesia|anest[eé]sico|lidoca[ií]na|artica[ií]na|mepivaca[ií]na)\b)/giu, "tubetes"],
-  [/\btubo(?=\s+(?:de\s+)?(?:anestesia|anest[eé]sico|lidoca[ií]na|artica[ií]na|mepivaca[ií]na)\b)/giu, "tubete"],
   // Implantes: «técnica Flappers» → flapless (sin colgajo); «pieza 2,6» → 2.6 (FDI con punto).
   [/\bflap+(?:ers?|les+|leis|lis|ess)\b/gi, "flapless"],
   [/\b(pieza|diente)\s+([1-8]),([1-8])(?![\d,.])/gi, "$1 $2.$3"],
