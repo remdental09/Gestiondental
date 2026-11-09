@@ -140,6 +140,8 @@ export type OdontogramChange = {
   conflict?: boolean;
   /** Aviso del tipo de evolución (p. ej. «es un control»): queda sin marcar por defecto. */
   advisory?: string;
+  /** Resultado del modelo clínico: «incoherente» (no tiene sentido clínico) o «reemplaza» (cambia lo ya registrado). */
+  coherence?: "incoherente" | "reemplaza";
   /** Caries dictada y restaurada en la misma sesión: la superficie queda restaurada y la caries sigue como diagnóstico. */
   treatedCaries?: SurfaceFinding;
 };
@@ -283,7 +285,7 @@ export type ChartSnapshot = {
 
 export type StructureInput = {
   transcript: string;
-  chart: { tooth: number; status: string }[];
+  chart: { tooth: number; status: string; foundation?: "tooth" | "implant" }[];
 };
 
 export type ClinicalModel = {
@@ -3625,7 +3627,8 @@ export function sanitizeChart(value: unknown): StructureInput["chart"] {
     const tooth = Number(record.tooth);
     const status = typeof record.status === "string" ? record.status : "";
     if (!isValidFdi(tooth) || !TOOTH_STATUSES.includes(status as ToothStatus)) continue;
-    chart.push({ tooth, status });
+    const foundation = record.foundation === "implant" || record.foundation === "tooth" ? record.foundation : undefined;
+    chart.push({ tooth, status, ...(foundation ? { foundation } : {}) });
   }
   return chart;
 }

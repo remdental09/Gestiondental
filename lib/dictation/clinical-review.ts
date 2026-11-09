@@ -1,4 +1,5 @@
 import type { OdontogramChange } from "./proposal.ts";
+import { checkSurface, checkTransition, eventsFrom, type ProposedState, type ToothEvents } from "./tooth-model.ts";
 
 /**
  * Revisión de sentido clínico. El extractor lee «qué dijo»; esta capa pregunta «¿tiene sentido para un dentista?».
@@ -7,44 +8,63 @@ import type { OdontogramChange } from "./proposal.ts";
 const fdi = (tooth: number) => `${Math.floor(tooth / 10)}.${tooth % 10}`;
 const fold = (text: string) => text.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
-/** Pulpa, conducto o tratamiento endodóntico: solo existen en un diente natural. */
-const PULP = /(?<![a-z])(?:trepan\w*|pulpitis|pulpectom\w*|pulpotom\w*|endodonc\w*|conductos?|necrosis\s+pulpar|pulpa|periapical\w*|apice|apical\w*|dolor\s+(?:provocado\s+)?(?:por|al)\s+(?:frio|calor|percusion|masticar)|tejido\s+nervioso|vital\w*)(?![a-z])/;
-/** Cirugía que de verdad instala un implante en esa pieza. */
-const INSTALL = /(?<![a-z])(?:se\s+(?:instala|instalo|coloca|coloco|inserta|inserto|fija|fijo|ponen?)\w*[^.;]{0,50}implante|(?:instalacion|colocacion|insercion)\s+(?:de(?:l)?\s+)?(?:un\s+)?implante|cirugia\s+(?:de\s+)?implante|implante\s+(?:inmediato|diferido)\s+(?:en|de))/;
-const EXTRACT = /(?<![a-z])(?:extrac\w*|exodoncia|se\s+extrae|extraid\w*)(?![a-z])/;
+export type ChartRow = { tooth: number; status: string; foundation?: "tooth" | "implant" };
 
-export type ChartRow = { tooth: number; status: string };
+const describe = (state: ProposedState | undefined) => !state ? "sin registro"
+  : state.status === "Corona" ? `corona ${state.foundation === "implant" ? "sobre implante" : "sobre diente natural"}` : state.status.toLowerCase();
 
-const reason = (tooth: number, why: string) => `Revisión clínica · FDI ${fdi(tooth)}: ${why} Márcalo solo si de verdad corresponde.`;
+/** Estado general que deja un cambio (la corona sobre implante deja la pieza como implante con corona). */
+function stateOf(item: OdontogramChange, current: ChartRow | undefined): ProposedState | null {
+  if (item.kind === "crown") return { status: "Corona", foundation: item.foundation ?? (current?.status === "Implante" || current?.status === "Implante con pilar" ? "implant" : "tooth") };
+  if (item.kind === "status" && item.status) return { status: item.status };
+  return null;
+}
 
-/** Reglas deterministas (capa 1). Marca con `advisory` lo incoherente; no borra nada. */
+/**
+ * Capa 1 (sin costo): cada cambio se valida con el modelo clínico de la pieza (`tooth-model.ts`).
+ * - Incoherente (un implante con pulpa, un diente extraído que vuelve…): queda sin aceptar y en rojo, con el motivo.
+ * - Reemplaza algo ya registrado sin que un hecho dictado hoy lo explique: queda sin aceptar, con «antes → después».
+ *   Si el dictado sí lo explica (se extrajo, se instaló el implante, el pilar o la corona), se propone marcado y se ve igual el antes → después.
+ */
 export function clinicalCoherence(
   odontogram: OdontogramChange[],
   chart: ChartRow[],
   sentencesFor: (tooth: number) => string[],
 ): { odontogram: OdontogramChange[]; notes: string[] } {
-  const current = new Map(chart.map((row) => [row.tooth, row.status] as const));
+  const current = new Map(chart.map((row) => [row.tooth, row] as const));
   const notes: string[] = [];
-  const out = odontogram.map((item) => {
+  const events = new Map<number, ToothEvents>();
+  const eventsOf = (tooth: number) => events.get(tooth) ?? (events.set(tooth, eventsFrom(sentencesFor(tooth))), events.get(tooth)!);
+  // Estado final propuesto por pieza: el implante manda sobre la corona que va encima.
+  const finalState = new Map<number, ProposedState>();
+  for (const item of odontogram) {
+    if (item.advisory || item.conflict) continue;
+    const state = stateOf(item, current.get(item.tooth));
+    if (!state) continue;
+    const prev = finalState.get(item.tooth);
+    if (!prev || state.status.startsWith("Implante") || (prev.status === "Corona" && state.status === "Corona")) finalState.set(item.tooth, state);
+  }
+  const out = odontogram.map((item): OdontogramChange => {
     if (item.advisory || item.conflict) return item;
-    const own = sentencesFor(item.tooth).map(fold);
-    const ownText = own.join(" ");
-    const pulpal = PULP.test(ownText);
-    const installs = INSTALL.test(ownText);
-    const extracts = EXTRACT.test(ownText);
-    const isImplantChange = (item.kind === "status" && item.status === "Implante") || (item.kind === "crown" && item.foundation === "implant");
-    let why = "";
-    if (isImplantChange && current.get(item.tooth) !== "Implante" && current.get(item.tooth) !== "Implante con pilar") {
-      const restoredOrCaries = odontogram.some((other) => other.tooth === item.tooth && other.kind === "surface");
-      if (pulpal && !installs) why = "en este dictado se trata la pulpa (trepanación, pulpitis o endodoncia), propio de un diente natural; un implante no tiene pulpa.";
-      else if (restoredOrCaries && !installs) why = "el mismo dictado le registra caries u obturación, propias de un diente natural, no de un implante.";
-      else if (current.get(item.tooth) === "Corona" && !installs) why = "figura con corona sobre diente natural y no se dijo que se haya extraído ni que se instaló un implante.";
-    } else if (item.kind === "status" && item.status === "Ausente" && pulpal && !extracts) {
-      why = "se le hace un tratamiento (pulpa, conducto) pero se registra como ausente; una pieza ausente no se trata.";
+    const before = current.get(item.tooth);
+    if (item.kind === "surface") {
+      const verdict = checkSurface(before, finalState.get(item.tooth));
+      if (verdict.ok) return item;
+      notes.push(`FDI ${fdi(item.tooth)}: ${verdict.reason}`);
+      return { ...item, coherence: "incoherente", advisory: `Incoherencia clínica · FDI ${fdi(item.tooth)}: ${verdict.reason} Acéptalo solo si de verdad corresponde.` };
     }
-    if (!why) return item;
-    notes.push(`FDI ${fdi(item.tooth)}: ${why}`);
-    return { ...item, advisory: reason(item.tooth, why) };
+    const next = stateOf(item, before);
+    if (!next) return item;
+    const verdict = checkTransition(before, next, eventsOf(item.tooth));
+    if (!verdict.ok) {
+      notes.push(`FDI ${fdi(item.tooth)}: ${verdict.reason}`);
+      return { ...item, coherence: "incoherente", advisory: `Incoherencia clínica · FDI ${fdi(item.tooth)}: ${verdict.reason} Acéptalo solo si de verdad corresponde.` };
+    }
+    if (verdict.replaces && !verdict.supported) {
+      const change = `${describe(before)} → ${describe(next)}`;
+      return { ...item, coherence: "reemplaza", advisory: `Reemplaza lo registrado en FDI ${fdi(item.tooth)}: ${change}. Confírmalo para aplicarlo.` };
+    }
+    return item;
   });
   return { odontogram: out, notes };
 }
@@ -98,11 +118,11 @@ export function parseReview(raw: unknown, odontogram: OdontogramChange[]): AiObs
 export function applyAiReview(odontogram: OdontogramChange[], observations: AiObservation[]): { odontogram: OdontogramChange[]; notes: string[] } {
   const notes: string[] = [];
   const byId = new Map(observations.map((o) => [o.match, o] as const));
-  const out = odontogram.map((item) => {
+  const out = odontogram.map((item): OdontogramChange => {
     const obs = byId.get(item.id);
-    if (!obs || item.advisory?.startsWith("Revisión clínica")) return item;
+    if (!obs || item.coherence === "incoherente") return item;
     notes.push(`FDI ${fdi(item.tooth)}: ${obs.motivo}`);
-    return { ...item, advisory: `Revisión clínica (IA) · FDI ${fdi(item.tooth)}: ${obs.motivo} Márcalo solo si de verdad corresponde.` };
+    return { ...item, coherence: "incoherente", advisory: `Revisión clínica (IA) · FDI ${fdi(item.tooth)}: ${obs.motivo} Márcalo solo si de verdad corresponde.` };
   });
   return { odontogram: out, notes };
 }

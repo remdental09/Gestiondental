@@ -9,7 +9,8 @@ const sentencesFor = (text) => (tooth) => text.split(/(?<=\.)\s+/).filter((s) =>
 test("capa 1: trepanar una pieza natural no puede dejarla como implante", () => {
   const text = "Se realiza trepanación de la pieza 20 por pulpitis. Tiene corona de circonio.";
   const { odontogram, notes } = clinicalCoherence([item(45, { status: "Implante" })], [{ tooth: 45, status: "Corona" }], sentencesFor(text));
-  assert.match(odontogram[0].advisory, /Revisión clínica · FDI 4\.5/);
+  assert.match(odontogram[0].advisory, /Incoherencia clínica · FDI 4\.5/);
+  assert.equal(odontogram[0].coherence, "incoherente");
   assert.match(odontogram[0].advisory, /no tiene pulpa/);
   assert.equal(notes.length, 1);
 });

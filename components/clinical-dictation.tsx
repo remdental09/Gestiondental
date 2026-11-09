@@ -421,7 +421,7 @@ export function ClinicalDictation({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           transcript: text,
-          chart: Object.entries(odontogram.teeth).map(([tooth, status]) => ({ tooth: Number(tooth), status })),
+          chart: Object.entries(odontogram.teeth).map(([tooth, status]) => ({ tooth: Number(tooth), status, ...(odontogram.crowns?.[Number(tooth)]?.foundation ? { foundation: odontogram.crowns[Number(tooth)]!.foundation } : {}) })),
         }),
       });
       const data = await response.json() as StructureOutcome & { error?: string };
@@ -1091,13 +1091,13 @@ export function ClinicalDictation({
               {teeth.map((item, index) => {
                 const currentStatus = odontogram.teeth[item.tooth] || "Sin hallazgos";
                 const nextStatus = item.kind === "crown" ? "Corona" : item.status || currentStatus;
-                return <article key={item.id} className={`rounded-xl border p-4 ${item.decision === "accepted" ? "border-emerald-200" : "border-[#e4def3] opacity-70"}`} data-testid="dictation-tooth">
+                return <article key={item.id} className={`rounded-xl border p-4 ${item.coherence === "incoherente" ? "border-rose-300 bg-rose-50/40" : item.decision === "accepted" ? "border-emerald-200" : "border-[#e4def3] opacity-70"}`} data-testid="dictation-tooth">
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div>
                       <p className="font-semibold">{item.numberingLabel}<OriginBadge origin={item.origin} conflict={item.conflict} /></p>
                       <Evidence text={item.evidence ?? item.sourceText} />
                       {item.incompleteCaries && <p className="mt-1 text-xs font-medium text-amber-800">Hallazgo incompleto: complétalo para aceptarlo.</p>}
-                      {item.advisory && <p className="mt-1 text-xs font-medium text-amber-800">{item.advisory}</p>}
+                      {item.advisory && <p className={`mt-1 rounded-md px-2 py-1 text-xs font-medium ${item.coherence === "incoherente" ? "border border-rose-300 bg-rose-50 text-rose-900" : "text-amber-800"}`} data-testid={item.coherence ? `coherence-${item.coherence}` : undefined}>{item.advisory}</p>}
                     </div>
                     <Decision value={item.decision} onChange={(decision) => setTeeth((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, decision } : entry))} />
                   </div>

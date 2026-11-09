@@ -220,3 +220,10 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 - Capa 1 (`lib/dictation/clinical-review.ts`, reglas, sin costo): marca con aviso y deja SIN aceptar por defecto un cambio incoherente: implante en pieza que se trepana/tiene pulpitis/endodoncia/caries u obturación, corona sobre diente natural → implante sin extracción ni instalación dictadas, pieza «ausente» a la que se le hace tratamiento. Se aplica en `applyEvolutionPolicy`.
 - Capa 2 (`ClinicalModel.review` → `runOpenAiReview`): un «dentista revisor» de OpenAI mira dictado + odontograma actual + cambios propuestos y devuelve observaciones; solo pueden recaer sobre cambios ya propuestos. Si falla o tarda más de 20 s, la propuesta sigue igual (la capa 1 queda).
 - Los avisos aparecen en ámbar bajo cada cambio («Revisión clínica …») y en las aclaraciones.
+
+## Coherencia clínica del odontograma (modelo de la pieza)
+- `lib/dictation/tooth-model.ts`: cada pieza tiene un sustrato (diente natural, ausente, implante, sin registro). Cada cambio propuesto se valida (1) contra lo que se le hace hoy a la pieza (pulpa/caras solo en diente natural; una pieza tratada no queda ausente) y (2) contra el paso desde lo registrado (natural→ausente exige extracción; natural→implante exige extracción + instalación; ausente→natural e implante→natural son imposibles; caras solo en diente natural). Reemplaza las reglas sueltas de la capa 1.
+- Resultado en `OdontogramChange.coherence`: «incoherente» (rojo, sin aceptar) o «reemplaza» (ámbar, sin aceptar, antes → después). Un reemplazo que el dictado explica como hecho de hoy (extracción, instalación, pilar, corona) se propone marcado.
+- La app envía si la corona es sobre diente o implante (`chart[].foundation`).
+- Banco de casos: `tests/fixtures/casos-coherencia.json` (anónimos, con trampas). Corre en los tests con reglas y con `scripts/coherence-eval.mjs --openai` con la IA real. Antes del modelo: 9/15; con el modelo: 15/15 (reglas). Cada error clínico nuevo debe agregarse como caso.
+- Pendiente (opción 3): dar a la IA todo el contexto (odontograma completo, últimas atenciones, anamnesis) y subir su razonamiento.
