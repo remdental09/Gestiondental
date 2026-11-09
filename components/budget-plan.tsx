@@ -1,10 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Plus, Trash2, Wallet } from "lucide-react";
+import { CheckCircle2, Circle, Plus, Trash2, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { budgetItemTotal, budgetPhases, budgetTotals, type BudgetItem } from "@/lib/budget-plans";
+import { budgetItemTotal, budgetPhases, budgetProgress, budgetTotals, itemTeeth, parseTeethText, type BudgetItem } from "@/lib/budget-plans";
+import { formatFdi } from "@/app/clinical-data";
 import type { Prestacion } from "@/lib/prestaciones-catalog";
 
 export type BudgetPlan = {
@@ -27,6 +28,8 @@ export type BudgetPaymentEntry = {
 };
 
 const money = (amount: number) => "$" + amount.toLocaleString("es-CL");
+const chileToday = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Santiago", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+const displayIso = (iso: string) => iso.split("-").reverse().join("-");
 const paymentMethodLabel: Record<string, string> = { efectivo: "Efectivo", debito: "Débito", credito: "Crédito", transferencia: "Transferencia", otro: "Otro" };
 
 type CatalogModule = typeof import("@/lib/prestaciones-catalog");
@@ -67,6 +70,7 @@ export function BudgetItemsEditor({ items, onChange }: { items: BudgetItem[]; on
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="space-y-1 text-sm font-medium sm:col-span-2">Prestación<PrestacionField value={item.label} onChange={label => update(index, { label, code: undefined })} onPick={(label, code) => update(index, { label, code })}/></label>
         <label className="space-y-1 text-sm font-medium">Fase<Input maxLength={80} value={item.phase ?? ""} onChange={event => update(index, { phase: event.target.value })} placeholder="Fase 1 · Resolución"/></label>
+        <label className="space-y-1 text-sm font-medium">Piezas (FDI)<Input key={`teeth-${index}-${(item.teeth ?? []).join("-")}`} inputMode="decimal" maxLength={120} defaultValue={(item.teeth ?? []).map(formatFdi).join(", ")} onBlur={event => { const teeth = parseTeethText(event.target.value); update(index, { teeth: teeth.length ? teeth : undefined }); }} placeholder={itemTeeth(item).length ? itemTeeth(item).map(formatFdi).join(", ") + " (del nombre)" : "Ej.: 3.6, 4.6 · vacío si no aplica"}/><span className="block text-xs font-normal text-[#6e6a8c]">Se marca en el odontograma.</span></label>
         <label className="space-y-1 text-sm font-medium">Valor CLP<Input type="number" inputMode="numeric" min="1" step="1" value={item.amount || ""} onChange={event => update(index, { amount: Number(event.target.value) })} placeholder="790000"/></label>
         <label className="space-y-1 text-sm font-medium">Descuento (%)<Input type="number" inputMode="numeric" min="0" max="100" step="1" value={item.discountPercent ?? 0} onChange={event => update(index, { discountPercent: Number(event.target.value) })}/></label>
         <div className="flex items-end justify-between gap-3 pb-2 text-sm"><span className="text-[#6e6a8c]">Total de la prestación</span><strong>{money(budgetItemTotal(item))}</strong></div>
@@ -83,7 +87,7 @@ export function BudgetItemsEditor({ items, onChange }: { items: BudgetItem[]; on
 }
 
 export function BudgetCard({
-  budget, patientName, parentTitle, paid = 0, payments = [], onEdit, onPrint, onCreateAlternative, onSelectPrimary, onRegisterPayment,
+  budget, patientName, parentTitle, paid = 0, payments = [], onEdit, onPrint, onCreateAlternative, onSelectPrimary, onRegisterPayment, onSetItemDone,
 }: {
   budget: BudgetPlan;
   patientName?: string;
@@ -95,8 +99,20 @@ export function BudgetCard({
   onCreateAlternative?: () => void;
   onSelectPrimary?: () => void;
   onRegisterPayment?: () => void;
+  /** Marca (fecha AAAA-MM-DD) o desmarca (null) una prestación como realizada. Solo planes principales. */
+  onSetItemDone?: (index: number, doneOn: string | null) => Promise<void>;
 }) {
   const totals = budgetTotals(budget.items);
+  const progress = budgetProgress(budget.items, paid);
+  const [savingIndex, setSavingIndex] = useState<number | null>(null);
+  const [itemError, setItemError] = useState("");
+  const canTrack = !budget.isAlternative && !!onSetItemDone;
+  const setDone = async (index: number, doneOn: string | null) => {
+    if (!onSetItemDone) return;
+    setSavingIndex(index); setItemError("");
+    try { await onSetItemDone(index, doneOn); } catch (error) { setItemError(error instanceof Error ? error.message : "No se pudo guardar el avance."); } finally { setSavingIndex(null); }
+  };
+  const indexed = budget.items.map((item, index) => ({ item, index }));
   const balance = Math.max(0, totals.total - paid);
   return <article className="rounded-xl border border-[#e4def3] p-5 transition hover:border-[#b9a3f5]">
     <div className="flex flex-wrap items-start justify-between gap-3">
@@ -119,11 +135,45 @@ export function BudgetCard({
         {onEdit && <Button type="button" variant="outline" size="sm" onClick={onEdit}>Editar</Button>}
       </div>
     </div>
+    {!budget.isAlternative && <div className="mt-4 border-t border-[#eeeaf8] pt-3" data-testid={"budget-progress-" + budget.id}>
+      <div className="flex flex-wrap items-center justify-between gap-2 text-sm"><strong>Avance del tratamiento</strong><span className="text-[#625e82]">{progress.doneCount} de {progress.totalCount} prestaciones realizadas</span></div>
+      <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-[#ece6fb]" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress.percent} aria-label="Avance del plan"><div className="h-full rounded-full bg-[linear-gradient(90deg,#6a3fc8,#a78bf0)] transition-all" style={{ width: `${progress.percent}%` }}/></div>
+      <div className="mt-3 grid gap-2 text-sm sm:grid-cols-3">
+        <p><span className="text-[#6e6a8c]">Realizado</span><strong className="ml-2">{money(progress.doneValue)}</strong></p>
+        <p><span className="text-[#6e6a8c]">Por realizar</span><strong className="ml-2">{money(progress.pendingValue)}</strong></p>
+        <p>{progress.owedForDone > 0
+          ? <><span className="text-[#6e6a8c]">Realizado sin pagar</span><strong className="ml-2 text-[#a43542]">{money(progress.owedForDone)}</strong></>
+          : progress.advance > 0
+            ? <><span className="text-[#6e6a8c]">Abono adelantado</span><strong className="ml-2 text-[#5a35b5]">{money(progress.advance)}</strong></>
+            : <><span className="text-[#6e6a8c]">Al día con lo realizado</span><strong className="ml-2">✓</strong></>}</p>
+      </div>
+    </div>}
     <div className="mt-4 space-y-4 border-t border-[#eeeaf8] pt-3">
       {budgetPhases(budget.items).map(phase => <section key={phase.name}>
         <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#4f4a74]">{phase.name}</h4>
-        <ul className="space-y-2">{phase.items.map((item, index) => <li key={`${item.label}-${index}`} className="flex flex-wrap justify-between gap-x-4 gap-y-1 text-sm text-[#625e82]"><span>{item.label}{item.code ? <span className="ml-2 text-xs text-[#6e6a8c]">Cód. {item.code}</span> : null}{item.discountPercent ? <span className="ml-2 text-xs text-[#5a35b5]">−{item.discountPercent}%</span> : null}</span><span>{money(budgetItemTotal(item))}</span></li>)}</ul>
+        <ul className="space-y-2">{indexed.filter(({ item }) => (item.phase?.trim() || "Etapa 1") === phase.name).map(({ item, index }) => {
+          const teeth = itemTeeth(item);
+          const done = Boolean(item.doneOn);
+          return <li key={`${item.label}-${index}`} className={"flex flex-wrap items-start justify-between gap-x-4 gap-y-1 rounded-lg px-2 py-1.5 text-sm " + (done ? "bg-[#f3effd] text-[#3d2f73]" : "text-[#625e82]")} data-testid={`budget-item-${budget.id}-${index}`}>
+            <span className="flex min-w-0 items-start gap-2">
+              {canTrack
+                ? <button type="button" disabled={savingIndex !== null} onClick={() => void setDone(index, done ? null : chileToday())} aria-pressed={done} aria-label={done ? `Marcar «${item.label}» como pendiente` : `Marcar «${item.label}» como realizada`} className="mt-0.5 shrink-0 text-[#6a3fc8] disabled:opacity-50">{done ? <CheckCircle2 className="size-5"/> : <Circle className="size-5 text-[#b9a3f5]"/>}</button>
+                : done ? <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-[#6a3fc8]" aria-label="Realizada"/> : null}
+              <span className="min-w-0">
+                <span className={done ? "font-medium" : ""}>{item.label}</span>
+                {item.code ? <span className="ml-2 text-xs text-[#6e6a8c]">Cód. {item.code}</span> : null}
+                {item.discountPercent ? <span className="ml-2 text-xs text-[#5a35b5]">−{item.discountPercent}%</span> : null}
+                {teeth.length > 0 && <span className="ml-2 inline-flex flex-wrap gap-1 align-middle">{teeth.map(tooth => <span key={tooth} className="rounded bg-white px-1.5 py-0.5 text-[11px] font-semibold text-[#5a35b5] ring-1 ring-[#ddd6f0]">{formatFdi(tooth)}</span>)}</span>}
+                {done && <span className="mt-0.5 block text-xs text-[#5a35b5]">Realizada el {canTrack
+                  ? <input type="date" aria-label={`Fecha en que se realizó «${item.label}»`} className="rounded border border-[#ddd6f0] bg-white px-1 text-xs" value={item.doneOn} max={chileToday()} disabled={savingIndex !== null} onChange={event => { if (event.target.value) void setDone(index, event.target.value); }}/>
+                  : displayIso(item.doneOn!)}</span>}
+              </span>
+            </span>
+            <span className="shrink-0">{money(budgetItemTotal(item))}</span>
+          </li>;
+        })}</ul>
       </section>)}
+      {itemError && <p role="alert" className="text-sm text-[#a43542]">{itemError}</p>}
     </div>
     {budget.isAlternative
       ? <p className="mt-4 border-t border-[#eeeaf8] pt-3 text-xs text-[#6e6a8c]">Esta opción es solo una cotización. Para asociarle pagos, primero establécela como plan principal.</p>
