@@ -8,8 +8,8 @@ import type { TranscriptCorrection, StructureOutcome } from "@/lib/dictation/pro
 export function WordDiffView({ before, after, testId }: { before: string; after: string; testId?: string }) {
   const segments = wordDiff(before, after);
   const changed = changedWordCount(segments);
-  return <div data-testid={testId} className="rounded-lg border border-[#dbe7e8] bg-white p-3">
-    <p className="mb-1 text-xs font-medium text-[#31575b]">{changed ? `${changed} ${changed === 1 ? "palabra cambiada" : "palabras cambiadas"} · tachado = como se dictó, verde = corregido` : "Sin cambios: el texto se entendió tal como se dictó."}</p>
+  return <div data-testid={testId} className="rounded-lg border border-[#ddd6f0] bg-white p-3">
+    <p className="mb-1 text-xs font-medium text-[#3d2f73]">{changed ? `${changed} ${changed === 1 ? "palabra cambiada" : "palabras cambiadas"} · tachado = como se dictó, verde = corregido` : "Sin cambios: el texto se entendió tal como se dictó."}</p>
     <p className="text-base leading-7 sm:text-sm sm:leading-6">{segments.map((segment, index) => <span key={index}>
       {index > 0 && " "}
       {segment.type === "same" ? segment.text

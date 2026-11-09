@@ -134,11 +134,11 @@ export function GoogleDriveBackup() {
     return (
       <section className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-xl border border-[#b9dcda] bg-white px-4 py-4" aria-label="Conexión de Google Drive">
         <div>
-          <p className="font-semibold text-[#174c50]">Activa el respaldo automático en Google Drive</p>
-          <p className="mt-1 text-sm text-[#60757a]">La aplicación te pedirá permiso para guardar las fichas en el Drive de esta cuenta. Puedes seguir trabajando aunque no lo conectes ahora.</p>
-          {message && <p className="mt-2 text-sm text-[#60757a]" role="status">{message}</p>}
+          <p className="font-semibold text-[#3d2f73]">Activa el respaldo automático en Google Drive</p>
+          <p className="mt-1 text-sm text-[#625e82]">La aplicación te pedirá permiso para guardar las fichas en el Drive de esta cuenta. Puedes seguir trabajando aunque no lo conectes ahora.</p>
+          {message && <p className="mt-2 text-sm text-[#625e82]" role="status">{message}</p>}
         </div>
-        <a href="/api/drive/connect" className="inline-flex min-h-10 items-center justify-center rounded-lg bg-[#087f83] px-4 py-2 text-sm font-semibold text-white hover:bg-[#07676b]">
+        <a href="/api/drive/connect" className="inline-flex min-h-10 items-center justify-center rounded-lg bg-[#6a3fc8] px-4 py-2 text-sm font-semibold text-white hover:bg-[#5632a3]">
           Conectar Google Drive
         </a>
       </section>

@@ -45,53 +45,53 @@ export function BudgetPrintDialog({
             role="radio"
             aria-checked={mode === option.value}
             onClick={() => setMode(option.value)}
-            className={"rounded-xl border p-3 text-left transition " + (mode === option.value ? "border-[#087f83] bg-[#eff8f6]" : "border-[#dce5e7] bg-white hover:border-[#9accca]")}
+            className={"rounded-xl border p-3 text-left transition " + (mode === option.value ? "border-[#6a3fc8] bg-[#f3effd]" : "border-[#ddd6f0] bg-white hover:border-[#b9a3f5]")}
           >
             <span className="block font-semibold">{option.title}</span>
-            <span className="mt-1 block text-xs text-[#60757a]">{option.description}</span>
+            <span className="mt-1 block text-xs text-[#625e82]">{option.description}</span>
           </button>)}
         </div>
       </div>
 
-      <article id="budget-print-document" data-budget-print-document className="mt-5 rounded-xl border border-[#dce5e7] bg-white p-6 text-[#20343b]">
-        <header className="border-b border-[#dce5e7] pb-4">
-          <p className="text-xs font-bold uppercase tracking-[.16em] text-[#3c8585]">Gestión Dental · Dr. Luis Rodríguez</p>
+      <article id="budget-print-document" data-budget-print-document className="mt-5 rounded-xl border border-[#ddd6f0] bg-white p-6 text-[#1f1b3a]">
+        <header className="border-b border-[#ddd6f0] pb-4">
+          <p className="text-xs font-bold uppercase tracking-[.16em] text-[#7a52d6]">Gestión Dental · Dr. Luis Rodríguez</p>
           <h2 className="mt-2 text-2xl font-semibold">{budget.isAlternative ? "Alternativa de tratamiento" : "Presupuesto de tratamiento"}</h2>
-          <p className="mt-1 text-sm text-[#60757a]">{budget.title}</p>
+          <p className="mt-1 text-sm text-[#625e82]">{budget.title}</p>
           <div className="mt-4 grid gap-1 text-sm sm:grid-cols-2">
-            <p><span className="text-[#71858b]">Paciente:</span> <strong>{patientName}</strong></p>
-            <p><span className="text-[#71858b]">Fecha:</span> {budget.date}</p>
+            <p><span className="text-[#6e6a8c]">Paciente:</span> <strong>{patientName}</strong></p>
+            <p><span className="text-[#6e6a8c]">Fecha:</span> {budget.date}</p>
           </div>
         </header>
 
         {mode === "total" ? <section className="py-8 text-center">
-          <p className="text-sm text-[#60757a]">Total del presupuesto</p>
-          <p className="mt-2 text-3xl font-bold text-[#087f83]">{money(totals.total)}</p>
+          <p className="text-sm text-[#625e82]">Total del presupuesto</p>
+          <p className="mt-2 text-3xl font-bold text-[#6a3fc8]">{money(totals.total)}</p>
         </section> : <div className="mt-5 space-y-5">
           {budgetPhases(budget.items).map(phase => <section key={phase.name} className="break-inside-avoid">
-            <h3 className="border-b border-[#edf1f2] pb-2 text-sm font-semibold uppercase tracking-wide text-[#527075]">{phase.name}</h3>
-            <ul className="divide-y divide-[#edf1f2]">
+            <h3 className="border-b border-[#eeeaf8] pb-2 text-sm font-semibold uppercase tracking-wide text-[#4f4a74]">{phase.name}</h3>
+            <ul className="divide-y divide-[#eeeaf8]">
               {phase.items.map((item, index) => <li key={phase.name + "-" + index} className="flex justify-between gap-4 py-3 text-sm">
-                <span>{item.label}{mode === "detailed" && item.discountPercent ? <span className="ml-2 text-xs text-[#2b7764]">Descuento {item.discountPercent}%</span> : null}</span>
+                <span>{item.label}{mode === "detailed" && item.discountPercent ? <span className="ml-2 text-xs text-[#5a35b5]">Descuento {item.discountPercent}%</span> : null}</span>
                 {mode === "detailed" && <strong className="shrink-0">{money(budgetItemTotal(item))}</strong>}
               </li>)}
             </ul>
           </section>)}
-          {mode === "detailed" && <section className="ml-auto max-w-sm space-y-2 border-t border-[#dce5e7] pt-4 text-sm">
+          {mode === "detailed" && <section className="ml-auto max-w-sm space-y-2 border-t border-[#ddd6f0] pt-4 text-sm">
             <p className="flex justify-between"><span>Subtotal</span><span>{money(totals.subtotal)}</span></p>
-            <p className="flex justify-between text-[#60757a]"><span>Descuentos</span><span>−{money(totals.discount)}</span></p>
-            <p className="flex justify-between border-t border-[#dce5e7] pt-3 text-base font-bold"><span>Total</span><span className="text-[#087f83]">{money(totals.total)}</span></p>
+            <p className="flex justify-between text-[#625e82]"><span>Descuentos</span><span>−{money(totals.discount)}</span></p>
+            <p className="flex justify-between border-t border-[#ddd6f0] pt-3 text-base font-bold"><span>Total</span><span className="text-[#6a3fc8]">{money(totals.total)}</span></p>
           </section>}
         </div>}
 
-        <footer className="mt-8 border-t border-[#dce5e7] pt-3 text-xs text-[#71858b]">
+        <footer className="mt-8 border-t border-[#ddd6f0] pt-3 text-xs text-[#6e6a8c]">
           Presupuesto informativo sujeto a evaluación y confirmación del profesional tratante.
         </footer>
       </article>
 
       <DialogFooter data-budget-print-controls className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
         <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cerrar</Button>
-        <Button type="button" className="bg-[#087f83] hover:bg-[#07676b]" onClick={() => window.print()}>Imprimir / Guardar como PDF</Button>
+        <Button type="button" className="bg-[#6a3fc8] hover:bg-[#5632a3]" onClick={() => window.print()}>Imprimir / Guardar como PDF</Button>
       </DialogFooter>
     </DialogContent>
   </Dialog>;
