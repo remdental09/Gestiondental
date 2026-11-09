@@ -34,6 +34,7 @@ const PATIENT_TABS=[
   {value:"endodoncia",label:"Endodoncia",style:"border-[#bfa8ee]! bg-[#dccdf8]! text-[#3a2282]! hover:bg-[#d0bdf4]! data-[state=active]:border-[#6a3fc8]! data-[state=active]:bg-[#6a3fc8]! data-[state=active]:text-white!"},
   {value:"ortodoncia",label:"Ortodoncia",style:"border-[#e0bfe8]! bg-[#f6e3fa]! text-[#7a2a82]! hover:bg-[#f0d4f6]! data-[state=active]:border-[#b24fb8]! data-[state=active]:bg-[#b24fb8]! data-[state=active]:text-white!"},
   {value:"presupuestos",label:"Presupuestos",style:"border-[#b7a0ea]! bg-[#d4c3f5]! text-[#2f1b78]! hover:bg-[#c8b4f1]! data-[state=active]:border-[#4b2a99]! data-[state=active]:bg-[#4b2a99]! data-[state=active]:text-white!"},
+  {value:"aranceles",label:"Aranceles",style:"border-[#c6a6dd]! bg-[#e6d3f3]! text-[#5b1f7a]! hover:bg-[#dcc3ee]! data-[state=active]:border-[#7a2ba3]! data-[state=active]:bg-[#7a2ba3]! data-[state=active]:text-white!"},
 ] as const;
 const OrthodonticsPanel = lazy(() => import("@/components/orthodontics").then(module => ({ default: module.OrthodonticsPanel })));
 const PatientImages = lazy(() => import("@/components/patient-images").then(module => ({ default: module.PatientImages })));
@@ -702,6 +703,7 @@ export default function Home(){
 /></div></TabsContent>
             <TabsContent value="odontograma"><Suspense fallback={<div className="min-h-[320px] rounded-xl bg-white p-5 text-sm text-[#6e6a8c]" role="status">Cargando odontograma…</div>}><Odontogram key={selectedId} endo={endoMarks} onOpenEndo={tooth=>{setEndoFocus(tooth);setActiveTab("endodoncia")}} planned={plannedTeeth} onSetPlannedDone={setBudgetItemDone} onOpenPlan={()=>setActiveTab("presupuestos")} onDeleteEvent={deleteToothEvent} onEditEvent={editToothEvent} data={toothStatuses[selectedId]??emptyOdontogram()} evolutionEvents={toothEvolutionHistory} onSetStatus={updateTooth} onSetMissingReason={updateMissingReason} onSetSurface={updateSurface} onSetCrownDetails={updateCrownDetails}/></Suspense></TabsContent>
             <TabsContent value="presupuestos"><div className="surface"><div className="flex justify-between gap-3"><div><h3 className="font-semibold">Planes de tratamiento y presupuestos</h3><p className="mt-1 text-sm text-[#625e82]">Organiza prestaciones por fases y revisa total, abonos y saldo en cada plan.</p></div><Button variant="outline" size="sm" onClick={startNewBudget}>Añadir plan</Button></div><div className="mt-5 space-y-4">{patientBudgets.length?<>
+            <TabsContent value="aranceles"><Suspense fallback={<div className="min-h-[220px] rounded-xl bg-white p-5 text-sm text-[#6e6a8c]" role="status">Cargando aranceles…</div>}>{activeTab==="aranceles"&&<ArancelesPanel/>}</Suspense></TabsContent>
               {patientBudgets.filter(b=>!b.isAlternative).map(primary=>{
                 const paid=patientPayments.filter(payment=>payment.budgetId===primary.id).reduce((sum,payment)=>sum+payment.amount,0);
                 const alternatives=patientBudgets.filter(budget=>budget.isAlternative&&budget.parentBudgetId===primary.id);
