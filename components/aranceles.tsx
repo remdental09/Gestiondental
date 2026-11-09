@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { normalizePrice, type PriceMap } from "@/lib/aranceles";
 import { PRESTACIONES, PRESTACION_GROUPS, prestacionLabel } from "@/lib/prestaciones-catalog";
@@ -22,8 +22,13 @@ const GROUPS = PRESTACION_GROUPS.map(group => ({
 GROUPS.push({ name: OWN_ONLY_GROUP, label: "Estética y blanqueamiento (tus prestaciones)", items: [] });
 const groupOfSpecialty = (specialty: string) => SPECIALTY_CATALOG_GROUP[specialty] ?? OWN_ONLY_GROUP;
 
+export type CartItem = { key: number; label: string; code?: string; amount: number };
+/** Cuando el panel se abre dentro de la ficha de un paciente: permite llevar prestaciones a su presupuesto. */
+export type ArancelPatient = { name: string; budgets: Array<{ id: number; title: string }>; cart: CartItem[]; onCartChange: (items: CartItem[]) => void; onSend: (items: CartItem[], targetBudgetId: number | null) => void };
+
 /** Aranceles: cada profesional fija el precio de las prestaciones que realiza. Se guarda al salir del campo. */
-export function ArancelesPanel() {
+export function ArancelesPanel({ patient }: { patient?: ArancelPatient }) {
+  const [target, setTarget] = useState("new");
   const [prices, setPrices] = useState<PriceMap>({});
   const [hidden, setHiddenCodes] = useState<string[]>([]);
   const [names, setNames] = useState<Record<string, string>>({});
@@ -171,15 +176,23 @@ export function ArancelesPanel() {
     } catch (error) { setMessage(error instanceof Error ? error.message : "No se pudo actualizar la prestación."); }
   };
 
+  const addToCart = (label: string, code: string | undefined, amount: number | null | undefined) => {
+    if (!patient) return;
+    patient.onCartChange([...patient.cart, { key: Date.now() + Math.random(), label, ...(code ? { code } : {}), amount: amount ?? 0 }]);
+  };
+  const addButton = (label: string, code: string | undefined, amount: number | null | undefined, testId: string) => patient
+    ? <button type="button" aria-label={`Agregar ${label} al presupuesto de ${patient.name}`} title="Agregar al presupuesto del paciente" onClick={() => addToCart(label, code, amount)} className="inline-flex items-center gap-1 rounded-lg bg-[#ece6fb] px-2 py-1.5 text-xs font-semibold text-[#4b2a99] hover:bg-[#ddd2f7]" data-testid={testId}><Plus className="size-3.5"/>Agregar</button>
+    : null;
   const customRow = (item: CustomPrestacion, scope: "mine" | "group") => {
     const value = customDrafts[item.id] ?? (item.price !== null ? String(item.price) : "");
-    return <li key={item.id} className="grid grid-cols-[minmax(0,1fr)_150px] items-center gap-x-3 gap-y-1 px-4 py-2 text-sm sm:grid-cols-[minmax(0,1fr)_170px_72px]" data-testid={`${scope}-row-${item.id}`}>
+    return <li key={item.id} className="grid grid-cols-[minmax(0,1fr)_150px] items-center gap-x-3 gap-y-1 px-4 py-2 text-sm sm:grid-cols-[minmax(0,1fr)_170px_150px]" data-testid={`${scope}-row-${item.id}`}>
       {renaming === item.id
         ? <Input autoFocus maxLength={120} value={renameDraft} onChange={event => setRenameDraft(event.target.value)} onBlur={() => commitRename(item)} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setRenaming(null); }} aria-label="Nombre de la prestación" className="h-9"/>
         : <span className={item.price !== null ? "font-medium text-[#1f1b3a]" : "text-[#4f4a74]"}>{item.name}{scope === "group" && <span className="ml-2 rounded-full bg-[#ece6fb] px-2 py-0.5 text-[11px] font-semibold text-[#6a3fc8]" data-testid={`own-badge-${item.id}`}>Mis prestaciones</span>}</span>}
       <span className="flex items-center gap-1"><span className="text-[#6e6a8c]">$</span><Input type="text" inputMode="numeric" aria-label={`Precio de ${item.name}`} placeholder="Sin precio" value={value} data-testid={`${scope}-price-${item.id}`}
         onChange={event => setCustomDrafts(previous => ({ ...previous, [item.id]: event.target.value }))} onBlur={() => commitCustom(item)} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); }} className="h-9 text-right"/></span>
-      <span className="col-span-2 flex justify-end gap-1 sm:col-span-1">
+      <span className="col-span-2 flex items-center justify-end gap-1 sm:col-span-1">
+        {addButton(item.name, undefined, item.price, `${scope}-add-${item.id}`)}
         <button type="button" aria-label={`Cambiar nombre de ${item.name}`} onClick={() => { setRenameDraft(item.name); setRenaming(item.id); }} className="rounded p-2 text-[#4f4a74] hover:bg-[#f3effd]"><Pencil className="size-4"/></button>
         <button type="button" aria-label={`Eliminar ${item.name}`} onClick={() => removeCustom(item)} className="rounded p-2 text-[#8c4a51] hover:bg-rose-50" data-testid={`${scope}-delete-${item.id}`}><Trash2 className="size-4"/></button>
       </span>
@@ -237,7 +250,7 @@ export function ArancelesPanel() {
             {group.shown.map(item => {
               const range = suggestedRange(item.code);
               const value = drafts[item.code] ?? (prices[item.code] !== undefined ? String(prices[item.code]) : "");
-              return <li key={item.code} className="grid grid-cols-[minmax(0,1fr)_150px] items-center gap-x-3 gap-y-1 px-4 py-2 text-sm sm:grid-cols-[84px_minmax(0,1fr)_190px_260px]">
+              return <li key={item.code} className="grid grid-cols-[minmax(0,1fr)_150px] items-center gap-x-3 gap-y-1 px-4 py-2 text-sm sm:grid-cols-[84px_minmax(0,1fr)_170px_330px]">
                 <span className="hidden font-mono text-xs text-[#6e6a8c] sm:block">{item.code}</span>
                 {renamingCode === item.code
                   ? <Input autoFocus maxLength={120} value={codeDraft} onChange={event => setCodeDraft(event.target.value)} onBlur={() => commitCatalogName(item.code, item.label)} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setRenamingCode(null); }} aria-label="Nombre de la prestación" className="order-1 h-9 sm:order-none" data-testid={`arancel-name-input-${item.code}`}/>
@@ -251,6 +264,7 @@ export function ArancelesPanel() {
                     onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); }}
                     className="h-9 text-right"/>
                   {prices[item.code] !== undefined && drafts[item.code] === undefined && <span className="sr-only">{money(prices[item.code])}</span>}
+                  {addButton(names[item.code] ?? item.label, item.code, prices[item.code], `arancel-add-${item.code}`)}
                   <button type="button" aria-label={`Cambiar nombre de ${names[item.code] ?? item.label}`} onClick={() => { setCodeDraft(names[item.code] ?? item.label); setRenamingCode(item.code); }} className="rounded p-2 text-[#4f4a74] hover:bg-[#f3effd]" data-testid={`arancel-rename-${item.code}`}><Pencil className="size-4"/></button>
                   <button type="button" aria-label={`Borrar ${names[item.code] ?? item.label}`} onClick={() => setCatalogHidden(item.code, names[item.code] ?? item.label, true)} className="rounded p-2 text-[#8c4a51] hover:bg-rose-50" data-testid={`arancel-delete-${item.code}`}><Trash2 className="size-4"/></button>
                 </span>
@@ -261,6 +275,22 @@ export function ArancelesPanel() {
       })}
       {loaded && visible.length === 0 && <p className="rounded-lg bg-[#f8f5ff] p-4 text-sm text-[#625e82]">{onlyPriced && !searching ? "Aún no has fijado ningún precio." : "No hay prestaciones que coincidan con la búsqueda."}</p>}
     </div>
+    {patient && patient.cart.length > 0 && <div className="sticky bottom-3 z-10 rounded-xl border border-[#6a3fc8] bg-white p-3 shadow-xl" data-testid="cart-bar">
+      <p className="text-sm font-semibold text-[#1f1b3a]">Para el presupuesto de {patient.name} ({patient.cart.length})</p>
+      <ul className="mt-2 flex flex-wrap gap-2">
+        {patient.cart.map(entry => <li key={entry.key} className="inline-flex max-w-full items-center gap-1 rounded-full bg-[#ece6fb] py-1 pl-3 pr-1 text-xs text-[#2f1b78]"><span className="truncate">{entry.label}{entry.amount ? ` · ${money(entry.amount)}` : " · sin precio"}</span><button type="button" aria-label={`Quitar ${entry.label}`} onClick={() => patient.onCartChange(patient.cart.filter(other => other.key !== entry.key))} className="rounded-full p-1 hover:bg-[#d9cdf6]"><X className="size-3"/></button></li>)}
+      </ul>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <label className="flex items-center gap-2 text-sm font-medium">Agregar a
+          <select className="min-h-10 rounded-lg border border-[#d3cbe8] bg-white px-2 text-sm" value={target} onChange={event => setTarget(event.target.value)} data-testid="cart-target">
+            <option value="new">Un presupuesto nuevo</option>
+            {patient.budgets.map(budget => <option key={budget.id} value={String(budget.id)}>{budget.title || `Presupuesto ${budget.id}`}</option>)}
+          </select>
+        </label>
+        <button type="button" onClick={() => { patient.onSend(patient.cart, target === "new" ? null : Number(target)); setTarget("new"); }} className="min-h-10 rounded-lg bg-[#6a3fc8] px-4 text-sm font-semibold text-white hover:bg-[#5a33b0]" data-testid="cart-send">Llevar al presupuesto</button>
+        <button type="button" onClick={() => { if (window.confirm("¿Vaciar la selección?")) patient.onCartChange([]); }} className="min-h-10 rounded-lg border border-[#d3cbe8] px-3 text-sm font-semibold text-[#4f4a74] hover:bg-[#f3effd]">Vaciar</button>
+      </div>
+    </div>}
     {creating && <CreatePrestacionDialog onClose={() => setCreating(false)} onCreated={(items, created) => { setCustoms(items); setCreating(false); setCustomOpen(true); setNotice(created === 1 ? "Se creó 1 prestación. La encuentras en «Mis prestaciones»." : `Se crearon ${created} prestaciones. Las encuentras en «Mis prestaciones».`); }}/>}
   </div>;
 }

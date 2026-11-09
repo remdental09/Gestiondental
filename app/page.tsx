@@ -24,6 +24,7 @@ import { buildAppUrl, parseAppUrl, resolveAppUrl, type ParsedAppUrl } from "@/li
 const Periodontogram = lazy(() => import("@/components/periodontogram").then(module => ({ default: module.Periodontogram })));
 const Odontogram = lazy(() => import("@/components/odontogram").then(module => ({ default: module.Odontogram })));
 const ArancelesPanel = lazy(() => import("@/components/aranceles").then(module => ({ default: module.ArancelesPanel })));
+import type { CartItem } from "@/components/aranceles";
 const EndodonticsPanel = lazy(() => import("@/components/endodontics").then(module => ({ default: module.EndodonticsPanel })));
 /** Cada pestaña clínica tiene su propio tono lila para reconocerla de un vistazo; la activa va con fondo sólido y letra blanca. */
 const PATIENT_TABS=[
@@ -128,6 +129,7 @@ export default function Home(){
   const modalRef=useRef<Modal>(null);
   useEffect(()=>{modalRef.current=modal},[modal]);
   const [activeTab,setActiveTab]=useState("evoluciones");
+  const [arancelCart,setArancelCart]=useState<{patientId:number;items:CartItem[]}>({patientId:0,items:[]});
   const [endoByPatient,setEndoByPatient]=useState<Record<number,EndoData>>({}),[endoFocus,setEndoFocus]=useState<number|null>(null),[endoError,setEndoError]=useState("");
   useEffect(()=>{
     if(!selectedId||endoByPatient[selectedId])return;
@@ -466,6 +468,20 @@ export default function Home(){
   const resetModal=useCallback(()=>{setFormError("");setModal(null);modalRef.current=null;setName("");setBirthDate("");setRut("");setPhone("");setEmail("");setReason("");setAllergies("");setHistory("");patientDraftRef.current={name:"",birthDate:"",rut:"",phone:"",email:"",reason:""};setPatientError("");setPatientAttemptedSave(false);setNoteTitle("");setNoteBody("");requestIdRef.current="";setBudgetTitle("");setBudgetItems([{label:"",amount:0,phase:"Fase 1",discountPercent:0}]);setEditingBudgetId(null);setAlternativeParentBudgetId(null);setEditingAppointmentId(null);setApptDate("");setApptTime("");setApptReason("")},[setAllergies,setAlternativeParentBudgetId,setApptDate,setApptReason,setApptTime,setBudgetItems,setBudgetTitle,setEmail,setHistory,setName,setNoteBody,setNoteTitle,setPhone,setRut]);
   const editPatient=()=>{if(!patient)return;setName(patient.name);setRut(patient.rut||"");setPhone(patient.phone||"");setEmail(patient.email||"");setAllergies(patient.allergies==="Sin registrar"?"":patient.allergies);setHistory(patient.history==="Sin registrar"?"":patient.history);setModal("editPatient")};
   const editBudget=(budget:Budget)=>{if(!patient||budget.patientId!==selectedId)return;setEditingBudgetId(budget.id);setAlternativeParentBudgetId(null);setBudgetTitle(budget.title);setBudgetItems(budget.items.map(item=>({label:item.label,amount:item.amount,phase:item.phase||"Fase 1",discountPercent:item.discountPercent??0})));setModal("editBudget")};
+  // Desde la pestaña Aranceles de la ficha: las prestaciones elegidas pasan a un presupuesto nuevo o a uno existente del paciente.
+  const sendArancelToBudget=(items:CartItem[],targetId:number|null)=>{
+    if(!patient)return;
+    const mapped=items.map(item=>({label:item.label,amount:item.amount,phase:"Fase 1",discountPercent:0,...(item.code?{code:item.code}:{})}));
+    if(targetId===null){setBudgetTitle("");setBudgetItems(mapped);setEditingBudgetId(null);setAlternativeParentBudgetId(null);setModal("budget")}
+    else{
+      const budget=patientBudgets.find(entry=>entry.id===targetId);
+      if(!budget)return;
+      setEditingBudgetId(budget.id);setAlternativeParentBudgetId(null);setBudgetTitle(budget.title);
+      setBudgetItems([...budget.items.map(item=>({...item,phase:item.phase||"Fase 1",discountPercent:item.discountPercent??0})),...mapped]);
+      setModal("editBudget");
+    }
+    setArancelCart({patientId:selectedId,items:[]});
+  };
   const startNewBudget=()=>{setBudgetTitle("");setBudgetItems([{label:"",amount:0,phase:"Fase 1",discountPercent:0}]);setEditingBudgetId(null);setAlternativeParentBudgetId(null);setModal("budget")};
   const startBudgetAlternative=(budget:Budget)=>{setBudgetTitle(budget.title+" · Alternativa");setBudgetItems(budget.items.map(item=>({label:item.label,amount:item.amount,phase:item.phase||"Fase 1",discountPercent:item.discountPercent??0})));setEditingBudgetId(null);setAlternativeParentBudgetId(budget.id);setModal("budget")};
   const setBudgetItemDone=async(budgetId:number,index:number,doneOn:string|null)=>{
@@ -703,7 +719,7 @@ export default function Home(){
 /></div></TabsContent>
             <TabsContent value="odontograma"><Suspense fallback={<div className="min-h-[320px] rounded-xl bg-white p-5 text-sm text-[#6e6a8c]" role="status">Cargando odontograma…</div>}><Odontogram key={selectedId} endo={endoMarks} onOpenEndo={tooth=>{setEndoFocus(tooth);setActiveTab("endodoncia")}} planned={plannedTeeth} onSetPlannedDone={setBudgetItemDone} onOpenPlan={()=>setActiveTab("presupuestos")} onDeleteEvent={deleteToothEvent} onEditEvent={editToothEvent} data={toothStatuses[selectedId]??emptyOdontogram()} evolutionEvents={toothEvolutionHistory} onSetStatus={updateTooth} onSetMissingReason={updateMissingReason} onSetSurface={updateSurface} onSetCrownDetails={updateCrownDetails}/></Suspense></TabsContent>
             <TabsContent value="presupuestos"><div className="surface"><div className="flex justify-between gap-3"><div><h3 className="font-semibold">Planes de tratamiento y presupuestos</h3><p className="mt-1 text-sm text-[#625e82]">Organiza prestaciones por fases y revisa total, abonos y saldo en cada plan.</p></div><Button variant="outline" size="sm" onClick={startNewBudget}>Añadir plan</Button></div><div className="mt-5 space-y-4">{patientBudgets.length?<>
-            <TabsContent value="aranceles"><Suspense fallback={<div className="min-h-[220px] rounded-xl bg-white p-5 text-sm text-[#6e6a8c]" role="status">Cargando aranceles…</div>}>{activeTab==="aranceles"&&<ArancelesPanel/>}</Suspense></TabsContent>
+            <TabsContent value="aranceles"><Suspense fallback={<div className="min-h-[220px] rounded-xl bg-white p-5 text-sm text-[#6e6a8c]" role="status">Cargando aranceles…</div>}>{activeTab==="aranceles"&&patient&&<ArancelesPanel patient={{name:patient.name,budgets:patientBudgets.map(budget=>({id:budget.id,title:budget.title})),cart:arancelCart.patientId===selectedId?arancelCart.items:[],onCartChange:items=>setArancelCart({patientId:selectedId,items}),onSend:sendArancelToBudget}}/>}</Suspense></TabsContent>
               {patientBudgets.filter(b=>!b.isAlternative).map(primary=>{
                 const paid=patientPayments.filter(payment=>payment.budgetId===primary.id).reduce((sum,payment)=>sum+payment.amount,0);
                 const alternatives=patientBudgets.filter(budget=>budget.isAlternative&&budget.parentBudgetId===primary.id);
