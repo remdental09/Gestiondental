@@ -1,7 +1,7 @@
 "use client";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { viewerInitials } from "@/app/access-owners";
-import { Activity, ArrowLeft, CalendarDays, ChevronLeft, ChevronRight, ClipboardList, Download, Home as HomeIcon, FilePlus2, LayoutDashboard, Menu, Mic, Plus, Search, Stethoscope, Trash2, Users, Wallet, X } from "lucide-react";
+import { Activity, ArrowLeft, CalendarDays, ChevronLeft, ChevronRight, ClipboardList, Download, Home as HomeIcon, FilePlus2, LayoutDashboard, LogOut, Menu, Mic, Plus, Search, Stethoscope, Trash2, Users, Wallet, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -597,7 +597,11 @@ export default function Home(){
             <button type="button" onClick={goHome} className="flex min-h-10 items-center gap-1 rounded-lg px-2 text-sm font-medium text-[#145b60] hover:bg-[#e4f2f1]"><HomeIcon className="size-4"/><span className="hidden sm:inline">Inicio</span></button>
             <span className="min-w-0 truncate text-sm font-semibold text-[#20343b]">{section}</span>
           </div>
-          <span className="hidden rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800 sm:inline">Ficha privada</span>
+          <div className="flex shrink-0 items-center gap-3">
+            <span className="hidden rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800 sm:inline">Ficha privada</span>
+            {/* Cloudflare Access cierra la sesión en esta ruta y vuelve a la pantalla de ingreso, para entrar con otra cuenta. */}
+            <a href="/cdn-cgi/access/logout" className="flex min-h-10 items-center gap-2 rounded-lg border border-[#dce5e7] px-3 text-sm font-medium text-[#53686e] hover:border-[#7bbdb9] hover:bg-[#f7fbfb] hover:text-[#145b60]" aria-label="Cerrar sesión para entrar con otra cuenta"><LogOut className="size-4"/><span className="hidden sm:inline">Cerrar sesión</span></a>
+          </div>
         </div>
         <nav className="flex gap-2 overflow-x-auto px-5 pb-3 lg:hidden md:px-9" aria-label="Ir a otra sección">
           {nav.map(({name,icon:Icon})=><button key={name} type="button" aria-current={section===name?"page":undefined} onClick={()=>openSection(name)} className={`flex shrink-0 items-center gap-2 rounded-full border px-3 py-2 text-sm font-medium ${section===name?"border-[#087f83] bg-[#e4f2f1] text-[#145b60]":"border-[#dce5e7] bg-white text-[#53686e]"}`}><Icon className="size-4"/>{name}</button>)}
