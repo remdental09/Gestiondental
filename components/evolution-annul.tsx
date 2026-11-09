@@ -21,9 +21,9 @@ export const isDictatedNote = (note: CommandNote) => /Transcripción completa/.t
 
 /** Las dos salidas: el dentista decide. */
 function ModeChoice({ mode, onChange, name }: { mode: RemovalMode | null; onChange: (mode: RemovalMode) => void; name: string }) {
-  const option = (value: RemovalMode, title: string, detail: string) => <label className={`flex min-h-12 cursor-pointer items-start gap-2 rounded-lg border p-3 ${mode === value ? "border-[#a43542] bg-rose-50" : "border-[#dbe7e8] bg-white"}`}>
+  const option = (value: RemovalMode, title: string, detail: string) => <label className={`flex min-h-12 cursor-pointer items-start gap-2 rounded-lg border p-3 ${mode === value ? "border-[#a43542] bg-rose-50" : "border-[#ddd6f0] bg-white"}`}>
     <input type="radio" name={name} className="mt-0.5 size-5 shrink-0 accent-[#a43542]" checked={mode === value} onChange={() => onChange(value)} data-testid={`${name}-${value}`} />
-    <span><span className="block font-semibold">{title}</span><span className="block text-xs font-normal leading-5 text-[#60757a]">{detail}</span></span>
+    <span><span className="block font-semibold">{title}</span><span className="block text-xs font-normal leading-5 text-[#625e82]">{detail}</span></span>
   </label>;
   return <fieldset className="min-w-0 space-y-2" aria-label="Cómo eliminar">
     {option("delete", "Error del sistema — eliminar definitivamente", "Se borra la evolución y sus diagnósticos; no queda en la ficha.")}
@@ -45,9 +45,9 @@ function ReplacementEditor({ value, onChange, testId }: { value: string; onChang
       </Button>
       {correction.error && <span role="alert" className="text-xs text-[#a43542]">{correction.error}</span>}
     </div>
-    <p className="text-xs leading-5 text-[#60757a]">Al corregir, este texto se envía a OpenAI si está configurada la clave; si no, a Workers AI cuando está habilitado. No se guarda hasta que lo revises y confirmes.</p>
+    <p className="text-xs leading-5 text-[#625e82]">Al corregir, este texto se envía a OpenAI si está configurada la clave; si no, a Workers AI cuando está habilitado. No se guarda hasta que lo revises y confirmes.</p>
     {correction.result && <>
-      {correction.result.provider && <p className="text-xs text-[#60757a]">Proveedor: {correction.result.provider === "openai" ? "API de OpenAI" : correction.result.provider === "workers-ai" ? "Cloudflare Workers AI" : "diccionario local"}.</p>}
+      {correction.result.provider && <p className="text-xs text-[#625e82]">Proveedor: {correction.result.provider === "openai" ? "API de OpenAI" : correction.result.provider === "workers-ai" ? "Cloudflare Workers AI" : "diccionario local"}.</p>}
       {correction.result.openAiNotConfigured && <p className="text-xs text-amber-900">La clave de OpenAI aún no está configurada en Cloudflare.</p>}
       {correction.result.aiError && <p className="text-xs text-amber-900">La IA no respondió ({correction.result.aiError}); se corrigió solo con el diccionario.</p>}
       <WordDiffView before={before} after={correction.result.text} testId={`${testId}-diff`} />
@@ -88,17 +88,17 @@ export function AnnulEvolutionDialog({ note, onClose, onConfirm }: { note: Comma
         <DialogDescription>Elige qué pasó con este registro.</DialogDescription>
       </DialogHeader>
       {note && <div className="space-y-3 text-sm">
-        <div className="rounded-lg border border-[#e4ebed] bg-[#f7fafa] p-3"><p className="text-xs font-medium uppercase tracking-wide text-[#71858b]">{noteDay(note)}{isDictatedNote(note) ? " · dictada" : ""}</p><p className="font-semibold">{note.title}</p><p className="mt-1 whitespace-pre-wrap text-[#53686e]">{preview(note.body, 400)}</p></div>
+        <div className="rounded-lg border border-[#e4def3] bg-[#f7f4ff] p-3"><p className="text-xs font-medium uppercase tracking-wide text-[#6e6a8c]">{noteDay(note)}{isDictatedNote(note) ? " · dictada" : ""}</p><p className="font-semibold">{note.title}</p><p className="mt-1 whitespace-pre-wrap text-[#565277]">{preview(note.body, 400)}</p></div>
         <ModeChoice mode={mode} onChange={setMode} name="annul-mode" />
         {mode === "annul" && <label className="block space-y-1 font-medium">Motivo *
           <Input className="text-base sm:text-sm" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Ej.: pieza equivocada, dato clínico erróneo" data-testid="annul-reason" />
         </label>}
         {mode && <label className="flex min-h-11 items-start gap-2 font-medium">
-          <input type="checkbox" className="mt-0.5 size-5 shrink-0 accent-[#087f83]" checked={replace} onChange={(event) => setReplace(event.target.checked)} data-testid="annul-replace" />
+          <input type="checkbox" className="mt-0.5 size-5 shrink-0 accent-[#6a3fc8]" checked={replace} onChange={(event) => setReplace(event.target.checked)} data-testid="annul-replace" />
           <span>Escribir una evolución nueva en su lugar</span>
         </label>}
         {mode && replace && <ReplacementEditor value={body} onChange={setBody} testId="annul-replacement" />}
-        {mode && <p className="text-xs text-[#60757a]">{KEEP_NOTE}</p>}
+        {mode && <p className="text-xs text-[#625e82]">{KEEP_NOTE}</p>}
         {error && <p role="alert" className="rounded-lg bg-rose-50 p-3 text-rose-900">{error}</p>}
       </div>}
       <DialogFooter className="gap-2">
@@ -149,7 +149,7 @@ export function VoiceCommandCard({ command, notes, patientName, onConfirm, onDis
     </div>
     {note ? <div className="rounded-lg border border-rose-200 bg-white p-3" data-testid="voice-command-target">
       <p className="text-sm font-semibold text-rose-900"><Ban className="mr-1 inline size-4 align-[-3px]" aria-hidden="true" />{verb} evolución del {noteDay(note)}</p>
-      <p className="mt-1 text-sm"><strong>{note.title}</strong> — <span className="text-[#53686e]">{preview(note.body)}</span></p>
+      <p className="mt-1 text-sm"><strong>{note.title}</strong> — <span className="text-[#565277]">{preview(note.body)}</span></p>
       {target.sameDay > 1 && <p className="mt-1 text-xs text-amber-900">Hay {target.sameDay} evoluciones ese día; se propone la más reciente. Si es otra, elimínala desde la historia clínica.</p>}
     </div> : <p role="alert" className="rounded-lg bg-white p-3 text-sm text-rose-900">{target.message}</p>}
     {note && <>
@@ -158,11 +158,11 @@ export function VoiceCommandCard({ command, notes, patientName, onConfirm, onDis
         <Input className="bg-white text-base sm:text-sm" value={reason} onChange={(event) => { setReason(event.target.value); setStep("review"); }} data-testid="voice-command-reason" />
       </label>}
       <label className="flex min-h-11 items-start gap-2 text-sm font-medium">
-        <input type="checkbox" className="mt-0.5 size-5 shrink-0 accent-[#087f83]" checked={withReplacement} onChange={(event) => { setWithReplacement(event.target.checked); setStep("review"); }} data-testid="voice-command-with-replacement" />
+        <input type="checkbox" className="mt-0.5 size-5 shrink-0 accent-[#6a3fc8]" checked={withReplacement} onChange={(event) => { setWithReplacement(event.target.checked); setStep("review"); }} data-testid="voice-command-with-replacement" />
         <span>Nueva evolución{command.replacement ? " (lo que pediste dejar)" : ""}</span>
       </label>
       {withReplacement && <ReplacementEditor value={body} onChange={(value) => { setBody(value); setStep("review"); }} testId="voice-command-replacement" />}
-      <p className="text-xs leading-5 text-[#60757a]">{KEEP_NOTE}</p>
+      <p className="text-xs leading-5 text-[#625e82]">{KEEP_NOTE}</p>
       {error && <p role="alert" className="rounded-lg bg-rose-50 p-3 text-sm text-rose-900">{error}</p>}
       {step === "review" && <Button type="button" size="lg" className="h-auto min-h-12 w-full whitespace-normal bg-[#a43542] hover:bg-[#8a2c37]" disabled={(mode === "annul" && reason.trim().length < 3) || (withReplacement && !replacing)} onClick={() => setStep("confirm")} data-testid="voice-command-review">
         {replacing ? `${verb} la del ${noteDay(note)} y guardar la nueva…` : `${verb} la evolución del ${noteDay(note)}…`}

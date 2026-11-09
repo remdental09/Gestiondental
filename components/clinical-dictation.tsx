@@ -146,7 +146,7 @@ function OriginBadge({ origin, conflict }: { origin?: ItemOrigin; conflict?: boo
 
 function Evidence({ text }: { text?: string }) {
   if (!text) return null;
-  return <p className="mt-1 text-xs text-[#71858b]"><span className="font-medium">Dicho: </span>«{text}»</p>;
+  return <p className="mt-1 text-xs text-[#6e6a8c]"><span className="font-medium">Dicho: </span>«{text}»</p>;
 }
 type ReviewBudget = BudgetChange & { decision: "accepted" | "rejected"; amountText: string };
 
@@ -915,7 +915,7 @@ export function ClinicalDictation({
 
   return <>
     {prominent
-      ? <Button type="button" size="lg" className="h-auto min-h-12 shrink-0 whitespace-normal bg-[#087f83] px-5 text-base hover:bg-[#07676b]" onClick={() => setOpen(true)} data-testid="dictation-open" aria-label={`Dictar en la ficha de ${patientName}`}><Mic className="mr-2 size-5" />Dictar</Button>
+      ? <Button type="button" size="lg" className="h-auto min-h-12 shrink-0 whitespace-normal bg-[#6a3fc8] px-5 text-base hover:bg-[#5632a3]" onClick={() => setOpen(true)} data-testid="dictation-open" aria-label={`Dictar en la ficha de ${patientName}`}><Mic className="mr-2 size-5" />Dictar</Button>
       : <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)} data-testid="dictation-open"><Mic className="mr-2 size-4" />Dictar</Button>}
     <Dialog open={open} onOpenChange={(next) => { if (!next) close(); else setOpen(true); }}>
       <DialogContent className="max-h-[92vh] supports-[height:1dvh]:max-h-[92dvh] overflow-y-auto overscroll-contain bg-white pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:max-w-3xl">
@@ -924,19 +924,19 @@ export function ClinicalDictation({
           <DialogDescription>Paciente: {patientName}. Nada se guarda hasta que aceptes cada cambio. El ingreso manual sigue disponible.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4 text-sm">
-          {!supported && <p className="rounded-lg bg-[#f4f7f8] p-3 leading-6 text-[#31575b]" role="status">{unsupportedMessage}</p>}
+          {!supported && <p className="rounded-lg bg-[#f3f0fa] p-3 leading-6 text-[#3d2f73]" role="status">{unsupportedMessage}</p>}
           <div className="flex flex-wrap gap-2">
-            <Button type="button" variant={listening ? "default" : "outline"} className={listening ? "bg-[#087f83] hover:bg-[#07676b]" : ""} disabled={transcribing || !!answering} onClick={listening ? stop : () => void start()} aria-pressed={listening} data-testid="dictation-mic">
+            <Button type="button" variant={listening ? "default" : "outline"} className={listening ? "bg-[#6a3fc8] hover:bg-[#5632a3]" : ""} disabled={transcribing || !!answering} onClick={listening ? stop : () => void start()} aria-pressed={listening} data-testid="dictation-mic">
               {listening ? <MicOff className="mr-2 size-4" /> : <Mic className="mr-2 size-4" />}
               {listening ? "Detener" : "Dictar"}
             </Button>
             <Button type="button" variant="outline" onClick={() => { stopWithoutCorrecting(); setTranscript(EXAMPLE); setInterim(""); resetReview(); }} data-testid="dictation-example">Cargar ejemplo</Button>
-            <Button type="button" className="bg-[#087f83] hover:bg-[#07676b]" disabled={transcribing || structuring || listening || transcript.trim().length < 3} onClick={() => void structure(transcript)} data-testid="dictation-structure"><Sparkles className="mr-2 size-4" aria-hidden="true" />{structuring ? "Corrigiendo texto…" : outcome ? "Volver a corregir texto" : "Corregir texto"}</Button>
+            <Button type="button" className="bg-[#6a3fc8] hover:bg-[#5632a3]" disabled={transcribing || structuring || listening || transcript.trim().length < 3} onClick={() => void structure(transcript)} data-testid="dictation-structure"><Sparkles className="mr-2 size-4" aria-hidden="true" />{structuring ? "Corrigiendo texto…" : outcome ? "Volver a corregir texto" : "Corregir texto"}</Button>
           </div>
-          {listening && <p role="status" className="font-medium text-[#087f83]">Escuchando en español de Chile… Al detener, el texto se corrige solo con IA.</p>}
+          {listening && <p role="status" className="font-medium text-[#6a3fc8]">Escuchando en español de Chile… Al detener, el texto se corrige solo con IA.</p>}
           {structuring && <p role="status" aria-live="polite" className="flex items-center gap-2 rounded-lg bg-sky-50 p-3 font-medium text-sky-950" data-testid="dictation-correcting"><span className="size-4 shrink-0 animate-spin rounded-full border-2 border-sky-700 border-t-transparent" aria-hidden="true" />Corrigiendo con IA… redactando la nota por secciones.</p>}
           <p className="rounded-lg bg-sky-50 p-3 text-xs leading-5 text-sky-950" role="note">{AUDIO_DICTATION_NOTICE}</p>
-          {listening && <p role="status" className="text-[#087f83]">Grabando el audio. Al detener, aparecerá la transcripción para revisar.</p>}
+          {listening && <p role="status" className="text-[#6a3fc8]">Grabando el audio. Al detener, aparecerá la transcripción para revisar.</p>}
           {transcribing && <p role="status" aria-live="polite" className="rounded-lg bg-sky-50 p-3 font-medium text-sky-950">Transcribiendo el audio con OpenAI… Espera que aparezca el texto antes de corregirlo.</p>}
           {audioRetry && <Button type="button" variant="outline" disabled={transcribing} onClick={() => { setSpeechError(""); (audioRetry === "answer" ? answerEngine.current : engine.current).retry?.(); }}>Reintentar la transcripción del audio</Button>}
           {speechError && <p role="alert" className="text-[#a43542]">{speechError}</p>}
@@ -944,7 +944,7 @@ export function ClinicalDictation({
             <Textarea data-testid="dictation-transcript" lang="es-CL" rows={5} className="min-h-32 field-sizing-fixed text-base sm:text-sm" autoCapitalize="sentences" autoCorrect="off" spellCheck={false} value={interim ? `${transcript} ${interim}`.trim() : transcript} onChange={(event) => { if (listening || transcribing) stopWithoutCorrecting(); setTranscript(event.target.value); setInterim(""); resetReview(); setCommandIgnored(false); }} placeholder="Habla o escribe el dictado. Revisa piezas y dosis antes de proponer cambios." />
           </label>
           {command && onAnnul && !structuring && <VoiceCommandCard key={command.evidence} command={command} notes={notes} patientName={patientName} onConfirm={onAnnul} onDismiss={() => { setCommandIgnored(true); void structure(transcript); }} />}
-          <p className="text-xs leading-5 text-[#60757a]">Dicta libre: «punto» o «punto aparte» separa frases. La IA redacta la nota y propone los cambios con la frase dicha como respaldo; nada se aplica sin tu aceptación. La propuesta pasa por revisión y la ficha manual no cambia sola.</p>
+          <p className="text-xs leading-5 text-[#625e82]">Dicta libre: «punto» o «punto aparte» separa frases. La IA redacta la nota y propone los cambios con la frase dicha como respaldo; nada se aplica sin tu aceptación. La propuesta pasa por revisión y la ficha manual no cambia sola.</p>
           {formError && <div role="alert" className="rounded-lg bg-rose-50 p-3 text-rose-950" data-testid="dictation-error">
             <p>{formError}</p>
             {!outcome && !structuring && lastStructured.trim().length >= 3 && <Button type="button" size="sm" variant="outline" className="mt-2 bg-white" onClick={() => void structure(lastStructured)} data-testid="dictation-retry">Reintentar corrección</Button>}
@@ -954,10 +954,10 @@ export function ClinicalDictation({
             <p className="mt-1 text-xs leading-5">La nota de abajo salió solo de las reglas locales (diccionario y secciones por palabras clave). Revísala con más cuidado o reintenta.</p>
             <Button type="button" size="sm" variant="outline" className="mt-2 bg-white" disabled={transcribing || structuring} onClick={() => void structure(lastStructured || transcript)} data-testid="dictation-retry-ai">{structuring ? "Corrigiendo con IA…" : "Reintentar con IA"}</Button>
           </div>}
-          {outcome && !outcome.aiError && outcome.aiNote && <p className="text-xs text-[#71858b]" data-testid="dictation-ai-provider">{outcome.aiNote}</p>}
-          {outcome && !outcome.aiError && <p className="rounded-lg bg-[#f4f7f8] p-3 leading-6 text-[#31575b]" role="status">{outcome.notice ?? "Revisa la evolución clínica redactada. Los campos estructurados son opcionales y no detienen su guardado."}</p>}
+          {outcome && !outcome.aiError && outcome.aiNote && <p className="text-xs text-[#6e6a8c]" data-testid="dictation-ai-provider">{outcome.aiNote}</p>}
+          {outcome && !outcome.aiError && <p className="rounded-lg bg-[#f3f0fa] p-3 leading-6 text-[#3d2f73]" role="status">{outcome.notice ?? "Revisa la evolución clínica redactada. Los campos estructurados son opcionales y no detienen su guardado."}</p>}
           {proposal && <div className="space-y-4" data-testid="dictation-review">
-            {patientVariants.length > 0 && patientWarnings.length === 0 && <p className="rounded-lg bg-[#f4f7f8] p-3 text-xs text-[#31575b]" role="status" data-testid="dictation-patient-variant">{patientVariants.join(" ")}</p>}
+            {patientVariants.length > 0 && patientWarnings.length === 0 && <p className="rounded-lg bg-[#f3f0fa] p-3 text-xs text-[#3d2f73]" role="status" data-testid="dictation-patient-variant">{patientVariants.join(" ")}</p>}
             {patientWarnings.length > 0 && <section role="alert" className="rounded-xl border-2 border-rose-400 bg-rose-50 p-4 text-rose-950" data-testid="dictation-patient-warning">
               <h3 className="text-base font-semibold">¿Es el paciente correcto?</h3>
               <p className="mt-1 text-sm">La ficha abierta es de <strong>{patientName}</strong>{patient?.rut ? ` (RUT ${patient.rut})` : ""}.</p>
@@ -967,30 +967,30 @@ export function ClinicalDictation({
                 <span>Confirmo que este dictado corresponde a {patientName}. Si no, cierra y abre la ficha correcta.</span>
               </label>
             </section>}
-            <section className="rounded-xl border border-[#dce5e7] p-4" data-testid="dictation-evolution">
+            <section className="rounded-xl border border-[#ddd6f0] p-4" data-testid="dictation-evolution">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="font-semibold">Evolución clínica de hoy{proposal.evolutionKind ? <span className="ml-2 rounded-full bg-sky-100 px-2 py-0.5 text-xs font-medium text-sky-900">{proposal.evolutionKind.label}</span> : null}</h3>
               </div>
-              <p className="mt-1 text-xs leading-5 text-[#60757a]">Revisa la redacción del diagnóstico, los procedimientos y el plan indicado. Las preguntas y los datos de pago o presupuesto quedan abajo y no bloquean el guardado.</p>
+              <p className="mt-1 text-xs leading-5 text-[#625e82]">Revisa la redacción del diagnóstico, los procedimientos y el plan indicado. Las preguntas y los datos de pago o presupuesto quedan abajo y no bloquean el guardado.</p>
               <details className="mt-2">
-                <summary className="cursor-pointer text-xs font-medium text-[#087f83]">Ver última evolución guardada (no se reemplaza)</summary>
-                <p className="mt-2 whitespace-pre-wrap rounded-lg bg-[#f7f4f4] p-3 text-sm text-[#71858b]">{latestNote ? `${latestNote.title}\n${latestNote.body}` : "Sin evoluciones registradas"}</p>
+                <summary className="cursor-pointer text-xs font-medium text-[#6a3fc8]">Ver última evolución guardada (no se reemplaza)</summary>
+                <p className="mt-2 whitespace-pre-wrap rounded-lg bg-[#f7f4f4] p-3 text-sm text-[#6e6a8c]">{latestNote ? `${latestNote.title}\n${latestNote.body}` : "Sin evoluciones registradas"}</p>
               </details>
               {proposal.evolution ? <>
-                <p className="mt-3 text-xs text-[#71858b]">Nota clínica redactada (editable).</p>
+                <p className="mt-3 text-xs text-[#6e6a8c]">Nota clínica redactada (editable).</p>
                 <Input className="mt-1" aria-label="Título de la evolución" value={evolutionTitle} onChange={(event) => setEvolutionTitle(event.target.value)} />
-                <label className="mt-2 block text-xs text-[#71858b]">Fecha de atención (opcional; vacío = hoy)
+                <label className="mt-2 block text-xs text-[#6e6a8c]">Fecha de atención (opcional; vacío = hoy)
                   <Input className="mt-1" type="date" aria-label="Fecha de atención" max={new Date().toISOString().slice(0, 10)} value={attentionDate} onChange={(event) => setAttentionDate(event.target.value)} />
                 </label>
                 <Textarea className="mt-2 border-emerald-200 bg-emerald-50" aria-label="Cuerpo de la evolución" rows={9} value={evolutionBody} onChange={(event) => setEvolutionBody(event.target.value)} />
-              </> : <p className="mt-3 text-[#71858b]">El dictado no produjo una evolución.</p>}
+              </> : <p className="mt-3 text-[#6e6a8c]">El dictado no produjo una evolución.</p>}
             </section>
-            <section className="rounded-xl border border-[#dce5e7] p-4" data-testid="dictation-prestaciones">
+            <section className="rounded-xl border border-[#ddd6f0] p-4" data-testid="dictation-prestaciones">
               <h3 className="font-semibold">Prestaciones realizadas (arancel)</h3>
-              <p className="mt-1 text-xs text-[#60757a]">Prestaciones del arancel que la app identificó en lo que dictaste hoy (sin montos). Se guardan en la nota. Quita las que no correspondan o agrega otra.</p>
+              <p className="mt-1 text-xs text-[#625e82]">Prestaciones del arancel que la app identificó en lo que dictaste hoy (sin montos). Se guardan en la nota. Quita las que no correspondan o agrega otra.</p>
               <ul className="mt-2 space-y-2">
-                {prestItems.length === 0 && <li className="rounded-lg border border-dashed border-[#dce5e7] p-3 text-xs text-[#71858b]">No se detectó ninguna prestación; puedes agregarla abajo.</li>}
-                {prestItems.map((item) => <li key={item.id} className={`rounded-lg border p-3 ${item.decision === "accepted" ? "border-emerald-200 bg-white" : "border-[#e4ebed] bg-[#f9fbfb] opacity-80"}`} data-testid="dictation-prestacion">
+                {prestItems.length === 0 && <li className="rounded-lg border border-dashed border-[#ddd6f0] p-3 text-xs text-[#6e6a8c]">No se detectó ninguna prestación; puedes agregarla abajo.</li>}
+                {prestItems.map((item) => <li key={item.id} className={`rounded-lg border p-3 ${item.decision === "accepted" ? "border-emerald-200 bg-white" : "border-[#e4def3] bg-[#faf8ff] opacity-80"}`} data-testid="dictation-prestacion">
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div><p className="font-semibold">{prestacionName(item)}</p>{item.evidence && <Evidence text={item.evidence} />}</div>
                     <div className="flex gap-2"><Decision value={item.decision} onChange={(decision) => setPrestItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, decision } : entry))} /><Button type="button" size="sm" variant="outline" onClick={() => setPrestItems((current) => current.filter((entry) => entry.id !== item.id))}>Quitar</Button></div>
@@ -1002,9 +1002,9 @@ export function ClinicalDictation({
               </label>
               {prestSearch.trim().length >= 2 && <ul className="mt-2 space-y-1">{searchPrestaciones(prestSearch, 6).map((result) => <li key={result.code}><button type="button" className="w-full rounded-md border px-2 py-1 text-left text-xs hover:bg-emerald-50" onClick={() => { setPrestItems((current) => current.some((entry) => entry.code === result.code) ? current : [...current, { id: `pr-manual-${Date.now()}`, code: result.code, name: result.name, tooth: null, evidence: "", decision: "accepted" as const }]); setPrestSearch(""); }}>{result.code} · {result.name}</button></li>)}</ul>}
             </section>
-            {missing.length > 0 && <section className="rounded-xl border border-[#dbe7e8] bg-white p-3 text-sm text-[#31575b]" data-testid="dictation-missing">
+            {missing.length > 0 && <section className="rounded-xl border border-[#ddd6f0] bg-white p-3 text-sm text-[#3d2f73]" data-testid="dictation-missing">
               <p><strong>Falta (opcional):</strong> {missing.join(" · ")}</p>
-              <p className="mt-1 text-xs text-[#60757a]">No es obligatorio y no impide guardar la evolución. Puedes aclararlo después.</p>
+              <p className="mt-1 text-xs text-[#625e82]">No es obligatorio y no impide guardar la evolución. Puedes aclararlo después.</p>
             </section>}
             {noticeList.length > 0 && <section className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 text-sm text-amber-950" data-testid="dictation-notices">
               <h3 className="font-semibold">Avisos (no impiden guardar)</h3>
@@ -1046,42 +1046,42 @@ export function ClinicalDictation({
                 <p className="text-sm">{question}</p>
                 <div className="mt-1 flex gap-2">
                   <Input className="bg-white text-base sm:text-sm" disabled={transcribing || answering === question} aria-label={`Respuesta: ${question}`} value={answers[question] ?? ""} onChange={(event) => setAnswers((current) => ({ ...current, [question]: event.target.value }))} placeholder={answering === question ? "Escuchando… se detiene solo" : "Respuesta"} />
-                  <Button type="button" variant={answering === question ? "default" : "outline"} size="icon" className={`shrink-0 ${answering === question ? "bg-[#087f83] hover:bg-[#07676b]" : ""}`} disabled={transcribing || listening} aria-label={answering === question ? "Detener respuesta dictada" : "Dictar respuesta"} aria-pressed={answering === question} onClick={() => void dictateAnswer(question)}>{answering === question ? <MicOff className="size-4" /> : <Mic className="size-4" />}</Button>
+                  <Button type="button" variant={answering === question ? "default" : "outline"} size="icon" className={`shrink-0 ${answering === question ? "bg-[#6a3fc8] hover:bg-[#5632a3]" : ""}`} disabled={transcribing || listening} aria-label={answering === question ? "Detener respuesta dictada" : "Dictar respuesta"} aria-pressed={answering === question} onClick={() => void dictateAnswer(question)}>{answering === question ? <MicOff className="size-4" /> : <Mic className="size-4" />}</Button>
                 </div>
               </li>)}</ul>
-              <Button type="button" className="mt-3 bg-[#087f83] hover:bg-[#07676b]" disabled={transcribing || structuring || !Object.values(answers).some((value) => value.trim())} onClick={applyAnswers} data-testid="dictation-apply-answers">{structuring ? "Aplicando…" : "Aplicar respuestas"}</Button>
+              <Button type="button" className="mt-3 bg-[#6a3fc8] hover:bg-[#5632a3]" disabled={transcribing || structuring || !Object.values(answers).some((value) => value.trim())} onClick={applyAnswers} data-testid="dictation-apply-answers">{structuring ? "Aplicando…" : "Aplicar respuestas"}</Button>
             </section>}
-            <details className="rounded-xl border border-[#dce5e7] bg-white p-3" data-testid="dictation-transcript-review">
-              <summary className="cursor-pointer font-medium text-[#31575b]">Ver transcripción y correcciones (opcional)</summary>
+            <details className="rounded-xl border border-[#ddd6f0] bg-white p-3" data-testid="dictation-transcript-review">
+              <summary className="cursor-pointer font-medium text-[#3d2f73]">Ver transcripción y correcciones (opcional)</summary>
               <div className="mt-3">
             <section className="rounded-xl border border-sky-200 bg-sky-50/40 p-4" data-testid="dictation-corrected">
               <h3 className="font-semibold">Texto corregido</h3>
-              <p className="mt-1 text-xs leading-5 text-[#60757a]">Diccionario clínico e IA corrigen lo mal oído sin agregar datos. Cada cambio queda marcado; lo que la IA quiso cambiar sin respaldo se descarta. Puedes editarlo y volver a proponer.</p>
+              <p className="mt-1 text-xs leading-5 text-[#625e82]">Diccionario clínico e IA corrigen lo mal oído sin agregar datos. Cada cambio queda marcado; lo que la IA quiso cambiar sin respaldo se descarta. Puedes editarlo y volver a proponer.</p>
               {corrections.length > 0 ? <ul className="mt-2 flex flex-wrap gap-2 text-xs" aria-label="Correcciones">
                 {corrections.map((item, index) => <li key={`${item.original}-${index}`} className={`rounded-lg px-2 py-1 ${item.applied ? "bg-white" : "bg-amber-50 text-amber-950"}`} title={item.reason}>
-                  <span className="text-rose-800 line-through">{item.original}</span> → {item.corrected ? <span className={item.applied ? "font-medium text-emerald-900" : "text-amber-900"}>{item.corrected}</span> : <span className="italic text-[#60757a]">omitido</span>}
-                  <span className="ml-1 text-[10px] uppercase text-[#71858b]">{item.origin === "ia" ? "IA" : "diccionario"}{item.applied ? "" : " · no aplicado"}</span>
+                  <span className="text-rose-800 line-through">{item.original}</span> → {item.corrected ? <span className={item.applied ? "font-medium text-emerald-900" : "text-amber-900"}>{item.corrected}</span> : <span className="italic text-[#625e82]">omitido</span>}
+                  <span className="ml-1 text-[10px] uppercase text-[#6e6a8c]">{item.origin === "ia" ? "IA" : "diccionario"}{item.applied ? "" : " · no aplicado"}</span>
                   {!item.applied && item.reason && <span className="block text-[11px]">{item.reason}</span>}
                 </li>)}
               </ul> : null}
               <div className="mt-2"><WordDiffView before={lastStructured || transcript} after={proposal.corrected?.text ?? workingText} testId="dictation-diff" /></div>
               <Textarea className="mt-2 bg-white text-base sm:text-sm" aria-label="Texto corregido (editable)" rows={4} value={workingText} onChange={(event) => setWorkingText(event.target.value)} data-testid="dictation-corrected-text" />
               <Button type="button" variant="outline" size="sm" className="mt-2" disabled={transcribing || structuring || workingText.trim().length < 3} onClick={() => void structure(workingText)}>Volver a proponer con este texto</Button>
-              <p className="mt-1 text-[11px] text-[#71858b]">Si editas la transcripción, vuelve a proponer antes de guardar.</p>
+              <p className="mt-1 text-[11px] text-[#6e6a8c]">Si editas la transcripción, vuelve a proponer antes de guardar.</p>
             </section>
               </div>
             </details>
-            <details className="rounded-xl border border-[#dce5e7] bg-white p-3" data-testid="dictation-structured-review">
-              <summary className="cursor-pointer font-medium text-[#31575b]">Revisar campos estructurados (opcional)</summary>
+            <details className="rounded-xl border border-[#ddd6f0] bg-white p-3" data-testid="dictation-structured-review">
+              <summary className="cursor-pointer font-medium text-[#3d2f73]">Revisar campos estructurados (opcional)</summary>
               <div className="mt-4 space-y-4">
             <section className="space-y-3">
               <h3 className="font-semibold">Odontograma</h3>
-              {teeth.length === 0 && <p className="rounded-lg border border-dashed border-[#dce5e7] p-3 text-[#71858b]">Sin cambios de odontograma.</p>}
+              {teeth.length === 0 && <p className="rounded-lg border border-dashed border-[#ddd6f0] p-3 text-[#6e6a8c]">Sin cambios de odontograma.</p>}
               {(proposal.policyNotes ?? []).map((note) => <p key={note} className="rounded-lg bg-sky-50 p-3 text-xs text-sky-950">{note}</p>)}
               {teeth.map((item, index) => {
                 const currentStatus = odontogram.teeth[item.tooth] || "Sin hallazgos";
                 const nextStatus = item.kind === "crown" ? "Corona" : item.status || currentStatus;
-                return <article key={item.id} className={`rounded-xl border p-4 ${item.decision === "accepted" ? "border-emerald-200" : "border-[#e4ebed] opacity-70"}`} data-testid="dictation-tooth">
+                return <article key={item.id} className={`rounded-xl border p-4 ${item.decision === "accepted" ? "border-emerald-200" : "border-[#e4def3] opacity-70"}`} data-testid="dictation-tooth">
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div>
                       <p className="font-semibold">{item.numberingLabel}<OriginBadge origin={item.origin} conflict={item.conflict} /></p>
@@ -1091,9 +1091,9 @@ export function ClinicalDictation({
                     </div>
                     <Decision value={item.decision} onChange={(decision) => setTeeth((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, decision } : entry))} />
                   </div>
-                  {item.kind === "surface" ? <p className="mt-3"><span className="text-[#71858b]">Cara {item.surface ? surfaceLabel[item.surface] : "sin registrar"}: </span><ChangeHighlight current={findingText(item.surface ? odontogram.surfaces[item.tooth]?.[item.surface] : undefined)} next={findingText(item.finding)} /></p>
-                    : <p className="mt-3"><span className="text-[#71858b]">Estado general: </span><ChangeHighlight current={currentStatus} next={nextStatus} /></p>}
-                  {item.material && <p className="mt-2"><span className="text-[#71858b]">Material: </span><ChangeHighlight current={odontogram.crowns?.[item.tooth]?.material || "Sin registrar"} next={`${item.material}${item.shade ? ` · color ${item.shade}` : ""}`} /></p>}
+                  {item.kind === "surface" ? <p className="mt-3"><span className="text-[#6e6a8c]">Cara {item.surface ? surfaceLabel[item.surface] : "sin registrar"}: </span><ChangeHighlight current={findingText(item.surface ? odontogram.surfaces[item.tooth]?.[item.surface] : undefined)} next={findingText(item.finding)} /></p>
+                    : <p className="mt-3"><span className="text-[#6e6a8c]">Estado general: </span><ChangeHighlight current={currentStatus} next={nextStatus} /></p>}
+                  {item.material && <p className="mt-2"><span className="text-[#6e6a8c]">Material: </span><ChangeHighlight current={odontogram.crowns?.[item.tooth]?.material || "Sin registrar"} next={`${item.material}${item.shade ? ` · color ${item.shade}` : ""}`} /></p>}
                   {item.decision === "accepted" && <div className="mt-3 grid gap-2 sm:grid-cols-2">
                     <label className="space-y-1">Pieza FDI<input className="flex h-9 w-full rounded-md border px-3" aria-label={`Pieza ${item.numberingLabel}`} value={item.toothText} onChange={(event) => setTeeth((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, toothText: event.target.value } : entry))} /></label>
                     {item.kind === "surface" ? <>
@@ -1107,7 +1107,7 @@ export function ClinicalDictation({
                       }}>{Object.entries(conditionLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
                       {item.finding?.condition === "caries" && <>
                         <label className="space-y-1">Profundidad (opcional)<select className="h-9 w-full rounded-md border px-2" value={item.finding.depth ?? ""} onChange={(event) => setTeeth((current) => current.map((entry, entryIndex) => entryIndex === index && entry.finding?.condition === "caries" ? { ...entry, finding: { ...entry.finding, depth: (event.target.value || null) as SurfaceFinding["depth"] } } : entry))}><option value="">Sin dictar</option>{CARIES_DEPTHS.map((depth) => <option key={depth} value={depth}>{CARIES_DEPTH_SHORT[depth]}</option>)}</select></label>
-                        <p className="self-end pb-2 text-xs text-[#60757a]" data-testid="dictation-caries-icd11">{icd11Label(cariesIcd11(item.finding.depth, isRootCaries(item.sourceText)))}</p>
+                        <p className="self-end pb-2 text-xs text-[#625e82]" data-testid="dictation-caries-icd11">{icd11Label(cariesIcd11(item.finding.depth, isRootCaries(item.sourceText)))}</p>
                       </>}
                     </> : <>
                       <label className="space-y-1">Estado<select className="h-9 w-full rounded-md border px-2" value={item.kind === "crown" ? "Corona" : item.status} onChange={(event) => {
@@ -1123,14 +1123,14 @@ export function ClinicalDictation({
                 </article>;
               })}
             </section>
-            <section className="rounded-xl border border-[#dce5e7] p-4" data-testid="dictation-diagnoses">
+            <section className="rounded-xl border border-[#ddd6f0] p-4" data-testid="dictation-diagnoses">
               <h3 className="font-semibold">Diagnósticos de la evolución (CIE-11 OMS)</h3>
-              <p className="mt-1 text-xs text-[#60757a]">Etiquetas del catálogo CIE-11 verificado (MMS 2026-01). La pieza y los hallazgos se guardan aparte del código. Las equivalencias sugeridas (AAE, caries con compromiso pulpar) parten sin aceptar: confírmalas solo si corresponden. Las caries siguen lo aceptado en el odontograma.</p>
+              <p className="mt-1 text-xs text-[#625e82]">Etiquetas del catálogo CIE-11 verificado (MMS 2026-01). La pieza y los hallazgos se guardan aparte del código. Las equivalencias sugeridas (AAE, caries con compromiso pulpar) parten sin aceptar: confírmalas solo si corresponden. Las caries siguen lo aceptado en el odontograma.</p>
               <ul className="mt-2 space-y-2">
-                {cariesDiagnoses(teeth.filter((item) => item.decision === "accepted")).filter((item) => item.code.startsWith("DA08.0")).map((item) => <li key={item.id} className="rounded-lg bg-[#f4f7f8] p-3" data-testid="dictation-diagnosis-caries">{item.label}<span className="ml-2 text-xs text-[#71858b]">(desde el odontograma)</span><Evidence text={item.evidence} /></li>)}
+                {cariesDiagnoses(teeth.filter((item) => item.decision === "accepted")).filter((item) => item.code.startsWith("DA08.0")).map((item) => <li key={item.id} className="rounded-lg bg-[#f3f0fa] p-3" data-testid="dictation-diagnosis-caries">{item.label}<span className="ml-2 text-xs text-[#6e6a8c]">(desde el odontograma)</span><Evidence text={item.evidence} /></li>)}
                 {dxItems.map((item) => {
                   const results = item.codeSearch.trim().length >= 2 ? searchDiagnoses(item.codeSearch, 6) : [];
-                  return <li key={item.id} className={`rounded-lg border p-3 ${item.decision === "accepted" ? "border-emerald-200 bg-white" : "border-[#e4ebed] bg-[#f9fbfb] opacity-80"}`} data-testid="dictation-diagnosis">
+                  return <li key={item.id} className={`rounded-lg border p-3 ${item.decision === "accepted" ? "border-emerald-200 bg-white" : "border-[#e4def3] bg-[#faf8ff] opacity-80"}`} data-testid="dictation-diagnosis">
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div>
                         <p className="font-semibold">{item.code ? <span className="mr-2 rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs">{item.code}</span> : <span className="mr-2 rounded bg-slate-100 px-1.5 py-0.5 text-xs">Sin código</span>}{item.title}
@@ -1159,18 +1159,18 @@ export function ClinicalDictation({
               </label>
               {dxSearch.trim().length >= 2 && <ul className="mt-2 space-y-1" data-testid="dictation-diagnosis-search">{searchDiagnoses(dxSearch, 8).map((result) => <li key={`${result.code}|${result.title}`}><button type="button" className="w-full rounded-md border px-2 py-1 text-left text-xs hover:bg-emerald-50" onClick={() => addManualDiagnosis(result.code, result.title)}>{result.code || "Sin código"} · {result.title}{result.matched && result.matched !== result.title ? ` («${result.matched}»)` : ""}</button></li>)}</ul>}
             </section>
-            {(proposal.procedures ?? []).length > 0 && <section className="rounded-xl border border-[#dce5e7] p-4">
+            {(proposal.procedures ?? []).length > 0 && <section className="rounded-xl border border-[#ddd6f0] p-4">
               <h3 className="font-semibold">Procedimientos realizados (según la IA)</h3>
-              <p className="mt-1 text-xs text-[#60757a]">Van en la nota; revísalos ahí.</p>
-              <ul className="mt-2 space-y-2">{(proposal.procedures ?? []).map((item) => <li key={item.id} className="rounded-lg bg-[#f4f7f8] p-3">{item.text}{!item.verified && <span className="ml-2 text-xs font-medium text-amber-800">Sin cita literal en el dictado</span>}<Evidence text={item.verified ? item.evidence : undefined} /></li>)}</ul>
+              <p className="mt-1 text-xs text-[#625e82]">Van en la nota; revísalos ahí.</p>
+              <ul className="mt-2 space-y-2">{(proposal.procedures ?? []).map((item) => <li key={item.id} className="rounded-lg bg-[#f3f0fa] p-3">{item.text}{!item.verified && <span className="ml-2 text-xs font-medium text-amber-800">Sin cita literal en el dictado</span>}<Evidence text={item.verified ? item.evidence : undefined} /></li>)}</ul>
             </section>}
             {fichaItems.length > 0 && <section className="space-y-3">
               <h3 className="font-semibold">Ficha del paciente</h3>
-              {!patient && <p className="text-xs text-[#71858b]">No hay ficha cargada para actualizar; quedan solo en la nota.</p>}
-              {fichaItems.map((item, index) => <article key={item.id} className={`rounded-xl border p-4 ${item.decision === "accepted" ? "border-emerald-200" : "border-[#e4ebed] opacity-70"}`} data-testid="dictation-ficha">
+              {!patient && <p className="text-xs text-[#6e6a8c]">No hay ficha cargada para actualizar; quedan solo en la nota.</p>}
+              {fichaItems.map((item, index) => <article key={item.id} className={`rounded-xl border p-4 ${item.decision === "accepted" ? "border-emerald-200" : "border-[#e4def3] opacity-70"}`} data-testid="dictation-ficha">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
-                    <p><span className="text-[#71858b]">{fichaLabel[item.field]}{item.field === "medications" ? " (se agrega a antecedentes)" : ""}: </span><span className="font-medium">{item.text}</span><OriginBadge origin={item.origin} /></p>
+                    <p><span className="text-[#6e6a8c]">{fichaLabel[item.field]}{item.field === "medications" ? " (se agrega a antecedentes)" : ""}: </span><span className="font-medium">{item.text}</span><OriginBadge origin={item.origin} /></p>
                     <Evidence text={item.evidence} />
                   </div>
                   <Decision value={item.decision} disabled={!patient} onChange={(decision) => setFichaItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, decision } : entry))} />
@@ -1180,24 +1180,24 @@ export function ClinicalDictation({
             </section>}
             <section className="space-y-3">
               <h3 className="font-semibold">Presupuesto</h3>
-              {budgets.length === 0 && <p className="rounded-lg border border-dashed border-[#dce5e7] p-3 text-[#71858b]">Sin prestaciones.</p>}
-              {budgets.map((item, index) => <article key={item.id} className={`rounded-xl border p-4 ${item.decision === "accepted" ? "border-emerald-200" : "border-[#e4ebed] opacity-70"}`}>
+              {budgets.length === 0 && <p className="rounded-lg border border-dashed border-[#ddd6f0] p-3 text-[#6e6a8c]">Sin prestaciones.</p>}
+              {budgets.map((item, index) => <article key={item.id} className={`rounded-xl border p-4 ${item.decision === "accepted" ? "border-emerald-200" : "border-[#e4def3] opacity-70"}`}>
                 <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div><p><span className="text-[#71858b]">Nueva prestación: </span><ChangeHighlight current="Sin esta prestación" next={`${item.label} · ${Number(item.amountText) > 0 ? `${Number(item.amountText).toLocaleString("es-CL")} pesos` : "monto pendiente"}`} /><OriginBadge origin={item.origin} /></p><Evidence text={item.evidence ?? item.sourceText} /></div>
+                  <div><p><span className="text-[#6e6a8c]">Nueva prestación: </span><ChangeHighlight current="Sin esta prestación" next={`${item.label} · ${Number(item.amountText) > 0 ? `${Number(item.amountText).toLocaleString("es-CL")} pesos` : "monto pendiente"}`} /><OriginBadge origin={item.origin} /></p><Evidence text={item.evidence ?? item.sourceText} /></div>
                   <Decision value={item.decision} onChange={(decision) => setBudgets((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, decision } : entry))} />
                 </div>
                 {item.decision === "accepted" && <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                  <label className="space-y-1">Prestación{item.phase && <span className="ml-2 rounded bg-[#eef1f8] px-1.5 py-0.5 text-xs font-medium text-[#33466f]">{item.phase}</span>}{item.option && <span className="ml-2 rounded bg-[#f8efe4] px-1.5 py-0.5 text-xs font-medium text-[#7a4a12]" title="La opción B y siguientes se guardan como alternativas del plan principal">Opción {item.option}</span>}{item.catalogCode && <span className="ml-2 rounded bg-[#e7f5f3] px-1.5 py-0.5 text-xs font-medium text-[#075b60]" title="Coincide con una prestación del catálogo">Catálogo {item.catalogCode}</span>}<input className="flex h-9 w-full rounded-md border px-3" value={item.label} onChange={(event) => setBudgets((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, label: event.target.value, catalogCode: undefined } : entry))} /></label>
+                  <label className="space-y-1">Prestación{item.phase && <span className="ml-2 rounded bg-[#eef1f8] px-1.5 py-0.5 text-xs font-medium text-[#33466f]">{item.phase}</span>}{item.option && <span className="ml-2 rounded bg-[#f8efe4] px-1.5 py-0.5 text-xs font-medium text-[#7a4a12]" title="La opción B y siguientes se guardan como alternativas del plan principal">Opción {item.option}</span>}{item.catalogCode && <span className="ml-2 rounded bg-[#efe9fc] px-1.5 py-0.5 text-xs font-medium text-[#4b2a99]" title="Coincide con una prestación del catálogo">Catálogo {item.catalogCode}</span>}<input className="flex h-9 w-full rounded-md border px-3" value={item.label} onChange={(event) => setBudgets((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, label: event.target.value, catalogCode: undefined } : entry))} /></label>
                   <label className="space-y-1">Monto CLP<input className="flex h-9 w-full rounded-md border px-3" inputMode="numeric" value={item.amountText} onChange={(event) => setBudgets((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, amountText: event.target.value } : entry))} /></label>
                 </div>}
               </article>)}
             </section>
             <section className="space-y-3">
               <h3 className="font-semibold">Pagos y abonos</h3>
-              {paymentItems.length === 0 && <p className="rounded-lg border border-dashed border-[#dce5e7] p-3 text-[#71858b]">Sin pagos en el dictado.</p>}
-              {paymentItems.map((item, index) => <article key={item.id} className={`rounded-xl border p-4 ${item.decision === "accepted" ? "border-emerald-200" : "border-[#e4ebed] opacity-70"}`} data-testid="dictation-payment">
+              {paymentItems.length === 0 && <p className="rounded-lg border border-dashed border-[#ddd6f0] p-3 text-[#6e6a8c]">Sin pagos en el dictado.</p>}
+              {paymentItems.map((item, index) => <article key={item.id} className={`rounded-xl border p-4 ${item.decision === "accepted" ? "border-emerald-200" : "border-[#e4def3] opacity-70"}`} data-testid="dictation-payment">
                 <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div><p><span className="text-[#71858b]">Pago de hoy: </span><span className="font-medium">${Number(item.amountText || 0).toLocaleString("es-CL")}</span> · {item.methodValue ? PAYMENT_METHOD_LABEL[item.methodValue] : <span className="text-amber-800">medio sin indicar</span>}<OriginBadge origin={item.origin} /></p><Evidence text={item.evidence} />{item.baseAmount && item.percentage === 50 && <p className="mt-1 text-sm font-medium text-[#0a7779]">Cálculo detectado: 50 % de {item.baseAmount.toLocaleString("es-CL")} = {Number(item.amountText || 0).toLocaleString("es-CL")}</p>}</div>
+                  <div><p><span className="text-[#6e6a8c]">Pago de hoy: </span><span className="font-medium">${Number(item.amountText || 0).toLocaleString("es-CL")}</span> · {item.methodValue ? PAYMENT_METHOD_LABEL[item.methodValue] : <span className="text-amber-800">medio sin indicar</span>}<OriginBadge origin={item.origin} /></p><Evidence text={item.evidence} />{item.baseAmount && item.percentage === 50 && <p className="mt-1 text-sm font-medium text-[#0a7779]">Cálculo detectado: 50 % de {item.baseAmount.toLocaleString("es-CL")} = {Number(item.amountText || 0).toLocaleString("es-CL")}</p>}</div>
                   <Decision value={item.decision} onChange={(decision) => setPaymentItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, decision } : entry))} />
                 </div>
                 {item.decision === "accepted" && <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -1210,12 +1210,12 @@ export function ClinicalDictation({
             </section>
             <section className="space-y-3">
               <h3 className="font-semibold">Próxima cita</h3>
-              {appointmentItems.length === 0 && <p className="rounded-lg border border-dashed border-[#dce5e7] p-3 text-[#71858b]">Sin cita en el dictado.</p>}
-              {appointmentItems.map((item, index) => <article key={item.id} className={`rounded-xl border p-4 ${item.decision === "accepted" ? "border-emerald-200" : "border-[#e4ebed] opacity-70"}`} data-testid="dictation-appointment">
+              {appointmentItems.length === 0 && <p className="rounded-lg border border-dashed border-[#ddd6f0] p-3 text-[#6e6a8c]">Sin cita en el dictado.</p>}
+              {appointmentItems.map((item, index) => <article key={item.id} className={`rounded-xl border p-4 ${item.decision === "accepted" ? "border-emerald-200" : "border-[#e4def3] opacity-70"}`} data-testid="dictation-appointment">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
-                    <p><span className="text-[#71858b]">Agendar: </span><span className="font-medium">{item.dayValue ? new Intl.DateTimeFormat("es-CL", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" }).format(new Date(`${item.dayValue}T12:00:00Z`)) : "fecha pendiente"}</span>{item.timeValue ? ` · ${item.timeValue}` : " · hora pendiente"}<OriginBadge origin={item.origin} /></p>
-                    {item.said && <p className="mt-1 text-xs text-[#71858b]">Dicho como «{item.said}» (calculado en hora de Chile).</p>}
+                    <p><span className="text-[#6e6a8c]">Agendar: </span><span className="font-medium">{item.dayValue ? new Intl.DateTimeFormat("es-CL", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" }).format(new Date(`${item.dayValue}T12:00:00Z`)) : "fecha pendiente"}</span>{item.timeValue ? ` · ${item.timeValue}` : " · hora pendiente"}<OriginBadge origin={item.origin} /></p>
+                    {item.said && <p className="mt-1 text-xs text-[#6e6a8c]">Dicho como «{item.said}» (calculado en hora de Chile).</p>}
                     <Evidence text={item.evidence} />
                     {(item.note || item.timeDoubt) && <p className="mt-1 text-xs font-medium text-amber-800">{item.timeDoubt ?? item.note}</p>}
                   </div>
@@ -1230,9 +1230,9 @@ export function ClinicalDictation({
             </section>
             <section className="space-y-3">
               <h3 className="font-semibold">Periodontograma</h3>
-              <p className="text-xs leading-5 text-[#60757a]">Lo aceptado se guarda como un examen nuevo con solo los sitios dictados; no reemplaza el examen completo ni infiere margen, furcación, EPB ni clasificación.</p>
-              {perioItems.length === 0 && mobilityItems.length === 0 && recessionItems.length === 0 && !classItem && <p className="rounded-lg border border-dashed border-[#dce5e7] p-3 text-[#71858b]">Sin sondaje en el dictado.</p>}
-              {perioItems.map((item, index) => <article key={item.id} className={`rounded-xl border p-4 ${item.decision === "accepted" ? "border-emerald-200" : "border-[#e4ebed] opacity-70"}`} data-testid="dictation-perio">
+              <p className="text-xs leading-5 text-[#625e82]">Lo aceptado se guarda como un examen nuevo con solo los sitios dictados; no reemplaza el examen completo ni infiere margen, furcación, EPB ni clasificación.</p>
+              {perioItems.length === 0 && mobilityItems.length === 0 && recessionItems.length === 0 && !classItem && <p className="rounded-lg border border-dashed border-[#ddd6f0] p-3 text-[#6e6a8c]">Sin sondaje en el dictado.</p>}
+              {perioItems.map((item, index) => <article key={item.id} className={`rounded-xl border p-4 ${item.decision === "accepted" ? "border-emerald-200" : "border-[#e4def3] opacity-70"}`} data-testid="dictation-perio">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
                     <p className="font-medium">FDI {item.toothText} · {item.site ? SITE_LABEL[item.site] : "sitio pendiente"} · {item.depthText ? `${item.depthText} mm` : "mm pendientes"}{item.bleeding ? " · sangrado" : ""}{item.suppuration ? " · supuración" : ""}<OriginBadge origin={item.origin} /></p>
@@ -1249,7 +1249,7 @@ export function ClinicalDictation({
                   <label className="flex items-center gap-2 pt-6"><input type="checkbox" className="size-5" checked={item.suppuration} onChange={(event) => setPerioItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, suppuration: event.target.checked } : entry))} />Supuración</label>
                 </div>}
               </article>)}
-              {recessionItems.map((item, index) => <article key={item.id} className={`rounded-xl border p-4 ${item.decision === "accepted" ? "border-emerald-200" : "border-[#e4ebed] opacity-70"}`}>
+              {recessionItems.map((item, index) => <article key={item.id} className={`rounded-xl border p-4 ${item.decision === "accepted" ? "border-emerald-200" : "border-[#e4def3] opacity-70"}`}>
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div><p className="font-medium">Recesión FDI {item.toothText} {item.site}: {item.mmText} mm desde la LAC<OriginBadge origin={item.origin} /></p><Evidence text={item.evidence} /></div>
                   <Decision value={item.decision} onChange={(decision) => setRecessionItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, decision } : entry))} />
@@ -1259,13 +1259,13 @@ export function ClinicalDictation({
                   <label className="space-y-1">Milímetros<input inputMode="numeric" className="flex h-10 w-full rounded-md border px-3 text-base sm:h-9 sm:text-sm" value={item.mmText} onChange={(event) => setRecessionItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, mmText: event.target.value } : entry))} /></label>
                 </div>}
               </article>)}
-              {classItem && <article className={`rounded-xl border p-4 ${classItem.decision === "accepted" ? "border-emerald-200" : "border-[#e4ebed] opacity-70"}`}>
+              {classItem && <article className={`rounded-xl border p-4 ${classItem.decision === "accepted" ? "border-emerald-200" : "border-[#e4def3] opacity-70"}`}>
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div><p className="font-medium">Clasificación periodontal AAP-EFP 2017{classItem.stage ? `: estadio ${classItem.stage}` : ""}{classItem.grade ? `, grado ${classItem.grade}` : ""}<OriginBadge origin={classItem.origin} /></p><Evidence text={classItem.evidence} /></div>
                   <Decision value={classItem.decision} onChange={(decision) => setClassItem((current) => current ? { ...current, decision } : current)} />
                 </div>
               </article>}
-              {mobilityItems.map((item, index) => <article key={item.id} className={`rounded-xl border p-4 ${item.decision === "accepted" ? "border-emerald-200" : "border-[#e4ebed] opacity-70"}`}>
+              {mobilityItems.map((item, index) => <article key={item.id} className={`rounded-xl border p-4 ${item.decision === "accepted" ? "border-emerald-200" : "border-[#e4def3] opacity-70"}`}>
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div><p className="font-medium">{item.kind === "furcacion" ? "Furcación" : "Movilidad"} FDI {item.toothText}: grado {item.grade}<OriginBadge origin={item.origin} /></p><Evidence text={item.evidence} /></div>
                   <Decision value={item.decision} onChange={(decision) => setMobilityItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, decision } : entry))} />
@@ -1289,9 +1289,9 @@ export function ClinicalDictation({
             <ul className="mt-2 list-disc space-y-1 pl-5">{notRecorded.map((message) => <li key={message}>{message}</li>)}</ul>
           </div>}
         </div>
-        <DialogFooter className="sticky bottom-0 -mx-6 -mb-6 border-t border-[#e4ebed] bg-white px-6 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        <DialogFooter className="sticky bottom-0 -mx-6 -mb-6 border-t border-[#e4def3] bg-white px-6 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
           <Button type="button" variant="outline" onClick={close}>Cerrar</Button>
-          <Button type="button" className="bg-[#087f83] hover:bg-[#07676b]" disabled={!outcome || saving || patientBlocked || !!result?.ok} title={patientBlocked ? "Confirma el paciente antes de guardar" : undefined} onClick={() => void confirm()} data-testid="dictation-confirm">{saving ? "Guardando y verificando…" : "Guardar evolución"}</Button>
+          <Button type="button" className="bg-[#6a3fc8] hover:bg-[#5632a3]" disabled={!outcome || saving || patientBlocked || !!result?.ok} title={patientBlocked ? "Confirma el paciente antes de guardar" : undefined} onClick={() => void confirm()} data-testid="dictation-confirm">{saving ? "Guardando y verificando…" : "Guardar evolución"}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -1306,7 +1306,7 @@ export function ClinicalDictation({
 
 function Decision({ value, onChange, disabled = false }: { value: "accepted" | "rejected"; onChange: (value: "accepted" | "rejected") => void; disabled?: boolean }) {
   return <div className="flex gap-2">
-    <Button type="button" size="sm" variant={value === "accepted" ? "default" : "outline"} className={value === "accepted" ? "bg-[#087f83] hover:bg-[#07676b]" : ""} disabled={disabled} onClick={() => onChange("accepted")}>Aceptar</Button>
+    <Button type="button" size="sm" variant={value === "accepted" ? "default" : "outline"} className={value === "accepted" ? "bg-[#6a3fc8] hover:bg-[#5632a3]" : ""} disabled={disabled} onClick={() => onChange("accepted")}>Aceptar</Button>
     <Button type="button" size="sm" variant={value === "rejected" ? "default" : "outline"} disabled={disabled} onClick={() => onChange("rejected")}>Rechazar</Button>
   </div>;
 }

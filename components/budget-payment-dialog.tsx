@@ -77,18 +77,18 @@ export function BudgetPaymentDialog({
   };
 
   return <Dialog open={open && Boolean(budget)} onOpenChange={next => { if (!next && !saving) onOpenChange(false); }}>
-    <DialogContent className="max-h-[90vh] overflow-y-auto border-[#dce5e7] bg-white sm:max-w-lg">
+    <DialogContent className="max-h-[90vh] overflow-y-auto border-[#ddd6f0] bg-white sm:max-w-lg">
       <DialogHeader>
         <DialogTitle>Registrar pago o abono</DialogTitle>
         <DialogDescription>Se asociará a este tratamiento y actualizará su saldo pendiente. La evolución conserva lo dictado, pero no registra un pago automáticamente.</DialogDescription>
       </DialogHeader>
       {budget && <form onSubmit={submit} className="space-y-4">
-        <div className="rounded-xl border border-[#d7e9e7] bg-[#f5faf9] p-4">
-          <p className="font-semibold text-[#145b60]">{budget.title}</p>
+        <div className="rounded-xl border border-[#e3d9f8] bg-[#f7f4ff] p-4">
+          <p className="font-semibold text-[#4b2a99]">{budget.title}</p>
           <div className="mt-3 grid grid-cols-3 gap-2 text-sm">
-            <p><span className="block text-xs text-[#71858b]">Total</span><strong>${total.toLocaleString("es-CL")}</strong></p>
-            <p><span className="block text-xs text-[#71858b]">Abonado</span><strong>${paid.toLocaleString("es-CL")}</strong></p>
-            <p><span className="block text-xs text-[#71858b]">Saldo</span><strong>${balance.toLocaleString("es-CL")}</strong></p>
+            <p><span className="block text-xs text-[#6e6a8c]">Total</span><strong>${total.toLocaleString("es-CL")}</strong></p>
+            <p><span className="block text-xs text-[#6e6a8c]">Abonado</span><strong>${paid.toLocaleString("es-CL")}</strong></p>
+            <p><span className="block text-xs text-[#6e6a8c]">Saldo</span><strong>${balance.toLocaleString("es-CL")}</strong></p>
           </div>
         </div>
         <label className="block space-y-1 text-sm font-medium">Monto del pago (CLP)
@@ -106,11 +106,11 @@ export function BudgetPaymentDialog({
         <label className="block space-y-1 text-sm font-medium">Concepto (opcional)
           <Input maxLength={240} value={concept} onChange={event => setConcept(event.target.value)} placeholder="Abono de tratamiento"/>
         </label>
-        {amount > 0 && validAmount && !exceedsBalance && <p className="rounded-lg bg-[#eff8f6] p-3 text-sm">Saldo después de registrar: <strong>${(balance - amount).toLocaleString("es-CL")}</strong></p>}
+        {amount > 0 && validAmount && !exceedsBalance && <p className="rounded-lg bg-[#f3effd] p-3 text-sm">Saldo después de registrar: <strong>${(balance - amount).toLocaleString("es-CL")}</strong></p>}
         {error && <p role="alert" className="text-sm font-medium text-[#a43542]">{error}</p>}
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancelar</Button>
-          <Button type="submit" className="bg-[#087f83] hover:bg-[#07676b]" disabled={saving || !budget || !validAmount || exceedsBalance || !validMethod || !validDate || !requestId}>{saving ? "Guardando…" : "Confirmar y registrar"}</Button>
+          <Button type="submit" className="bg-[#6a3fc8] hover:bg-[#5632a3]" disabled={saving || !budget || !validAmount || exceedsBalance || !validMethod || !validDate || !requestId}>{saving ? "Guardando…" : "Confirmar y registrar"}</Button>
         </DialogFooter>
       </form>}
     </DialogContent>

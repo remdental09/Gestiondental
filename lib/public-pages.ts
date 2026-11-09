@@ -10,11 +10,11 @@ function layout(title: string, body: string) {
 <title>${escape(title)} · Gestión Dental</title>
 <meta name="robots" content="index,follow">
 <style>
-body{margin:0;font:16px/1.65 system-ui,-apple-system,"Segoe UI",sans-serif;color:#20343b;background:#f4f7f8}
+body{margin:0;font:16px/1.65 system-ui,-apple-system,"Segoe UI",sans-serif;color:#1f1b3a;background:#f3f0fa}
 main{max-width:760px;margin:0 auto;padding:32px 20px 64px}
-.card{background:#fff;border:1px solid #dce5e7;border-radius:16px;padding:28px}
-h1{font-size:28px;margin:0 0 4px}h2{font-size:20px;margin:28px 0 8px;color:#145b60}
-p,li{color:#33494f}a{color:#087f83}small{color:#71858b}
+.card{background:#fff;border:1px solid #ddd6f0;border-radius:16px;padding:28px}
+h1{font-size:28px;margin:0 0 4px}h2{font-size:20px;margin:28px 0 8px;color:#4b2a99}
+p,li{color:#33494f}a{color:#6a3fc8}small{color:#6e6a8c}
 nav{margin-bottom:16px;font-size:14px}
 </style></head><body><main><nav><a href="/acerca">Gestión Dental</a> · <a href="/privacidad">Política de privacidad</a></nav><div class="card">${body}</div></main></body></html>`;
 }
