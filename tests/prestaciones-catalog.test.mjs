@@ -2,10 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { PRESTACIONES, PRESTACION_GROUPS, searchPrestaciones, prestacionLabel } from "../lib/prestaciones-catalog.ts";
 
-test("el catálogo trae las 830 prestaciones en 18 grupos, con códigos únicos y sin precios", () => {
-  assert.equal(PRESTACIONES.length, 830);
-  assert.equal(PRESTACION_GROUPS.length, 18);
-  assert.equal(new Set(PRESTACIONES.map((item) => item.code)).size, 830);
+test("el catálogo trae las 789 prestaciones en 17 grupos, con códigos únicos y sin precios", () => {
+  assert.equal(PRESTACIONES.length, 789);
+  assert.equal(PRESTACION_GROUPS.length, 17);
+  assert.equal(new Set(PRESTACIONES.map((item) => item.code)).size, 789);
   assert.ok(PRESTACIONES.every((item) => /^\d{7}$/.test(item.code) && item.name && item.group));
   assert.ok(!PRESTACIONES.some((item) => /\$/.test(item.name)));
 });

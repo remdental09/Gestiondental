@@ -18,9 +18,27 @@ test("normalizePriceMap conserva solo códigos de 7 dígitos con precio válido"
   assert.deepEqual(normalizePriceMap(null), {});
 });
 
-test("el catálogo agrupa las 830 prestaciones en 18 grupos, todas con grupo conocido", () => {
-  assert.equal(PRESTACIONES.length, 830);
+test("el catálogo agrupa las 789 prestaciones en 17 grupos, todas con grupo conocido", () => {
+  assert.equal(PRESTACIONES.length, 789);
   const names = new Set(PRESTACION_GROUPS.map(group => group.name));
-  assert.equal(names.size, 18);
+  assert.equal(names.size, 17);
   assert.ok(PRESTACIONES.every(item => names.has(item.group)));
+});
+
+import { REFERENCE_PRICES, suggestedRange } from "../lib/prestaciones-referencia.ts";
+
+test("cada prestación del catálogo tiene referencia (salvo una) y ningún código sobra", () => {
+  const codes = new Set(PRESTACIONES.map(item => item.code));
+  assert.ok(Object.keys(REFERENCE_PRICES).every(code => codes.has(code)));
+  assert.equal(PRESTACIONES.filter(item => !REFERENCE_PRICES[item.code]).map(item => item.code).join(), "5104086");
+});
+
+test("suggestedRange: 60%–110% redondeado, low < reference < high; null sin referencia", () => {
+  const r = suggestedRange("5001001");
+  assert.equal(r.reference, 39794);
+  assert.equal(r.low, 24000);
+  assert.equal(r.high, 44000);
+  for (const code of Object.keys(REFERENCE_PRICES)) { const x = suggestedRange(code); assert.ok(x.low <= x.reference && x.reference <= x.high, code); }
+  assert.equal(suggestedRange("5104086"), null);
+  assert.equal(suggestedRange("9999999"), null);
 });
