@@ -40,7 +40,7 @@ type WeekDay = { key:string; label:string; date:number };
 type Modal = "patient"|"editPatient"|"note"|"budget"|"editBudget"|"appointment"|"editAppointment"|null;
 type PatientDraft = { name:string; birthDate:string; rut:string; phone:string; email:string; reason:string };
 type PatientDraftValidation = { missingFields:string[]; invalidFields:string[]; valid:boolean };
-type ClinicalLoadResponse = { error?:string; viewer?:{name?:string}; patients:Patient[]; notes:Note[]; budgets:Budget[]; payments?:Payment[]; appointments:Appointment[]; calendarEvents:CalendarEvent[]; calendarSnapshotAt?:string|null; calendarSyncedAt?:string|null; periodontalExams:Record<number,PerioExam[]>; toothStatuses:Record<number,OdontogramData>; clinicalImages:ClinicalImage[] };
+type ClinicalLoadResponse = { error?:string; viewer?:{name?:string;email?:string}; patients:Patient[]; notes:Note[]; budgets:Budget[]; payments?:Payment[]; appointments:Appointment[]; calendarEvents:CalendarEvent[]; calendarSnapshotAt?:string|null; calendarSyncedAt?:string|null; periodontalExams:Record<number,PerioExam[]>; toothStatuses:Record<number,OdontogramData>; clinicalImages:ClinicalImage[] };
 type ClinicalMutationResponse = { error?:string; odontogram:OdontogramData; exam:PerioExam; deleted?:boolean; patient:Patient; note:Note; budget:Budget; budgets?:Budget[]; payment?:Payment; appointment:Appointment; image:ClinicalImage; chart?:{odontogram?:OdontogramData;updatedTeeth?:number[];warning?:string} };
 type ClinicalReview = { patientId:number; heading:string; details:string[]; body?:string };
 type WebMcpRegistry = { registerTool(tool:{name:string;title?:string;description:string;inputSchema:object;execute:(input:unknown)=>unknown|Promise<unknown>},options?:{signal?:AbortSignal}):void|Promise<void> };
@@ -97,7 +97,7 @@ function WeeklyAgendaMosaic({days,events}:{days:WeekDay[];events:CalendarEvent[]
 export default function Home(){
   const [patients,setPatients]=useState(initialPatients),[notes,setNotes]=useState(initialNotes),[budgets,setBudgets]=useState(initialBudgets),[payments,setPayments]=useState<Payment[]>([]),[appointments,setAppointments]=useState(initialAppointments),[calendarEvents,setCalendarEvents]=useState(initialCalendarEvents);
   const [calendarSnapshotAt,setCalendarSnapshotAt]=useState<string|null>(null),[calendarSyncedAt,setCalendarSyncedAt]=useState<string|null>(null);
-  const [viewerName,setViewerName]=useState("");
+  const [viewerName,setViewerName]=useState(""),[viewerEmail,setViewerEmail]=useState("");
   const [periodontalExams,setPeriodontalExams]=useState<Record<number,PerioExam[]>>({}),[clinicalImages,setClinicalImages]=useState<ClinicalImage[]>([]);
   const [weekStart,setWeekStart]=useState(()=>mondayOfAgendaWeek(santiagoDateISO(new Date())));
   const weekEnd=shiftAgendaWeek(weekStart,1);
@@ -139,7 +139,7 @@ export default function Home(){
         const data=await response.json() as ClinicalLoadResponse;
         if(!response.ok)throw new Error(data.error||"No se pudo abrir la base de datos.");
         if(!active)return;
-        setPatients(data.patients);setNotes(data.notes);setBudgets(data.budgets);setPayments(data.payments??[]);setAppointments(data.appointments);setCalendarEvents(data.calendarEvents||[]);setCalendarSnapshotAt(data.calendarSnapshotAt||null);setCalendarSyncedAt(data.calendarSyncedAt||null);setViewerName(data.viewer?.name||"");
+        setPatients(data.patients);setNotes(data.notes);setBudgets(data.budgets);setPayments(data.payments??[]);setAppointments(data.appointments);setCalendarEvents(data.calendarEvents||[]);setCalendarSnapshotAt(data.calendarSnapshotAt||null);setCalendarSyncedAt(data.calendarSyncedAt||null);setViewerName(data.viewer?.name||"");setViewerEmail(data.viewer?.email||"");
         setPeriodontalExams(data.periodontalExams);setToothStatuses(data.toothStatuses);setClinicalImages(data.clinicalImages);setLoadError("");
       }catch(e){if(active)setLoadError(e instanceof Error?e.message:"No se pudo cargar la ficha.");}
       finally{requestRunning=false;if(active)setLoading(false)}
@@ -584,7 +584,7 @@ export default function Home(){
     void register();
     return ()=>{lifecycle.abort()};
   },[resetModal,savePatientDraft]);
-  const sidebarContent=<><div className="flex h-[76px] items-center gap-3 border-b border-white/10 px-6"><button type="button" onClick={goHome} className="flex size-10 items-center justify-center rounded-xl bg-[#3ca9a5] text-lg font-bold" aria-label="Ir a Inicio">{viewerInitials(viewerName)}</button><span className="leading-tight"><strong className="block text-sm">Gestión Dental</strong><small className="text-[#92b5b8]">{viewerName||"\u00a0"}</small></span><button className="ml-auto lg:hidden" aria-label="Cerrar menú" onClick={()=>setMobileNav(false)}><X className="size-5"/></button></div><nav className="flex-1 space-y-1 px-3 py-7" aria-label="Principal">{nav.map(({name,icon:Icon})=><button key={name} type="button" aria-current={section===name?"page":undefined} onClick={()=>openSection(name)} className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-sm font-medium transition ${section===name?"bg-[#26606a] text-white":"text-[#a9c4c7] hover:bg-white/10 hover:text-white"}`}><Icon className="size-[19px]"/>{name}</button>)}</nav><div className="m-4 rounded-xl border border-white/10 bg-white/5 p-4"><p className="text-xs font-semibold uppercase tracking-wide text-[#7dc6c3]">Proyecto activo</p><p className="mt-2 text-sm leading-5 text-[#c7dcdd]">Primera versión para evaluar el flujo de trabajo.</p></div></>;
+  const sidebarContent=<><div className="flex h-[76px] items-center gap-3 border-b border-white/10 px-6"><button type="button" onClick={goHome} className="flex size-10 items-center justify-center rounded-xl bg-[#3ca9a5] text-lg font-bold" aria-label="Ir a Inicio">{viewerInitials(viewerName)}</button><span className="leading-tight"><strong className="block text-sm">Gestión Dental</strong><small className="block text-[#92b5b8]">{viewerName||"\u00a0"}</small>{viewerEmail&&viewerEmail!==viewerName&&<small className="block max-w-[11rem] truncate text-[11px] text-[#92b5b8]" title={viewerEmail}>{viewerEmail}</small>}</span><button className="ml-auto lg:hidden" aria-label="Cerrar menú" onClick={()=>setMobileNav(false)}><X className="size-5"/></button></div><nav className="flex-1 space-y-1 px-3 py-7" aria-label="Principal">{nav.map(({name,icon:Icon})=><button key={name} type="button" aria-current={section===name?"page":undefined} onClick={()=>openSection(name)} className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-sm font-medium transition ${section===name?"bg-[#26606a] text-white":"text-[#a9c4c7] hover:bg-white/10 hover:text-white"}`}><Icon className="size-[19px]"/>{name}</button>)}</nav><div className="m-4 rounded-xl border border-white/10 bg-white/5 p-4"><p className="text-xs font-semibold uppercase tracking-wide text-[#7dc6c3]">Proyecto activo</p><p className="mt-2 text-sm leading-5 text-[#c7dcdd]">Primera versión para evaluar el flujo de trabajo.</p></div></>;
   return <div className="min-h-screen bg-[#f4f7f8] text-[#20343b]">
     <div className="fixed inset-y-0 left-0 z-30 hidden w-[248px] flex-col bg-[#102e37] text-white lg:flex">{sidebarContent}</div>
     {mobileNav&&<div className="fixed inset-0 z-40 bg-black/40 lg:hidden" onClick={()=>setMobileNav(false)}><div className="flex h-full w-[260px] flex-col bg-[#102e37] text-white" onClick={e=>e.stopPropagation()}>{sidebarContent}</div></div>}
@@ -599,6 +599,7 @@ export default function Home(){
           </div>
           <div className="flex shrink-0 items-center gap-3">
             <span className="hidden rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800 sm:inline">Ficha privada</span>
+            {viewerEmail&&<span className="hidden max-w-[16rem] truncate text-sm text-[#53686e] md:inline" title={viewerEmail}>{viewerName&&viewerName!==viewerEmail?<><strong className="font-semibold text-[#20343b]">{viewerName}</strong> · </>:null}{viewerEmail}</span>}
             {/* Cloudflare Access cierra la sesión en esta ruta y vuelve a la pantalla de ingreso, para entrar con otra cuenta. */}
             <a href="/cdn-cgi/access/logout" className="flex min-h-10 items-center gap-2 rounded-lg border border-[#dce5e7] px-3 text-sm font-medium text-[#53686e] hover:border-[#7bbdb9] hover:bg-[#f7fbfb] hover:text-[#145b60]" aria-label="Cerrar sesión para entrar con otra cuenta"><LogOut className="size-4"/><span className="hidden sm:inline">Cerrar sesión</span></a>
           </div>
