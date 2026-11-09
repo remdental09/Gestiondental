@@ -26,7 +26,7 @@ test("formatRut da puntos y guion", () => {
 test("checkProfile valida y normaliza", () => {
   const ok = checkProfile({ firstName: "  Luis ", lastName: "Rodríguez  M", rut: "123456785", specialty: "Implantología oral" });
   assert.equal(ok.ok, true);
-  assert.deepEqual(ok.profile, { firstName: "Luis", lastName: "Rodríguez M", rut: "12.345.678-5", specialty: "Implantología oral" });
+  assert.deepEqual(ok.profile, { firstName: "Luis", lastName: "Rodríguez M", rut: "12.345.678-5", specialty: "Implantología oral", extraTitles: "" });
   assert.equal(displayName(ok.profile), "Dr(a). Luis Rodríguez M");
 });
 
@@ -37,4 +37,16 @@ test("checkProfile rechaza datos incompletos o inventados", () => {
   assert.equal(checkProfile({ ...base, rut: "12.345.678-9" }).ok, false);
   assert.equal(checkProfile({ ...base, specialty: "Brujería" }).ok, false);
   assert.equal(checkProfile(null).ok, false);
+});
+
+test("perfil editable: otros títulos opcionales, recortados y con espacios limpios", () => {
+  const base = { firstName: "Ana", lastName: "Soto", rut: "12.345.678-5", specialty: "Endodoncia" };
+  const sin = checkProfile(base);
+  assert.equal(sin.ok, true);
+  assert.equal(sin.profile.extraTitles, "");
+  const con = checkProfile({ ...base, extraTitles: "  Diplomado   en implantología \n magíster en gestión  " });
+  assert.equal(con.profile.extraTitles, "Diplomado en implantología magíster en gestión");
+  assert.equal(checkProfile({ ...base, extraTitles: "x".repeat(900) }).profile.extraTitles.length, 300);
+  assert.equal(checkProfile({ ...base, specialty: "Inventada" }).ok, false);
+  assert.equal(checkProfile({ ...base, rut: "12.345.678-9" }).ok, false);
 });
