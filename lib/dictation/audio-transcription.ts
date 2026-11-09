@@ -6,8 +6,9 @@ type Session = {
   controller: AbortController; timer?: ReturnType<typeof setTimeout>; startedAt: number; uploading?: boolean; captureFailed?: boolean;
 };
 const LIMIT = 10 * 1024 * 1024;
-const MAX_MS = 5 * 60 * 1000;
-export const AUDIO_DICTATION_NOTICE = "El micrófono graba tu dictado y, al detenerlo, envía el audio a OpenAI para transcribirlo con vocabulario odontológico. Después la IA prepara la propuesta clínica. Máximo 5 minutos por grabación. Revisa piezas, dosis y montos antes de aceptar. El audio permanece temporalmente en memoria para reintentar; esta aplicación no lo guarda en la ficha ni en Drive.";
+export const MAX_DICTATION_MS = 4 * 60 * 1000;
+const MAX_MS = MAX_DICTATION_MS;
+export const AUDIO_DICTATION_NOTICE = "El micrófono graba tu dictado y, al detenerlo, envía el audio a OpenAI para transcribirlo con vocabulario odontológico. Después la IA prepara la propuesta clínica. Máximo 4 minutos por grabación; si falta algo, pulsa «Añadir al dictado» y sigue. Revisa piezas, dosis y montos antes de aceptar. El audio permanece temporalmente en memoria para reintentar; esta aplicación no lo guarda en la ficha ni en Drive.";
 
 /** MediaRecorder en Chrome/Safari; conserva cada grabación solo en memoria hasta terminar o descartar. */
 export function createAudioTranscription(): TranscriptionEngine {

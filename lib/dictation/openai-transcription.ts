@@ -5,7 +5,7 @@ export const AUDIO_TRANSCRIPTION_MODEL = "gpt-transcribe";
 /** Compatibilidad para cuentas que aún no exponen el modelo nuevo. Configuración explícita prevalece. */
 export const AUDIO_COMPATIBILITY_MODEL = "gpt-4o-transcribe";
 export const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
-export const MAX_RECORDING_MS = 5 * 60 * 1000;
+export const MAX_RECORDING_MS = 4 * 60 * 1000;
 const EXTENSIONS: Record<string, string> = { "audio/webm": "webm", "video/webm": "webm", "audio/mp4": "m4a", "video/mp4": "mp4", "audio/mpeg": "mp3", "audio/wav": "wav", "audio/x-wav": "wav" };
 
 export function audioExtension(type: string): string | null {
