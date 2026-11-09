@@ -54,7 +54,7 @@ runInNewContext(compiled, {
     '@/app/sync-odontogram': { syncInstalledImplants: async () => ({ updatedTeeth: [] }) },
     '@/db': { getDb: () => db },
     '@/db/schema': { patients: patientColumns, evolutions: evolutionColumns },
-    '@/app/patient-identity': { bestStoredNameMatches, hasFourNameParts: value => typeof value === 'string' && value.trim().split(/\s+/).filter(Boolean).length >= 4, normalizePatientName, storedNameMatchScore },
+    '@/app/patient-identity': { bestStoredNameMatches, hasFourNameParts: value => typeof value === 'string' && value.trim().split(/\s+/).filter(Boolean).length >= 3, normalizePatientName, storedNameMatchScore },
   })[name],
   crypto, TextEncoder, Intl, Date,
 });

@@ -2,12 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { bestStoredNameMatches, hasFourNameParts, fullNameRequiredMessage, storedNameMatchScore } from '../app/patient-identity.ts';
 
-test('exige al menos cuatro componentes de nombre sin inferirlos', () => {
-  assert.equal(hasFourNameParts('Paciente Ficticia Demo'), false);
+test('exige nombre y dos apellidos (segundo nombre opcional) de nombre sin inferirlos', () => {
+  assert.equal(hasFourNameParts('Paciente Demo'), false);
+  assert.equal(hasFourNameParts('Paciente Ficticia Demo'), true);
   assert.equal(hasFourNameParts('Paciente Prueba Ficticia Demo'), true);
   assert.equal(hasFourNameParts('  Ana   María Pérez de la Cruz  '), true);
   assert.equal(hasFourNameParts('Ana 123 Pérez Rojas'), false);
-  assert.match(fullNameRequiredMessage(), /dos nombres y los dos apellidos/i);
+  assert.match(fullNameRequiredMessage(), /dos apellidos/i);
 });
 
 test('acepta como mejor coincidencia una ficha cuyo nombre guardado tiene menos componentes', () => {

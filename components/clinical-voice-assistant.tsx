@@ -25,7 +25,7 @@ type Stage = "ready" | "speaking" | "listening" | "paused" | "error" | "complete
 export type PatientDraftField = FieldKey;
 
 const patientQuestions: PatientQuestion[] = [
-  { key: "name", label: "Nombre completo", prompt: "Di los dos nombres y los dos apellidos del paciente, en ese orden. Si falta alguno, no continúes con la ficha." },
+  { key: "name", label: "Nombre completo", prompt: "Di el nombre y los dos apellidos del paciente, en ese orden; el segundo nombre es opcional. Si falta algún apellido, no continúes con la ficha." },
   { key: "birthDate", label: "Fecha de nacimiento", prompt: "¿Cuál es la fecha de nacimiento? Dila como día, mes y año." },
   { key: "rut", label: "RUN o RUT", prompt: "¿Cuál es el RUN o RUT completo, incluido el dígito verificador?" },
   { key: "reason", label: "Motivo de consulta", prompt: "¿Cuál es el motivo principal de consulta?" },

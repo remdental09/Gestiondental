@@ -47,7 +47,7 @@ function createHandler(record, duplicates = []) {
     '@/app/clinical-import': { ClinicalImportError: class ClinicalImportError extends Error {}, runDriveRecordImport: async () => ({}) },
     '@/app/drive-backup': { confirmDriveSnapshot: async () => ({}), getDriveSnapshot: async () => ({}), listDriveBackupQueue: async () => ({}) },
     '@/app/sync-odontogram': { syncInstalledImplants: async () => ({ updatedTeeth: [] }) },
-    '@/app/patient-identity': { bestStoredNameMatches, hasFourNameParts: value => typeof value === 'string' && value.trim().split(/\s+/).filter(Boolean).length >= 4, normalizePatientName, storedNameMatchScore },
+    '@/app/patient-identity': { bestStoredNameMatches, hasFourNameParts: value => typeof value === 'string' && value.trim().split(/\s+/).filter(Boolean).length >= 3, normalizePatientName, storedNameMatchScore },
     '@/db': { getDb },
     '@/db/schema': { patients, evolutions: {}, toothStatuses: {} },
   };
