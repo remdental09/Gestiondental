@@ -1,6 +1,7 @@
 import { AuthorizationError, OAuthProvider, type ConsentDescription, type OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import app from "vinext/server/fetch-handler";
+import { aboutPage, privacyPage } from "./lib/public-pages";
 import { resolveOwner, resolveOwnerWithRegistration, type OwnerConfig, type ClinicOwner } from "./app/access-owners";
 
 type AccessIdentity = { email?: string | null };
@@ -302,7 +303,14 @@ const oauthProvider = new OAuthProvider<OAuthEnv>({
   apiHandler: mcpHandler,
   defaultHandler: {
     async fetch(request, env, context) {
-      if (new URL(request.url).pathname === "/authorize") return authorize(request, env, context);
+      const path = new URL(request.url).pathname;
+      // Páginas públicas que Google exige para publicar la app de OAuth: no requieren sesión.
+      if ((path === "/acerca" || path === "/privacidad") && (request.method === "GET" || request.method === "HEAD")) {
+        return new Response(request.method === "HEAD" ? null : path === "/acerca" ? aboutPage() : privacyPage(), {
+          headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "public, max-age=300", "X-Content-Type-Options": "nosniff" },
+        });
+      }
+      if (path === "/authorize") return authorize(request, env, context);
       return privateAppFetch(request, env, context);
     },
   },
