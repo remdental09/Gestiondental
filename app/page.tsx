@@ -22,6 +22,7 @@ import { budgetTotals, normalizeBudgetItems, plannedByTooth } from "@/lib/budget
 import { buildAppUrl, parseAppUrl, resolveAppUrl, type ParsedAppUrl } from "@/lib/app-url";
 const Periodontogram = lazy(() => import("@/components/periodontogram").then(module => ({ default: module.Periodontogram })));
 const Odontogram = lazy(() => import("@/components/odontogram").then(module => ({ default: module.Odontogram })));
+const EndodonticsPanel = lazy(() => import("@/components/endodontics").then(module => ({ default: module.EndodonticsPanel })));
 const OrthodonticsPanel = lazy(() => import("@/components/orthodontics").then(module => ({ default: module.OrthodonticsPanel })));
 const PatientImages = lazy(() => import("@/components/patient-images").then(module => ({ default: module.PatientImages })));
 import { emptyOdontogram, formatFdi, summarizePerio, type ClinicalImage, type OdontogramData, type OdontogramSurface, type PerioExam, type PerioTooth, type SurfaceFinding, type ToothHistoryEvent } from "@/app/clinical-data";
@@ -30,6 +31,7 @@ import { cariesDetail } from "@/lib/caries";
 import { cementedCrownFromEvolution } from "@/app/crown-evidence";
 import { bestStoredNameMatches, hasFourNameParts, normalizePatientName } from "@/app/patient-identity";
 import { nameSimilarity, type DictatedIdentity } from "@/lib/dictation/patient-identify";
+import { endoMarksByTooth, type EndoData } from "@/lib/endodontics";
 import { agendaWeekDays, agendaWeekRangeLabel, mondayOfAgendaWeek, santiagoDateISO, shiftAgendaWeek } from "@/app/agenda-week";
 
 type Patient = { id:number; name:string; birthDate:string; rut:string; phone:string; email:string; reason:string; status:string; allergies:string; history:string };
@@ -113,6 +115,13 @@ export default function Home(){
   const modalRef=useRef<Modal>(null);
   useEffect(()=>{modalRef.current=modal},[modal]);
   const [activeTab,setActiveTab]=useState("evoluciones");
+  const [endoByPatient,setEndoByPatient]=useState<Record<number,EndoData>>({}),[endoFocus,setEndoFocus]=useState<number|null>(null),[endoError,setEndoError]=useState("");
+  useEffect(()=>{
+    if(!selectedId||endoByPatient[selectedId])return;
+    let active=true;const patientId=selectedId;setEndoError("");
+    void fetch(`/api/endodontics?patientId=${patientId}`,{cache:"no-store"}).then(async response=>{const result=await response.json() as {data?:EndoData;error?:string};if(!response.ok||!result.data)throw new Error(result.error||"No se pudo leer el endograma.");if(active)setEndoByPatient(previous=>({...previous,[patientId]:result.data!}));}).catch(e=>{if(active)setEndoError(e instanceof Error?e.message:"No se pudo leer el endograma.")});
+    return()=>{active=false};
+  },[selectedId,endoByPatient]);
   const [toothStatuses,setToothStatuses]=useState<Record<number,OdontogramData>>({});
   const [name,setName]=useState(""),[birthDate,setBirthDate]=useState(""),[rut,setRut]=useState(""),[phone,setPhone]=useState(""),[email,setEmail]=useState(""),[reason,setReason]=useState(""),[allergies,setAllergies]=useState(""),[history,setHistory]=useState(""),[patientError,setPatientError]=useState("");
   const [patientAttemptedSave,setPatientAttemptedSave]=useState(false);
@@ -201,8 +210,11 @@ export default function Home(){
   const patient=patients.find(p=>p.id===selectedId)??null;
   const patientValidation=validatePatientDraft({name,birthDate,rut,phone,email,reason});
   const selectedPerio=summarizePerio(periodontalExams[selectedId]?.[0]);
-  const patientImages=clinicalImages.filter(item=>item.patientId===selectedId&&!item.kind.endsWith("ortodoncia"));
+  const patientImages=clinicalImages.filter(item=>item.patientId===selectedId&&!item.kind.endsWith("ortodoncia")&&item.kind!=="RX endodoncia");
   const orthoImages=clinicalImages.filter(item=>item.patientId===selectedId&&item.kind.endsWith("ortodoncia"));
+  const endoImages=clinicalImages.filter(item=>item.patientId===selectedId&&item.kind==="RX endodoncia");
+  const endoData=endoByPatient[selectedId];
+  const endoMarks=useMemo(()=>endoData?endoMarksByTooth(endoData):{},[endoData]);
   const perioAlerts=patients.map(p=>({patient:p,summary:summarizePerio(periodontalExams[p.id]?.[0]),date:periodontalExams[p.id]?.[0]?.recordedAt})).filter(item=>item.summary.attention>0);
   const filteredPatients=useMemo(()=>{
     const query=search.trim();
@@ -355,7 +367,15 @@ export default function Home(){
     }
     requestDriveBackup(selectedId);
   };
-  const uploadOrthoImage=async(file:File,kind:"Foto ortodoncia"|"RX ortodoncia",note:string)=>{
+  const saveEndo=async(next:EndoData)=>{
+    const patientId=selectedId;
+    const response=await fetch("/api/endodontics",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({patientId,data:next})});
+    const result=await response.json() as {data?:EndoData;error?:string};
+    if(!response.ok||!result.data)throw new Error(result.error||"No se pudo guardar el endograma.");
+    setEndoByPatient(previous=>({...previous,[patientId]:result.data!}));
+    return result.data;
+  };
+  const uploadOrthoImage=async(file:File,kind:"Foto ortodoncia"|"RX ortodoncia"|"RX endodoncia",note:string)=>{
     const patientId=selectedId,data=new FormData();data.set("file",file);data.set("name",file.name);data.set("patientId",String(patientId));data.set("kind",kind);data.set("note",note);
     const response=await fetch("/api/images",{method:"POST",body:data});
     const result=await response.json() as {error?:string;image:ClinicalImage};
@@ -649,7 +669,7 @@ export default function Home(){
           <section className="surface" aria-label="Agenda de la semana"><div className="mb-4 flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-semibold">Esta semana</h2><div className="flex flex-wrap items-center gap-3"><AgendaWeekControls weekStart={weekStart} onPrevious={()=>setWeekStart(current=>shiftAgendaWeek(current,-1))} onNext={()=>setWeekStart(current=>shiftAgendaWeek(current,1))} onCurrent={showCurrentAgendaWeek}/><button type="button" onClick={()=>openSection("Agenda")} className="text-sm font-medium text-[#6a3fc8] hover:underline">Ver agenda completa</button></div></div><WeeklyAgendaMosaic days={weekDays} events={weekCalendarEvents}/><CalendarFreshness syncedAt={calendarSyncedAt}/>{calendarSnapshotAt&&<p className="mt-2 text-xs text-[#6e6a8c]">Última consulta del calendario: {new Intl.DateTimeFormat("es-CL",{dateStyle:"short",timeStyle:"short",timeZone:"America/Santiago"}).format(new Date(calendarSnapshotAt))}.</p>}</section>
         </div>}
         {section==="Ficha clínica"&&patient&&<div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_310px]"><div className="min-w-0 space-y-6"><div className="sticky z-10 -mx-5 flex items-center justify-between gap-3 border-b border-[#ddd6f0] bg-white/95 px-5 py-2 backdrop-blur md:static md:mx-0 md:rounded-xl md:border" style={{top:headerHeight}} data-testid="ficha-dictar-bar"><div className="min-w-0"><p className="text-[11px] font-semibold uppercase tracking-wide text-[#6e6a8c]">Ficha abierta</p><p className="truncate font-semibold text-[#173f43]">{patient.name}</p></div><ClinicalDictation prominent patientId={patient.id} patientName={patient.name} odontogram={toothStatuses[selectedId]??emptyOdontogram()} latestNote={patientNotes[0]??null} patient={patient} request={dictationRequest?.patientId===patient.id?dictationRequest:null} persist={persist} onApplied={applyClinicalLoad} budgetOptions={patientBudgets.filter(b=>!b.isAlternative).map(b=>({id:b.id,title:b.title}))} notes={patientNotes} onAnnul={(evolutionId,mode,reason,replacement)=>annulEvolution(patient.id,evolutionId,mode,reason,replacement)}/></div><div className="surface"><div className="flex flex-wrap items-start justify-between gap-4"><div className="flex items-center gap-4"><span className="flex size-14 shrink-0 items-center justify-center rounded-2xl bg-[#e3d9f8] text-lg font-semibold text-[#4b2a99]">{initials(patient.name)}</span><div><h2 className="text-2xl font-semibold">{patient.name}</h2><p className="text-sm text-[#6e6a8c]">{ageFromBirthDate(patient.birthDate)!==null?`${ageFromBirthDate(patient.birthDate)} años · `:""}{patient.reason}{patient.rut?` · ${patient.rut}`:""}</p></div></div><span className="rounded-full bg-[#efe9fc] px-3 py-1 text-xs font-semibold text-[#5a35b5]">{patient.status}</span></div><div className="mt-7 grid gap-4 border-t border-[#ebe6f6] pt-5 sm:grid-cols-3"><Info label="Antecedentes" value={patient.history}/><Info label="Alergias" value={patient.allergies}/><Info label="Presupuestos" value={`${patientBudgets.length} registrados`}/></div><div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-[#ebe6f6] pt-5"><div className="grid grid-cols-1 gap-4 sm:grid-cols-2 [&>*]:min-w-0"><Info label="Teléfono" value={patient.phone||"Sin registrar"}/><Info label="Correo electrónico" value={patient.email||"Sin registrar"}/></div><div className="flex flex-wrap gap-2"><Button variant="outline" size="sm" onClick={editPatient}>Editar datos</Button></div></div>{selectedPerio.attention>0&&<button type="button" onClick={()=>setActiveTab("periodontograma")} className="mt-4 w-full rounded-xl border border-amber-200 bg-amber-50 p-3 text-left text-sm text-amber-950"><strong>Revisar periodontograma</strong><span className="mt-1 block">{selectedPerio.attention} {selectedPerio.attention===1?"sitio":"sitios"} con atención en el último examen · piezas FDI {selectedPerio.affected.map(formatFdi).join(", ")}.</span></button>}</div>
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="gap-4"><TabsList variant="line" className="w-full justify-start overflow-x-auto border-b border-[#ddd6f0] pb-2"><TabsTrigger value="evoluciones">Evoluciones</TabsTrigger><TabsTrigger value="odontograma">Odontograma</TabsTrigger><TabsTrigger value="periodontograma">Periodontograma</TabsTrigger><TabsTrigger value="imagenes">Imágenes</TabsTrigger><TabsTrigger value="ortodoncia">Ortodoncia</TabsTrigger><TabsTrigger value="presupuestos">Presupuestos</TabsTrigger></TabsList>
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="gap-4"><TabsList variant="line" className="w-full justify-start overflow-x-auto border-b border-[#ddd6f0] pb-2"><TabsTrigger value="evoluciones">Evoluciones</TabsTrigger><TabsTrigger value="odontograma">Odontograma</TabsTrigger><TabsTrigger value="periodontograma">Periodontograma</TabsTrigger><TabsTrigger value="imagenes">Imágenes</TabsTrigger><TabsTrigger value="endodoncia">Endodoncia</TabsTrigger><TabsTrigger value="ortodoncia">Ortodoncia</TabsTrigger><TabsTrigger value="presupuestos">Presupuestos</TabsTrigger></TabsList>
             <TabsContent value="evoluciones"><div className="surface"><div className="flex items-center justify-between"><h3 className="font-semibold">Historia clínica</h3><div className="flex flex-wrap justify-end gap-2">{annulledCount>0&&<Button variant="ghost" size="sm" aria-pressed={showAnnulled} onClick={()=>setShowAnnulled(v=>!v)} data-testid="toggle-annulled">{showAnnulled?"Ocultar anuladas":`Ver anuladas (${annulledCount})`}</Button>}<Button variant="outline" size="sm" onClick={()=>setModal("note")}><FilePlus2 className="mr-2 size-4"/>Añadir registro</Button></div></div>{chartMessage&&<p role="status" className="mt-3 text-sm text-[#3d2f73]">{chartMessage}</p>}<EvolutionHistory
   notes={showAnnulled ? patientNotesAll : patientNotes}
   allNotes={patientNotesAll}
@@ -666,7 +686,7 @@ export default function Home(){
   }}
   onAnnul={note => setAnnulTarget(note)}
 /></div></TabsContent>
-            <TabsContent value="odontograma"><Suspense fallback={<div className="min-h-[320px] rounded-xl bg-white p-5 text-sm text-[#6e6a8c]" role="status">Cargando odontograma…</div>}><Odontogram key={selectedId} planned={plannedTeeth} onSetPlannedDone={setBudgetItemDone} onOpenPlan={()=>setActiveTab("presupuestos")} onDeleteEvent={deleteToothEvent} onEditEvent={editToothEvent} data={toothStatuses[selectedId]??emptyOdontogram()} evolutionEvents={toothEvolutionHistory} onSetStatus={updateTooth} onSetMissingReason={updateMissingReason} onSetSurface={updateSurface} onSetCrownDetails={updateCrownDetails}/></Suspense></TabsContent>
+            <TabsContent value="odontograma"><Suspense fallback={<div className="min-h-[320px] rounded-xl bg-white p-5 text-sm text-[#6e6a8c]" role="status">Cargando odontograma…</div>}><Odontogram key={selectedId} endo={endoMarks} onOpenEndo={tooth=>{setEndoFocus(tooth);setActiveTab("endodoncia")}} planned={plannedTeeth} onSetPlannedDone={setBudgetItemDone} onOpenPlan={()=>setActiveTab("presupuestos")} onDeleteEvent={deleteToothEvent} onEditEvent={editToothEvent} data={toothStatuses[selectedId]??emptyOdontogram()} evolutionEvents={toothEvolutionHistory} onSetStatus={updateTooth} onSetMissingReason={updateMissingReason} onSetSurface={updateSurface} onSetCrownDetails={updateCrownDetails}/></Suspense></TabsContent>
             <TabsContent value="presupuestos"><div className="surface"><div className="flex justify-between gap-3"><div><h3 className="font-semibold">Planes de tratamiento y presupuestos</h3><p className="mt-1 text-sm text-[#625e82]">Organiza prestaciones por fases y revisa total, abonos y saldo en cada plan.</p></div><Button variant="outline" size="sm" onClick={startNewBudget}>Añadir plan</Button></div><div className="mt-5 space-y-4">{patientBudgets.length?<>
               {patientBudgets.filter(b=>!b.isAlternative).map(primary=>{
                 const paid=patientPayments.filter(payment=>payment.budgetId===primary.id).reduce((sum,payment)=>sum+payment.amount,0);
@@ -683,6 +703,7 @@ export default function Home(){
               {patientBudgets.filter(budget=>budget.isAlternative&&!patientBudgets.some(primary=>primary.id===budget.parentBudgetId&&!primary.isAlternative)).map(alternative=><BudgetCard key={alternative.id} budget={alternative} onEdit={()=>editBudget(alternative)} onPrint={()=>setPrintingBudgetId(alternative.id)}/>)}
             </>:<Empty text="Aún no hay planes de tratamiento para este paciente."/>}</div><PatientPaymentSummary payments={patientPayments}/></div></TabsContent>
             <TabsContent value="periodontograma"><Suspense fallback={<div className="min-h-[320px] rounded-xl bg-white p-5 text-sm text-[#6e6a8c]" role="status">Cargando periodontograma…</div>}><Periodontogram key={selectedId} onDeleteReading={deletePerioReading} onEditReading={editPerioReading} exams={periodontalExams[selectedId]??[]} toothStatuses={toothStatuses[selectedId]?.teeth??{}} toothHistory={[...(toothStatuses[selectedId]?.history??[]),...toothEvolutionHistory]} onSave={savePerio}/></Suspense></TabsContent>
+            <TabsContent value="endodoncia"><Suspense fallback={<div className="min-h-[220px] rounded-xl bg-white p-5 text-sm text-[#6e6a8c]" role="status">Cargando endograma…</div>}>{activeTab==="endodoncia"&&(endoData?<EndodonticsPanel key={selectedId} data={endoData} onSave={saveEndo} focusTooth={endoFocus} patientName={patient?.name||""} images={endoImages} onUploadImage={uploadOrthoImage} onRemoveImage={removeImage} onAddNote={addOrthoNote}/>:<div className="surface" role="status">{endoError?<p role="alert" className="text-[#a43542]">{endoError}</p>:"Cargando endograma…"}</div>)}</Suspense></TabsContent>
             <TabsContent value="ortodoncia"><Suspense fallback={<div className="min-h-[220px] rounded-xl bg-white p-5 text-sm text-[#6e6a8c]" role="status">Cargando ortodoncia…</div>}>{activeTab==="ortodoncia"&&<OrthodonticsPanel key={selectedId} patientId={selectedId} patientName={patient?.name||""} images={orthoImages} onUploadImage={uploadOrthoImage} onRemoveImage={removeImage} onAddNote={addOrthoNote}/>}</Suspense></TabsContent>
             <TabsContent value="imagenes"><Suspense fallback={<div className="min-h-[220px] rounded-xl bg-white p-5 text-sm text-[#6e6a8c]" role="status">Cargando imágenes…</div>}><PatientImages key={selectedId} images={patientImages} onAdd={addImages} onRemove={removeImage}/></Suspense></TabsContent>
           </Tabs></div><aside className="space-y-5"><div className="surface"><h3 className="font-semibold">Próximas citas</h3><div className="mt-5 space-y-4">{appointments.filter(a=>a.patientId===selectedId).length?appointments.filter(a=>a.patientId===selectedId).map(a=><div key={a.id} className="rounded-xl bg-[#f3effd] p-4"><p className="font-semibold text-[#6a3fc8]">{a.day} · {a.time}</p><p className="mt-1 text-sm">{a.reason}</p><Button size="sm" variant="outline" className="mt-3" onClick={()=>editAppointment(a)}>Editar motivo</Button></div>):<Empty text="Sin citas agendadas."/>}</div><Button variant="outline" className="mt-5 w-full" onClick={()=>setModal("appointment")}>Agendar control</Button></div><div className="rounded-2xl bg-[linear-gradient(135deg,#2a1a5e,#4a2fa0)] p-6 text-white"><Activity className="mb-4 size-6 text-[#e5977c]"/><h3 className="font-semibold">Secuencia clínica</h3><p className="mt-2 text-sm leading-6 text-[#d9d0f3]">Documenta evaluación, cirugía, componentes, rehabilitación y controles en orden cronológico.</p></div></aside></div>}

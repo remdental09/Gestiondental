@@ -99,7 +99,7 @@ export type ClinicalImage = {
   patientId: number;
   url: string;
   name: string;
-  kind: "Radiografía" | "Captura CBCT" | "Foto ortodoncia" | "RX ortodoncia";
+  kind: "Radiografía" | "Captura CBCT" | "Foto ortodoncia" | "RX ortodoncia" | "RX endodoncia";
   note: string;
   addedAt: string;
   size: number;
