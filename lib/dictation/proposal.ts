@@ -1,4 +1,5 @@
 import { DENTAL_DICTIONARY_HINTS } from "./dental-lexicon.ts";
+import { applyAiReview, clinicalCoherence, parseReview, REVIEW_PROMPT, reviewPayload } from "./clinical-review.ts";
 import { buildMinsalClinicalContext } from "./minsal-knowledge.ts";
 import { buildEndoPerioContext } from "./endoperio-knowledge.ts";
 import { IDENTITY_NORMALIZATION_PROMPT, normalizeIdentityNumbers } from "./identity-numbers.ts";
@@ -289,6 +290,8 @@ export type ClinicalModel = {
   readonly id: string;
   readonly model: string;
   complete(input: StructureInput): Promise<unknown>;
+  /** Segunda opinión clínica (opcional): recibe el prompt y el resumen de la propuesta y devuelve JSON con observaciones. */
+  review?(system: string, payload: string): Promise<unknown>;
 };
 
 export type StructureOutcome = {
@@ -3895,6 +3898,10 @@ export function applyEvolutionPolicy(proposal: DictationProposal, chart: Structu
   if (finalKind.type === "implante-rehabilitacion" && finalKind.detail === "pilar de cicatrización") {
     notes.push("Pilar de cicatrización: queda en la evolución. El estado «Implante con pilar» es para el pilar protésico.");
   }
+  // Capa 1: sentido clínico (trepanación ≠ implante, la 20 no es la 19…). Marca con aviso y deja sin aceptar por defecto.
+  const reviewed = clinicalCoherence(odontogram, chart, (tooth) => sentences(text).filter((sentence) => toothMentions(sentence).some((m) => m.ok && m.tooth === tooth)).map((sentence) => neighbourScoped(sentence, tooth)));
+  odontogram.splice(0, odontogram.length, ...reviewed.odontogram);
+  notes.push(...reviewed.notes);
   const changed = odontogram.length !== proposal.odontogram.length || odontogram.some((item) => item.advisory) || pilarItems.length > 0;
   const evolution = proposal.evolution ? { ...proposal.evolution, title: finalKind.title, ...(changed ? { body: replaceExamSection(proposal.evolution.body, odontogram.filter((item) => !item.advisory)) } : {}) } : null;
   return { ...proposal, odontogram, evolution, evolutionKind: finalKind, policyNotes: notes };
@@ -3934,6 +3941,23 @@ export function withoutMoney(proposal: DictationProposal): DictationProposal {
     clarifications: proposal.clarifications.filter((note) => !MONEY_NOTE.test(note)),
     ...(proposal.evolution ? { evolution: { ...proposal.evolution, body: kept.join("\n").trim() } } : {}),
   };
+}
+
+/** Capa 2: un «dentista revisor» (IA) mira la propuesta ya armada. Si falla o tarda, la propuesta sigue como estaba. */
+async function secondOpinion(model: ClinicalModel, proposal: DictationProposal, text: string, chart: StructureInput["chart"], log: DictationLog): Promise<DictationProposal> {
+  if (!model.review || !proposal.odontogram.length) return proposal;
+  try {
+    const raw = await withTimeout(Promise.resolve(model.review(REVIEW_PROMPT, reviewPayload(text, chart, proposal.odontogram))), 20_000);
+    const observations = parseReview(raw, proposal.odontogram);
+    if (!observations.length) return proposal;
+    const applied = applyAiReview(proposal.odontogram, observations);
+    log("dictation.review_flagged", { items: observations.length });
+    const evolution = proposal.evolution ? { ...proposal.evolution, body: replaceExamSection(proposal.evolution.body, applied.odontogram.filter((item) => !item.advisory)) } : proposal.evolution;
+    return { ...proposal, odontogram: applied.odontogram, evolution, clarifications: [...proposal.clarifications, ...applied.notes.map((note) => `Revisión clínica (IA): ${note}`)] };
+  } catch {
+    log("dictation.review_failed", {});
+    return proposal;
+  }
 }
 
 export async function proposeFromTranscript(
@@ -4016,7 +4040,7 @@ export async function proposeFromTranscript(
     const proposal = mergeProposals(ai, local, corrected);
     const aiMs = Date.now() - started;
     log("dictation.ai_ok", { model: usedModel, ms: aiMs, items: ai.odontogram.length, rejected: ai.rejected, corrections: reconciled.corrections.filter((item) => item.applied).length });
-    return { engine: "ia+reglas", model: usedModel, notice: AI_NOTICE, proposal: withText(proposal, corrected, [...lexicon.corrections, ...reconciled.corrections], ai.diagnoses ?? []), aiMs, ...(aiNote ? { aiNote } : {}) };
+    return { engine: "ia+reglas", model: usedModel, notice: AI_NOTICE, proposal: await secondOpinion(model, withText(proposal, corrected, [...lexicon.corrections, ...reconciled.corrections], ai.diagnoses ?? []), corrected, input.chart ?? [], log), aiMs, ...(aiNote ? { aiNote } : {}) };
   } catch (cause) {
     const aiMs = Date.now() - started;
     const reason = cause instanceof Error ? cause.message.replace(/\s+/g, " ").slice(0, 120) : "error";

@@ -215,3 +215,8 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 
 ## Implante del vecino (corregido)
 - «La pieza 20 está adyacente al implante de la pieza 19» marcaba Implante en las piezas 4.5, 4.6 y 4.4. `neighbourScoped` (lib/dictation/proposal.ts) limita cada frase con «adyacente/vecino/contiguo/junto a/al lado de» a la parte que habla de esa pieza, en el camino de reglas y en el de la IA.
+
+## Revisión de sentido clínico del odontograma (2 capas)
+- Capa 1 (`lib/dictation/clinical-review.ts`, reglas, sin costo): marca con aviso y deja SIN aceptar por defecto un cambio incoherente: implante en pieza que se trepana/tiene pulpitis/endodoncia/caries u obturación, corona sobre diente natural → implante sin extracción ni instalación dictadas, pieza «ausente» a la que se le hace tratamiento. Se aplica en `applyEvolutionPolicy`.
+- Capa 2 (`ClinicalModel.review` → `runOpenAiReview`): un «dentista revisor» de OpenAI mira dictado + odontograma actual + cambios propuestos y devuelve observaciones; solo pueden recaer sobre cambios ya propuestos. Si falla o tarda más de 20 s, la propuesta sigue igual (la capa 1 queda).
+- Los avisos aparecen en ámbar bajo cada cambio («Revisión clínica …») y en las aclaraciones.
