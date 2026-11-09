@@ -208,3 +208,7 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 
 ## Dirección del paciente
 - Calle y número, comuna y país (por defecto Chile) en crear/editar paciente y visible en la ficha. Se guarda en la tabla `patient_addresses` (creada al vuelo, aislada por `owner_id`), sin migración de drizzle. `lib/patient-address.ts` normaliza y da formato.
+
+## Anamnesis médico-odontológica (separada del ingreso, por ahora)
+- Botón rojo «Anamnesis» sobre las pestañas de la ficha (`components/anamnesis-dialog.tsx`): formulario (alergias, medicamentos, anticoagulantes, enfermedades por casillas, cirugías, hospitalizaciones, anestesia, embarazo, hábitos, antecedentes dentales) + dictado por audio (mismo motor que el resto) y «Ordenar en el formulario» (OpenAI, solo lo dicho, `lib/dictation/openai-anamnesis.ts`). Lo dictado completa, no borra; el clínico revisa y guarda.
+- Tabla `patient_anamnesis` (lazy, por `owner_id`), API `/api/anamnesis` (GET/PUT/POST). Pendiente: integrarla al flujo de ingreso del paciente y a la exportación/respaldo.
