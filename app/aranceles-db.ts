@@ -34,6 +34,32 @@ export async function setHidden(ownerId: string, code: string, hidden: boolean) 
   else await database.prepare("DELETE FROM hidden_prestaciones WHERE owner_id = ? AND code = ?").bind(ownerId, code).run();
 }
 
+async function ensureNames(database: Db) {
+  await database.prepare(
+    "CREATE TABLE IF NOT EXISTS prestacion_names (owner_id TEXT NOT NULL, code TEXT NOT NULL, name TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (owner_id, code))"
+  ).run();
+}
+
+/** Nombres que este profesional cambió en prestaciones del catálogo (código → nombre propio). */
+export async function loadNames(ownerId: string): Promise<Record<string, string>> {
+  const database = arancelDb();
+  if (!database) return {};
+  await ensureNames(database);
+  const { results } = await database.prepare("SELECT code, name FROM prestacion_names WHERE owner_id = ?").bind(ownerId).all<{ code: string; name: string }>();
+  return Object.fromEntries(results.map(row => [row.code, row.name]));
+}
+
+/** name null = volver al nombre original. */
+export async function setName(ownerId: string, code: string, name: string | null) {
+  const database = arancelDb();
+  if (!database) throw new Error("La base de datos no está disponible.");
+  await ensureNames(database);
+  if (name === null) { await database.prepare("DELETE FROM prestacion_names WHERE owner_id = ? AND code = ?").bind(ownerId, code).run(); return; }
+  await database.prepare(
+    "INSERT INTO prestacion_names (owner_id, code, name, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(owner_id, code) DO UPDATE SET name = excluded.name, updated_at = excluded.updated_at"
+  ).bind(ownerId, code, name, new Date().toISOString()).run();
+}
+
 export async function loadPrices(ownerId: string): Promise<PriceMap> {
   const database = arancelDb();
   if (!database) return {};
