@@ -1,4 +1,5 @@
 "use client";
+import "@/lib/window-origin";
 import { endoMilestones, evolutionMilestones } from "@/lib/tooth-evolution-milestones";
 import { OdontogramDateBar } from "@/components/odontogram-date-bar";
 import { chartAt, chartDates } from "@/lib/odontogram-timeline";

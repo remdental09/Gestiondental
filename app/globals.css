@@ -18,3 +18,22 @@ button,a,label,select,summary,[role=button],[role=tab]{touch-action:manipulation
   #budget-print-document{page:budget-document;display:block!important;position:static!important;width:100%!important;margin:0!important;padding:0!important;border:0!important;box-shadow:none!important;background:#fff!important}
   [data-slot="dialog-overlay"]{display:none!important}
 }
+
+/* Ventanas que nacen del punto de origen, como un embudo (estilo macOS).
+   El centrado usa la propiedad `translate` de Tailwind 4; la animación usa `transform`, que se suma a ella. */
+@keyframes genie-open {
+  0% { opacity: 0; transform: translate(var(--genie-dx, 0px), var(--genie-dy, 0px)) scale(0.04, 0.02); filter: blur(8px); border-radius: 999px; }
+  40% { opacity: 1; transform: translate(calc(var(--genie-dx, 0px) * 0.45), calc(var(--genie-dy, 0px) * 0.45)) scale(0.38, 0.62); filter: blur(2px); }
+  100% { opacity: 1; transform: none; filter: none; }
+}
+@keyframes genie-close {
+  0% { opacity: 1; transform: none; filter: none; }
+  60% { opacity: 0.9; transform: translate(calc(var(--genie-dx, 0px) * 0.55), calc(var(--genie-dy, 0px) * 0.55)) scale(0.38, 0.62); filter: blur(2px); }
+  100% { opacity: 0; transform: translate(var(--genie-dx, 0px), var(--genie-dy, 0px)) scale(0.04, 0.02); filter: blur(8px); border-radius: 999px; }
+}
+[data-genie][data-state="open"] { animation: genie-open 0.48s cubic-bezier(0.16, 1, 0.3, 1) both; will-change: transform, opacity; }
+[data-genie][data-state="closed"] { animation: genie-close 0.32s cubic-bezier(0.55, 0, 0.75, 0.2) both; }
+[data-slot="dialog-overlay"][data-state="open"] { backdrop-filter: blur(3px); }
+@media (prefers-reduced-motion: reduce) {
+  [data-genie][data-state="open"], [data-genie][data-state="closed"] { animation-duration: 0.01ms; }
+}
