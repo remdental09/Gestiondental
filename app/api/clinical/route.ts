@@ -581,7 +581,7 @@ export async function POST(request: Request) {
       const [a] = await db.insert(appointments).values({ ownerId, patientId, day, time, reason, createdAt: now() }).returning();
       const [who] = await db.select({ name: patients.name }).from(patients).where(and(eq(patients.id, patientId), eq(patients.ownerId, ownerId)));
       const { pushAppointmentToGoogle } = await import("@/app/drive-oauth");
-      const calendar = await pushAppointmentToGoogle(ownerId, { id: a.id, day, time, reason }, who?.name || "").catch(() => "error" as const);
+      const calendar = await pushAppointmentToGoogle(ownerId, { id: a.id, day, time, reason }, who?.name || "", patientId).catch(() => "error" as const);
       return Response.json({ appointment: { id: a.id, patientId, day: day.split("-").reverse().join("-"), time, reason }, calendar }, { status: 201 });
     }
     if (action === "addPayment") {

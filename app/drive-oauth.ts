@@ -979,7 +979,7 @@ export type CalendarPushStatus = "ok" | "sin-conexion" | "solo-lectura" | "error
 type AppointmentForGoogle = { id: number; day: string; time: string; reason: string };
 
 /** Crea la cita agendada en la ficha dentro del calendario principal de Google del profesional (si dio permiso de escritura). */
-export async function pushAppointmentToGoogle(ownerId: string, appointment: AppointmentForGoogle, patientName: string): Promise<CalendarPushStatus> {
+export async function pushAppointmentToGoogle(ownerId: string, appointment: AppointmentForGoogle, patientName: string, patientId?: number): Promise<CalendarPushStatus> {
   const config = configuration();
   if (!config.configured) return "sin-conexion";
   await ensureCalendarTable();
@@ -1004,6 +1004,7 @@ export async function pushAppointmentToGoogle(ownerId: string, appointment: Appo
     const calendarId = "g:" + row.google_sub + ":" + (created.organizer?.email || row.google_email);
     const { UPSERT_EVENT } = await import("@/app/calendar-sync");
     await database().prepare(UPSERT_EVENT).bind(ownerId, calendarId, created.id, summary, startIso, endIso, "America/Santiago", "confirmed", 0, now(), null).run();
+    if (patientId) await database().prepare("UPDATE calendar_events SET patient_id = ? WHERE owner_id = ? AND calendar_id = ? AND google_event_id = ?").bind(patientId, ownerId, calendarId, created.id).run();
     await database().prepare("INSERT OR REPLACE INTO appointment_google_events (owner_id, appointment_id, google_sub, calendar_id, event_id) VALUES (?, ?, ?, ?, ?)").bind(ownerId, appointment.id, row.google_sub, calendarId, created.id).run();
     return "ok";
   } catch { return "error"; }

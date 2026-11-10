@@ -103,3 +103,11 @@ test("se extraen celulares y correos de un texto sin guardar el resto", () => {
   assert.deepEqual(contactTokens("Paciente llamar al +56 9 8765 4321 o a Ana@Correo.cl. Fijo 22 123 4567. Alergia a penicilina"), ["987654321", "ana@correo.cl"]);
   assert.deepEqual(contactTokens("sin datos"), []);
 });
+
+test("cita «Nombre completo · MOTIVO»: gana la ficha con el nombre completo aunque otra comparta palabras", async () => {
+  const { patientForEvent } = await import("../lib/today-agenda.ts");
+  const patients = [{ id: 1, name: "Luis Paul Rodríguez Murga" }, { id: 2, name: "Luis Orlando Rodríguez Valenzuela" }];
+  const event = { id: 9, title: "Luis Paul Rodríguez Murga · CONTROL", startAt: "2026-11-11T18:00:00.000Z", endAt: "2026-11-11T18:30:00.000Z", status: "confirmed", allDay: false, patientId: null };
+  assert.equal(patientForEvent(event, patients)?.id, 1);
+  assert.equal(patientForEvent({ ...event, title: "Luis Rodríguez" }, patients), null);
+});

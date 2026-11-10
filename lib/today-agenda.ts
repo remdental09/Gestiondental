@@ -46,8 +46,12 @@ export function patientForEvent<P extends TodayPatient>(event: TodayEvent, patie
     const present = parts.filter(part => title.includes(` ${part} `));
     return parts.length >= 2 && present.length >= 2 && title.includes(` ${parts[0]} `);
   });
+  if (matches.length === 1) return matches[0];
+  // Si varias comparten algunas palabras, gana la ficha cuyo nombre completo aparece en el título (p. ej. «Luis Paul Rodríguez Murga» frente a «Luis Orlando Rodríguez Valenzuela»).
+  const complete = matches.filter(patient => fold(patient.name).split(" ").filter(part => part.length > 1).every(part => title.includes(` ${part} `)));
+  if (complete.length === 1) return complete[0];
   // Un nombre que coincide con varias fichas es ambiguo: no se adivina.
-  return matches.length === 1 ? matches[0] : null;
+  return null;
 }
 
 /** Citas confirmadas de un día de Chile (AAAA-MM-DD), en orden, con su paciente si se reconoce. */
