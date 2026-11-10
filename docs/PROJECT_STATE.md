@@ -233,3 +233,9 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 - Borrar o anular una evolución (de cualquier especialidad que haya escrito en el odontograma con `sourceEvolutionId`) deshace sus cambios (`revertChartOf` en la API). La respuesta trae `revertedTeeth`.
 - Pestaña Odontograma: barra «Ver al» (Hoy + días con cambios); una fecha pasada es solo lectura.
 - Fase 2 pendiente: periodontograma y endograma por fecha y ligados a su evolución (endograma/ortodoncia hoy guardan un solo JSON sin historial).
+
+## Historial por especialidad (fase 2)
+- `evolution_links` (`app/evolution-links-db.ts`): liga una evolución con lo que generó fuera de su texto: sesión/control de endodoncia (`endo-session`/`endo-followup`, ref `caso:entrada`) y examen periodontal dictado (`perio`, ref id del examen). Al borrar o anular la evolución, `revertLinks` quita esa sesión/control del endograma y elimina el examen; la respuesta trae `revertedLinks`.
+- Endograma: cada guardado crea una versión fechada (`endodontic_versions`); `GET /api/endodontics?patientId=…&versions=1` lista los días y `&at=AAAA-MM-DD` devuelve el endograma de ese día. Las versiones existen desde este cambio en adelante.
+- Barra «Ver al» en Odontograma, Periodontograma (por fecha de examen) y Endograma; una fecha pasada es solo lectura.
+- Ortodoncia sigue sin versiones (no escribe en odontograma ni en otras especialidades).

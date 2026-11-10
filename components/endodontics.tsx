@@ -58,7 +58,7 @@ export function EndodonticsPanel({ data: saved, onSave, focusTooth, patientName,
   images: ClinicalImage[];
   onUploadImage: (file: File, kind: "RX endodoncia", note: string) => Promise<ClinicalImage>;
   onRemoveImage: (id: number) => Promise<void>;
-  onAddNote: (title: string, body: string, clinicalDate: string) => Promise<void>;
+  onAddNote: (title: string, body: string, clinicalDate: string, link?: { kind: "endo-session" | "endo-followup"; ref: string }) => Promise<void>;
 }) {
   // Todos los hooks van aquí arriba: nunca después de un return condicional.
   const [data, setData] = useState<EndoData>(saved);
@@ -166,7 +166,7 @@ export function EndodonticsPanel({ data: saved, onSave, focusTooth, patientName,
     try {
       const next = await persist(withCase(x => ({ ...x, sessions: [...x.sessions, entry].sort((a, b) => a.date.localeCompare(b.date)), ...(obturated ? { obturation: { ...x.obturation, date: entry.date }, nextControlDate: x.nextControlDate || suggestedNextControl(entry.date, 0) } : {}) })), "Sesión guardada.");
       const updated = next.cases.find(x => x.id === c.id) ?? c;
-      if (session.toChart) await onAddNote(`Endodoncia · FDI ${fdi(c.tooth)}`, sessionEvolutionText(updated, entry), entry.date);
+      if (session.toChart) await onAddNote(`Endodoncia · FDI ${fdi(c.tooth)}`, sessionEvolutionText(updated, entry), entry.date, { kind: "endo-session", ref: `${c.id}:${entry.id}` });
       setMessage(`${session.toChart ? "Sesión guardada y registrada en la historia clínica." : "Sesión guardada."}${obturated ? " Se registró la fecha de obturación; completa técnica y sellado en «Obturación»." : ""}`);
       setSession(emptySession());
     } catch (e) { setError(e instanceof Error ? e.message : "No se pudo guardar la sesión."); }
@@ -249,7 +249,7 @@ export function EndodonticsPanel({ data: saved, onSave, focusTooth, patientName,
     try {
       const next = await persist(withCase(x => ({ ...x, followUps: [...x.followUps, entry].sort((a, b) => a.date.localeCompare(b.date)), nextControlDate: follow.next })), "Control guardado.");
       const updated = next.cases.find(x => x.id === c.id) ?? c;
-      if (follow.toChart) await onAddNote(`Control endodóntico · FDI ${fdi(c.tooth)}`, followUpEvolutionText(updated, entry, follow.next), entry.date);
+      if (follow.toChart) await onAddNote(`Control endodóntico · FDI ${fdi(c.tooth)}`, followUpEvolutionText(updated, entry, follow.next), entry.date, { kind: "endo-followup", ref: `${c.id}:${entry.id}` });
       setMessage(follow.toChart ? "Control guardado y registrado en la historia clínica." : "Control guardado.");
       setFollow(emptyFollow());
     } catch (e) { setError(e instanceof Error ? e.message : "No se pudo guardar el control."); }
