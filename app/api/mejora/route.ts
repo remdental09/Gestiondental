@@ -4,6 +4,7 @@ import { env } from "cloudflare:workers";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { summarizeImprovement, type ClinicianLabel, type FeedbackRow, type UsageRow } from "@/lib/improvement";
 import { judgeCase, itemKey, type CoherenceCase } from "@/lib/dictation/coherence-cases";
+import { learnFromFeedback } from "@/lib/dictation/learning";
 import { proposeFromTranscript } from "@/lib/dictation/proposal";
 import { createWorkersAiModel } from "@/lib/dictation/workers-ai";
 import bank from "@/tests/fixtures/casos-coherencia.json";
@@ -44,7 +45,7 @@ export async function GET() {
   ]);
   const labels: ClinicianLabel[] = profiles.map((row) => ({ owner_id: row.owner_id, label: `${[row.first_name, row.last_name].filter(Boolean).join(" ") || "Colega"} · ${row.email}` }));
   labels.unshift({ owner_id: auth.user.userId, label: `Tú (${auth.user.email})` });
-  return json({ ...summarizeImprovement(feedback, usage, labels), casos: CASES.length, iaDisponible: Boolean(config.OPENAI_API_KEY?.trim() || config.AI) });
+  return json({ ...summarizeImprovement(feedback, usage, labels, (rows) => learnFromFeedback(rows).reasons), casos: CASES.length, iaDisponible: Boolean(config.OPENAI_API_KEY?.trim() || config.AI) });
 }
 
 /** {desde}: evalúa con la IA real un tramo del banco de casos (de a 3, para no exceder el tiempo de una solicitud). */

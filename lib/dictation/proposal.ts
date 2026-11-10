@@ -1,6 +1,7 @@
 import { DENTAL_DICTIONARY_HINTS } from "./dental-lexicon.ts";
 import { applyAiReview, clinicalCoherence, parseReview, parseReviewExtras, REVIEW_PROMPT, reviewPayload } from "./clinical-review.ts";
-import { ACTS_PROMPT, ACTS_SCHEMA, applyActsToOdontogram, parseActs, type ClinicalAct } from "./clinical-acts.ts";
+import { isDeducedSuggestion, type Learned } from "./learning.ts";
+import { ACTS_PROMPT, ACTS_SCHEMA, addFacesFromActs, applyActsToOdontogram, parseActs, type ClinicalAct } from "./clinical-acts.ts";
 import { buildMinsalClinicalContext } from "./minsal-knowledge.ts";
 import { buildEndoPerioContext } from "./endoperio-knowledge.ts";
 import { IDENTITY_NORMALIZATION_PROMPT, normalizeIdentityNumbers } from "./identity-numbers.ts";
@@ -4013,7 +4014,7 @@ export async function proposeFromTranscript(
   input: StructureInput,
   model: ClinicalModel | null,
   log: DictationLog = defaultDictationLog,
-  options: { timeoutMs?: number; today?: string } = {},
+  options: { timeoutMs?: number; today?: string; learned?: Learned } = {},
 ): Promise<StructureOutcome> {
   const transcript = input.transcript.trim();
   if (transcript.length < 3) throw new Error("El dictado está vacío.");
@@ -4046,7 +4047,10 @@ export async function proposeFromTranscript(
     };
     // Lo comprendido manda: una cara «obturada» que solo quedó con caries inactivada vuelve a caries, y el material es el colocado.
     if (typed.acts?.length) {
-      const understood = applyActsToOdontogram(typed.odontogram, typed.acts, (value) => cariesDepthFrom(value).depth);
+      const corrected = applyActsToOdontogram(typed.odontogram, typed.acts, (value) => cariesDepthFrom(value).depth);
+      let added = 0;
+      const completed = addFacesFromActs(corrected.odontogram, typed.acts, text, (value) => cariesDepthFrom(value).depth, () => `odo-acto-${++added}`, input.chart ?? []);
+      const understood = { odontogram: completed.odontogram, notes: [...corrected.notes, ...completed.notes] };
       if (understood.notes.length) {
         typed.odontogram = understood.odontogram;
         typed.clarifications = [...typed.clarifications, ...understood.notes.map((note) => `Comprensión clínica: ${note}`)];
@@ -4075,6 +4079,15 @@ export async function proposeFromTranscript(
     const hasPrestaciones = (finished.prestaciones ?? []).length > 0;
     const endoQuestions = endodonticQuestions(procedureLinesOf(finished.evolution?.body ?? ""), finished.prestaciones ?? []).filter((item) => !finished.clarifications.includes(item));
     const surgeryAsks = surgeryQuestions(fixed).filter((item) => !finished.clarifications.includes(item));
+    // Lo aprendido de este profesional: sugerencias que nunca toma dejan de proponerse (lo dictado nunca se oculta).
+    const learned = options.learned;
+    if (learned?.dxCodes.length) finished.diagnoses = (finished.diagnoses ?? []).filter((dx) => !(isDeducedSuggestion(dx.suggested) && learned.dxCodes.includes(dx.code)));
+    if (learned?.hideUntimedAppointments && (finished.appointments ?? []).some((item) => !item.time)) {
+      const reminders = (finished.appointments ?? []).filter((item) => !item.time).map((item) => `Control indicado ${item.said || clip(item.evidence, 60)}${item.day ? ` (≈ ${item.day.split("-").reverse().join("-")})` : ""}: agéndalo con «Agendar control» en la ficha.`);
+      finished.appointments = (finished.appointments ?? []).filter((item) => item.time);
+      // Sin la cita propuesta, la pregunta «¿A qué hora es la cita…?» sobra: queda solo el recordatorio.
+      finished.clarifications = [...finished.clarifications.filter((item) => !/^¿A qué hora es la cita/.test(item)), ...reminders];
+    }
     return {
       ...finished,
       clarifications: [...finished.clarifications, ...endoQuestions, ...surgeryAsks].filter((item) => !(ruleBrandAsked && /^IA: ¿La marca dictada como/.test(item)) && !(hasPrestaciones && /^IA: No hay una prestaci[oó]n candidata/.test(item)) && !alreadyPlaced(item)),

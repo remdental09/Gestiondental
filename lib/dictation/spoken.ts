@@ -258,6 +258,17 @@ export function resolveSpokenDate(text: string, today: string): SpokenDate | nul
       return { date: fromUtc(d), said: said(m), note: "Fecha aproximada a un mes calendario; ajústala si corresponde." };
     }
   }
+  // Singular con «un/una» («en una semana», «en un mes»), después del plural para no ganarle a «en tres semanas».
+  // «y medio/a» suma la mitad; el mes se ajusta al último día si el mes siguiente es más corto.
+  const single = n.match(/\ben\s+(una?)\s+(dia|semana|mes)(\s+y\s+medi[oa])?\b/);
+  if (single) {
+    const half = Boolean(single[3]);
+    if (single[2] === "dia") return { date: addDays(today, 1), said: said(single) };
+    if (single[2] === "semana") return { date: addDays(today, half ? 10 : 7), said: said(single), note: half ? "Semana y media ≈ 10 días; ajústalo si corresponde." : "Mismo día de la semana que hoy; ajústalo si la cita es otro día." };
+    const d = toUtc(today); const day = d.getUTCDate(); d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() + 1);
+    const last = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate(); d.setUTCDate(Math.min(day, last));
+    return { date: half ? addDays(fromUtc(d), 15) : fromUtc(d), said: said(single), note: "Fecha aproximada a un mes calendario; ajústala si corresponde." };
+  }
   m = n.match(/\b(?:(proximo|este|siguiente)\s+)?(lunes|martes|miercoles|jueves|viernes|sabado|domingo)(?:\s+(\d{1,2}))?(?:\s+(proximo|siguiente|que\s+viene|de\s+la\s+(?:proxima\s+semana|semana\s+que\s+viene)))?\b/);
   if (m) {
     const target = WEEKDAYS.indexOf(m[2]);

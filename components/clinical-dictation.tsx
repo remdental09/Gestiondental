@@ -688,16 +688,16 @@ export function ClinicalDictation({
         if (!original) return;
         const p = original.proposal;
         const groups: ReviewGroup[] = [
-          { category: "odontograma", proposed: [...p.odontogram, ...(p.incomplete ?? [])] as ReviewGroup["proposed"], final: teeth as ReviewGroup["final"] },
+          { category: "odontograma", proposed: [...p.odontogram, ...(p.incomplete ?? [])] as ReviewGroup["proposed"], final: teeth as ReviewGroup["final"], uncheckedByDefault: (item) => Boolean(item.conflict || item.advisory) },
           { category: "presupuesto", proposed: p.budget as ReviewGroup["proposed"], final: budgets.map((item) => ({ ...item, amount: Number(item.amountText) || 0 })) as ReviewGroup["final"] },
           { category: "ficha", proposed: (p.ficha ?? []) as ReviewGroup["proposed"], final: fichaItems as ReviewGroup["final"] },
           { category: "periodontal", proposed: [...p.perio, ...(p.perioPending ?? [])].map((item) => ({ id: item.id, site: item.site ?? "", depth: item.depth ?? null, bleeding: Boolean(item.bleeding), suppuration: Boolean(item.suppuration), origin: item.origin })), final: perioItems.map((item) => ({ id: item.id, decision: item.decision, site: item.site, depth: item.depthText === "" ? null : Number(item.depthText), bleeding: item.bleeding, suppuration: item.suppuration, origin: item.origin })) },
           { category: "movilidad", proposed: (p.mobility ?? []) as ReviewGroup["proposed"], final: mobilityItems as ReviewGroup["final"] },
           { category: "pago", proposed: (p.payments ?? []) as ReviewGroup["proposed"], final: paymentItems.map((item) => ({ ...item, amount: Number(item.amountText) || 0, method: item.methodValue })) as ReviewGroup["final"] },
-          { category: "cita", proposed: (p.appointments ?? []) as ReviewGroup["proposed"], final: appointmentItems.map((item) => ({ ...item, day: item.dayValue, time: item.timeValue })) as ReviewGroup["final"] },
-          { category: "diagnostico", proposed: (p.diagnoses ?? []).filter((item) => !item.code.startsWith("DA08.0")) as ReviewGroup["proposed"], final: dxItems as ReviewGroup["final"] },
+          { category: "cita", proposed: (p.appointments ?? []) as ReviewGroup["proposed"], final: appointmentItems.map((item) => ({ ...item, day: item.dayValue, time: item.timeValue })) as ReviewGroup["final"], uncheckedByDefault: (item) => !(item.day && item.time && !item.timeDoubt) },
+          { category: "diagnostico", proposed: (p.diagnoses ?? []).filter((item) => !item.code.startsWith("DA08.0")) as ReviewGroup["proposed"], final: dxItems as ReviewGroup["final"], uncheckedByDefault: (item) => Boolean(item.suggested) },
           // Prestaciones del arancel: cuáles quitó o agregó el profesional (incluye las objetadas por el revisor, marcadas con «objetada»).
-          { category: "prestacion", proposed: (p.prestaciones ?? []).map((item) => ({ id: item.id, code: item.code, name: item.name, tooth: item.tooth, objetada: Boolean(item.advisory) })) as ReviewGroup["proposed"], final: prestItems.map((item) => ({ id: item.id, code: item.code, name: item.name, tooth: item.tooth, objetada: Boolean(item.advisory), decision: item.decision })) as ReviewGroup["final"] },
+          { category: "prestacion", proposed: (p.prestaciones ?? []).map((item) => ({ id: item.id, code: item.code, name: item.name, tooth: item.tooth, objetada: Boolean(item.advisory) })) as ReviewGroup["proposed"], final: prestItems.map((item) => ({ id: item.id, code: item.code, name: item.name, tooth: item.tooth, objetada: Boolean(item.advisory), decision: item.decision })) as ReviewGroup["final"], uncheckedByDefault: (item) => Boolean(item.objetada) },
         ];
         const entries = buildFeedback(groups);
         if (!entries.length) return;

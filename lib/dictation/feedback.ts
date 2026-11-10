@@ -2,7 +2,8 @@
 // Sirve como material real para mejorar reglas, ejemplos del modelo y un conjunto de pruebas.
 
 export type FeedbackCategory = "odontograma" | "presupuesto" | "ficha" | "periodontal" | "movilidad" | "pago" | "cita" | "diagnostico" | "prestacion";
-export type FeedbackOutcome = "aceptado" | "editado" | "rechazado" | "agregado";
+/** «ignorado»: una sugerencia que ya venía desmarcada y el profesional no marcó (no es un rechazo activo). */
+export type FeedbackOutcome = "aceptado" | "editado" | "rechazado" | "ignorado" | "agregado";
 
 export type FeedbackEntry = {
   category: FeedbackCategory;
@@ -35,6 +36,8 @@ export type ReviewGroup = {
   proposed: Array<{ id?: string } & Record<string, unknown>>;
   /** Estado final de la pantalla: cada ítem con su decisión. */
   final: Array<{ id?: string; decision?: string } & Record<string, unknown>>;
+  /** Ítems que la pantalla propuso desmarcados (sugerencias): si siguen desmarcados, el resultado es «ignorado», no «rechazado». */
+  uncheckedByDefault?: (item: Record<string, unknown>) => boolean;
 };
 
 /** Compara lo propuesto con lo que quedó. Un ítem editado es uno aceptado cuyos datos cambiaron. */
@@ -47,10 +50,11 @@ export function buildFeedback(groups: ReviewGroup[]): FeedbackEntry[] {
       const matchIndex = group.final.findIndex((entry, at) => !used.has(at) && (entry.id !== undefined ? String(entry.id) === id : at === index));
       const origin = typeof item.origin === "string" ? item.origin : undefined;
       const proposed = plain(item);
-      if (matchIndex < 0) { entries.push({ category: group.category, id, outcome: "rechazado", proposed, origin }); return; }
+      const notTaken: FeedbackOutcome = group.uncheckedByDefault?.(item) ? "ignorado" : "rechazado";
+      if (matchIndex < 0) { entries.push({ category: group.category, id, outcome: notTaken, proposed, origin }); return; }
       used.add(matchIndex);
       const now = group.final[matchIndex];
-      if (now.decision !== "accepted") { entries.push({ category: group.category, id, outcome: "rechazado", proposed, origin }); return; }
+      if (now.decision !== "accepted") { entries.push({ category: group.category, id, outcome: notTaken, proposed, origin }); return; }
       const final = plain(now);
       entries.push({ category: group.category, id, outcome: same(proposed, final) ? "aceptado" : "editado", proposed, final, origin });
     });
