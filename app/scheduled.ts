@@ -8,11 +8,18 @@ export const HOURLY_BACKUP_CRON = "20 * * * *";
 
 export async function runScheduled(cron: string, env: CalendarSyncEnv) {
   if (cron === CALENDAR_CRON) {
+    const { syncGoogleCalendars } = await import("./drive-oauth");
+    console.log("google-calendars", JSON.stringify(await syncGoogleCalendars().catch(error => [{ ok: false, detail: String(error) }])));
     const result = await syncCalendarFromIcs(env);
     console.log("calendar-sync", JSON.stringify(result));
     return result;
   }
   if (cron === BACKUP_CRON || cron === HOURLY_BACKUP_CRON) {
+    // Los calendarios de cada profesional también se refrescan cada hora (una lectura por calendario).
+    if (cron === HOURLY_BACKUP_CRON) {
+      const { syncGoogleCalendars } = await import("./drive-oauth");
+      console.log("google-calendars", JSON.stringify(await syncGoogleCalendars().catch(error => [{ ok: false, detail: String(error) }])));
+    }
     const { runScheduledDriveBackup } = await import("./drive-oauth");
     const result = await runScheduledDriveBackup();
     console.log("drive-backup", JSON.stringify(result));

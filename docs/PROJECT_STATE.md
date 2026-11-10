@@ -262,3 +262,9 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 - `lib/backup-markdown.ts` (`fichaMarkdown`): ficha legible (datos, dirección, anamnesis, evoluciones con anuladas marcadas, odontograma por pieza FDI, presupuestos, citas, lista de imágenes). Sin fecha de generación en el respaldo para que la huella sea estable.
 - Drive: el Google Doc ahora es Markdown + al final los datos completos en JSON (para restaurar); además se escribe `Ficha N - Nombre.md` en la carpeta del paciente (cuenta principal y copias adicionales; ids en `drive_md_files`). El respaldo ahora incluye dirección y anamnesis. Al cambiar el formato, todas las fichas se vuelven a copiar (5 por corrida del Cron).
 - Descarga: «Descargar fichas (JSON)» y «Descargar en Markdown» (`/api/clinical/export?format=md`, un archivo con todas las fichas, sin imágenes).
+
+## Google Calendar por profesional (de cualquier cuenta)
+- Agenda → «Google Calendar» → «Conectar con Google» (`/api/drive/connect?calendar=1`): mismo cliente OAuth que Drive, alcance `calendar.readonly` (solo lectura). Cada profesional puede conectar varias cuentas Gmail. Tokens cifrados en `google_calendar_connections`.
+- `syncGoogleCalendars` lee el calendario principal y los marcados como visibles (hasta 5 por cuenta), ventana de 2 semanas, a `calendar_events` con `calendar_id = g:<sub>:<calendario>`. Corre al conectar, con «Actualizar» y en los Cron horario y de calendario. Desconectar marca sus citas como canceladas.
+- Requisito en Google Cloud: el alcance `calendar.readonly` es «sensible»; si la app de OAuth no está verificada, Google muestra «Google no verificó esta app» (se continúa con «Configuración avanzada»). En modo «Prueba», solo usuarios de prueba y los permisos vencen a los 7 días.
+- El calendario global por variables de entorno (`GCAL_ICS_URL`) sigue igual.
