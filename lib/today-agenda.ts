@@ -1,7 +1,7 @@
 import { chileDay } from "./chile-day.ts";
 
 export type TodayEvent = { id: number; title: string; startAt: string; endAt: string; status: string; allDay: boolean; patientId: number | null };
-export type TodayPatient = { id: number; name: string; rut?: string };
+export type TodayPatient = { id: number; name: string; rut?: string; phone?: string };
 export type TodayBudget = { id: number; patientId: number; total: number; isAlternative: boolean };
 export type TodayPayment = { patientId: number; amount: number };
 
@@ -24,6 +24,44 @@ export function patientForEvent<P extends TodayPatient>(event: TodayEvent, patie
   });
   // Un nombre que coincide con varias fichas es ambiguo: no se adivina.
   return matches.length === 1 ? matches[0] : null;
+}
+
+/** Citas confirmadas de un día de Chile (AAAA-MM-DD), en orden, con su paciente si se reconoce. */
+export function agendaForDay<E extends TodayEvent, P extends TodayPatient>(events: E[], patients: P[], day: string): Array<{ event: E; patient: P | null }> {
+  return events
+    .filter(event => event.status === "confirmed" && !event.allDay && chileDay(event.startAt) === day)
+    .sort((a, b) => a.startAt.localeCompare(b.startAt))
+    .map(event => ({ event, patient: patientForEvent(event, patients) }));
+}
+
+/** Día siguiente (AAAA-MM-DD) de un día de Chile. */
+export function nextDay(day: string): string {
+  const date = new Date(`${day}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + 1);
+  return date.toISOString().slice(0, 10);
+}
+
+/** Teléfono chileno de WhatsApp (solo celulares: 9 dígitos que parten en 9) en formato internacional sin «+»; null si no sirve. */
+export function whatsappNumber(phone: string | undefined): string | null {
+  const digits = (phone ?? "").replace(/\D/g, "");
+  const national = digits.startsWith("56") && digits.length === 11 ? digits.slice(2) : digits;
+  return /^9\d{8}$/.test(national) ? `56${national}` : null;
+}
+
+/** Mensaje de confirmación listo para enviar; el profesional solo toca «enviar». */
+export function confirmationMessage(input: { patientName: string; startAt: string; clinicName?: string }): string {
+  const first = input.patientName.trim().split(/\s+/)[0] ?? "";
+  const when = new Date(input.startAt);
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("es-CL", { weekday: "long", day: "numeric", month: "long", timeZone: "America/Santiago" }).formatToParts(when).map(part => [part.type, part.value]));
+  const day = `${parts.weekday} ${parts.day} de ${parts.month}`;
+  const time = new Intl.DateTimeFormat("es-CL", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/Santiago" }).format(when);
+  const place = input.clinicName?.trim() ? ` en ${input.clinicName.trim()}` : "";
+  return `Hola ${first}, le recuerdo su cita el ${day} a las ${time}${place}. ¿Me confirma su asistencia? Gracias.`;
+}
+
+export function whatsappLink(phone: string | undefined, message: string): string | null {
+  const number = whatsappNumber(phone);
+  return number ? `https://wa.me/${number}?text=${encodeURIComponent(message)}` : null;
 }
 
 /** Citas de hoy (hora de Chile) en orden, marcando cuál está en curso y cuál sigue. */
