@@ -163,3 +163,60 @@ export function actFamily(act: ClinicalAct | undefined): "composite" | "amalgama
   return act.placed === "resina" ? "composite" : act.placed === "amalgama" || act.placed === "ionomero" ? act.placed : null;
 }
 export const actIsInactivation = isInactivation;
+
+
+const FACE_WORDS: Record<OdontogramSurface, RegExp> = {
+  M: /\bmesial(?:es)?\b|\bmesio/, D: /\bdistal(?:es)?\b|\bdisto/, O: /\boclusal(?:es)?\b|\bincisal\b/,
+  V: /\bvestibular(?:es)?\b|\bbucal\b|\blabial\b/, P: /\bpalatin[oa]s?\b|\bpalatal\b|\blingual(?:es)?\b/,
+};
+const TOOTH_MENTION = /\b(?:pieza|diente|molar|premolar|canino|incisivo)\b|\b[1-8]\.[1-8]\b/g;
+
+/**
+ * Caras que el dictado nombra para el acto: lo dicho desde la última mención de pieza antes de la cita hasta el final de la
+ * cita. Así una cara de la pieza vecina no se cuela, y la IA no puede agregar una cara que no se dijo.
+ */
+export function facesSaidForAct(transcript: string, act: ClinicalAct): OdontogramSurface[] {
+  const plain = fold(transcript);
+  const quote = fold(act.evidence).slice(0, 40);
+  const at = plain.indexOf(quote);
+  if (at < 0) return [];
+  const end = at + fold(act.evidence).length;
+  const head = plain.slice(Math.max(0, at - 300), at);
+  const inQuote = [...fold(act.evidence).matchAll(TOOTH_MENTION)].length > 0;
+  let start = at;
+  if (!inQuote) {
+    const mentions = [...head.matchAll(TOOTH_MENTION)];
+    const last = mentions[mentions.length - 1];
+    start = last?.index !== undefined ? Math.max(0, at - 300) + last.index : at;
+  }
+  const window = plain.slice(start, end);
+  return (Object.keys(FACE_WORDS) as OdontogramSurface[]).filter((face) => FACE_WORDS[face].test(window));
+}
+
+/**
+ * Completa las caras que el acto comprendido nombra y que faltan en el odontograma propuesto (p. ej. la oclusal de «caras mesial
+ * y oclusal: se retira la amalgama fracturada…»). Solo caras dichas en el dictado, para la pieza del acto y con su estado final.
+ */
+export function addFacesFromActs(odontogram: OdontogramChange[], acts: ClinicalAct[], transcript: string, depthOf: (text: string) => string | null, makeId: () => string): { odontogram: OdontogramChange[]; notes: string[] } {
+  const out = [...odontogram];
+  const notes: string[] = [];
+  for (const act of acts) {
+    if (!act.tooth || !act.faces.length || !["caries", "obturada"].includes(act.finalState)) continue;
+    const said = facesSaidForAct(transcript, act);
+    const template = out.find((item) => item.tooth === act.tooth && item.kind === "surface");
+    for (const face of act.faces) {
+      if (!said.includes(face)) continue;
+      if (out.some((item) => item.tooth === act.tooth && item.kind === "surface" && item.surface === face)) continue;
+      const finding: NonNullable<OdontogramChange["finding"]> = act.finalState === "caries"
+        ? { condition: "caries", depth: (depthOf(act.evidence) as NonNullable<OdontogramChange["finding"]>["depth"]) ?? template?.finding?.depth ?? null, icdas: null, activity: isInactivation(act) ? "inactive" : null }
+        : { condition: "restored", depth: null, icdas: null, activity: null, ...(MATERIAL_LABEL[act.placed] ? { restorationMaterial: MATERIAL_LABEL[act.placed]! } : {}) };
+      out.push({
+        id: makeId(), tooth: act.tooth, kind: "surface", surface: face, finding,
+        numbering: template?.numbering ?? "FDI", numberingLabel: template?.numberingLabel ?? `FDI ${Math.floor(act.tooth / 10)}.${act.tooth % 10}`,
+        sourceText: act.evidence, evidence: act.evidence, origin: "ia",
+      });
+      notes.push(`FDI ${Math.floor(act.tooth / 10)}.${act.tooth % 10} ${face}: se agregó la cara dictada que faltaba (${act.finalState === "caries" ? "caries" : "obturada"}).`);
+    }
+  }
+  return { odontogram: out, notes };
+}

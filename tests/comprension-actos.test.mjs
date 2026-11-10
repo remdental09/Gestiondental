@@ -148,3 +148,28 @@ test("la inactivación codificada por la IA sin pieza no se cobra dos veces cuan
   });
   assert.deepEqual(keys(proposal).filter((key) => key.startsWith("5010029")), ["5010029@16"]);
 });
+
+
+test("caso real con la IA: la cara oclusal que las reglas pierden se agrega desde el acto comprendido (dicha en el dictado)", async () => {
+  // Así respondió la IA real: el acto trae M y O, pero el odontograma de las reglas solo tenía la mesial.
+  const dictado = "Pieza 1.6 caras mesial y oclusal: se retira la amalgama fracturada y se elimina la caries. Se coloca vidrio ionómero en dos porciones para inactivar la caries de dentina superficial.";
+  const { proposal } = await run(dictado, {
+    nota: { procedimientos: dictado },
+    procedimientos: [],
+    actos: [{ pieza: "1.6", sistema: "FDI", caras: ["M", "O"], accion: "inactivar_caries", material_colocado: "ionomero", material_retirado: "amalgama", intencion: "inactivacion", estado_final_cara: "caries", evidencia: "Se coloca vidrio ionómero en dos porciones para inactivar la caries de dentina superficial." }],
+  });
+  const faces = proposal.odontogram.filter((item) => item.tooth === 16 && item.kind === "surface");
+  assert.deepEqual(faces.map((item) => item.surface).sort(), ["M", "O"]);
+  assert.ok(faces.every((item) => item.finding?.condition === "caries" && !item.advisory), JSON.stringify(faces));
+  assert.ok(faces.some((item) => item.finding?.depth === "dentina_superficial"));
+});
+
+test("la IA no puede agregar una cara que no se dictó, ni tomar la cara de la pieza vecina", async () => {
+  const dictado = "Pieza 1.5 distal con caries. Pieza 1.6 se coloca vidrio ionómero para inactivar la caries.";
+  const { proposal } = await run(dictado, {
+    nota: { procedimientos: "En la pieza 1.6 se coloca vidrio ionómero para inactivar la caries." },
+    procedimientos: [],
+    actos: [{ pieza: "1.6", sistema: "FDI", caras: ["D", "V"], accion: "inactivar_caries", material_colocado: "ionomero", material_retirado: "", intencion: "inactivacion", estado_final_cara: "caries", evidencia: "Pieza 1.6 se coloca vidrio ionómero para inactivar la caries" }],
+  });
+  assert.equal(proposal.odontogram.filter((item) => item.tooth === 16 && item.kind === "surface").length, 0);
+});

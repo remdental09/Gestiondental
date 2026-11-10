@@ -248,6 +248,14 @@ export function resolveSpokenDate(text: string, today: string): SpokenDate | nul
     }
   }
   if (/\bpasado\s+manana\b/.test(n)) return { date: addDays(today, 2), said: "pasado mañana" };
+  // Singular con «un/una»: «en una semana», «en un mes», «en un día» (antes solo se entendía el plural).
+  const single = n.match(/\ben\s+(una?)\s+(dia|semana|mes)\b/);
+  if (single) {
+    if (single[2] === "dia") return { date: addDays(today, 1), said: said(single) };
+    if (single[2] === "semana") return { date: addDays(today, 7), said: said(single), note: "Mismo día de la semana que hoy; ajústalo si la cita es otro día." };
+    const d = toUtc(today); d.setUTCMonth(d.getUTCMonth() + 1);
+    return { date: fromUtc(d), said: said(single), note: "Fecha aproximada a un mes calendario; ajústala si corresponde." };
+  }
   m = n.match(/\ben\s+(\d{1,2}|[a-z]+)\s+(dias|semanas|meses)\b/);
   if (m) {
     const count = smallNumber(m[1]);
