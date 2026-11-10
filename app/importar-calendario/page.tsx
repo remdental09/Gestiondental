@@ -32,16 +32,16 @@ export default function ImportarCalendario() {
     }catch(e){setError(e instanceof Error?e.message:"No se pudo importar.");}
     finally{setBusy(false);}
   }
-  return <main className="mx-auto max-w-3xl p-6 text-[#1f1b3a]">
-    <Link href="/" className="text-sm text-[#6a3fc8] underline">Volver a la ficha</Link>
+  return <main className="mx-auto max-w-3xl p-6 text-[#35343f]">
+    <Link href="/" className="text-sm text-[#473a6d] underline">Volver a la ficha</Link>
     <h1 className="mt-8 text-3xl font-semibold">Importar citas de Google Calendar</h1>
-    <p className="mt-3 text-sm text-[#625e82]">Selecciona el archivo de citas preparado para esta semana. Las citas se guardan en tu agenda privada; repetir la importación actualiza sus horarios.</p>
-    <section className="mt-5 rounded-xl border border-[#cfc6e6] bg-white p-5">
+    <p className="mt-3 text-sm text-[#615f73]">Selecciona el archivo de citas preparado para esta semana. Las citas se guardan en tu agenda privada; repetir la importación actualiza sus horarios.</p>
+    <section className="mt-5 rounded-xl border border-[#ced0dc] bg-white p-5">
       <label htmlFor="calendar-file" className="text-sm font-semibold">Archivo de calendario</label>
       <input id="calendar-file" type="file" accept=".json,application/json" className="mt-3 block w-full text-sm" disabled={busy} onChange={e=>{void select(e.target.files?.[0]);e.target.value=""}}/>
-      {batch&&<><p className="mt-4 text-sm">{batch.events.length} citas listas para importar:</p><ul className="mt-2 space-y-1 text-sm">{batch.events.map(e=><li key={e.eventId}>{e.title} · {new Intl.DateTimeFormat("es-CL",{dateStyle:"short",timeStyle:"short",timeZone:"America/Santiago"}).format(new Date(e.startAt))}</li>)}</ul><button type="button" disabled={busy} onClick={()=>void save()} className="mt-5 rounded-lg bg-[#6a3fc8] px-5 py-3 font-medium text-white disabled:opacity-50">{busy?"Guardando...":"Guardar citas"}</button></>}
+      {batch&&<><p className="mt-4 text-sm">{batch.events.length} citas listas para importar:</p><ul className="mt-2 space-y-1 text-sm">{batch.events.map(e=><li key={e.eventId}>{e.title} · {new Intl.DateTimeFormat("es-CL",{dateStyle:"short",timeStyle:"short",timeZone:"America/Santiago"}).format(new Date(e.startAt))}</li>)}</ul><button type="button" disabled={busy} onClick={()=>void save()} className="mt-5 rounded-lg bg-[#473a6d] px-5 py-3 font-medium text-white disabled:opacity-50">{busy?"Guardando...":"Guardar citas"}</button></>}
       {error&&<p role="alert" className="mt-3 text-sm text-red-700">{error}</p>}
-      {message&&<p role="status" className="mt-3 text-sm text-[#6a3fc8]">{message}</p>}
+      {message&&<p role="status" className="mt-3 text-sm text-[#473a6d]">{message}</p>}
     </section>
   </main>;
 }

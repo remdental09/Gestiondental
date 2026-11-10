@@ -1,4 +1,7 @@
 import type { Metadata, Viewport } from "next";
+import "@fontsource/fira-sans/latin-400.css";
+import "@fontsource/fira-sans/latin-500.css";
+import "@fontsource/fira-sans/latin-600.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -17,7 +20,7 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: "#f3f0fa",
+  themeColor: "#f1f0f5",
 };
 
 const RECOVER = `(function(){var K="gd-recover",now=Date.now();function again(){try{var last=+sessionStorage.getItem(K)||0;if(now-last<60000)return;sessionStorage.setItem(K,String(Date.now()))}catch(e){}location.reload()}

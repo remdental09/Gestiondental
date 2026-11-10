@@ -279,29 +279,29 @@ export function ClinicalVoiceAssistant({
 
   const statusText = stage === "speaking" ? "Hablando la pregunta…" : stage === "listening" ? "Escuchando tu respuesta; al terminar la pausa pasará sola a la siguiente pregunta." : stage === "paused" ? "Asistente detenido." : stage === "complete" ? "Terminamos las preguntas." : stage === "error" ? "El flujo automático se detuvo." : "Pulsa comenzar una vez; luego pregunta y escucha automáticamente.";
 
-  return <section className="rounded-xl border border-[#a9d6d2] bg-[#f5f1fe] p-4" aria-label="Asistente de voz">
+  return <section className="rounded-xl border border-[#a9d6d2] bg-[#f7f6f9] p-4" aria-label="Asistente de voz">
     <div className="flex items-start justify-between gap-3">
-      <div><p className="flex items-center gap-2 text-sm font-semibold text-[#4b2a99]"><Volume2 className="size-4"/>Asistente de voz</p><p className="mt-1 text-xs leading-5 text-[#565277]">Habla después de cada pregunta. El asistente detecta la pausa y continúa; di “pasar” para dejar un dato pendiente.</p></div>
-      <button type="button" className="rounded-md p-1 text-[#625e82] hover:bg-white" onClick={onClose} aria-label="Cerrar asistente"><X className="size-4"/></button>
+      <div><p className="flex items-center gap-2 text-sm font-semibold text-[#473a6d]"><Volume2 className="size-4"/>Asistente de voz</p><p className="mt-1 text-xs leading-5 text-[#57566a]">Habla después de cada pregunta. El asistente detecta la pausa y continúa; di “pasar” para dejar un dato pendiente.</p></div>
+      <button type="button" className="rounded-md p-1 text-[#615f73] hover:bg-white" onClick={onClose} aria-label="Cerrar asistente"><X className="size-4"/></button>
     </div>
 
     <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-      {stage === "ready" ? <Button type="button" className="bg-[#6a3fc8] hover:bg-[#5632a3]" onClick={() => void begin()}><Volume2 className="mr-2 size-4"/>Comenzar conversación</Button> :
-        stage === "paused" ? <Button type="button" className="bg-[#6a3fc8] hover:bg-[#5632a3]" onClick={resume}><Mic className="mr-2 size-4"/>Continuar</Button> :
-        stage === "complete" ? <span className="text-sm font-semibold text-[#4b2a99]">Revisa el formulario y pulsa Guardar cuando esté correcto.</span> :
+      {stage === "ready" ? <Button type="button" className="bg-[#473a6d] hover:bg-[#3a2f5a]" onClick={() => void begin()}><Volume2 className="mr-2 size-4"/>Comenzar conversación</Button> :
+        stage === "paused" ? <Button type="button" className="bg-[#473a6d] hover:bg-[#3a2f5a]" onClick={resume}><Mic className="mr-2 size-4"/>Continuar</Button> :
+        stage === "complete" ? <span className="text-sm font-semibold text-[#473a6d]">Revisa el formulario y pulsa Guardar cuando esté correcto.</span> :
         stage === "error" ? <div className="flex flex-wrap gap-2"><Button type="button" variant="outline" size="sm" onClick={resume}><Mic className="mr-2 size-4"/>Reintentar</Button><Button type="button" variant="outline" size="sm" onClick={keepManualAnswer}>Guardar respuesta</Button><Button type="button" variant="outline" size="sm" onClick={manualSkip}>Dejar pendiente</Button></div> :
         <Button type="button" variant="outline" size="sm" onClick={stop}><MicOff className="mr-2 size-4"/>Detener</Button>}
-      {!completed && current && <span className="text-xs font-semibold text-[#625e82]">Pregunta {index + 1} de {questions.length}: {current.label}</span>}
+      {!completed && current && <span className="text-xs font-semibold text-[#615f73]">Pregunta {index + 1} de {questions.length}: {current.label}</span>}
     </div>
 
-    <p role="status" className="mt-3 text-sm text-[#4b2a99]">{statusText}</p>
+    <p role="status" className="mt-3 text-sm text-[#473a6d]">{statusText}</p>
     {current && stage !== "ready" && stage !== "paused" && stage !== "complete" && <p className="mt-2 rounded-lg bg-white p-3 text-sm font-medium leading-6">{current.prompt}</p>}
-    {stage === "listening" && <div className="mt-3 min-h-10 rounded-lg border border-[#ddd6f0] bg-white px-3 py-2 text-sm text-[#565277]" aria-live="polite">{transcript || "Te escucho…"}</div>}
-    {stage === "error" && <textarea className="mt-3 min-h-20 w-full rounded-lg border border-[#ddd6f0] bg-white p-3 text-sm outline-none focus:border-[#6a3fc8] focus:ring-2 focus:ring-[#6a3fc8]/15" aria-label="Respuesta manual" placeholder="Si el reconocimiento no funciona, escribe aquí la respuesta." value={transcript} onChange={(event) => setTranscriptNow(event.target.value)} />}
+    {stage === "listening" && <div className="mt-3 min-h-10 rounded-lg border border-[#dddbe6] bg-white px-3 py-2 text-sm text-[#57566a]" aria-live="polite">{transcript || "Te escucho…"}</div>}
+    {stage === "error" && <textarea className="mt-3 min-h-20 w-full rounded-lg border border-[#dddbe6] bg-white p-3 text-sm outline-none focus:border-[#473a6d] focus:ring-2 focus:ring-[#473a6d]/15" aria-label="Respuesta manual" placeholder="Si el reconocimiento no funciona, escribe aquí la respuesta." value={transcript} onChange={(event) => setTranscriptNow(event.target.value)} />}
     {error && <p role="alert" className="mt-2 text-xs leading-5 text-[#a43542]">{error}</p>}
-    {completed && mode === "note" && <div className="mt-3 rounded-lg bg-white p-3 text-sm"><p className="font-medium">Pendiente de registrar:</p><ul className="mt-1 list-inside list-disc text-[#565277]">{noteQuestions.filter((question) => !answers[question.key]?.trim()).map((question) => <li key={question.key}>{question.label}</li>)}</ul>{noteQuestions.every((question) => answers[question.key]?.trim()) && <p className="mt-1 text-[#565277]">No quedaron preguntas pendientes.</p>}</div>}
+    {completed && mode === "note" && <div className="mt-3 rounded-lg bg-white p-3 text-sm"><p className="font-medium">Pendiente de registrar:</p><ul className="mt-1 list-inside list-disc text-[#57566a]">{noteQuestions.filter((question) => !answers[question.key]?.trim()).map((question) => <li key={question.key}>{question.label}</li>)}</ul>{noteQuestions.every((question) => answers[question.key]?.trim()) && <p className="mt-1 text-[#57566a]">No quedaron preguntas pendientes.</p>}</div>}
     {completed && dateNeedsReview && <p role="alert" className="mt-2 text-sm text-amber-800">La fecha dictada no se pudo convertir; revísala en el campo de fecha del formulario.</p>}
-    {completed && <p className="mt-2 text-xs leading-5 text-[#625e82]">Revisa nombres, RUT, fechas, piezas, alergias y dosis. “Pendiente de preguntar/registrar” no significa que el paciente lo niegue.</p>}
-    <p className="mt-3 border-t border-[#e3d9f8] pt-3 text-[11px] leading-4 text-[#625e82]">El navegador gestiona el reconocimiento y podría usar su servicio de voz. El audio no se incorpora a la ficha; revisa el texto final antes de guardar.</p>
+    {completed && <p className="mt-2 text-xs leading-5 text-[#615f73]">Revisa nombres, RUT, fechas, piezas, alergias y dosis. “Pendiente de preguntar/registrar” no significa que el paciente lo niegue.</p>}
+    <p className="mt-3 border-t border-[#e7e4ed] pt-3 text-[11px] leading-4 text-[#615f73]">El navegador gestiona el reconocimiento y podría usar su servicio de voz. El audio no se incorpora a la ficha; revisa el texto final antes de guardar.</p>
   </section>;
 }

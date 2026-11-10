@@ -37,8 +37,8 @@ export function AnamnesisButton({ patientId, patientName }: { patientId: number;
   const panel = <>
     <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-[#b81f2f]"><HeartPulse className="size-4" />Anamnesis · {patientName}</p>
     {alerts.length > 0 && <ul className="mb-2 list-disc rounded-lg border border-[#d62839] bg-[#fff0f1] py-2 pl-6 pr-2 text-xs font-medium text-[#8f1a27]">{alerts.map(a => <li key={a}>{a}</li>)}</ul>}
-    {summary.length ? <dl className="space-y-1.5 text-sm">{summary.map(([k, v]) => <div key={k}><dt className="text-[11px] font-semibold uppercase tracking-wide text-[#6e6a8c]">{k}</dt><dd className="text-[#1f1b3a]">{v}</dd></div>)}</dl>
-      : <p className="text-sm text-[#625e82]">{saved ? "Sin datos registrados." : "Aún no hay anamnesis registrada."}</p>}
+    {summary.length ? <dl className="space-y-1.5 text-sm">{summary.map(([k, v]) => <div key={k}><dt className="text-[11px] font-semibold uppercase tracking-wide text-[#6b6a7c]">{k}</dt><dd className="text-[#35343f]">{v}</dd></div>)}</dl>
+      : <p className="text-sm text-[#615f73]">{saved ? "Sin datos registrados." : "Aún no hay anamnesis registrada."}</p>}
   </>;
   return <>
     {touch
@@ -47,7 +47,7 @@ export function AnamnesisButton({ patientId, patientName }: { patientId: number;
           <HoverCardTrigger asChild>{trigger(() => setOpen(true))}</HoverCardTrigger>
           <HoverCardContent align="end" className={panelClass} data-testid="anamnesis-hover">
             {panel}
-            <p className="mt-2 text-xs text-[#6e6a8c]">Haz clic para {summary.length ? "editar o dictar" : "registrarla o dictarla"}.</p>
+            <p className="mt-2 text-xs text-[#6b6a7c]">Haz clic para {summary.length ? "editar o dictar" : "registrarla o dictarla"}.</p>
           </HoverCardContent>
         </HoverCard>}
     {peek && <AnamnesisReveal patientName={patientName} saved={saved} origin={origin} onClose={() => setPeek(false)} onAdd={() => { setPeek(false); setOpen(true); }} />}
@@ -89,7 +89,7 @@ function AnamnesisReveal({ patientName, saved, origin, onClose, onAdd }: { patie
   if (typeof document === "undefined") return null;
   return createPortal(<div className="fixed inset-0 z-[70]" role="dialog" aria-modal="true" aria-label="Resumen de anamnesis" data-testid="anamnesis-reveal">
     <style>{REVEAL_CSS}</style>
-    <div className="anam-back absolute inset-0 bg-[#1a0f2e]/60 backdrop-blur-md" onClick={onClose} />
+    <div className="anam-back absolute inset-0 bg-[#1b1528]/60 backdrop-blur-md" onClick={onClose} />
     <div ref={ref} style={vars} className="anam-panel absolute inset-x-3 top-[7vh] mx-auto flex max-h-[86vh] max-w-lg flex-col overflow-hidden bg-white shadow-2xl ring-1 ring-black/5">
       <div className="flex items-start justify-between gap-3 bg-gradient-to-br from-[#d62839] to-[#8f1a27] px-5 pb-4 pt-5 text-white">
         <div style={idx()} className="anam-item"><p className="text-xs font-semibold uppercase tracking-widest text-white/75">Anamnesis</p>
@@ -97,12 +97,12 @@ function AnamnesisReveal({ patientName, saved, origin, onClose, onAdd }: { patie
         <button type="button" onClick={onClose} aria-label="Cerrar" className="rounded-full bg-white/20 p-2"><X className="size-5" /></button>
       </div>
       <div className="flex-1 space-y-3 overflow-y-auto px-5 py-4">
-        {alerts.map(a => <div key={a} style={idx()} className="anam-item flex items-start gap-3 rounded-2xl border border-[#f0b7bd] bg-[#fff0f1] p-4"><AlertTriangle className="mt-0.5 size-6 shrink-0 text-[#d62839]" /><p className="text-lg font-semibold leading-snug text-[#8f1a27]">{a}</p></div>)}
-        {!alerts.length && <div style={idx()} className="anam-item rounded-2xl border border-[#d9efe0] bg-[#f1fbf4] p-4 text-base font-medium text-[#1d6b3a]">{saved ? "No hay alergias ni condiciones de riesgo registradas." : "Aún no hay anamnesis registrada."}</div>}
-        {meds && <div style={idx()} className="anam-item flex items-start gap-3 rounded-2xl border border-[#ddd6f0] bg-[#f7f4fe] p-4"><Pill className="mt-0.5 size-5 shrink-0 text-[#4b2a99]" /><div><p className="text-[11px] font-semibold uppercase tracking-wide text-[#6e6a8c]">Medicamentos</p><p className="text-base text-[#1f1b3a]">{meds}</p></div></div>}
-        {rest.map(([k, v]) => <div key={k} style={idx()} className="anam-item rounded-xl border border-[#ebe6f6] px-4 py-3"><p className="text-[11px] font-semibold uppercase tracking-wide text-[#6e6a8c]">{k}</p><p className="text-base text-[#1f1b3a]">{v}</p></div>)}
+        {alerts.map(a => <div key={a} style={idx()} className="anam-item flex items-start gap-3 rounded-xl border border-[#f0b7bd] bg-[#fff0f1] p-4"><AlertTriangle className="mt-0.5 size-6 shrink-0 text-[#d62839]" /><p className="text-lg font-semibold leading-snug text-[#8f1a27]">{a}</p></div>)}
+        {!alerts.length && <div style={idx()} className="anam-item rounded-xl border border-[#d9efe0] bg-[#f1fbf4] p-4 text-base font-medium text-[#1d6b3a]">{saved ? "No hay alergias ni condiciones de riesgo registradas." : "Aún no hay anamnesis registrada."}</div>}
+        {meds && <div style={idx()} className="anam-item flex items-start gap-3 rounded-xl border border-[#dddbe6] bg-[#f9f8fa] p-4"><Pill className="mt-0.5 size-5 shrink-0 text-[#473a6d]" /><div><p className="text-[11px] font-semibold uppercase tracking-wide text-[#6b6a7c]">Medicamentos</p><p className="text-base text-[#35343f]">{meds}</p></div></div>}
+        {rest.map(([k, v]) => <div key={k} style={idx()} className="anam-item rounded-xl border border-[#ebeaf1] px-4 py-3"><p className="text-[11px] font-semibold uppercase tracking-wide text-[#6b6a7c]">{k}</p><p className="text-base text-[#35343f]">{v}</p></div>)}
       </div>
-      <div style={idx()} className="anam-item flex gap-2 border-t border-[#ebe6f6] bg-white p-4">
+      <div style={idx()} className="anam-item flex gap-2 border-t border-[#ebeaf1] bg-white p-4">
         <Button type="button" onClick={onAdd} data-testid="anamnesis-edit" className="h-12 flex-1 gap-2 rounded-xl bg-[#d62839] text-base font-semibold text-white hover:bg-[#b81f2f]"><Plus className="size-5" />Agregar antecedentes</Button>
       </div>
     </div>
@@ -110,11 +110,11 @@ function AnamnesisReveal({ patientName, saved, origin, onClose, onAdd }: { patie
 }
 
 function Yn({ label, value, onChange }: { label: string; value: YesNo; onChange: (v: YesNo) => void }) {
-  return <div className="flex items-center justify-between gap-3 rounded-lg border border-[#ddd6f0] bg-white px-3 py-2"><span className="text-sm">{label}</span>
+  return <div className="flex items-center justify-between gap-3 rounded-lg border border-[#dddbe6] bg-white px-3 py-2"><span className="text-sm">{label}</span>
     <div className="flex gap-1">{(["si", "no"] as const).map(v => <button key={v} type="button" onClick={() => onChange(value === v ? "" : v)} aria-pressed={value === v}
-      className={`rounded-md border px-3 py-1 text-xs font-semibold ${value === v ? (v === "si" ? "border-[#d62839] bg-[#d62839] text-white" : "border-[#4b2a99] bg-[#4b2a99] text-white") : "border-[#ddd6f0] bg-white text-[#3d2f73]"}`}>{v === "si" ? "Sí" : "No"}</button>)}</div></div>;
+      className={`rounded-md border px-3 py-1 text-xs font-semibold ${value === v ? (v === "si" ? "border-[#d62839] bg-[#d62839] text-white" : "border-[#473a6d] bg-[#473a6d] text-white") : "border-[#dddbe6] bg-white text-[#3b3355]"}`}>{v === "si" ? "Sí" : "No"}</button>)}</div></div>;
 }
-const L = ({ label, children }: { label: string; children: React.ReactNode }) => <label className="block space-y-1"><span className="text-sm font-medium text-[#3d2f73]">{label}</span>{children}</label>;
+const L = ({ label, children }: { label: string; children: React.ReactNode }) => <label className="block space-y-1"><span className="text-sm font-medium text-[#3b3355]">{label}</span>{children}</label>;
 
 function AnamnesisDialog({ patientId, patientName, initial, onClose, onSaved }: { patientId: number; patientName: string; initial: Anamnesis | null; onClose: () => void; onSaved: (a: Anamnesis) => void }) {
   const [form, setForm] = useState<Anamnesis>(initial ?? emptyAnamnesis());
@@ -160,7 +160,7 @@ function AnamnesisDialog({ patientId, patientName, initial, onClose, onSaved }: 
 
       <div className="space-y-2 rounded-xl border border-[#f0b7bd] bg-[#fff5f6] p-3">
         <p className="text-sm font-semibold text-[#b81f2f]">Dictar anamnesis</p>
-        <p className="text-xs text-[#625e82]">Pulsa el micrófono y cuenta alergias, enfermedades, medicamentos, cirugías, hábitos y antecedentes dentales. Luego «Ordenar en el formulario».</p>
+        <p className="text-xs text-[#615f73]">Pulsa el micrófono y cuenta alergias, enfermedades, medicamentos, cirugías, hábitos y antecedentes dentales. Luego «Ordenar en el formulario».</p>
         <div className="flex flex-wrap gap-2">
           <Button type="button" onClick={record} disabled={busy} data-testid="anamnesis-dictate" className={status === "recording" ? "bg-[#d62839] text-white hover:bg-[#b81f2f]" : ""} variant={status === "recording" ? "default" : "outline"}>
             {status === "recording" ? <><Square className="mr-2 size-4" />Detener</> : busy ? <><Loader2 className="mr-2 size-4 animate-spin" />{status === "transcribing" ? "Transcribiendo…" : "Preparando…"}</> : <><Mic className="mr-2 size-4" />Dictar</>}
@@ -180,8 +180,8 @@ function AnamnesisDialog({ patientId, patientName, initial, onClose, onSaved }: 
       </div>
       <Yn label="¿Usa anticoagulantes / antiagregantes?" value={form.anticoagulants} onChange={v => set("anticoagulants", v)} />
 
-      <fieldset className="space-y-2"><legend className="text-sm font-medium text-[#3d2f73]">Enfermedades y patologías</legend>
-        <div className="grid gap-2 sm:grid-cols-2">{CONDITIONS.map(([id, label]) => <label key={id} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm ${form.conditions.includes(id) ? "border-[#d62839] bg-[#fff0f1] font-medium" : "border-[#ddd6f0] bg-white"}`}>
+      <fieldset className="space-y-2"><legend className="text-sm font-medium text-[#3b3355]">Enfermedades y patologías</legend>
+        <div className="grid gap-2 sm:grid-cols-2">{CONDITIONS.map(([id, label]) => <label key={id} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm ${form.conditions.includes(id) ? "border-[#d62839] bg-[#fff0f1] font-medium" : "border-[#dddbe6] bg-white"}`}>
           <input type="checkbox" checked={form.conditions.includes(id)} onChange={() => toggle(id)} className="size-4 accent-[#d62839]" />{label}</label>)}</div>
       </fieldset>
       <L label="Otras enfermedades"><Textarea rows={2} value={form.otherConditions} onChange={e => set("otherConditions", e.target.value)} /></L>
@@ -193,7 +193,7 @@ function AnamnesisDialog({ patientId, patientName, initial, onClose, onSaved }: 
       <L label="Reacciones previas a anestesia"><Input value={form.anesthesiaReactions} onChange={e => set("anesthesiaReactions", e.target.value)} maxLength={300} /></L>
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <L label="Embarazo / lactancia"><select value={form.pregnancy} onChange={e => set("pregnancy", e.target.value as Anamnesis["pregnancy"])} className="h-9 w-full rounded-md border border-[#ddd6f0] bg-white px-2 text-sm">
+        <L label="Embarazo / lactancia"><select value={form.pregnancy} onChange={e => set("pregnancy", e.target.value as Anamnesis["pregnancy"])} className="h-9 w-full rounded-md border border-[#dddbe6] bg-white px-2 text-sm">
           <option value="">Sin registrar</option><option value="no">No</option><option value="embarazada">Embarazada</option><option value="lactancia">En lactancia</option><option value="no-aplica">No aplica</option></select></L>
         <L label="Tabaco"><Input value={form.smoking} onChange={e => set("smoking", e.target.value)} placeholder="Ej. 5 cigarrillos/día" maxLength={300} /></L>
         <L label="Alcohol"><Input value={form.alcohol} onChange={e => set("alcohol", e.target.value)} placeholder="Ej. social" maxLength={300} /></L>

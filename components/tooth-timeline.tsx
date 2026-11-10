@@ -9,7 +9,7 @@ const spanishTitle = (title: string) => title.replace(/^(Causa de ausencia: )(ca
 const shown = (day: string) => (day ? day.split("-").reverse().join("-") : "sin fecha");
 const MOBILITY = ["", "I", "II", "III"];
 const FURCATION = ["", "I", "II", "III"];
-const inputClass = "rounded-md border border-[#cfc6e6] bg-white px-2 py-1 text-sm";
+const inputClass = "rounded-md border border-[#ced0dc] bg-white px-2 py-1 text-sm";
 
 type EventFields = { title: string; detail: string; clinicalDate: string };
 
@@ -52,33 +52,33 @@ export function ToothTimeline({ tooth, history, exams, mode, editableIds = [], o
   });
 
   return (
-    <section className="rounded-xl border border-[#ddd6f0] bg-white p-4" aria-label={`Evolución de la pieza ${formatFdi(tooth)}`} data-testid="tooth-timeline">
+    <section className="rounded-xl border border-[#dddbe6] bg-white p-4" aria-label={`Evolución de la pieza ${formatFdi(tooth)}`} data-testid="tooth-timeline">
       <h4 className="font-semibold">Evolución de la pieza FDI {formatFdi(tooth)}</h4>
       {message ? <p role="alert" className="mt-2 text-sm text-rose-700">{message}</p> : null}
       {mode === "odontograma" && (
-        <ul className="mt-3 space-y-2 text-sm text-[#3d2f73]">
-          {events.length === 0 && <li className="text-[#6e6a8c]">Sin cambios registrados para esta pieza.</li>}
+        <ul className="mt-3 space-y-2 text-sm text-[#3b3355]">
+          {events.length === 0 && <li className="text-[#6b6a7c]">Sin cambios registrados para esta pieza.</li>}
           {events.map((event) => {
             const editable = editableIds.includes(event.id);
             if (editingEvent === event.id) {
               return (
-                <li key={event.id} className="space-y-2 rounded-lg border border-[#a78bf0] bg-[#f7f4ff] p-2.5">
+                <li key={event.id} className="space-y-2 rounded-lg border border-[#9d93c4] bg-[#f7f6fa] p-2.5">
                   <label className="block text-xs">Fecha<input type="date" max={today} value={eventDraft.clinicalDate} onChange={(e) => setEventDraft({ ...eventDraft, clinicalDate: e.target.value })} className={`${inputClass} ml-2`} /></label>
                   <label className="block text-xs">Hito<input value={eventDraft.title} maxLength={180} onChange={(e) => setEventDraft({ ...eventDraft, title: e.target.value })} className={`${inputClass} mt-1 w-full`} /></label>
                   <label className="block text-xs">Detalle<input value={eventDraft.detail} maxLength={400} onChange={(e) => setEventDraft({ ...eventDraft, detail: e.target.value })} className={`${inputClass} mt-1 w-full`} /></label>
                   <div className="flex gap-3 text-xs font-semibold">
-                    <button type="button" disabled={busy || !eventDraft.title.trim()} className="text-[#6a3fc8] underline disabled:opacity-50" onClick={async () => { if (await run(() => onEditEvent!(tooth, event.id, eventDraft))) setEditingEvent(null); }}>Guardar</button>
-                    <button type="button" className="text-[#625e82] underline" onClick={() => setEditingEvent(null)}>Cancelar</button>
+                    <button type="button" disabled={busy || !eventDraft.title.trim()} className="text-[#473a6d] underline disabled:opacity-50" onClick={async () => { if (await run(() => onEditEvent!(tooth, event.id, eventDraft))) setEditingEvent(null); }}>Guardar</button>
+                    <button type="button" className="text-[#615f73] underline" onClick={() => setEditingEvent(null)}>Cancelar</button>
                   </div>
                 </li>
               );
             }
             return (
-              <li key={event.id} className="rounded-lg border border-[#e6e0f4] p-2.5">
-                <span className="font-semibold text-[#6a3fc8]">{shown(event.day)}</span> · {event.title}
-                {event.detail ? <span className="text-[#625e82]"> — {event.detail}</span> : null}
-                {event.manual ? <span className="ml-2 text-xs text-[#6e6a8c]">(manual)</span> : null}
-                {editable && onEditEvent ? <button type="button" className="ml-3 text-xs font-semibold text-[#6a3fc8] underline" aria-label={`Editar hito ${event.title}`} onClick={() => { setEditingEvent(event.id); setEventDraft({ title: event.title, detail: event.detail, clinicalDate: event.day }); }}>Editar</button> : null}
+              <li key={event.id} className="rounded-lg border border-[#e6e4ee] p-2.5">
+                <span className="font-semibold text-[#473a6d]">{shown(event.day)}</span> · {event.title}
+                {event.detail ? <span className="text-[#615f73]"> — {event.detail}</span> : null}
+                {event.manual ? <span className="ml-2 text-xs text-[#6b6a7c]">(manual)</span> : null}
+                {editable && onEditEvent ? <button type="button" className="ml-3 text-xs font-semibold text-[#473a6d] underline" aria-label={`Editar hito ${event.title}`} onClick={() => { setEditingEvent(event.id); setEventDraft({ title: event.title, detail: event.detail, clinicalDate: event.day }); }}>Editar</button> : null}
                 {editable && onDeleteEvent ? <button type="button" className="ml-3 text-xs font-semibold text-rose-700 underline" aria-label={`Eliminar hito ${event.title}`} onClick={() => run(() => onDeleteEvent(tooth, event.id, event.title))}>Eliminar</button> : null}
               </li>
             );
@@ -86,17 +86,17 @@ export function ToothTimeline({ tooth, history, exams, mode, editableIds = [], o
         </ul>
       )}
       {mode === "periodontograma" && (
-        measured.length === 0 ? <p className="mt-3 text-sm text-[#6e6a8c]">Sin sondaje registrado para esta pieza.</p> : (
+        measured.length === 0 ? <p className="mt-3 text-sm text-[#6b6a7c]">Sin sondaje registrado para esta pieza.</p> : (
           <div className="mt-3 overflow-x-auto">
             <table className="w-full min-w-[560px] text-left text-sm">
-              <thead><tr className="text-xs text-[#625e82]"><th className="p-1.5">Fecha</th>{sites.map((site) => <th key={site} className="p-1.5">{site}</th>)}<th className="p-1.5">Mov.</th><th className="p-1.5">Furc.</th>{onDeleteReading || onEditReading ? <th className="p-1.5"><span className="sr-only">Acciones</span></th> : null}</tr></thead>
+              <thead><tr className="text-xs text-[#615f73]"><th className="p-1.5">Fecha</th>{sites.map((site) => <th key={site} className="p-1.5">{site}</th>)}<th className="p-1.5">Mov.</th><th className="p-1.5">Furc.</th>{onDeleteReading || onEditReading ? <th className="p-1.5"><span className="sr-only">Acciones</span></th> : null}</tr></thead>
               <tbody>
                 {measured.map((row, index) => {
                   const before = index > 0 ? measured[index - 1].data : undefined;
                   const editing = editingExam === row.exam.id && readingDraft;
                   return (
-                    <tr key={row.exam.id} className="border-t border-[#eeeaf8] align-top">
-                      <td className="p-1.5 font-semibold text-[#6a3fc8]">
+                    <tr key={row.exam.id} className="border-t border-[#efeef4] align-top">
+                      <td className="p-1.5 font-semibold text-[#473a6d]">
                         {editing ? <input type="date" max={today} aria-label="Fecha del examen" value={examDate} onChange={(e) => setExamDate(e.target.value)} className={inputClass} /> : shown(row.day)}
                       </td>
                       {sites.map((site) => {
@@ -125,12 +125,12 @@ export function ToothTimeline({ tooth, history, exams, mode, editableIds = [], o
                         <td className="whitespace-nowrap p-1.5 text-xs font-semibold">
                           {editing ? (
                             <>
-                              <button type="button" disabled={busy} className="text-[#6a3fc8] underline disabled:opacity-50" onClick={async () => { if (await run(() => onEditReading!(tooth, row.exam.id, readingDraft, examDate && examDate !== row.day ? examDate : ""))) { setEditingExam(null); setReadingDraft(null); } }}>Guardar</button>
-                              <button type="button" className="ml-2 text-[#625e82] underline" onClick={() => { setEditingExam(null); setReadingDraft(null); }}>Cancelar</button>
+                              <button type="button" disabled={busy} className="text-[#473a6d] underline disabled:opacity-50" onClick={async () => { if (await run(() => onEditReading!(tooth, row.exam.id, readingDraft, examDate && examDate !== row.day ? examDate : ""))) { setEditingExam(null); setReadingDraft(null); } }}>Guardar</button>
+                              <button type="button" className="ml-2 text-[#615f73] underline" onClick={() => { setEditingExam(null); setReadingDraft(null); }}>Cancelar</button>
                             </>
                           ) : (
                             <>
-                              {onEditReading ? <button type="button" className="text-[#6a3fc8] underline" aria-label={`Editar medición del ${shown(row.day)}`} onClick={() => { setEditingExam(row.exam.id); setReadingDraft(structuredClone(row.data)); setExamDate(row.day); }}>Editar</button> : null}
+                              {onEditReading ? <button type="button" className="text-[#473a6d] underline" aria-label={`Editar medición del ${shown(row.day)}`} onClick={() => { setEditingExam(row.exam.id); setReadingDraft(structuredClone(row.data)); setExamDate(row.day); }}>Editar</button> : null}
                               {onDeleteReading ? <button type="button" className="ml-2 text-rose-700 underline" aria-label={`Eliminar medición del ${shown(row.day)}`} onClick={() => run(() => onDeleteReading(tooth, row.exam.id, shown(row.day)))}>Eliminar</button> : null}
                             </>
                           )}
@@ -141,7 +141,7 @@ export function ToothTimeline({ tooth, history, exams, mode, editableIds = [], o
                 })}
               </tbody>
             </table>
-            <p className="mt-2 text-xs text-[#625e82]">Profundidad de sondaje en mm; • = sangrado; +/− = cambio respecto del examen anterior. Cambiar la fecha mueve todo el examen.</p>
+            <p className="mt-2 text-xs text-[#615f73]">Profundidad de sondaje en mm; • = sangrado; +/− = cambio respecto del examen anterior. Cambiar la fecha mueve todo el examen.</p>
           </div>
         )
       )}
