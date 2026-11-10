@@ -72,6 +72,7 @@ export async function googleDriveStatus(user: ChatGPTUser) {
     email: connection?.google_email ?? null,
     connectedAt: connection?.connected_at ?? null,
     lastRun: connection ? await lastBackupRun(user.userId) : null,
+    lastCheck: connection ? await lastHeartbeat(user.userId) : null,
     mirrors: await mirrorStatus(user.userId),
   };
 }
@@ -308,7 +309,7 @@ async function ensureRunLogTable() {
 }
 
 /** Registra el resultado de un respaldo (manual o automático) para poder ver por qué falla. Solo guarda mensajes de error, sin datos de pacientes. */
-async function recordBackupRun(ownerId: string, source: "manual" | "cron", ok: boolean, detail: string) {
+async function recordBackupRun(ownerId: string, source: "manual" | "cron" | "guardado", ok: boolean, detail: string) {
   try {
     await ensureRunLogTable();
     await database().prepare("INSERT INTO backup_runs (owner_id, source, ran_at, ok, detail) VALUES (?,?,?,?,?)").bind(ownerId, source, now(), ok ? 1 : 0, detail.slice(0, 300)).run();
@@ -531,12 +532,12 @@ export async function syncGoogleDrive(user: ChatGPTUser, body: unknown) {
   if (Number.isSafeInteger(patientId) && patientId > 0) {
     try {
       const single = await backupPatient(user, patientId);
-      await recordBackupRun(user.userId, "manual", Boolean(single.saved), single.saved ? "ficha " + patientId + " respaldada" : String((single as { message?: string }).message || "no se respaldó"));
-      const extra = await syncDriveMirrors(user, "manual", 1, patientId).catch(() => ({ results: [] as Array<Record<string, unknown>> }));
+      await recordBackupRun(user.userId, "guardado", Boolean(single.saved), single.saved ? "ficha " + patientId + " respaldada" : String((single as { message?: string }).message || "no se respaldó"));
+      const extra = await syncDriveMirrors(user, "guardado", 1, patientId).catch(() => ({ results: [] as Array<Record<string, unknown>> }));
       return { configured: true, connected: true, results: [single, ...extra.results], complete: true };
     } catch (error) {
       const message = error instanceof Error ? error.message : "error";
-      await recordBackupRun(user.userId, "manual", false, "ficha " + patientId + ": " + message);
+      await recordBackupRun(user.userId, "guardado", false, "ficha " + patientId + ": " + message);
       return { configured: true, connected: true, results: [{ saved: false, patientId, message }], complete: true };
     }
   }
@@ -615,13 +616,35 @@ export async function runScheduledDriveBackup(maxPatients = 6) {
     const user: ChatGPTUser = { userId: connection.owner_id, displayName: "", email: connection.google_email, fullName: null };
     try {
       const extra = await syncDriveMirrors(user, "cron", budget);
-      results.push(...extra.results);
+      results.push(...extra.results.map(item => ({ ownerId: connection.owner_id, ...item })));
       budget = extra.budget;
     } catch (error) {
       results.push({ ownerId: connection.owner_id, saved: false, error: error instanceof Error ? error.message : "error en copia adicional" });
     }
   }
+  // Constancia de cada revisión automática, aunque no haya nada que copiar: así se ve que la tarea corre.
+  for (const connection of connections) {
+    const own = results.filter(item => item.ownerId === connection.owner_id);
+    const saved = own.filter(item => item.saved).length, failed = own.length - saved;
+    await recordHeartbeat(connection.owner_id, own.length ? `${saved} copiada${saved === 1 ? "" : "s"}${failed ? `, ${failed} con error` : ""}${budget <= 0 ? ", continúa en la próxima revisión" : ""}` : "sin cambios pendientes");
+  }
   return { configured: true, owners: connections.length, results, budgetLeft: budget };
+}
+
+async function ensureHeartbeatTable() {
+  await database().prepare("CREATE TABLE IF NOT EXISTS backup_heartbeat (owner_id TEXT PRIMARY KEY, ran_at TEXT NOT NULL, detail TEXT NOT NULL)").run();
+}
+async function recordHeartbeat(ownerId: string, detail: string) {
+  try {
+    await ensureHeartbeatTable();
+    await database().prepare("INSERT INTO backup_heartbeat (owner_id, ran_at, detail) VALUES (?, ?, ?) ON CONFLICT(owner_id) DO UPDATE SET ran_at = excluded.ran_at, detail = excluded.detail").bind(ownerId, now(), detail.slice(0, 200)).run();
+  } catch { /* la constancia nunca debe impedir el respaldo */ }
+}
+async function lastHeartbeat(ownerId: string) {
+  try {
+    await ensureHeartbeatTable();
+    return await database().prepare("SELECT ran_at AS ranAt, detail FROM backup_heartbeat WHERE owner_id = ?").bind(ownerId).first<{ ranAt: string; detail: string }>();
+  } catch { return null; }
 }
 
 // ---------------------------------------------------------------------------
@@ -725,7 +748,7 @@ async function backupPatientToMirror(user: ChatGPTUser, mirror: MirrorConnection
  * Copia a todas las cuentas adicionales las fichas que cambiaron. `budget` limita cuántas fichas se escriben
  * (cada ficha usa ~6 llamadas a Google). Devuelve resultados y el presupuesto restante.
  */
-export async function syncDriveMirrors(user: ChatGPTUser, source: "manual" | "cron", budget = 6, onlyPatientId?: number) {
+export async function syncDriveMirrors(user: ChatGPTUser, source: "manual" | "cron" | "guardado", budget = 6, onlyPatientId?: number) {
   const config = configuration();
   if (!config.configured) return { results: [] as Array<Record<string, unknown>>, budget };
   const mirrors = await mirrorsFor(user.userId);

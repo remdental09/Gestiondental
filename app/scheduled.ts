@@ -3,6 +3,8 @@ import { syncCalendarFromIcs, type CalendarSyncEnv } from "./calendar-sync";
 
 export const CALENDAR_CRON = "0 11,16,21 * * *"; // 08/13/18 Chile (UTC-3)
 export const BACKUP_CRON = "*/10 2 * * *"; // 23:00-23:50 Chile (UTC-3), a few fichas per run
+// Revisión cada hora: lo pendiente (p. ej. una cuenta adicional recién conectada) no espera hasta la noche.
+export const HOURLY_BACKUP_CRON = "20 * * * *";
 
 export async function runScheduled(cron: string, env: CalendarSyncEnv) {
   if (cron === CALENDAR_CRON) {
@@ -10,7 +12,7 @@ export async function runScheduled(cron: string, env: CalendarSyncEnv) {
     console.log("calendar-sync", JSON.stringify(result));
     return result;
   }
-  if (cron === BACKUP_CRON) {
+  if (cron === BACKUP_CRON || cron === HOURLY_BACKUP_CRON) {
     const { runScheduledDriveBackup } = await import("./drive-oauth");
     const result = await runScheduledDriveBackup();
     console.log("drive-backup", JSON.stringify(result));
