@@ -461,7 +461,7 @@ export function ClinicalDictation({
         budgetId: suggestedPaymentBudget(item, (data.proposal.budget ?? []).map((budget) => ({ ...budget, decision: "accepted" as const, amountText: String(budget.amount) })), budgetOptions),
       })));
       // Las caries se derivan en vivo de lo aceptado en el odontograma; el resto se revisa una por una.
-      setPrestItems((data.proposal.prestaciones ?? []).map((item) => ({ ...item, decision: "accepted" as const })));
+      setPrestItems((data.proposal.prestaciones ?? []).map((item) => ({ ...item, decision: item.advisory ? "rejected" as const : "accepted" as const })));
       setDxItems((data.proposal.diagnoses ?? []).filter((item) => !item.code.startsWith("DA08.0")).map((item) => ({ ...item, decision: item.suggested ? "rejected" as const : "accepted" as const, toothText: item.tooth ? formatFdi(item.tooth) : "", findingsText: item.findings ?? "", codeSearch: "" })));
       setDxSearch("");
     setAnsweredDxPrompts([]);
@@ -1003,7 +1003,7 @@ export function ClinicalDictation({
                 {prestItems.length === 0 && <li className="rounded-lg border border-dashed border-[#dddbe6] p-3 text-xs text-[#6b6a7c]">No se detectó ninguna prestación; puedes agregarla abajo.</li>}
                 {prestItems.map((item) => <li key={item.id} className={`rounded-lg border p-3 ${item.decision === "accepted" ? "border-emerald-200 bg-white" : "border-[#e6e4ee] bg-[#f9f9fb] opacity-80"}`} data-testid="dictation-prestacion">
                   <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div><p className="font-semibold">{prestacionName(item)}</p>{item.evidence && <Evidence text={item.evidence} />}</div>
+                    <div><p className="font-semibold">{prestacionName(item)}</p>{item.evidence && <Evidence text={item.evidence} />}{item.advisory && <p className="mt-1 rounded bg-rose-50 px-2 py-1 text-xs font-medium text-rose-800" data-testid="dictation-prestacion-advisory">Revisión clínica: {item.advisory} Márcala solo si de verdad corresponde.</p>}</div>
                     <div className="flex gap-2"><Decision value={item.decision} onChange={(decision) => setPrestItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, decision } : entry))} /><Button type="button" size="sm" variant="outline" onClick={() => setPrestItems((current) => current.filter((entry) => entry.id !== item.id))}>Quitar</Button></div>
                   </div>
                 </li>)}

@@ -4,9 +4,10 @@
  * caras; el resto de los procedimientos se busca por palabras clave. Nada se guarda sin que el profesional lo acepte.
  */
 import { PRESTACIONES, matchPrestacion, prestacionLabel } from "../prestaciones-catalog.ts";
-import type { OdontogramChange } from "./proposal.ts";
+import type { OdontogramChange, OdontogramSurface } from "./proposal.ts";
+import { actFamily, actForTooth, actIsInactivation, type ClinicalAct } from "./clinical-acts.ts";
 
-export type PrestacionItem = { id: string; code: string; name: string; tooth: number | null; evidence: string };
+export type PrestacionItem = { id: string; code: string; name: string; tooth: number | null; evidence: string; /** Objeción del revisor de coherencia: se propone desmarcada, con el motivo a la vista. */ advisory?: string };
 
 export const PRESTACIONES_HEADER = "Prestaciones (arancel)";
 
@@ -104,11 +105,13 @@ export type CodedProcedure = { text: string; evidence?: string; code?: string };
  * Sugiere prestaciones desde las obturaciones del odontograma, los procedimientos con código elegido por el modelo
  * (validado contra el catálogo) y las líneas de «Procedimientos realizados» (reglas y búsqueda por palabras).
  */
-export function suggestPrestaciones(odontogram: OdontogramChange[], procedureLines: string[], coded: CodedProcedure[] = [], dictated = ""): PrestacionItem[] {
+export function suggestPrestaciones(odontogram: OdontogramChange[], procedureLines: string[], coded: CodedProcedure[] = [], dictated = "", acts: ClinicalAct[] = []): PrestacionItem[] {
   const out: PrestacionItem[] = [];
   const push = (item: PrestacionItem | null) => {
     if (!item) return;
     if (out.some((done) => done.code === item.code && done.tooth === item.tooth)) return;
+    // La inactivación ya cobrada por pieza desde un acto comprendido no se repite «sin pieza» por la misma frase.
+    if (item.code === "5010029" && item.tooth === null && out.some((done) => done.code === "5010029" && done.tooth !== null && acts.some((act) => act.tooth === done.tooth && actIsInactivation(act)))) return;
     out.push({ ...item, id: `pr-${out.length + 1}` });
   };
   const restored = new Map<number, { faces: Set<string>; text: string }>();
@@ -122,14 +125,26 @@ export function suggestPrestaciones(odontogram: OdontogramChange[], procedureLin
   const covered = new Set<number>();
   for (const [tooth, entry] of restored) {
     const line = procedureLines.find((text) => teethOf(text).includes(tooth)) ?? "";
-    // Vidrio ionómero para inactivar caries: se cobra «Inactivación de caries», no una obturación aparte.
-    if (/inactiv/.test(fold(`${line} ${entry.text}`))) { covered.add(tooth); continue; }
-    const material = materialOf(`${line} ${entry.text}`);
+    // Lo comprendido por la IA manda: inactivación → «Inactivación de caries»; obturación → el material colocado.
+    const act = actForTooth(acts, tooth, [...entry.faces] as OdontogramSurface[]);
+    if (act && actIsInactivation(act)) { push(make("5010029", tooth, act.evidence, out.length + 1)); covered.add(tooth); continue; }
+    // Vidrio ionómero para inactivar caries: se cobra «Inactivación de caries», no una obturación aparte (salvo que el acto comprendido sea una obturación).
+    if (act?.action !== "obturar" && /inactiv/.test(fold(`${line} ${entry.text}`))) { covered.add(tooth); continue; }
+    const material = actFamily(act) ?? materialOf(`${line} ${entry.text}`);
     if (!material) continue;
     const code = restorationCode(material, tooth, entry.faces.size);
     if (code) { push(make(code, tooth, line || entry.text.trim(), out.length + 1)); covered.add(tooth); }
   }
   const skipRestoration = (plain: string, teeth: number[]) => teeth.length > 0 && teeth.every((tooth) => covered.has(tooth)) && /obturaci|restauraci|composite|resina/.test(plain);
+  // Acto de un procedimiento codificado: por su pieza o, si el texto no la nombra, por la cita que comparten.
+  const codedAct = (proc: CodedProcedure, teeth: number[]): ClinicalAct | undefined => {
+    if (teeth.length === 1) return actForTooth(acts, teeth[0]);
+    if (teeth.length > 1) return undefined;
+    const said = fold(`${proc.evidence ?? ""} ${proc.text}`);
+    const sharing = acts.filter((act) => { const quote = fold(act.evidence).slice(0, 40); return quote.length >= 12 && (said.includes(quote) || fold(act.evidence).includes(fold(proc.evidence ?? "").slice(0, 40) || "\u0000")); });
+    return sharing.length === 1 ? sharing[0] : undefined;
+  };
+  const dropped = new Set<CodedProcedure>();
   // Código elegido por el modelo: solo vale si existe en el catálogo; la pieza sale del texto del procedimiento.
   for (const proc of coded) {
     const code = (proc.code ?? "").trim();
@@ -142,17 +157,22 @@ export function suggestPrestaciones(odontogram: OdontogramChange[], procedureLin
       const said = `${proc.text} ${proc.evidence ?? ""}`;
       const material = materialOf(said);
       if (/inactiv/.test(fold(said)) || (material && material !== family)) continue;
+      // Según el acto comprendido de ESA pieza: inactivación, o material colocado distinto al del código → no se cobra.
+      const act = codedAct(proc, teeth);
+      if (act && (actIsInactivation(act) || (actFamily(act) && actFamily(act) !== family))) { dropped.add(proc); continue; }
     }
     push(make(code, teeth.length === 1 ? teeth[0] : null, proc.evidence || proc.text, out.length + 1));
   }
   // Una oración que el modelo ya codificó no se vuelve a evaluar con reglas ni búsqueda: evita duplicados (p. ej. un
   // sellante por pieza del modelo más el sellante de la regla) cuando la nota reescribe la frase.
   const contentWords = (value: string) => new Set(fold(value).replace(/[^a-z0-9.\s]/g, " ").split(/\s+/).filter((word) => word.length > 3 || /^\d\.\d$/.test(word)).map((word) => word.slice(0, 6)));
-  const modelWords = coded.filter((proc) => proc.code && byCode.has(proc.code.trim())).map((proc) => contentWords(proc.text));
+  const modelWords = coded.filter((proc) => proc.code && byCode.has(proc.code.trim()) && !dropped.has(proc)).map((proc) => contentWords(proc.text));
   const modelCovers = (sentence: string) => {
     const words = contentWords(sentence);
     return words.size > 0 && modelWords.some((known) => known.size > 0 && [...words].filter((word) => known.has(word)).length / Math.min(words.size, known.size) >= 0.6);
   };
+  // Cada inactivación comprendida en una pieza se cobra en esa pieza.
+  for (const act of acts) if (act.tooth && actIsInactivation(act)) push(make("5010029", act.tooth, act.evidence, out.length + 1));
   const allPlain = fold(`${procedureLines.join(" ")} ${dictated}`);
   const implantTeeth = new Set(odontogram.filter((item) => item.kind === "status" && item.status === "Implante" && !item.advisory).map((item) => item.tooth));
   const sentencesOfLines = procedureLines.flatMap((line) => line.split(/(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑ])/u).map((part) => part.trim()).filter(Boolean));
@@ -177,7 +197,12 @@ export function suggestPrestaciones(odontogram: OdontogramChange[], procedureLin
       if (found && !partOfCementation) push(make(found.code, teeth.length === 1 ? teeth[0] : null, line, out.length + 1));
     }
   }
-  return out;
+  // Si las inactivaciones ya quedaron cobradas por pieza desde los actos, la versión «sin pieza» sobra (sería un doble cobro).
+  const actInactivated = new Set(acts.filter((act) => act.tooth && actIsInactivation(act)).map((act) => act.tooth));
+  const final = actInactivated.size && out.some((item) => item.code === "5010029" && item.tooth !== null && actInactivated.has(item.tooth))
+    ? out.filter((item) => !(item.code === "5010029" && item.tooth === null))
+    : out;
+  return final.map((item, index) => ({ ...item, id: `pr-${index + 1}` }));
 }
 
 /** Líneas de la sección «Procedimientos realizados» de una nota. */

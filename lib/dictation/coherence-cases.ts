@@ -2,8 +2,12 @@ import type { DictationProposal, OdontogramChange } from "./proposal.ts";
 
 export type CoherenceCase = {
   id: string; nota: string; trampa?: boolean;
+  /** Requiere la comprensión de la IA (actos clínicos): no se exige con solo reglas. */
+  soloIA?: boolean;
   chart: { tooth: number; status: string; foundation?: "tooth" | "implant" }[];
   dictado: string; aplica?: string[]; noAplica?: string[]; confirmar?: string[];
+  /** Códigos del arancel que deben proponerse (marcados) y los que no deben proponerse marcados. */
+  prestaciones?: string[]; noPrestaciones?: string[];
 };
 
 export const itemKey = (item: OdontogramChange) =>
@@ -18,6 +22,9 @@ export function judgeCase(test: CoherenceCase, proposal: DictationProposal): str
   const fails: string[] = [];
   for (const key of test.aplica ?? []) if (!marked.has(key)) fails.push(`debía aplicarse «${key}»`);
   for (const key of test.noAplica ?? []) if (marked.has(key)) fails.push(`se aplicaría solo «${key}» y no debe`);
+  const codes = new Set((proposal.prestaciones ?? []).filter((item) => !item.advisory).map((item) => item.code));
+  for (const code of test.prestaciones ?? []) if (!codes.has(code)) fails.push(`debía cobrarse ${code}`);
+  for (const code of test.noPrestaciones ?? []) if (codes.has(code)) fails.push(`se cobraría ${code} y no debe`);
   for (const key of test.confirmar ?? []) if (!waiting.has(key)) fails.push(`«${key}» debía quedar esperando confirmación${marked.has(key) ? " (quedó marcado)" : ""}`);
   return fails;
 }

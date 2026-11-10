@@ -1,4 +1,5 @@
 import type { OdontogramChange } from "./proposal.ts";
+import type { ClinicalAct } from "./clinical-acts.ts";
 import { checkSurface, checkTransition, eventsFrom, type ProposedState, type ToothEvents } from "./tooth-model.ts";
 
 /**
@@ -69,27 +70,39 @@ export function clinicalCoherence(
   return { odontogram: out, notes };
 }
 
-/** Resumen compacto de los cambios propuestos para el revisor de IA. */
-export function reviewPayload(transcript: string, chart: ChartRow[], odontogram: OdontogramChange[]): string {
+/** Resumen compacto de la propuesta completa para el revisor de IA: dictado, nota, odontograma, prestaciones y actos. */
+export function reviewPayload(transcript: string, chart: ChartRow[], odontogram: OdontogramChange[], extra: { note?: string; prestaciones?: Array<{ code: string; name: string; tooth: number | null; evidence: string }>; acts?: ClinicalAct[] } = {}): string {
   const changes = odontogram.map((item) => ({
     pieza: fdi(item.tooth),
     tipo: item.kind,
     estado: item.status ?? null,
     superficie: item.surface ?? null,
+    hallazgo: item.finding?.condition ?? null,
+    material: item.finding?.restorationMaterial ?? null,
     base: item.foundation ?? null,
     cita: (item.evidence || item.sourceText || "").slice(0, 240),
   }));
-  return JSON.stringify({ dictado: transcript.slice(0, 6000), odontograma_actual: chart.map((row) => ({ pieza: fdi(row.tooth), estado: row.status })), cambios_propuestos: changes });
+  const note = (extra.note ?? "").split(/\nTranscripción completa/)[0].slice(0, 4000);
+  return JSON.stringify({
+    dictado: transcript.slice(0, 6000),
+    odontograma_actual: chart.map((row) => ({ pieza: fdi(row.tooth), estado: row.status })),
+    nota_propuesta: note,
+    cambios_propuestos: changes,
+    prestaciones_propuestas: (extra.prestaciones ?? []).map((item) => ({ codigo: item.code, nombre: item.name, pieza: item.tooth ? fdi(item.tooth) : null, cita: item.evidence.slice(0, 200) })),
+    actos_comprendidos: (extra.acts ?? []).map((act) => ({ pieza: act.tooth ? fdi(act.tooth) : null, caras: act.faces, accion: act.action, material_colocado: act.placed, material_retirado: act.removed, intencion: act.intent, estado_final_cara: act.finalState, cita: act.evidence.slice(0, 200) })),
+  });
 }
 
-export const REVIEW_PROMPT = `Eres un odontólogo clínico senior que revisa la propuesta de odontograma que armó un sistema automático a partir de un dictado.
-Tu único trabajo es detectar cambios CLÍNICAMENTE INCOHERENTES o mal atribuidos, como un dentista que mira por encima del hombro. Ejemplos:
-- Marcar implante en una pieza que se está trepanando, con pulpitis, endodoncia, caries u obturación (el implante no tiene pulpa).
-- Atribuir a una pieza lo que el dictado dice de la vecina («la 20 está adyacente al implante de la 19»).
-- Pasar a implante una pieza con corona sobre diente natural sin que se diga que se extrajo o que se instaló un implante.
-- Marcar ausente una pieza a la que se le hace tratamiento.
-- Cualquier cambio que contradiga el odontograma actual sin que el dictado diga qué ocurrió.
-No inventes cambios nuevos y no objetes lo que es razonable. Responde SOLO un JSON: {"observaciones":[{"pieza":"4.5","estado":"Implante","motivo":"explicación breve en español clínico"}]}. Si todo es coherente, {"observaciones":[]}. "pieza" en FDI con punto; "estado" o "superficie" copiados del cambio observado.`;
+export const REVIEW_PROMPT = `Eres un odontólogo clínico senior que revisa la propuesta que armó un sistema automático a partir de un dictado: la nota, los cambios de odontograma y las prestaciones del arancel.
+LEE Y COMPRENDE el dictado como lo haría un colega (verbos, intención, qué material se colocó y cuál se retiró) y detecta solo lo que NO calza con lo dictado o es clínicamente incoherente. Ejemplos:
+- Cobrar o marcar un material que el dictado dice que se RETIRÓ («se retira la amalgama» no es obturación de amalgama).
+- Marcar «obturada» una cara cuando lo colocado fue para inactivar caries o fue provisorio y el dictado no habla de obturación definitiva.
+- Una prestación que no corresponde a nada realizado hoy, o cuya cantidad/extensión no calza (p. ej. un sextante cuando se dictaron varios).
+- Pieza, caras o material en la nota distintos a los del odontograma o del dictado.
+- Marcar implante en una pieza que se trepana o tiene pulpa; atribuir a una pieza lo dicho de la vecina; marcar ausente una pieza tratada; contradecir el odontograma actual sin que el dictado diga qué ocurrió.
+No inventes cambios nuevos y no objetes lo razonable. Responde SOLO un JSON:
+{"observaciones":[{"pieza":"4.5","estado":"Implante","motivo":"…"}],"prestaciones":[{"codigo":"5005002","pieza":"1.6","motivo":"…"}],"nota":[{"motivo":"…"}]}
+"observaciones" son objeciones a cambios del odontograma ("pieza" en FDI con punto; "estado" o la cara), "prestaciones" a códigos propuestos (con "pieza" en FDI con punto si el código es de una pieza, o ""), "nota" a incoherencias del texto. Motivos breves en español clínico de Chile. Si todo es coherente, listas vacías.`;
 
 export type AiObservation = { tooth: number; match: string; motivo: string };
 
@@ -125,4 +138,27 @@ export function applyAiReview(odontogram: OdontogramChange[], observations: AiOb
     return { ...item, coherence: "incoherente", advisory: `Revisión clínica (IA) · FDI ${fdi(item.tooth)}: ${obs.motivo} Márcalo solo si de verdad corresponde.` };
   });
   return { odontogram: out, notes };
+}
+
+
+export type PrestacionObservation = { code: string; tooth: number | null; motivo: string };
+
+/** Objeciones del revisor a prestaciones propuestas (solo códigos que estén en la propuesta) y a la nota. */
+export function parseReviewExtras(raw: unknown, codes: string[]): { prestaciones: PrestacionObservation[]; nota: string[] } {
+  let json: unknown = raw;
+  if (typeof raw === "string") { try { json = JSON.parse(raw); } catch { return { prestaciones: [], nota: [] }; } }
+  const rec = json && typeof json === "object" ? json as Record<string, unknown> : {};
+  const text = (value: unknown) => typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, 300) : "";
+  const prestaciones = (Array.isArray(rec.prestaciones) ? rec.prestaciones : []).slice(0, 12).flatMap((entry) => {
+    const item = entry && typeof entry === "object" ? entry as Record<string, unknown> : {};
+    const code = text(item.codigo).replace(/\D/g, "");
+    const motivo = text(item.motivo);
+    const piece = /^([1-8])\.([1-8])$/.exec(text(item.pieza));
+    return codes.includes(code) && motivo.length >= 8 ? [{ code, tooth: piece ? Number(piece[1]) * 10 + Number(piece[2]) : null, motivo }] : [];
+  });
+  const nota = (Array.isArray(rec.nota) ? rec.nota : []).slice(0, 6).flatMap((entry) => {
+    const motivo = text(entry && typeof entry === "object" ? (entry as Record<string, unknown>).motivo : entry);
+    return motivo.length >= 8 ? [motivo] : [];
+  });
+  return { prestaciones, nota };
 }
