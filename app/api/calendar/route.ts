@@ -1,5 +1,5 @@
 import { getChatGPTUser } from "@/app/chatgpt-auth";
-import { listCalendarConnections, removeCalendarConnection, syncGoogleCalendars } from "@/app/drive-oauth";
+import { deleteAgendaEvent, updateAgendaEvent, listCalendarConnections, removeCalendarConnection, syncGoogleCalendars } from "@/app/drive-oauth";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -16,10 +16,18 @@ export async function POST(request: Request) {
   const user = await getChatGPTUser();
   if (!user?.userId) return json({ error: "Inicia sesión." }, 401);
   if (request.headers.get("origin") !== new URL(request.url).origin) return json({ error: "Origen no permitido." }, 403);
-  const body = await request.json().catch(() => null) as { action?: unknown; id?: unknown } | null;
+  const body = await request.json().catch(() => null) as { action?: unknown; id?: unknown; eventId?: unknown; title?: unknown; day?: unknown; time?: unknown } | null;
   try {
     if (body?.action === "sync") return json({ results: await syncGoogleCalendars(user.userId), accounts: await listCalendarConnections(user.userId) });
     if (body?.action === "remove" && typeof body.id === "string") { await removeCalendarConnection(user.userId, body.id); return json({ accounts: await listCalendarConnections(user.userId) }); }
+    if (body?.action === "deleteEvent" && Number.isSafeInteger(body.eventId) && Number(body.eventId) !== 0) {
+      const result = await deleteAgendaEvent(user.userId, Number(body.eventId));
+      return result.ok ? json({ ok: true }) : json({ error: result.error }, 409);
+    }
+    if (body?.action === "updateEvent" && Number.isSafeInteger(body.eventId) && Number(body.eventId) !== 0 && typeof body.title === "string" && typeof body.day === "string" && typeof body.time === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.day) && /^([01]\d|2[0-3]):[0-5]\d$/.test(body.time)) {
+      const result = await updateAgendaEvent(user.userId, Number(body.eventId), { title: body.title, day: body.day, time: body.time });
+      return result.ok ? json({ ok: true }) : json({ error: result.error }, 409);
+    }
     return json({ error: "Acción no reconocida." }, 400);
   } catch {
     return json({ error: "No se pudo completar la acción con el calendario." }, 500);
