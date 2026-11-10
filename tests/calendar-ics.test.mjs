@@ -12,7 +12,7 @@ const { buildSync } = viteRequire('esbuild');
 const out = join(mkdtempSync(join(tmpdir(), 'gd-ics-')), 'bundle.mjs');
 writeFileSync(out, buildSync({
   stdin: { contents: "export * from './app/calendar-ics.ts'; export * from './app/calendar-sync.ts'; export * from './app/scheduled.ts';", resolveDir: fileURLToPath(new URL('..', import.meta.url)), loader: 'ts' },
-  bundle: true, format: 'esm', platform: 'neutral', write: false, external: ['./drive-oauth'], mainFields: ['module', 'main'],
+  bundle: true, format: 'esm', platform: 'neutral', write: false, external: ['./drive-oauth', './calendar-sources-db'], mainFields: ['module', 'main'],
 }).outputFiles[0].text);
 const m = await import(pathToFileURL(out).href);
 
