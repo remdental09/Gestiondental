@@ -37,3 +37,26 @@ button,a,label,select,summary,[role=button],[role=tab]{touch-action:manipulation
 @media (prefers-reduced-motion: reduce) {
   [data-genie][data-state="open"], [data-genie][data-state="closed"] { animation-duration: 0.01ms; }
 }
+
+/* Efectos «Aurora»: brillo, elevación, entrada escalonada, píldora luminosa y cristal. */
+.fx-shine { position: relative; overflow: hidden; isolation: isolate; }
+.fx-shine::after { content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none; background: linear-gradient(105deg, transparent 35%, rgba(255,255,255,.38) 50%, transparent 65%); transform: translateX(-130%); }
+.fx-shine-auto::after { animation: fx-sweep 6s ease-in-out 1.2s infinite; }
+.fx-shine-hover:hover::after { animation: fx-sweep .9s ease-out 1; }
+@keyframes fx-sweep { 0% { transform: translateX(-130%); } 30%, 100% { transform: translateX(130%); } }
+.fx-mic { animation: fx-heartbeat 2.8s ease-in-out infinite; }
+.fx-mic-live { animation: fx-pulse-ring 1.3s ease-out infinite; }
+@keyframes fx-heartbeat { 0%, 100% { box-shadow: 0 0 0 0 rgba(255,255,255,.35); transform: scale(1); } 50% { box-shadow: 0 0 0 10px rgba(255,255,255,0); transform: scale(1.06); } }
+@keyframes fx-pulse-ring { 0% { box-shadow: 0 0 0 0 rgba(164,53,66,.5); } 100% { box-shadow: 0 0 0 14px rgba(164,53,66,0); } }
+.fx-card { position: relative; transition: transform .22s cubic-bezier(.2,.8,.2,1), box-shadow .22s, border-color .22s; }
+.fx-card:hover, .fx-card:focus-visible { transform: translateY(-4px); border-color: transparent; box-shadow: 0 18px 38px -18px rgba(71,58,109,.55); background-image: linear-gradient(#fff,#fff), linear-gradient(135deg,#473a6d,#ef895f); background-origin: border-box; background-clip: padding-box, border-box; border: 1px solid transparent; }
+.fx-rise { animation: fx-rise .55s cubic-bezier(.2,.8,.2,1) backwards; }
+@keyframes fx-rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+.fx-nav-active { background: linear-gradient(120deg, rgba(239,137,95,.38), rgba(255,255,255,.14)) !important; box-shadow: 0 0 0 1px rgba(255,255,255,.18) inset, 0 8px 22px -8px rgba(239,137,95,.65); animation: fx-pill .35s cubic-bezier(.2,.8,.2,1) backwards; }
+@keyframes fx-pill { from { opacity: .3; transform: translateX(-10px) scale(.96); } to { opacity: 1; transform: none; } }
+.fx-glass { background: rgba(255,255,255,.72) !important; backdrop-filter: blur(18px) saturate(1.4); -webkit-backdrop-filter: blur(18px) saturate(1.4); }
+[data-slot="dialog-overlay"][data-state="open"] { backdrop-filter: blur(6px) saturate(1.2); }
+@media (prefers-reduced-motion: reduce) {
+  .fx-shine::after, .fx-mic, .fx-mic-live, .fx-rise, .fx-nav-active { animation: none !important; }
+  .fx-card:hover, .fx-card:focus-visible { transform: none; }
+}
