@@ -23,10 +23,11 @@ export function TodayPanel({ patients, events, budgets, payments, clinicName, on
   const [confirmed, setConfirmed] = useState<Record<number, string>>({});
   const [confirmError, setConfirmError] = useState("");
   const [hints, setHints] = useState<EventHints>({});
+  const [declined, setDeclined] = useState<Set<number>>(new Set());
   useEffect(() => {
     let alive = true;
     void fetch("/api/appointment-confirmations", { cache: "no-store" })
-      .then(async response => { if (alive && response.ok) { const data = await response.json() as { confirmed?: Record<number, string>; hints?: EventHints }; setConfirmed(data.confirmed ?? {}); setHints(data.hints ?? {}); } })
+      .then(async response => { if (alive && response.ok) { const data = await response.json() as { confirmed?: Record<number, string>; hints?: EventHints; declined?: number[] }; setConfirmed(data.confirmed ?? {}); setHints(data.hints ?? {}); setDeclined(new Set(data.declined ?? [])); } })
       .catch(() => {});
     return () => { alive = false; };
   }, [events]);
@@ -52,7 +53,8 @@ export function TodayPanel({ patients, events, budgets, payments, clinicName, on
   const confirmRow = (event: TodayEvent, patient: TodayPatient | null) => {
     const link = patient ? whatsappLink(patient.phone, confirmationMessage({ patientName: patient.name, startAt: event.startAt, clinicName })) : null;
     const done = Boolean(confirmed[event.id]);
-    return <div className="flex shrink-0 items-center gap-2">
+    return <div className="flex shrink-0 flex-wrap items-center gap-2">
+      {declined.has(event.id) && <span className="rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-amber-900" data-testid="today-declined">Avisó que no asistirá</span>}
       {link
         ? <a href={link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 rounded-lg border border-[#25a244]/40 bg-[#f1fbf4] px-2.5 py-1.5 text-xs font-semibold text-[#17692e] transition hover:bg-[#e2f6e8]" data-testid="today-whatsapp"><MessageCircle className="size-4" aria-hidden="true" />WhatsApp</a>
         : <span className="text-xs text-[#6b6a7c]" title={patient ? "El paciente no tiene un celular chileno válido en su ficha." : "No se reconoce la ficha de esta cita."}>{patient ? "Sin celular" : "Sin ficha"}</span>}

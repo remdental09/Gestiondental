@@ -20,6 +20,11 @@ export async function runScheduled(cron: string, env: CalendarSyncEnv) {
       const { syncGoogleCalendars } = await import("./drive-oauth");
       console.log("google-calendars", JSON.stringify(await syncGoogleCalendars().catch(error => [{ ok: false, detail: String(error) }])));
     }
+    // Recordatorios de citas por correo: solo para quienes los activaron, desde su hora elegida (hora de Chile).
+    if (cron === HOURLY_BACKUP_CRON) {
+      const { runReminderCycle } = await import("./appointment-mail");
+      console.log("appointment-reminders", JSON.stringify(await runReminderCycle().catch(error => [{ ok: false, detail: String(error) }])));
+    }
     const { runScheduledDriveBackup } = await import("./drive-oauth");
     const result = await runScheduledDriveBackup();
     console.log("drive-backup", JSON.stringify(result));

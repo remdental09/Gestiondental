@@ -1,6 +1,7 @@
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { loadConfirmations, setConfirmation } from "@/app/appointment-confirmations-db";
 import { loadHints } from "@/app/calendar-hints-db";
+import { declinedEvents } from "@/app/appointment-mail-db";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -9,7 +10,7 @@ const json = (data: unknown, status = 200) => Response.json(data, { status, head
 export async function GET() {
   const user = await getChatGPTUser();
   if (!user?.userId) return json({ error: "Inicia sesión." }, 401);
-  try { return json({ confirmed: await loadConfirmations(user.userId), hints: await loadHints(user.userId).catch(() => ({})) }); }
+  try { return json({ confirmed: await loadConfirmations(user.userId), hints: await loadHints(user.userId).catch(() => ({})), declined: await declinedEvents(user.userId).catch(() => []) }); }
   catch { return json({ error: "No se pudieron leer las confirmaciones." }, 500); }
 }
 
