@@ -1027,3 +1027,75 @@ export async function updateAppointmentInGoogle(ownerId: string, appointmentId: 
     return "ok";
   } catch { return "error"; }
 }
+
+export type AgendaEventResult = { ok: true } | { ok: false; error: string };
+type StoredEvent = { id: number; calendar_id: string; google_event_id: string; title: string; start_at: string; end_at: string };
+
+async function writableGoogleEvent(ownerId: string, eventId: number): Promise<{ ev: StoredEvent; row: CalendarConnection; calendar: string } | { error: string }> {
+  await ensureCalendarTable();
+  const ev = await database().prepare("SELECT id, calendar_id, google_event_id, title, start_at, end_at FROM calendar_events WHERE owner_id = ? AND id = ?").bind(ownerId, eventId).first<StoredEvent>();
+  if (!ev) return { error: "No encontré esa cita en la agenda." };
+  const match = ev.calendar_id.match(/^g:([^:]+):(.+)$/);
+  if (!match) return { error: "Esta cita viene de un calendario de solo lectura (dirección iCal); se cambia en su calendario original." };
+  const row = await database().prepare("SELECT * FROM google_calendar_connections WHERE owner_id = ? AND google_sub = ?").bind(ownerId, match[1]).first<CalendarConnection>();
+  if (!row) return { error: "La cuenta de Google de esta cita ya no está conectada." };
+  if (!row.can_write) return { error: "Tu Google Calendar está en solo lectura. En Agenda → Google Calendar, toca «reconecta» y acepta el permiso de editar." };
+  return { ev, row, calendar: match[2] };
+}
+
+/** Borra una cita de la agenda: en Google (si hay permiso) y, si venía de «Agendar control», también de la ficha. */
+export async function deleteAgendaEvent(ownerId: string, eventId: number): Promise<AgendaEventResult> {
+  const config = configuration();
+  if (eventId < 0) { // cita de la ficha que no está en Google
+    await database().prepare("DELETE FROM appointments WHERE owner_id = ? AND id = ?").bind(ownerId, -eventId).run();
+    return { ok: true };
+  }
+  if (!config.configured) return { ok: false, error: "Falta configurar Google en la aplicación." };
+  const found = await writableGoogleEvent(ownerId, eventId);
+  if ("error" in found) return { ok: false, error: found.error };
+  try {
+    const user: ChatGPTUser = { userId: found.row.owner_id, displayName: "", email: found.row.google_email, fullName: null };
+    const token = await getAccessToken(user, found.row as unknown as DriveConnection, config.clientSecret);
+    const response = await fetch("https://www.googleapis.com/calendar/v3/calendars/" + encodeURIComponent(found.calendar) + "/events/" + encodeURIComponent(found.ev.google_event_id), { method: "DELETE", headers: { Authorization: "Bearer " + token } });
+    if (!response.ok && response.status !== 404 && response.status !== 410) return { ok: false, error: "Google no permitió borrar la cita (HTTP " + response.status + ")." };
+  } catch (error) { return { ok: false, error: error instanceof Error ? error.message : "No se pudo borrar en Google." }; }
+  const link = await database().prepare("SELECT appointment_id FROM appointment_google_events WHERE owner_id = ? AND calendar_id = ? AND event_id = ?").bind(ownerId, found.ev.calendar_id, found.ev.google_event_id).first<{ appointment_id: number }>();
+  if (link) {
+    await database().prepare("DELETE FROM appointments WHERE owner_id = ? AND id = ?").bind(ownerId, link.appointment_id).run();
+    await database().prepare("DELETE FROM appointment_google_events WHERE owner_id = ? AND appointment_id = ?").bind(ownerId, link.appointment_id).run();
+  }
+  await database().prepare("UPDATE calendar_events SET status = 'cancelled', imported_at = ? WHERE owner_id = ? AND id = ?").bind(now(), ownerId, eventId).run();
+  return { ok: true };
+}
+
+/** Cambia título, día y hora de una cita (mantiene su duración). */
+export async function updateAgendaEvent(ownerId: string, eventId: number, change: { title: string; day: string; time: string }): Promise<AgendaEventResult> {
+  const config = configuration();
+  const { chileLocalToIso } = await import("@/lib/appointment-events");
+  const startIso = chileLocalToIso(change.day, change.time);
+  const title = change.title.trim().slice(0, 300);
+  if (!startIso || !title) return { ok: false, error: "Revisa el título, el día y la hora." };
+  const splitReason = (value: string) => value.includes(" · ") ? value.slice(value.indexOf(" · ") + 3) : value;
+  const isoDay = change.day.split("-")[0].length === 4 ? change.day : change.day.split("-").reverse().join("-");
+  if (eventId < 0) {
+    await database().prepare("UPDATE appointments SET day = ?, time = ?, reason = ? WHERE owner_id = ? AND id = ?").bind(isoDay, change.time, splitReason(title).slice(0, 500), ownerId, -eventId).run();
+    return { ok: true };
+  }
+  if (!config.configured) return { ok: false, error: "Falta configurar Google en la aplicación." };
+  const found = await writableGoogleEvent(ownerId, eventId);
+  if ("error" in found) return { ok: false, error: found.error };
+  const duration = Math.max(15 * 60000, new Date(found.ev.end_at).getTime() - new Date(found.ev.start_at).getTime());
+  const endIso = new Date(new Date(startIso).getTime() + duration).toISOString();
+  const wall = (iso: string) => new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Santiago", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).format(new Date(iso)).replace(" ", "T");
+  try {
+    const user: ChatGPTUser = { userId: found.row.owner_id, displayName: "", email: found.row.google_email, fullName: null };
+    const token = await getAccessToken(user, found.row as unknown as DriveConnection, config.clientSecret);
+    await googleApi(token, "https://www.googleapis.com/calendar/v3/calendars/" + encodeURIComponent(found.calendar) + "/events/" + encodeURIComponent(found.ev.google_event_id) + "?fields=id", {
+      method: "PATCH", body: JSON.stringify({ summary: title, start: { dateTime: wall(startIso), timeZone: "America/Santiago" }, end: { dateTime: wall(endIso), timeZone: "America/Santiago" } }),
+    });
+  } catch (error) { return { ok: false, error: error instanceof Error ? error.message : "No se pudo cambiar en Google." }; }
+  await database().prepare("UPDATE calendar_events SET title = ?, start_at = ?, end_at = ?, all_day = 0, imported_at = ? WHERE owner_id = ? AND id = ?").bind(title, startIso, endIso, now(), ownerId, eventId).run();
+  const link = await database().prepare("SELECT appointment_id FROM appointment_google_events WHERE owner_id = ? AND calendar_id = ? AND event_id = ?").bind(ownerId, found.ev.calendar_id, found.ev.google_event_id).first<{ appointment_id: number }>();
+  if (link) await database().prepare("UPDATE appointments SET day = ?, time = ?, reason = ? WHERE owner_id = ? AND id = ?").bind(isoDay, change.time, splitReason(title).slice(0, 500), ownerId, link.appointment_id).run();
+  return { ok: true };
+}
