@@ -51,3 +51,33 @@ test("búsqueda rápida por nombre en cualquier orden, sin tildes, o por RUT", (
   assert.deepEqual(quickSearch(patients, "9876543k").map(p => p.id), [2]);
   assert.deepEqual(quickSearch(patients, "a"), []);
 });
+
+import { agendaForDay, nextDay, whatsappNumber, whatsappLink, confirmationMessage } from "../lib/today-agenda.ts";
+
+test("teléfonos chilenos: solo celulares válidos, en formato internacional", () => {
+  assert.equal(whatsappNumber("+56 9 8765 4321"), "56987654321");
+  assert.equal(whatsappNumber("9 8765 4321"), "56987654321");
+  assert.equal(whatsappNumber("56987654321"), "56987654321");
+  assert.equal(whatsappNumber("22 123 4567"), null); // fijo
+  assert.equal(whatsappNumber(""), null);
+  assert.equal(whatsappNumber(undefined), null);
+});
+
+test("el mensaje usa el nombre, el día y la hora de Chile y el enlace va codificado", () => {
+  // 2026-11-11 18:30 UTC = 15:30 en Chile (UTC-3)
+  const msg = confirmationMessage({ patientName: "Ana María Pérez", startAt: "2026-11-11T18:30:00Z", clinicName: "Clínica Sonrisa" });
+  assert.match(msg, /^Hola Ana, le recuerdo su cita el miércoles 11 de noviembre a las 15:30 en Clínica Sonrisa\./);
+  const link = whatsappLink("987654321", msg);
+  assert.ok(link.startsWith("https://wa.me/56987654321?text=Hola%20Ana"));
+  assert.equal(whatsappLink("221234567", msg), null);
+});
+
+test("las citas de mañana se calculan por día de Chile", () => {
+  assert.equal(nextDay("2026-11-30"), "2026-12-01");
+  const items = agendaForDay([
+    ev(1, "2026-11-11T12:00:00Z", "2026-11-11T13:00:00Z"),
+    ev(2, "2026-11-12T01:30:00Z", "2026-11-12T02:30:00Z"), // 22:30 del 11 en Chile
+    ev(3, "2026-11-12T12:00:00Z", "2026-11-12T13:00:00Z"),
+  ], patients, "2026-11-11");
+  assert.deepEqual(items.map(i => i.event.id), [1, 2]);
+});

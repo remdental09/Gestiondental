@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { CalendarClock, Search, Wallet } from "lucide-react";
-import { pendingBalances, quickSearch, todayAgenda, type TodayBudget, type TodayEvent, type TodayPatient, type TodayPayment } from "@/lib/today-agenda";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { CalendarClock, Check, MessageCircle, Search, Wallet } from "lucide-react";
+import { agendaForDay, confirmationMessage, nextDay, pendingBalances, quickSearch, todayAgenda, whatsappLink, type TodayBudget, type TodayEvent, type TodayPatient, type TodayPayment } from "@/lib/today-agenda";
 
 const money = (amount: number) => "$" + amount.toLocaleString("es-CL");
 const hour = (iso: string) => new Intl.DateTimeFormat("es-CL", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/Santiago" }).format(new Date(iso));
@@ -10,20 +10,54 @@ const longDate = () => new Intl.DateTimeFormat("es-CL", { weekday: "long", day: 
 const stateLabel = { pasada: "Atendida", ahora: "En curso", siguiente: "Siguiente", luego: "" } as const;
 
 /** Panel del día: lo que importa ahora (próximo paciente, citas, saldos) y un buscador que abre la ficha con 3 letras. */
-export function TodayPanel({ patients, events, budgets, payments, onOpenPatient, onOpenAgenda }: {
+export function TodayPanel({ patients, events, budgets, payments, clinicName, onOpenPatient, onOpenAgenda }: {
   patients: Array<TodayPatient>;
   events: Array<TodayEvent>;
   budgets: TodayBudget[];
   payments: TodayPayment[];
+  clinicName?: string;
   onOpenPatient: (id: number) => void;
   onOpenAgenda: () => void;
 }) {
   const [query, setQuery] = useState("");
+  const [confirmed, setConfirmed] = useState<Record<number, string>>({});
+  const [confirmError, setConfirmError] = useState("");
+  useEffect(() => {
+    let alive = true;
+    void fetch("/api/appointment-confirmations", { cache: "no-store" })
+      .then(async response => { if (alive && response.ok) setConfirmed((await response.json() as { confirmed?: Record<number, string> }).confirmed ?? {}); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [events]);
+  const toggleConfirmed = useCallback(async (eventId: number) => {
+    const next = !confirmed[eventId];
+    setConfirmError("");
+    setConfirmed(current => { const copy = { ...current }; if (next) copy[eventId] = new Date().toISOString(); else delete copy[eventId]; return copy; });
+    try {
+      const response = await fetch("/api/appointment-confirmations", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId, confirmed: next }) });
+      if (!response.ok) throw new Error();
+    } catch {
+      setConfirmed(current => { const copy = { ...current }; if (next) delete copy[eventId]; else copy[eventId] = new Date().toISOString(); return copy; });
+      setConfirmError("No se pudo guardar la confirmación. Reintenta.");
+    }
+  }, [confirmed]);
   const items = useMemo(() => todayAgenda(events, patients), [events, patients]);
   const balances = useMemo(() => pendingBalances(patients, budgets, payments), [patients, budgets, payments]);
   const results = useMemo(() => quickSearch(patients, query), [patients, query]);
+  const tomorrow = useMemo(() => agendaForDay(events, patients, nextDay(new Intl.DateTimeFormat("en-CA", { timeZone: "America/Santiago", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()))), [events, patients]);
   const focus = items.find(item => item.state === "ahora") ?? items.find(item => item.state === "siguiente");
   const pending = items.filter(item => item.state !== "pasada");
+
+  const confirmRow = (event: TodayEvent, patient: TodayPatient | null) => {
+    const link = patient ? whatsappLink(patient.phone, confirmationMessage({ patientName: patient.name, startAt: event.startAt, clinicName })) : null;
+    const done = Boolean(confirmed[event.id]);
+    return <div className="flex shrink-0 items-center gap-2">
+      {link
+        ? <a href={link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 rounded-lg border border-[#25a244]/40 bg-[#f1fbf4] px-2.5 py-1.5 text-xs font-semibold text-[#17692e] transition hover:bg-[#e2f6e8]" data-testid="today-whatsapp"><MessageCircle className="size-4" aria-hidden="true" />WhatsApp</a>
+        : <span className="text-xs text-[#6b6a7c]" title={patient ? "El paciente no tiene un celular chileno válido en su ficha." : "No se reconoce la ficha de esta cita."}>{patient ? "Sin celular" : "Sin ficha"}</span>}
+      <button type="button" onClick={() => void toggleConfirmed(event.id)} aria-pressed={done} data-testid="today-confirm" className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition ${done ? "border-emerald-300 bg-emerald-50 text-emerald-900" : "border-[#d2d4df] bg-white text-[#4f4e62] hover:bg-[#f1f0f5]"}`}><Check className="size-4" aria-hidden="true" />{done ? "Confirmada" : "Marcar confirmada"}</button>
+    </div>;
+  };
 
   return <section aria-label="Tu día" data-testid="today-panel" className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] [&>*]:min-w-0">
     <div className="surface fx-rise">
@@ -37,15 +71,20 @@ export function TodayPanel({ patients, events, budgets, payments, onOpenPatient,
           <p className="mt-1 text-xl font-semibold text-[#35343f]">{focus.patient?.name ?? focus.event.title}</p>
           {focus.patient && focus.event.title && !focus.event.title.toLowerCase().includes(focus.patient.name.toLowerCase().split(" ")[0]) && <p className="text-sm text-[#615f73]">{focus.event.title}</p>}
           {focus.patient
-            ? <button type="button" onClick={() => onOpenPatient(focus.patient!.id)} className="mt-3 rounded-lg bg-[#473a6d] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#3a2f5a]" data-testid="today-open-ficha">Abrir ficha</button>
+            ? <div className="mt-3 flex flex-wrap items-center gap-3"><button type="button" onClick={() => onOpenPatient(focus.patient!.id)} className="rounded-lg bg-[#473a6d] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#3a2f5a]" data-testid="today-open-ficha">Abrir ficha</button>{focus.state === "siguiente" && confirmRow(focus.event, focus.patient)}</div>
             : <p className="mt-2 text-xs text-[#6b6a7c]">No se reconoce una ficha para esta cita; búscala abajo.</p>}
         </div>
         : <p className="mt-4 rounded-xl bg-[#f4f3f8] p-4 text-sm text-[#615f73]" data-testid="today-empty">{items.length > 0 ? "Ya no quedan citas por atender hoy." : "No hay citas en tu calendario para hoy."}</p>}
-      {pending.length > 1 && <ul className="mt-4 divide-y divide-[#ebeaf1]">{pending.filter(item => item !== focus).map(item => <li key={item.event.id} className="flex items-center justify-between gap-3 py-2 text-sm">
+      {pending.length > 1 && <ul className="mt-4 divide-y divide-[#ebeaf1]">{pending.filter(item => item !== focus).map(item => <li key={item.event.id} className="flex flex-wrap items-center justify-between gap-3 py-2 text-sm">
         <span className="min-w-0 truncate"><strong className="mr-2 tabular-nums">{hour(item.event.startAt)}</strong>{item.patient?.name ?? item.event.title}</span>
-        {item.patient && <button type="button" onClick={() => onOpenPatient(item.patient!.id)} className="shrink-0 text-sm font-medium text-[#473a6d] hover:underline">Abrir ficha</button>}
+        <span className="flex shrink-0 items-center gap-3">{item.patient && <button type="button" onClick={() => onOpenPatient(item.patient!.id)} className="text-sm font-medium text-[#473a6d] hover:underline">Abrir ficha</button>}{confirmRow(item.event, item.patient)}</span>
       </li>)}</ul>}
       {items.some(item => item.state === "pasada") && <p className="mt-3 text-xs text-[#6b6a7c]">{items.filter(item => item.state === "pasada").length} {items.filter(item => item.state === "pasada").length === 1 ? "cita ya pasó" : "citas ya pasaron"} hoy.</p>}
+      {tomorrow.length > 0 && <div className="mt-5 border-t border-[#ebeaf1] pt-4" data-testid="today-tomorrow">
+        <div className="flex flex-wrap items-baseline justify-between gap-2"><h3 className="text-sm font-semibold">Mañana · confirmar citas</h3><p className="text-xs text-[#6b6a7c]">{tomorrow.filter(item => confirmed[item.event.id]).length} de {tomorrow.length} confirmadas</p></div>
+        <ul className="mt-2 divide-y divide-[#ebeaf1]">{tomorrow.map(item => <li key={item.event.id} className="flex flex-wrap items-center justify-between gap-3 py-2 text-sm"><span className="min-w-0 truncate"><strong className="mr-2 tabular-nums">{hour(item.event.startAt)}</strong>{item.patient?.name ?? item.event.title}</span>{confirmRow(item.event, item.patient)}</li>)}</ul>
+        {confirmError && <p role="alert" className="mt-2 text-xs text-[#a43542]">{confirmError}</p>}
+      </div>}
       <button type="button" onClick={onOpenAgenda} className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-[#473a6d] hover:underline"><CalendarClock className="size-4" aria-hidden="true" />Ver agenda completa</button>
     </div>
 
