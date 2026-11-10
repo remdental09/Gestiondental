@@ -9,3 +9,8 @@ test("cita de la ficha aparece como evento y no se duplica con Google", () => {
   assert.equal(e.title, "Ana Pérez · control"); assert.equal(e.patientId, 10);
   assert.equal(appointmentsAsEvents(a, () => "Ana", [{ ...e, id: 99 }]).length, 0);
 });
+test("la cita ya escrita en Google (mismo título y hora) no se duplica aunque no tenga paciente asociado", () => {
+  const a = [{ id: 7, patientId: 10, day: "12-11-2026", time: "15:00", reason: "control" }];
+  const google = { id: 5, title: "Ana Pérez · control", startAt: "2026-11-12T18:00:00.000Z", endAt: "2026-11-12T18:30:00.000Z", sourceTimeZone: "America/Santiago", htmlLink: null, status: "confirmed", allDay: false, patientId: null };
+  assert.equal(appointmentsAsEvents(a, () => "Ana Pérez", [google]).length, 0);
+});
