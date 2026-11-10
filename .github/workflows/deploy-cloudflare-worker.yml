@@ -26,6 +26,10 @@ jobs:
             echo 'No hay un token Cloudflare accesible en los secretos de esta acción.' >&2
             exit 1
           fi
+      - name: Tipos y pruebas (gate)
+        run: |
+          pnpm exec tsc --noEmit
+          pnpm test
       - name: Comprobar transcripción de audio
         run: |
           node --experimental-strip-types --test tests/audio-transcription.test.mjs
