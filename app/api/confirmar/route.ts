@@ -30,16 +30,28 @@ async function resolve(token: string) {
   return { hash, reminder, clinic: profile?.clinicName || "" };
 }
 
-// El GET solo muestra la cita y los botones: los programas que revisan enlaces de los correos no deben confirmar por error.
+const thanks = (answer: "si" | "no", clinic: string, test = false) => {
+  const note = test ? "<p style=\"margin:16px 0 0;font-size:12px;color:#6b6a7c\">(Correo de prueba: no se registró ninguna respuesta.)</p>" : "";
+  const from = clinic ? ` ${esc(clinic)}` : "";
+  return answer === "si"
+    ? page("Cita confirmada", `<h1 style="font-size:20px;margin:0 0 8px">¡Muchas gracias! Su cita quedó confirmada ✔</h1><p style="margin:0">Le esperamos.${from ? ` Atentamente,${from}.` : ""}</p>${note}`)
+    : page("Aviso recibido", `<h1 style="font-size:20px;margin:0 0 8px">Muchas gracias por avisar</h1><p style="margin:0">Registramos que no podrá asistir. Nos pondremos en contacto para reagendar su hora.</p>${note}`);
+};
+
+// El GET muestra la cita con los botones. «Confirmo» se envía solo al abrir la página (en un navegador real) y el paciente ve el agradecimiento;
+// «No podré asistir» pide un toque más, para que un programa que revisa enlaces nunca registre una inasistencia por error.
 export async function GET(request: Request) {
   const url = new URL(request.url);
+  // Botones del correo de prueba: muestran lo que verá el paciente, sin registrar nada.
+  const test = url.searchParams.get("prueba");
+  if (test === "si" || test === "no") return thanks(test, "", true);
   const found = await resolve(url.searchParams.get("t") || "");
   if (!found) return notFound();
   const { day, time } = whenParts(found.reminder.start_at);
   const token = esc(url.searchParams.get("t") || "");
   const decline = url.searchParams.get("a") === "no";
   const btn = (answer: string, label: string, primary: boolean) => `<form method="post" style="margin:0 0 10px"><input type="hidden" name="t" value="${token}"><input type="hidden" name="a" value="${answer}"><button style="width:100%;padding:14px;border-radius:8px;font-size:16px;font-weight:bold;cursor:pointer;${primary ? "background:#473a6d;color:#fff;border:0" : "background:#fff;color:#473a6d;border:1px solid #bdb7d3"}">${label}</button></form>`;
-  return page("Confirma tu cita", `<h1 style="font-size:20px;margin:0 0 8px">Tu cita${found.clinic ? ` en ${esc(found.clinic)}` : ""}</h1><p style="font-size:18px;margin:0 0 20px"><strong>${esc(day)}</strong> a las <strong>${esc(time)}</strong></p>${decline ? btn("no", "No podré asistir", true) + btn("si", "Confirmo mi asistencia", false) : btn("si", "Confirmo mi asistencia", true) + btn("no", "No podré asistir", false)}`);
+  return page("Confirma tu cita", `<h1 style="font-size:20px;margin:0 0 8px">Su cita${found.clinic ? ` en ${esc(found.clinic)}` : ""}</h1><p style="font-size:18px;margin:0 0 20px"><strong>${esc(day)}</strong> a las <strong>${esc(time)}</strong></p>${decline ? btn("no", "No podré asistir", true) + btn("si", "Confirmo mi asistencia", false) : btn("si", "Confirmo mi asistencia", true) + btn("no", "No podré asistir", false)}${decline ? "" : "<p style=\"margin:8px 0 0;font-size:13px;color:#6b6a7c\">Confirmando…</p><script>document.forms[0].submit()</script>"}`);
 }
 
 export async function POST(request: Request) {
@@ -56,7 +68,5 @@ export async function POST(request: Request) {
     // Confirmar marca la cita como confirmada en la agenda del clínico; avisar que no asiste la deja desmarcada y visible.
     await setConfirmation(found.reminder.owner_id, found.reminder.event_id, answer === "si");
   } catch { return page("Error", "<p>No pudimos registrar tu respuesta. Intenta de nuevo o comunícate con la clínica.</p>", 500); }
-  return answer === "si"
-    ? page("Cita confirmada", "<h1 style=\"font-size:20px;margin:0 0 8px\">¡Gracias! Tu cita quedó confirmada ✔</h1><p style=\"margin:0\">Te esperamos.</p>")
-    : page("Aviso recibido", "<h1 style=\"font-size:20px;margin:0 0 8px\">Gracias por avisar</h1><p style=\"margin:0\">Registramos que no podrás asistir. La clínica se pondrá en contacto para reagendar.</p>");
+  return thanks(answer, found.clinic);
 }

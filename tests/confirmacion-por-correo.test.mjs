@@ -8,7 +8,7 @@ const decode = raw => Buffer.from(raw.replace(/-/g, "+").replace(/_/g, "/"), "ba
 test("el correo lleva fecha y hora de Chile, los dos enlaces y nada clínico", () => {
   const mail = reminderEmail({ patientName: "Ana María Pérez", startAt: "2026-11-11T18:30:00Z", clinicName: "Clínica Sonrisa", confirmUrl: "https://x.cl/api/confirmar?t=abc&a=si", declineUrl: "https://x.cl/api/confirmar?t=abc&a=no" });
   assert.match(mail.subject, /miércoles 11 de noviembre/);
-  assert.match(mail.text, /Hola Ana,/);
+  assert.match(mail.text, /Estimado\(a\) Ana:/);
   assert.match(mail.text, /a las 15:30 en Clínica Sonrisa/);
   assert.ok(mail.html.includes('href="https://x.cl/api/confirmar?t=abc&amp;a=si"'));
   assert.ok(mail.text.includes("https://x.cl/api/confirmar?t=abc&a=no"));

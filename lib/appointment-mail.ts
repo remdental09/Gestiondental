@@ -27,7 +27,7 @@ export function reminderEmail(input: ReminderInput): { subject: string; text: st
   const note = cleanMessage(input.message);
   const subject = `Confirma tu cita del ${day}${clinic ? ` · ${clinic}` : ""}`;
   const text = [
-    `Hola ${first},`,
+    `Estimado(a) ${first}:`,
     "",
     `Le recordamos su cita el ${day} a las ${time}${place}.`,
     "",
@@ -39,7 +39,7 @@ export function reminderEmail(input: ReminderInput): { subject: string; text: st
   ].join("\n");
   const html = `<!doctype html><html lang="es"><body style="margin:0;background:#f3f1f7;font-family:Arial,Helvetica,sans-serif;color:#35343f">
 <div style="max-width:520px;margin:0 auto;padding:24px"><div style="background:#fff;border-radius:12px;padding:28px;border:1px solid #e6e4ee">
-<p style="margin:0 0 12px;font-size:16px">Hola ${esc(first)},</p>
+<p style="margin:0 0 12px;font-size:16px">Estimado(a) ${esc(first)}:</p>
 <p style="margin:0 0 20px;font-size:16px;line-height:1.5">Le recordamos su cita el <strong>${esc(day)}</strong> a las <strong>${esc(time)}</strong>${esc(place)}.</p>
 <p style="margin:0 0 20px"><a href="${esc(input.confirmUrl)}" style="display:inline-block;background:#473a6d;color:#fff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:bold">Confirmo mi asistencia</a></p>
 <p style="margin:0 0 20px;font-size:14px"><a href="${esc(input.declineUrl)}" style="color:#6b6a7c">No podré asistir</a></p>
