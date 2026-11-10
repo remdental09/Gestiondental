@@ -1,7 +1,7 @@
 // Registro de correcciones del profesional: qué propuso el sistema y qué quedó al guardar.
 // Sirve como material real para mejorar reglas, ejemplos del modelo y un conjunto de pruebas.
 
-export type FeedbackCategory = "odontograma" | "presupuesto" | "ficha" | "periodontal" | "movilidad" | "pago" | "cita" | "diagnostico";
+export type FeedbackCategory = "odontograma" | "presupuesto" | "ficha" | "periodontal" | "movilidad" | "pago" | "cita" | "diagnostico" | "prestacion";
 export type FeedbackOutcome = "aceptado" | "editado" | "rechazado" | "agregado";
 
 export type FeedbackEntry = {
@@ -16,7 +16,7 @@ export type FeedbackEntry = {
 };
 
 // Campos que solo existen para la pantalla de revisión y no cuentan como edición.
-const SCREEN_ONLY = new Set(["decision", "toothText", "amountText", "methodValue", "budgetId", "dayValue", "timeValue", "codeSearch", "findingsText", "incompleteCaries", "depthText"]);
+const SCREEN_ONLY = new Set(["advisory", "decision", "toothText", "amountText", "methodValue", "budgetId", "dayValue", "timeValue", "codeSearch", "findingsText", "incompleteCaries", "depthText"]);
 
 function plain(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object") return {};
