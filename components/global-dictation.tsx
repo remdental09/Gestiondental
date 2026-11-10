@@ -209,7 +209,7 @@ export function GlobalDictation({ patients, notes = [], onUsePatient, onCreatePa
   };
 
   return <>
-    <button type="button" onClick={() => setOpen(true)} data-testid="global-dictation-open" className="flex w-full items-center gap-4 rounded-xl bg-[#473a6d] p-4 text-left text-white shadow-sm transition hover:bg-[#3a2f5a] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#473a6d] sm:p-5">
+    <button type="button" onClick={() => setOpen(true)} data-testid="global-dictation-open" className="flex w-full items-center gap-4 rounded-xl bg-gradient-to-r from-[#3b3355] via-[#5d4a8a] to-[#c9765a] p-4 text-left text-white shadow-[0_10px_30px_-12px_rgba(71,58,109,.55)] transition hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#473a6d] sm:p-5">
       <span className="flex size-12 shrink-0 items-center justify-center rounded-full bg-white/15"><Mic className="size-6" aria-hidden="true" /></span>
       <span className="min-w-0"><strong className="block text-lg">Dictar</strong><span className="block text-sm text-white/85">Dicta la atención de cualquier paciente, nuevo o con ficha. La app elige la ficha y la IA ordena la nota; tú confirmas.</span></span>
     </button>
