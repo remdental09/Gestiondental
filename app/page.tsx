@@ -1,5 +1,5 @@
 "use client";
-import { evolutionMilestones } from "@/lib/tooth-evolution-milestones";
+import { endoMilestones, evolutionMilestones } from "@/lib/tooth-evolution-milestones";
 import { OdontogramDateBar } from "@/components/odontogram-date-bar";
 import { chartAt, chartDates } from "@/lib/odontogram-timeline";
 import { AnamnesisButton } from "@/components/anamnesis-dialog";
@@ -288,7 +288,7 @@ export default function Home(){
     sourceEvolutionId:note.id,
     title:diagnosis.title,
     detail:[diagnosis.code?`CIE-11 ${diagnosis.code}`:"",diagnosis.findings].filter(Boolean).join(" · "),
-  }))) as ToothHistoryEvent[]).concat(evolutionMilestones(patientNotes));
+  }))) as ToothHistoryEvent[]).concat(evolutionMilestones(patientNotes),endoMilestones(endoByPatient[selectedId]?.cases??[],patientNotes));
   const nav=[{name:"Inicio",icon:HomeIcon},{name:"Resumen",icon:LayoutDashboard},{name:"Pacientes",icon:Users},{name:"Ficha clínica",icon:Stethoscope},{name:"Agenda",icon:CalendarDays},{name:"Presupuestos",icon:Wallet},{name:"Aranceles",icon:Receipt}];
   const goHome=()=>{setSection("Inicio");setNavigationHistory([]);setMobileNav(false)};
   const navigateTo=(destination:string,id=selectedId,tab=activeTab)=>{

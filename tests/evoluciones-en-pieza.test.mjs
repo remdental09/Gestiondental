@@ -20,3 +20,18 @@ test("el cuerpo solo cuenta si nombra una única pieza (no se atribuye a la veci
   assert.deepEqual(teethOfNote({ title: "Atención", body: "Pieza 2.5 adyacente a la 2.6." }), []);
   assert.deepEqual(teethOfNote({ title: "Implantes · FDI 3.6 y 4.6", body: "" }), [36, 46]);
 });
+
+import { endoMilestones } from "../lib/tooth-evolution-milestones.ts";
+test("lo registrado en Endodoncia aparece fechado en la pieza, sin repetir lo ya enviado a la historia", () => {
+  const cases = [{ id: "c1", tooth: 45, type: "Pulpectomía", openedOn: "2026-11-09", pulpal: "Pulpitis irreversible sintomática", periapical: "Periodontitis apical sintomática", closedReason: "",
+    sessions: [{ id: "s1", date: "2026-11-09", steps: ["Acceso cameral"], medication: "Hidróxido de calcio" }, { id: "s2", date: "2026-11-16", steps: ["Obturación"], medication: "" }],
+    obturation: { date: "2026-11-16", technique: "Condensación lateral" }, followUps: [] }];
+  const notes = [{ id: 195, title: "Endodoncia · FDI 4.5", body: "", clinicalDate: "2026-11-09" }];
+  const events = endoMilestones(cases, notes);
+  assert.deepEqual(events.map((e) => [e.clinicalDate, e.title]), [
+    ["2026-11-09", "Endodoncia iniciada · Pulpectomía"],
+    ["2026-11-16", "Sesión de endodoncia · Pulpectomía"],
+    ["2026-11-16", "Endodoncia obturada"],
+  ]);
+  assert.ok(events.every((e) => e.tooth === 45));
+});
