@@ -30,7 +30,7 @@ test("la agenda conecta Google Calendar con un botón (sin direcciones iCal) y s
   const panel = readFileSync(new URL("../components/calendar-sources.tsx", import.meta.url), "utf8");
   const sched = readFileSync(new URL("../app/scheduled.ts", import.meta.url), "utf8");
   const oauth = readFileSync(new URL("../app/drive-oauth.ts", import.meta.url), "utf8");
-  assert.match(page, /<CalendarSources onChanged=/);
+  assert.equal(page.split("<CalendarSources onChanged=").length - 1, 2, "en Inicio y en Agenda");
   assert.match(panel, /href="\/api\/drive\/connect\?calendar=1"/);
   assert.doesNotMatch(panel, /iCal/);
   assert.match(oauth, /CALENDAR_SCOPE = "https:\/\/www\.googleapis\.com\/auth\/calendar\.readonly"/);

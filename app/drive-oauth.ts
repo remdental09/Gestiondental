@@ -903,7 +903,14 @@ export async function syncGoogleCalendars(ownerId?: string) {
       detail = `${count} citas en ${calendars.length} ${calendars.length === 1 ? "calendario" : "calendarios"}`;
     } catch (error) {
       const raw = error instanceof Error ? error.message : "error";
-      detail = /venció|invalid_grant|rechazada/.test(raw) ? "Google pide volver a conectar esta cuenta." : "No se pudo leer el calendario; se reintentará en la próxima actualización.";
+      const code = raw.match(/\((HTTP [^)]*)\)/)?.[1] ?? "";
+      detail = /accessNotConfigured|SERVICE_DISABLED|has not been used|is disabled/i.test(raw)
+        ? "Falta activar la «Google Calendar API» en el proyecto de Google Cloud de la app (" + code + ")."
+        : /insufficientPermissions|ACCESS_TOKEN_SCOPE_INSUFFICIENT|HTTP 403/.test(raw)
+          ? "Google no dio permiso para ver el calendario: desconecta y vuelve a conectar marcando la casilla del calendario (" + code + ")."
+          : /venció|invalid_grant|rechazada/.test(raw)
+            ? "Google pide volver a conectar esta cuenta."
+            : "No se pudo leer el calendario (" + (code || raw.slice(0, 60)) + "); se reintentará en la próxima actualización.";
     }
     await database().prepare("UPDATE google_calendar_connections SET last_sync_at = ?, last_result = ?, ok = ? WHERE owner_id = ? AND google_sub = ?").bind(now(), detail, ok ? 1 : 0, row.owner_id, row.google_sub).run();
     out.push({ email: row.google_email, ok, detail });
