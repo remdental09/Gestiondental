@@ -942,6 +942,12 @@ function findingFrom(sentence: string): FindingResult {
   const sound = /\b(?:sana|sano|sin\s+lesi[oó]n)\b/i.test(sentence) || deniesCaries;
   // «Se realiza obturación … por caries de dentina»: la caries es el motivo; la cara queda obturada.
   const nominalTreated = /^\s*(?:obturaci[oó]n|restauraci[oó]n)(?!\p{L})/iu.test(sentence) && /(?<!\p{L})(?:por|debido\s+a|a\s+causa\s+de)\s+(?:una\s+|la\s+)?caries/iu.test(sentence);
+  // «Se coloca vidrio ionómero para inactivar la caries»: la cara sigue con lesión de caries (inactivada), no queda obturada.
+  if (hasCaries && /(?<!\p{L})inactiv(?:ar|a|aci[oó]n|ando)(?!\p{L})/iu.test(sentence)) {
+    const reading = cariesDepthFrom(sentence);
+    const finding: SurfaceFinding = { condition: "caries", depth: reading.depth, icdas: (icdasFrom(sentence) ?? null) as SurfaceFinding["icdas"], activity: activityFrom(sentence) };
+    return reading.depth ? { finding } : { finding, depthNote: reading.ambiguous ?? "" };
+  }
   if (hasCaries && restored && !sealant && !other && !sound && (TREATED_RESTORATION.test(sentence) || nominalTreated)) {
     return { finding: restoredFinding(sentence) };
   }

@@ -33,3 +33,36 @@ test("la sección de prestaciones se agrega a la nota y se reemplaza sin duplica
 test("sin procedimiento realizado no se sugiere prestación", () => {
   assert.deepEqual(suggest("Se observa caries en la pieza 3.5 oclusal.").items, []);
 });
+
+test("se retira la amalgama y se coloca vidrio ionómero para inactivar caries: no se cobra amalgama ni obturación aparte", () => {
+  const line = "En la pieza 1.6 se retira la amalgama fracturada y se elimina la caries. Se coloca vidrio ionómero en dos porciones para inactivar la caries dentinaria superficial.";
+  const odontogram = ["M", "O"].map((surface) => ({ kind: "surface", tooth: 16, surface, finding: { condition: "restored" }, sourceText: line }));
+  const items = suggestPrestaciones(odontogram, [line]);
+  assert.deepEqual(items.map((item) => item.code), ["5010029"]);
+});
+
+test("se retira la amalgama y se obtura con resina: vale la resina", () => {
+  const line = "En la pieza 1.6 se retira la amalgama filtrada y se obtura con resina compuesta.";
+  const odontogram = ["M", "O"].map((surface) => ({ kind: "surface", tooth: 16, surface, finding: { condition: "restored" }, sourceText: line }));
+  assert.deepEqual(suggestPrestaciones(odontogram, [line]).map((item) => [item.code, item.tooth]), [["5005018", 16]]);
+});
+
+test("obturación de amalgama sigue siendo amalgama", () => {
+  const line = "Se realiza obturación de amalgama en la pieza 4.6, caras oclusal y distal.";
+  const odontogram = ["O", "D"].map((surface) => ({ kind: "surface", tooth: 46, surface, finding: { condition: "restored" }, sourceText: line }));
+  assert.deepEqual(suggestPrestaciones(odontogram, [line]).map((item) => item.code), ["5005002"]);
+});
+
+test("código de amalgama elegido por la IA se descarta si el texto dice que la amalgama se retiró", () => {
+  const text = "En la pieza 3 se retira la amalgama fracturada y se elimina la caries. Se coloca vidrio ionómero para inactivar la caries dentinaria superficial.";
+  const items = suggestPrestaciones([], [text], [{ text, code: "5005002" }, { text, code: "5010029" }]);
+  assert.deepEqual(items.map((item) => item.code), ["5010029"]);
+});
+
+test("inactivación de caries con ionómero: el odontograma queda con caries (dentina superficial), no obturado", () => {
+  const p = structureTranscript("En la pieza 1.6 caras mesial y oclusal se elimina la caries y se coloca vidrio ionómero para inactivar la caries de dentina superficial.", { today: "2026-11-10" });
+  const faces = p.odontogram.filter((item) => item.kind === "surface" && item.tooth === 16);
+  assert.ok(faces.length >= 1);
+  assert.ok(faces.every((item) => item.finding?.condition === "caries"), JSON.stringify(faces.map((f) => f.finding)));
+  assert.ok(faces.every((item) => item.finding?.depth === "dentin_superficial" || item.finding?.depth), "con profundidad");
+});

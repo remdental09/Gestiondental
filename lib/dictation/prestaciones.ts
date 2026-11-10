@@ -26,15 +26,23 @@ function make(code: string, tooth: number | null, evidence: string, index: numbe
 }
 
 type Material = "composite" | "amalgama" | "ionomero";
+const AMALGAM_CODES = new Set(["5005001", "5005002"]);
+const IONOMER_CODES = new Set(["5005004"]);
+const COMPOSITE_CODES = new Set(["5005005", "5005006", "5005017", "5005018", "5005040", "5005041"]);
 
 function materialOf(text: string): Material | null {
   const plain = fold(text);
   // «Cambio de amalgama por resina»: vale el material nuevo.
   const replacement = plain.match(/\bpor\s+(?:una?\s+)?(?:restauracion\s+(?:de\s+)?)?(resina|composite|ionomero|amalgama)/);
   if (replacement && /\b(?:cambio|recambio|reemplazo|reposicion|reemplaz\w*)\b/.test(plain)) return replacement[1] === "amalgama" ? "amalgama" : replacement[1] === "ionomero" ? "ionomero" : "composite";
-  if (/amalgama/.test(plain)) return "amalgama";
-  if (/ionomero|\bciv\b/.test(plain)) return "ionomero";
-  if (/resina|composite|composit|fotocur/.test(plain)) return "composite";
+  // «Se retira la amalgama … se coloca vidrio ionómero»: vale el material que se coloca, nunca el que se saca.
+  const placed = plain.match(/\b(?:se\s+)?(?:coloc|obtur|restaur|aplic|rellen|sell)\w*\s+(?:\S+\s+){0,5}?(resina|composite|composit|ionomero|\bciv\b|amalgama)/);
+  if (placed) return /amalgama/.test(placed[1]) ? "amalgama" : /ionomero|civ/.test(placed[1]) ? "ionomero" : "composite";
+  const removedOnly = (name: string) => new RegExp(`\\b(?:retir|remov|remueve|elimin|sac|desobtur)\\w*\\s+(?:\\S+\\s+){0,3}?${name}|${name}\\s+(?:\\S+\\s+){0,2}?(?:fracturad|filtrad|desadaptad)\\w*`).test(plain);
+  const has = { amalgama: /amalgama/.test(plain) && !removedOnly("amalgama"), ionomero: /ionomero|\bciv\b/.test(plain), composite: /resina|composite|composit|fotocur/.test(plain) && !removedOnly("resina") };
+  if (has.amalgama) return "amalgama";
+  if (has.ionomero) return "ionomero";
+  if (has.composite) return "composite";
   return null;
 }
 
@@ -64,6 +72,7 @@ const KEYWORDS: Array<{ test: RegExp; code: (text: string, teeth?: number[], con
   { test: /\btratamiento\s+(?:de\s+)?(?:conductos?|endodontic\w*)|\bendodoncia\b|\bpulpectomia\b|\bbiopulpectomia\b|\bnecropulpectomia\b/, code: (t, teeth = [], context = "") => (/retratamiento|desobtur|apertura\s+(?:cameral\s+)?y\s+medicacion|medicacion\s+intraconducto/.test(t) || teeth.length !== 1 ? null : endodonticCode(teeth[0], `${t} ${context}`)) },
   { test: /\bdestartraje\b|\bprofilaxis\b|\bhigiene\s+(?:oral|dental)\b|\blimpieza\s+(?:dental|coronaria)\b/, code: (t) => (/\buna\s+arcada\b|\bsolo\s+(?:la\s+)?(?:superior|inferior)\b/.test(t) ? "5001039" : /\bseis\s+grupos\b|\bgrupo\s+\d\b|\bsubgingival\b/.test(t) ? null : "5001030") },
   { test: /\bretratamiento\b|\bdesobturacion\b|\bretiro\s+de\s+(?:la\s+)?gutapercha\b|\bse\s+retira\s+(?:la\s+)?gutapercha\b/, code: () => "5006005" },
+  { test: /\binactiv\w*\s+(?:de\s+)?(?:la\s+)?(?:\w+\s+){0,2}?caries\b|\binactivacion\b/, code: () => "5010029" },
   { test: /\bsellantes?\b/, code: () => "5005012" },
   // En el arancel, «pulido radicular» es el raspado y alisado por sextante: moderado a avanzado si hay bolsas profundas.
   { test: /\braspado\s+y\s+alisado\b|\balisado\s+radicular\b|\bpulido\s+radicular\b|\braspaje\b/, code: (t) => (/avanzad|bolsas?\s+profundas?|\b[6-9]\s*(?:mm|milimetros)\b/.test(t) ? "5009012" : "5009003") },
@@ -113,6 +122,8 @@ export function suggestPrestaciones(odontogram: OdontogramChange[], procedureLin
   const covered = new Set<number>();
   for (const [tooth, entry] of restored) {
     const line = procedureLines.find((text) => teethOf(text).includes(tooth)) ?? "";
+    // Vidrio ionómero para inactivar caries: se cobra «Inactivación de caries», no una obturación aparte.
+    if (/inactiv/.test(fold(`${line} ${entry.text}`))) { covered.add(tooth); continue; }
     const material = materialOf(`${line} ${entry.text}`);
     if (!material) continue;
     const code = restorationCode(material, tooth, entry.faces.size);
@@ -125,6 +136,13 @@ export function suggestPrestaciones(odontogram: OdontogramChange[], procedureLin
     if (!code || !byCode.has(code)) continue;
     const teeth = teethOf(proc.text);
     if (skipRestoration(fold(proc.text), teeth)) continue;
+    // Obturación elegida por el modelo que contradice el texto: material distinto al colocado, o una inactivación de caries.
+    const family = AMALGAM_CODES.has(code) ? "amalgama" : IONOMER_CODES.has(code) ? "ionomero" : COMPOSITE_CODES.has(code) ? "composite" : null;
+    if (family) {
+      const said = `${proc.text} ${proc.evidence ?? ""}`;
+      const material = materialOf(said);
+      if (/inactiv/.test(fold(said)) || (material && material !== family)) continue;
+    }
     push(make(code, teeth.length === 1 ? teeth[0] : null, proc.evidence || proc.text, out.length + 1));
   }
   // Una oración que el modelo ya codificó no se vuelve a evaluar con reglas ni búsqueda: evita duplicados (p. ej. un
