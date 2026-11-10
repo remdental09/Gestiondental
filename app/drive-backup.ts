@@ -1,4 +1,7 @@
 import { and, asc, eq, gt, type AnyColumn } from "drizzle-orm";
+import { fichaMarkdown } from "@/lib/backup-markdown";
+import { loadAnamnesis } from "@/app/anamnesis-db";
+import { loadAddresses } from "@/app/patient-address-db";
 import { getDb } from "@/db";
 import {
   appointments, budgets, clinicalImages, driveBackups, evolutions,
@@ -27,6 +30,10 @@ export async function getDriveSnapshot(ownerId: string, patientId: number, conne
     db.select().from(driveBackups).where(filter(driveBackups.ownerId, driveBackups.patientId)).limit(1),
   ]);
 
+  const [address, anamnesis] = await Promise.all([
+    loadAddresses(ownerId).then(map => map.get(patientId) ?? null).catch(() => null),
+    loadAnamnesis(ownerId, patientId).then(found => found ? (({ updatedAt: _u, ...rest }) => rest)(found) : null).catch(() => null),
+  ]);
   // The backup document contains clinical data, not its own Drive pointers or
   // verification state. This keeps the digest stable after acknowledgement.
   const record = {
@@ -38,6 +45,8 @@ export async function getDriveSnapshot(ownerId: string, patientId: number, conne
       allergies: patient.allergies, history: patient.history,
       createdAt: patient.createdAt,
     },
+    address,
+    anamnesis,
     // Las anuladas se respaldan igual (Ley 20.584), marcadas con motivo, fecha y autor.
     evolutions: notes.map(n => ({
       id: n.id, clinicalDate: n.clinicalDate, recordedAt: n.recordedAt,
@@ -69,14 +78,16 @@ export async function getDriveSnapshot(ownerId: string, patientId: number, conne
       attachmentBackedUp: false,
     })),
   };
-  const documentText = "Respaldo de ficha clínica · Gestión Dental\n" + JSON.stringify(record, null, 2) + "\n";
+  // Markdown legible primero; al final, los datos completos en JSON para poder restaurar la ficha.
+  const markdown = fichaMarkdown(record);
+  const documentText = markdown + "\n---\n\n## Datos estructurados (JSON, para restaurar)\n\n```json\n" + JSON.stringify(record, null, 2) + "\n```\n";
   if (documentText.length > 250_000) throw new Error("La ficha excede el límite del respaldo automático; requiere revisión manual.");
   const digest = hex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(documentText)));
   const backup = backups[0];
   return {
     patientId, name: patient.name, driveFolderId: patient.driveFolderId,
     documentTitle: `Respaldo automático Gestión Dental - ficha ${patientId}`,
-    documentText, digest,
+    documentText, markdown, digest,
     previousDocumentId: backup?.documentId ?? null,
     verifiedAt: backup?.verifiedAt ?? null,
     // Un respaldo anterior a la conexión actual de Drive está en otro Drive (o en el sistema anterior): se vuelve a copiar.

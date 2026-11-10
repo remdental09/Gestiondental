@@ -257,3 +257,8 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 - Además de la ventana nocturna, el Cron `20 * * * *` revisa cada hora (cuenta principal y copias adicionales, 6 fichas por corrida). Una copia adicional recién conectada ya no espera hasta la noche ni depende del navegador.
 - Cada revisión deja constancia por dueño en `backup_heartbeat` («sin cambios pendientes» o cuántas copió); el aviso de Drive muestra «Última revisión automática».
 - El respaldo que se dispara al guardar una ficha se registra como «al guardar» (antes decía «manual»).
+
+## Respaldo en Markdown
+- `lib/backup-markdown.ts` (`fichaMarkdown`): ficha legible (datos, dirección, anamnesis, evoluciones con anuladas marcadas, odontograma por pieza FDI, presupuestos, citas, lista de imágenes). Sin fecha de generación en el respaldo para que la huella sea estable.
+- Drive: el Google Doc ahora es Markdown + al final los datos completos en JSON (para restaurar); además se escribe `Ficha N - Nombre.md` en la carpeta del paciente (cuenta principal y copias adicionales; ids en `drive_md_files`). El respaldo ahora incluye dirección y anamnesis. Al cambiar el formato, todas las fichas se vuelven a copiar (5 por corrida del Cron).
+- Descarga: «Descargar fichas (JSON)» y «Descargar en Markdown» (`/api/clinical/export?format=md`, un archivo con todas las fichas, sin imágenes).
