@@ -24,12 +24,14 @@ export type NewPatientFields = { name: string; rut: string; birthDate: string; p
  * Dictado desde Inicio: escucha, decide en el servidor (sin IA) a qué ficha va —o propone crear una—,
  * pide confirmar con un toque y entrega el texto a la ficha, donde la IA lo corrige y se revisa todo.
  */
-export function GlobalDictation({ patients, notes = [], onUsePatient, onCreatePatient, onAnnul }: {
+export function GlobalDictation({ patients, notes = [], onUsePatient, onCreatePatient, onAnnul, onOpenNewPatientForm }: {
   patients: PatientOption[];
   /** Evoluciones (con su paciente) para proponer qué anular cuando se dicta una orden. */
   notes?: (CommandNote & { patientId: number })[];
   onUsePatient: (patientId: number, transcript: string, options?: { ignoreCommand?: boolean; incorporate?: boolean; identity?: DictatedIdentity }) => void | Promise<void>;
   onCreatePatient: (fields: NewPatientFields) => Promise<number>;
+  /** «Crear paciente»: abre el formulario manual (RUT, teléfono y correo los escribe el clínico, no el dictado). */
+  onOpenNewPatientForm?: (text: string) => void;
   onAnnul?: (patientId: number, evolutionId: number, mode: RemovalMode, reason: string, replacement: AnnulReplacement | null) => Promise<void>;
 }) {
   const engine = useRef(createAudioTranscription());
@@ -70,6 +72,8 @@ export function GlobalDictation({ patients, notes = [], onUsePatient, onCreatePa
       setDecision(data);
       setChoice(data.suggestedPatientId ? String(data.suggestedPatientId) : data.decision === "new" || data.identity.newPatientHint ? "new" : "");
       setFields({ name: data.identity.name ?? "", rut: data.identity.rut ?? "", birthDate: data.identity.birthDate ?? "", phone: data.identity.phone ?? "", email: data.identity.email ?? "" });
+      // Dijo «crear paciente» / «paciente nuevo» y no hay una ficha que coincida: se abre directo el formulario para llenarlo a mano.
+      if (onOpenNewPatientForm && data.decision === "new" && data.identity.newPatientHint) { openForm(text); return; }
     } catch (cause) {
       setError(`${cause instanceof Error && !/failed to fetch|load failed|network/i.test(cause.message) ? cause.message : "Sin conexión con el servidor"}. Nada se guardó.`);
     } finally {
@@ -137,6 +141,7 @@ export function GlobalDictation({ patients, notes = [], onUsePatient, onCreatePa
   };
 
   const finalText = () => transcript.trim();
+  function openForm(text: string) { onOpenNewPatientForm?.(text); close(); }
 
   const continueWith = async (patientId: number, incorporate = incorporateAsked, carryIdentity = true) => {
     const text = finalText();
@@ -290,7 +295,8 @@ export function GlobalDictation({ patients, notes = [], onUsePatient, onCreatePa
                 })}
               </ul>
             </section>}
-            {choice === "new" && <div className="space-y-2 rounded-lg border border-[#dddbe6] bg-white p-3" data-testid="global-dictation-new-patient">
+            {choice === "new" && onOpenNewPatientForm && <p className="rounded-lg border border-[#dddbe6] bg-white p-3 text-xs leading-5 text-[#615f73]" data-testid="global-dictation-new-form-note">Se abrirá el formulario de nuevo paciente para que escribas tú el nombre, la fecha de nacimiento, el RUT, el teléfono y el correo. El dictado no llena esos datos.</p>}
+            {choice === "new" && !onOpenNewPatientForm && <div className="space-y-2 rounded-lg border border-[#dddbe6] bg-white p-3" data-testid="global-dictation-new-patient">
               <p className="text-xs leading-5 text-[#615f73]">Para crear la ficha la app pide el nombre y los dos apellidos (el segundo nombre es opcional) y la fecha de nacimiento. Lo demás es opcional y se puede completar después.</p>
               <p className="text-xs leading-5 text-[#615f73]">El dictado ya se distribuyó en los campos detectados. Los datos marcados en rojo quedan pendientes; el RUT, teléfono y correo se pueden completar después.</p>
               <label className="block space-y-1 font-medium">Nombre completo *
@@ -317,7 +323,9 @@ export function GlobalDictation({ patients, notes = [], onUsePatient, onCreatePa
               </p>}
             </div>}
             {command && chosenId && onAnnul && <VoiceCommandCard key={`${chosenId}-${command.evidence}`} command={command} patientName={chosenName} notes={notes.filter((note) => note.patientId === chosenId)} onConfirm={(evolutionId, mode, reason, replacement) => onAnnul(chosenId, evolutionId, mode, reason, replacement)} onDismiss={() => setCommandDismissed(true)} />}
-            {choice === "new"
+            {choice === "new" && onOpenNewPatientForm
+              ? <Button type="button" size="lg" className="min-h-12 w-full bg-[#473a6d] hover:bg-[#3a2f5a]" onClick={() => openForm(finalText())} data-testid="global-dictation-open-form"><UserPlus className="mr-2 size-5" />Abrir formulario de nuevo paciente</Button>
+              : choice === "new"
               ? <Button type="button" size="lg" className="min-h-12 w-full bg-[#473a6d] hover:bg-[#3a2f5a]" disabled={!canCreate || creating} onClick={() => void create()} data-testid="global-dictation-create">{creating ? "Creando ficha…" : incorporateAsked ? "Crear paciente e incorporar el dictado" : "Crear paciente y revisar el dictado"}</Button>
               : <Button type="button" size="lg" variant={command && chosenId && onAnnul ? "outline" : "default"} className={command && chosenId && onAnnul ? "h-auto min-h-12 w-full whitespace-normal bg-white" : "h-auto min-h-12 w-full whitespace-normal bg-[#473a6d] hover:bg-[#3a2f5a]"} disabled={!chosenId} onClick={() => { if (chosenId) void continueWith(chosenId); }} data-testid="global-dictation-continue">{chosenId ? `${command && onAnnul ? "Solo abrir la ficha de" : incorporateAsked ? "Incorporar a la ficha de" : "Seguir con"} ${chosenName.split(" ").slice(0, 3).join(" ")}` : "Elige una ficha"}</Button>}
             <p className="text-xs leading-5 text-[#615f73]">Luego se abre la ficha: la IA corrige el texto, arma la nota por secciones y propone odontograma, citas, presupuesto y pagos. Revisas y aceptas cada cambio.</p>
