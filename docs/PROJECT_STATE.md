@@ -245,3 +245,10 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 
 ## COP-D: implantes y causa de pérdida
 - P (perdidos) cuenta la pieza ausente o reemplazada por implante (incluida la corona sobre implante); no cuenta solo si la causa registrada es «Otra causa». La causa sin registrar cuenta y se avisa aparte para revisión. La causa se puede registrar también en piezas con implante.
+
+## Auditoría (09-11-2026)
+- Datos: 14 odontogramas revisados. Incoherencias solo en una ficha: obturación guardada en una pieza con implante, sellante en una pieza con corona y piezas temporales en un adulto con implantes. ~24 implantes no contaban como perdidos en el COP-D.
+- Causa: `setToothStatus` no limpiaba las caras al pasar a ausente/implante. Corregido (las caras quedan en el historial) y la causa de pérdida se limpia al volver a diente natural (salvo indicación de exodoncia). Sellante sobre corona rechazado.
+- `lib/chart-audit.ts` + recuadro «Revisión clínica del odontograma» en la pestaña: lista lo imposible de cada ficha (no corrige solo).
+- Verificado: corpus de dictado 49/49, identificación 20/20, banco de coherencia 15/15, todas las pruebas.
+- Criterio vigente: la corona sobre diente natural es un indicador aparte, no cuenta como O en el COP-D.
