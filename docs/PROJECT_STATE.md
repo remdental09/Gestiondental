@@ -268,3 +268,8 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 - `syncGoogleCalendars` lee el calendario principal y los marcados como visibles (hasta 5 por cuenta), ventana de 2 semanas, a `calendar_events` con `calendar_id = g:<sub>:<calendario>`. Corre al conectar, con «Actualizar» y en los Cron horario y de calendario. Desconectar marca sus citas como canceladas.
 - Requisito en Google Cloud: el alcance `calendar.readonly` es «sensible»; si la app de OAuth no está verificada, Google muestra «Google no verificó esta app» (se continúa con «Configuración avanzada»). En modo «Prueba», solo usuarios de prueba y los permisos vencen a los 7 días.
 - El calendario global por variables de entorno (`GCAL_ICS_URL`) sigue igual.
+
+## Carga segura
+- `/api/clinical` con tiempo máximo de 15 s: si no responde, aviso con «Reintentar» (antes quedaba en «Cargando fichas…»).
+- `app/layout.tsx`: si falta un archivo de una versión anterior (tras un despliegue) o la página no arranca en 20 s, se recarga sola, a lo más una vez por minuto.
+- El panel «Google Calendar» (Conectar con Google) también está en el recuadro «Esta semana» de Inicio.
