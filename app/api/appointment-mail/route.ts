@@ -38,7 +38,7 @@ export async function PUT(request: Request) {
   try {
     await updateSettings(user.userId, settings);
     // Al activar, si ya es hora, se envía lo pendiente sin esperar a la próxima revisión horaria.
-    if (settings.enabled) void runReminderCycle({ ownerId: user.userId }).catch(() => undefined);
+    if (settings.enabled) await runReminderCycle({ ownerId: user.userId }).catch(() => undefined);
     return json({ sender: view(await getSender(user.userId)) });
   } catch { return json({ error: "No se pudo guardar." }, 500); }
 }
@@ -47,7 +47,7 @@ export async function POST(request: Request) {
   const user = await getChatGPTUser();
   if (!user?.userId) return json({ error: "Inicia sesión." }, 401);
   if (!sameOrigin(request)) return json({ error: "Origen no permitido." }, 403);
-  try { await sendTestMail(user.userId); return json({ ok: true }); }
+  try { return json({ ok: true, detail: await sendTestMail(user.userId) }); }
   catch (error) { return json({ error: error instanceof Error ? error.message : "No se pudo enviar la prueba." }, 502); }
 }
 

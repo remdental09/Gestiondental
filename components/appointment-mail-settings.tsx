@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Loader2, Mail, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -12,6 +12,7 @@ const HOURS = [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
 export function AppointmentMailSettings() {
   const [sender, setSender] = useState<Sender | null>(null);
   const [draft, setDraft] = useState<string | null>(null);
+  const lastDetail = useRef("");
   const [busy, setBusy] = useState(""), [error, setError] = useState(""), [notice, setNotice] = useState("");
 
   useEffect(() => {
@@ -25,9 +26,10 @@ export function AppointmentMailSettings() {
     setBusy(kind); setError(""); setNotice("");
     try {
       const response = await fetch("/api/appointment-mail", { method, headers: { "Content-Type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}) });
-      const data = await response.json().catch(() => ({})) as { sender?: Sender; error?: string; ok?: boolean };
+      const data = await response.json().catch(() => ({})) as { sender?: Sender; error?: string; ok?: boolean; detail?: string };
       if (!response.ok) throw new Error(data.error || "No se pudo completar la acción.");
       if (data.sender) setSender(data.sender);
+      lastDetail.current = data.detail ?? "";
       return true;
     } catch (cause) { setError(cause instanceof Error ? cause.message : "No se pudo completar la acción."); return false; }
     finally { setBusy(""); }
@@ -57,7 +59,7 @@ export function AppointmentMailSettings() {
           <span className="text-xs text-[#6b6a7c]">Se agrega bajo los botones. No escribas datos clínicos.</span></div>
       </div>
       <div className="flex flex-wrap items-center gap-3">
-        <Button type="button" variant="outline" size="sm" disabled={!!busy} onClick={async () => { if (await call("POST", {}, "test")) setNotice(`Prueba enviada a ${sender.email}. Revisa esa bandeja.`); }}>{busy === "test" ? <Loader2 className="mr-1 size-4 animate-spin" /> : <Mail className="mr-1 size-4" />}Enviarme una prueba</Button>
+        <Button type="button" variant="outline" size="sm" disabled={!!busy} onClick={async () => { if (await call("POST", {}, "test")) setNotice(`${lastDetail.current || "Prueba"} enviada a ${sender.email}. Revisa esa bandeja.`); }}>{busy === "test" ? <Loader2 className="mr-1 size-4 animate-spin" /> : <Mail className="mr-1 size-4" />}Enviarme una prueba</Button>
         <p className="text-xs text-[#6b6a7c]">Último envío: {when(sender.lastRunAt)}{sender.lastResult ? ` · ${sender.lastResult}` : ""}</p>
       </div>
     </div>}
