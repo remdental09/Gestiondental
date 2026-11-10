@@ -37,3 +37,13 @@ test("la agenda conecta Google Calendar con un botón (sin direcciones iCal) y s
   assert.match(oauth, /=== "calendar"\) \{\n\s+if \(!\(tokens\.scope/);
   assert.equal(sched.split("syncGoogleCalendars()").length - 1, 2);
 });
+
+test("el registro ofrece conectar Google Calendar junto con Drive, en un solo paso", () => {
+  const reg = readFileSync(new URL("../components/professional-registration.tsx", import.meta.url), "utf8");
+  const oauth = readFileSync(new URL("../app/drive-oauth.ts", import.meta.url), "utf8");
+  assert.match(reg, /useState\(true\)\, \[connectCalendar, setConnectCalendar\] = useState\(true\)/);
+  assert.match(reg, /"\/api\/drive\/connect\?auto=1" \+ \(connectCalendar \? "&withCalendar=1" : ""\)/);
+  assert.match(reg, /\/api\/drive\/connect\?calendar=1&auto=1/);
+  assert.match(oauth, /withCalendar \? " " \+ CALENDAR_SCOPE : ""/);
+  assert.match(oauth, /=== "primary-calendar" && \(tokens\.scope/);
+});
