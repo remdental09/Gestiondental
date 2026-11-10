@@ -15,12 +15,14 @@ if (useAi && !key) { console.error("Falta OPENAI_API_KEY en el entorno."); proce
 const model = useAi ? createWorkersAiModel(null, { openAi: { apiKey: key }, preferOpenAi: true }) : null;
 
 let passed = 0;
-for (const caso of bank.casos) {
+const casos = useAi ? bank.casos : bank.casos.filter((item) => !item.soloIA);
+for (const caso of casos) {
   const { proposal, engine } = await proposeFromTranscript({ transcript: caso.dictado, chart: caso.chart }, model, () => {}, { today: new Date().toISOString().slice(0, 10) });
   const fails = judgeCase(caso, proposal);
   if (!fails.length) passed++;
+  const codes = (proposal.prestaciones ?? []).map((item) => item.code + (item.advisory ? "[objetada]" : "")).join(" ") || "—";
   const items = proposal.odontogram.map((item) => itemKey(item) + (item.advisory ? `[${item.coherence ?? "aviso"}]` : "")).join(", ") || "—";
-  console.log(`${fails.length ? "FALLA" : "ok   "} ${caso.id}${caso.trampa ? " (trampa)" : ""} · ${engine} · ${items}${fails.length ? `\n      ${fails.join("; ")}` : ""}`);
+  console.log(`${fails.length ? "FALLA" : "ok   "} ${caso.id}${caso.trampa ? " (trampa)" : ""} · ${engine} · ${items} · arancel ${codes}${fails.length ? `\n      ${fails.join("; ")}` : ""}`);
 }
-console.log(`\n${passed}/${bank.casos.length} casos correctos${useAi ? " con IA" : " con reglas"}.`);
-process.exit(passed === bank.casos.length ? 0 : 1);
+console.log(`\n${passed}/${casos.length} casos correctos${useAi ? " con IA" : " con reglas"}.`);
+process.exit(passed === casos.length ? 0 : 1);
