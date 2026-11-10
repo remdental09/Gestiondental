@@ -1100,3 +1100,30 @@ export async function updateAgendaEvent(ownerId: string, eventId: number, change
   if (link) await database().prepare("UPDATE appointments SET day = ?, time = ?, reason = ? WHERE owner_id = ? AND id = ?").bind(isoDay, change.time, splitReason(title).slice(0, 500), ownerId, link.appointment_id).run();
   return { ok: true };
 }
+
+/** Cita de la ficha → id de su evento en la agenda (si se escribió en Google Calendar). */
+async function agendaEventForAppointment(ownerId: string, appointmentId: number): Promise<number | null> {
+  await ensureCalendarTable();
+  const row = await database().prepare("SELECT e.id AS id FROM appointment_google_events l JOIN calendar_events e ON e.owner_id = l.owner_id AND e.calendar_id = l.calendar_id AND e.google_event_id = l.event_id WHERE l.owner_id = ? AND l.appointment_id = ?").bind(ownerId, appointmentId).first<{ id: number }>();
+  return row?.id ?? null;
+}
+
+/** Cambia fecha, hora y motivo de una cita de la ficha también en Google Calendar (si está allá). */
+export async function rescheduleAppointmentInGoogle(ownerId: string, appointmentId: number, change: { day: string; time: string; title: string }): Promise<CalendarPushStatus> {
+  const eventId = await agendaEventForAppointment(ownerId, appointmentId).catch(() => null);
+  if (!eventId) return "sin-conexion";
+  const result = await updateAgendaEvent(ownerId, eventId, change).catch(() => ({ ok: false as const, error: "error" }));
+  return result.ok ? "ok" : /solo lectura/.test(result.error) ? "solo-lectura" : "error";
+}
+
+/** Borra la cita de la ficha y, si está en Google Calendar, también allá. */
+export async function deleteAppointmentEverywhere(ownerId: string, appointmentId: number): Promise<CalendarPushStatus> {
+  const eventId = await agendaEventForAppointment(ownerId, appointmentId).catch(() => null);
+  let status: CalendarPushStatus = "sin-conexion";
+  if (eventId) {
+    const result = await deleteAgendaEvent(ownerId, eventId).catch(() => ({ ok: false as const, error: "error" }));
+    status = result.ok ? "ok" : /solo lectura/.test(result.error) ? "solo-lectura" : "error";
+  }
+  await database().prepare("DELETE FROM appointments WHERE owner_id = ? AND id = ?").bind(ownerId, appointmentId).run();
+  return status;
+}

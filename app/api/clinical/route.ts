@@ -613,6 +613,25 @@ export async function POST(request: Request) {
       const [p] = await db.insert(payments).values({ ownerId, patientId, budgetId, amount, method, concept, paidOn, requestId, createdAt: now() }).returning();
       return Response.json({ payment: paymentView(p) }, { status: 201 });
     }
+    if (action === "updateAppointment") {
+      const appointmentId = Number(input.appointmentId), day = string(input.day, 10), time = string(input.time, 5), reason = string(input.reason, 500);
+      if (!Number.isSafeInteger(appointmentId) || appointmentId < 1 || !validDate(day) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time) || !reason) return error("Revisa fecha, hora y motivo.");
+      const [a] = await db.update(appointments).set({ day, time, reason }).where(and(eq(appointments.id, appointmentId), eq(appointments.patientId, patientId), eq(appointments.ownerId, ownerId))).returning();
+      if (!a) return error("Cita no encontrada en esta ficha.", 404);
+      const [who] = await db.select({ name: patients.name }).from(patients).where(and(eq(patients.id, patientId), eq(patients.ownerId, ownerId)));
+      const { rescheduleAppointmentInGoogle } = await import("@/app/drive-oauth");
+      const calendar = await rescheduleAppointmentInGoogle(ownerId, a.id, { day, time, title: [who?.name || "", reason].filter(Boolean).join(" · ") }).catch(() => "error" as const);
+      return Response.json({ appointment: { id: a.id, patientId, day: a.day.split("-").reverse().join("-"), time: a.time, reason: a.reason }, calendar });
+    }
+    if (action === "deleteAppointment") {
+      const appointmentId = Number(input.appointmentId);
+      if (!Number.isSafeInteger(appointmentId) || appointmentId < 1) return error("Cita inválida.");
+      const [a] = await db.select({ id: appointments.id }).from(appointments).where(and(eq(appointments.id, appointmentId), eq(appointments.patientId, patientId), eq(appointments.ownerId, ownerId)));
+      if (!a) return error("Cita no encontrada en esta ficha.", 404);
+      const { deleteAppointmentEverywhere } = await import("@/app/drive-oauth");
+      const calendar = await deleteAppointmentEverywhere(ownerId, a.id);
+      return Response.json({ deleted: true, calendar });
+    }
     if (action === "updateAppointmentReason") {
       const appointmentId = Number(input.appointmentId), reason = string(input.reason, 500);
       if (!Number.isSafeInteger(appointmentId) || appointmentId < 1 || !reason) return error("Revisa la cita y el motivo.");
