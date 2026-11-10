@@ -310,6 +310,12 @@ const oauthProvider = new OAuthProvider<OAuthEnv>({
           headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "public, max-age=300", "X-Content-Type-Options": "nosniff" },
         });
       }
+      // Confirmación de cita desde el correo del paciente: pública, sin sesión. Solo esta ruta; cada enlace lleva un código secreto de un solo uso.
+      if (path === "/api/confirmar" && (request.method === "GET" || request.method === "HEAD" || request.method === "POST")) {
+        const headers = new Headers(request.headers);
+        for (const name of [ACCESS_EMAIL_HEADER, ACCESS_OWNER_ID_HEADER, ACCESS_NAME_HEADER, USER_ID_HEADER, USER_EMAIL_HEADER, USER_FULL_NAME_HEADER, USER_FULL_NAME_ENCODING_HEADER]) headers.delete(name);
+        return app.fetch(new Request(request, { headers }), env, context);
+      }
       if (path === "/authorize") return authorize(request, env, context);
       return privateAppFetch(request, env, context);
     },
