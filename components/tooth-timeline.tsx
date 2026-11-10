@@ -1,8 +1,9 @@
 "use client";
+import { chileDay } from "@/lib/chile-day";
 import { useState } from "react";
 import { PERIO_SITES, formatFdi, type PerioExam, type PerioReading, type PerioSiteKey, type PerioTooth, type ToothHistoryEvent } from "@/app/clinical-data";
 
-const dayOf = (iso?: string, fallback = "") => (iso || fallback).slice(0, 10);
+const dayOf = (iso?: string, fallback = "") => iso ? chileDay(iso) : chileDay(fallback);
 /** Hitos antiguos guardaron la causa de ausencia en inglés («other»): se muestra en español. */
 const spanishTitle = (title: string) => title.replace(/^(Causa de ausencia: )(caries|other|unknown)$/, (_, head: string, value: string) => head + (value === "caries" ? "caries" : value === "other" ? "otra causa" : "sin registrar"));
 const shown = (day: string) => (day ? day.split("-").reverse().join("-") : "sin fecha");
@@ -42,7 +43,7 @@ export function ToothTimeline({ tooth, history, exams, mode, editableIds = [], o
     .map((exam) => ({ exam, data: exam.teeth[tooth], day: dayOf(exam.recordedAt) }))
     .sort((a, b) => a.day.localeCompare(b.day));
   const sites = PERIO_SITES.map((site) => site.key as PerioSiteKey);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = chileDay(new Date().toISOString());
 
   const patchSite = (site: PerioSiteKey, patch: Partial<PerioReading>) => setReadingDraft((current) => {
     if (!current) return current;
