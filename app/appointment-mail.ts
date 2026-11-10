@@ -1,5 +1,5 @@
 import { chileDay } from "@/lib/chile-day";
-import { buildRawMessage, isSendWindow, reminderEmail, selectReminders } from "@/lib/appointment-mail";
+import { buildRawMessage, isSendWindow, reminderEmail, selectReminders, whenParts } from "@/lib/appointment-mail";
 import { nextDay, patientForEvent, type TodayEvent, type TodayPatient } from "@/lib/today-agenda";
 import { isValidEmail } from "@/lib/appointment-mail";
 import { loadHints } from "@/app/calendar-hints-db";
@@ -94,9 +94,8 @@ async function sendCandidates(sender: MailSender, candidates: Awaited<ReturnType
   return { sent: sentCount, detail };
 }
 
-/** Envía ya el correo de una cita (de cualquier día) con enlaces reales: al responder, la cita queda marcada en la agenda.
- * toSelf: llega al correo de envío del clínico (prueba) en vez del paciente. */
-export async function sendReminderNow(ownerId: string, eventId: number, toSelf = false): Promise<string> {
+/** A quién iría el correo manual de una cita: paciente reconocido, su correo y la hora. Lanza un error claro si no se puede. */
+async function manualTarget(ownerId: string, eventId: number) {
   const sender = await getSender(ownerId);
   if (!sender) throw new Error("Primero conecta el correo de envío.");
   const db = mailDb();
@@ -112,8 +111,23 @@ export async function sendReminderNow(ownerId: string, eventId: number, toSelf =
   ]);
   const patient = patientForEvent({ ...event, allDay: Boolean(event.allDay) }, patients.results, (hints as Record<number, string>)[event.id]);
   if (!patient) throw new Error("No reconozco la ficha del paciente de esta cita. Escribe su nombre completo en la cita o su correo.");
-  const to = toSelf ? sender.google_email : patient.email?.trim();
-  if (!isValidEmail(to)) throw new Error(`La ficha de ${patient.name} no tiene correo electrónico.`);
+  if (!isValidEmail(patient.email)) throw new Error(`La ficha de ${patient.name} no tiene correo electrónico. Agrégalo en «Editar datos».`);
+  return { sender, event, patient, email: patient.email.trim(), profile };
+}
+
+/** Vista previa para que el clínico vea a quién le enviará el correo antes de hacerlo. */
+export async function previewReminder(ownerId: string, eventId: number) {
+  const { event, patient, email, sender } = await manualTarget(ownerId, eventId);
+  const { day, time } = whenParts(event.startAt);
+  const previous = await mailDb()?.prepare("SELECT sent_at, response FROM appointment_reminders WHERE owner_id = ? AND event_id = ? AND start_at = ?").bind(ownerId, event.id, event.startAt).first<{ sent_at: string; response: string | null }>();
+  return { patientName: patient.name, email, day, time, from: sender.google_email, previousSentAt: previous?.sent_at ?? null, previousResponse: previous?.response ?? null };
+}
+
+/** Envía ya el correo de una cita (de cualquier día) con enlaces reales: al responder, la cita queda marcada en la agenda.
+ * toSelf: llega al correo de envío del clínico (prueba) en vez del paciente. */
+export async function sendReminderNow(ownerId: string, eventId: number, toSelf = false): Promise<string> {
+  const { sender, event, patient, email, profile } = await manualTarget(ownerId, eventId);
+  const to = toSelf ? sender.google_email : email;
   const token = newToken();
   const hash = await hashToken(token);
   await replaceReminder(ownerId, event.id, event.startAt, hash, to);
