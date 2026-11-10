@@ -227,3 +227,15 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 - La app envía si la corona es sobre diente o implante (`chart[].foundation`).
 - Banco de casos: `tests/fixtures/casos-coherencia.json` (anónimos, con trampas). Corre en los tests con reglas y con `scripts/coherence-eval.mjs --openai` con la IA real. Antes del modelo: 9/15; con el modelo: 15/15 (reglas). Cada error clínico nuevo debe agregarse como caso.
 - Pendiente (opción 3): dar a la IA todo el contexto (odontograma completo, últimas atenciones, anamnesis) y subir su razonamiento.
+
+## Odontograma en el tiempo (fase 1)
+- `lib/odontogram-timeline.ts`: el efecto de cada hito es la diferencia antes→después. `revertEvolution` quita los hitos de una evolución y recalcula cada pieza re-aplicando los demás (conserva lo hecho después); `chartAt` reconstruye el odontograma de una fecha.
+- Borrar o anular una evolución (de cualquier especialidad que haya escrito en el odontograma con `sourceEvolutionId`) deshace sus cambios (`revertChartOf` en la API). La respuesta trae `revertedTeeth`.
+- Pestaña Odontograma: barra «Ver al» (Hoy + días con cambios); una fecha pasada es solo lectura.
+- Fase 2 pendiente: periodontograma y endograma por fecha y ligados a su evolución (endograma/ortodoncia hoy guardan un solo JSON sin historial).
+
+## Historial por especialidad (fase 2)
+- `evolution_links` (`app/evolution-links-db.ts`): liga una evolución con lo que generó fuera de su texto: sesión/control de endodoncia (`endo-session`/`endo-followup`, ref `caso:entrada`) y examen periodontal dictado (`perio`, ref id del examen). Al borrar o anular la evolución, `revertLinks` quita esa sesión/control del endograma y elimina el examen; la respuesta trae `revertedLinks`.
+- Endograma: cada guardado crea una versión fechada (`endodontic_versions`); `GET /api/endodontics?patientId=…&versions=1` lista los días y `&at=AAAA-MM-DD` devuelve el endograma de ese día. Las versiones existen desde este cambio en adelante.
+- Barra «Ver al» en Odontograma, Periodontograma (por fecha de examen) y Endograma; una fecha pasada es solo lectura.
+- Ortodoncia sigue sin versiones (no escribe en odontograma ni en otras especialidades).

@@ -16,6 +16,8 @@ import { budgetTotals, decodeBudgetData, encodeBudgetData, normalizeBudgetItems,
 import { sanitizeDiagnosisTags } from "@/lib/evolution-diagnoses";
 import type { OdontogramData, OdontogramSurface, SurfaceFinding } from "@/app/clinical-data";
 import { appendToothHistory, toothHistorySnapshot } from "@/app/odontogram-history";
+import { revertEvolution } from "@/lib/odontogram-timeline";
+import { addLink, revertLinks, LINK_KINDS, type LinkKind } from "@/app/evolution-links-db";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -138,6 +140,24 @@ function annulView(n: typeof evolutions.$inferSelect) {
     ...(n.status === "anulada" ? { annulledAt: n.annulledAt, annulledBy: n.annulledBy, annulReason: n.annulReason } : {}),
     ...(n.replacesId ? { replacesId: n.replacesId } : {}),
   };
+}
+
+
+/** Al borrar o anular una evolución, sus cambios en el odontograma se deshacen y las piezas se recalculan con lo que queda. */
+async function revertChartOf(db: ReturnType<typeof getDb>, ownerId: string, patientId: number, evolutionId: number): Promise<number[]> {
+  const [row] = await db.select().from(toothStatuses).where(and(eq(toothStatuses.ownerId, ownerId), eq(toothStatuses.patientId, patientId)));
+  if (!row) return [];
+  const { chart, teeth } = revertEvolution(normalizeOdontogram(JSON.parse(row.data)), evolutionId);
+  if (!teeth.length) return [];
+  await db.update(toothStatuses).set({ data: JSON.stringify(chart), updatedAt: now() }).where(and(eq(toothStatuses.ownerId, ownerId), eq(toothStatuses.patientId, patientId)));
+  return teeth;
+}
+
+/** Lo que la evolución generó en otras especialidades (endograma, examen periodontal) se deshace con ella. */
+function revertLinkedRecords(db: ReturnType<typeof getDb>, ownerId: string, patientId: number, evolutionId: number) {
+  return revertLinks(ownerId, patientId, evolutionId, async examId => {
+    await db.delete(periodontalExams).where(and(eq(periodontalExams.id, examId), eq(periodontalExams.ownerId, ownerId), eq(periodontalExams.patientId, patientId)));
+  });
 }
 
 export async function GET() {
@@ -340,6 +360,11 @@ export async function POST(request: Request) {
       let chart;
       try { chart = await syncInstalledImplants(ownerId, patientId, body, t, n.id, clinicalDate); }
       catch { chart = { updatedTeeth: [], odontogram: null, warning: "Evolución guardada; revisa el odontograma, cuya actualización no pudo verificarse." }; }
+      // Lo que esta evolución registra en otra especialidad (sesión/control de endodoncia): si se borra o anula, se deshace.
+      const link = input.link && typeof input.link === "object" ? input.link as Record<string, unknown> : null;
+      if (link && LINK_KINDS.includes(link.kind as LinkKind) && link.kind !== "perio" && typeof link.ref === "string" && /^[\w-]{1,60}:[\w-]{1,60}$/.test(link.ref)) {
+        await addLink(ownerId, patientId, n.id, link.kind as LinkKind, link.ref).catch(() => undefined);
+      }
       return Response.json({ note: { id: n.id, patientId, date: displayDate(clinicalDate), clinicalDate, recordedAt: t, title, body, backupStatus: n.backupStatus }, chart }, { status: 201 });
     }
     if (action === "annulEvolution") {
@@ -362,6 +387,8 @@ export async function POST(request: Request) {
         const [, inserted] = await db.batch([annul, db.insert(evolutions).values({ ownerId, patientId, clinicalDate, recordedAt: t, title: replacementTitle, body: replacementBody, replacesId: evolutionId, backupStatus: "not_configured" }).returning()]);
         replacement = inserted[0];
       } else await annul;
+      const revertedTeeth = await revertChartOf(db, ownerId, patientId, evolutionId).catch(() => null);
+      const revertedLinks = await revertLinkedRecords(db, ownerId, patientId, evolutionId).catch(() => null);
       let chart;
       if (replacement) {
         try { chart = await syncInstalledImplants(ownerId, patientId, replacementBody, t, replacement.id, replacement.clinicalDate); }
@@ -369,12 +396,14 @@ export async function POST(request: Request) {
       }
       return Response.json({
         annulled: { id: evolutionId, status: "anulada", annulledAt: t, annulledBy, annulReason: reason },
+        revertedTeeth,
+        revertedLinks,
         ...(replacement ? { note: { id: replacement.id, patientId, date: displayDate(replacement.clinicalDate), clinicalDate: replacement.clinicalDate, recordedAt: t, title: replacement.title, body: replacement.body, backupStatus: replacement.backupStatus, status: "vigente", replacesId: evolutionId }, chart } : {}),
       });
     }
     if (action === "deleteEvolution") {
       // «Error del sistema»: el dentista elige borrar definitivamente. Se eliminan la evolución y sus etiquetas de
-      // diagnóstico; odontograma, pagos, citas y presupuestos no se tocan (no están ligados a la evolución).
+      // diagnóstico; los cambios de odontograma ligados a esta evolución se deshacen (revertChartOf). Pagos, citas y presupuestos no se tocan.
       const evolutionId = Number(input.evolutionId);
       if (!Number.isSafeInteger(evolutionId) || evolutionId <= 0) return error("Evolución inválida.");
       if (input.confirm !== "eliminar") return error("Falta confirmar la eliminación.");
@@ -390,6 +419,8 @@ export async function POST(request: Request) {
         const [, , inserted] = await db.batch([removeTags, removeNote, db.insert(evolutions).values({ ownerId, patientId, clinicalDate: dateInChile(), recordedAt: t, title: replacementTitle, body: replacementBody, backupStatus: "not_configured" }).returning()]);
         replacement = inserted[0];
       } else await db.batch([removeTags, removeNote]);
+      const revertedTeeth = await revertChartOf(db, ownerId, patientId, evolutionId).catch(() => null);
+      const revertedLinks = await revertLinkedRecords(db, ownerId, patientId, evolutionId).catch(() => null);
       let chart;
       if (replacement) {
         try { chart = await syncInstalledImplants(ownerId, patientId, replacementBody, t, replacement.id, replacement.clinicalDate); }
@@ -397,6 +428,8 @@ export async function POST(request: Request) {
       }
       return Response.json({
         deleted: { id: evolutionId },
+        revertedTeeth,
+        revertedLinks,
         ...(replacement ? { note: { id: replacement.id, patientId, date: displayDate(replacement.clinicalDate), clinicalDate: replacement.clinicalDate, recordedAt: t, title: replacement.title, body: replacement.body, backupStatus: replacement.backupStatus, status: "vigente" }, chart } : {}),
       });
     }
@@ -597,6 +630,12 @@ export async function POST(request: Request) {
       const examDate = string(input.clinicalDate, 10);
       if (!attentionDateOk(examDate)) return error("Revisa la fecha de atención: no puede ser futura.");
       const [e] = await db.insert(periodontalExams).values({ ownerId, patientId, recordedAt: examDate ? `${examDate}T15:00:00.000Z` : now(), teeth: JSON.stringify(savedData) }).returning();
+      // Examen dictado junto a una evolución: queda ligado, y si la evolución se borra o anula el examen se elimina.
+      const linkedEvolution = Number(input.evolutionId);
+      if (Number.isSafeInteger(linkedEvolution) && linkedEvolution > 0) {
+        const [owned] = await db.select({ id: evolutions.id }).from(evolutions).where(and(eq(evolutions.id, linkedEvolution), eq(evolutions.ownerId, ownerId), eq(evolutions.patientId, patientId))).limit(1);
+        if (owned) await addLink(ownerId, patientId, linkedEvolution, "perio", String(e.id)).catch(() => undefined);
+      }
       return Response.json({ exam: { id: e.id, recordedAt: e.recordedAt, ...savedData } }, { status: 201 });
     }
     if (action === "deleteToothHistoryEvent") {

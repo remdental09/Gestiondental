@@ -2,7 +2,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { getDb } from "@/db";
 import { clinicalImages, patients } from "@/db/schema";
-import { loadAllEndo, loadEndo, saveEndo } from "@/app/endodontics-db";
+import { endoVersionDays, loadAllEndo, loadEndo, loadEndoAt, saveEndo } from "@/app/endodontics-db";
 import { caseStatus, emptyEndo, normalizeEndo, referencedEndoImageIds } from "@/lib/endodontics";
 
 export const runtime = "edge";
@@ -26,6 +26,13 @@ export async function GET(request: Request) {
     if (!Number.isSafeInteger(patientId) || patientId < 1) return fail("Paciente inválido.");
     const [patient] = await getDb().select({ id: patients.id }).from(patients).where(and(eq(patients.id, patientId), eq(patients.ownerId, ownerId)));
     if (!patient) return fail("Paciente no encontrado.", 404);
+    const params = new URL(request.url).searchParams;
+    if (params.get("versions") === "1") return Response.json({ days: await endoVersionDays(ownerId, patientId) }, { headers });
+    const at = params.get("at");
+    if (at) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(at)) return fail("Fecha inválida.");
+      return Response.json({ data: (await loadEndoAt(ownerId, patientId, at)) ?? emptyEndo() }, { headers });
+    }
     const found = await loadEndo(ownerId, patientId);
     return Response.json({ data: found?.data ?? emptyEndo() }, { headers });
   } catch { return fail("No se pudo leer el endograma.", 500); }
