@@ -4,13 +4,14 @@ import { useEffect, useState } from "react";
 import { Loader2, Mail, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-type Sender = { connected: false } | { connected: true; email: string; enabled: boolean; sendHour: number; lastRunAt: string | null; lastResult: string | null };
+type Sender = { connected: false } | { connected: true; email: string; enabled: boolean; sendHour: number; message: string; lastRunAt: string | null; lastResult: string | null };
 const when = (iso: string | null) => iso ? new Intl.DateTimeFormat("es-CL", { dateStyle: "short", timeStyle: "short", timeZone: "America/Santiago" }).format(new Date(iso)) : "aún no";
 const HOURS = [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
 
 /** Correo desde el que se avisa a los pacientes (puede ser distinto al de la cuenta del clínico). Apagado hasta que el clínico lo active. */
 export function AppointmentMailSettings() {
   const [sender, setSender] = useState<Sender | null>(null);
+  const [draft, setDraft] = useState<string | null>(null);
   const [busy, setBusy] = useState(""), [error, setError] = useState(""), [notice, setNotice] = useState("");
 
   useEffect(() => {
@@ -49,6 +50,12 @@ export function AppointmentMailSettings() {
       <label className="flex flex-wrap items-center gap-2">Enviar desde las
         <select className="h-9 rounded-md border px-2" value={sender.sendHour} disabled={!!busy} onChange={event => void call("PUT", { sendHour: Number(event.target.value) })} data-testid="mail-hour">{HOURS.map(hour => <option key={hour} value={hour}>{String(hour).padStart(2, "0")}:00</option>)}</select>
         <span className="text-xs text-[#6b6a7c]">(hora de Chile; solo a pacientes con correo en su ficha, sin repetir ni a quien ya confirmó)</span></label>
+      <div className="space-y-1.5">
+        <label className="block font-medium" htmlFor="mail-message">Tu mensaje o firma (opcional)</label>
+        <textarea id="mail-message" rows={3} maxLength={600} className="w-full rounded-md border p-2 text-sm" placeholder="Ej.: Si necesita cambiar su hora, responda este correo o escriba al +56 9 …. Dr. Luis Rodríguez" value={draft ?? sender.message} onChange={event => setDraft(event.target.value)} data-testid="mail-message" />
+        <div className="flex items-center gap-3"><Button type="button" variant="outline" size="sm" disabled={!!busy || draft === null || draft === sender.message} onClick={async () => { if (await call("PUT", { message: draft ?? "" })) { setDraft(null); setNotice("Mensaje guardado: saldrá en los próximos correos."); } }}>Guardar mensaje</Button>
+          <span className="text-xs text-[#6b6a7c]">Se agrega bajo los botones. No escribas datos clínicos.</span></div>
+      </div>
       <div className="flex flex-wrap items-center gap-3">
         <Button type="button" variant="outline" size="sm" disabled={!!busy} onClick={async () => { if (await call("POST", {}, "test")) setNotice(`Prueba enviada a ${sender.email}. Revisa esa bandeja.`); }}>{busy === "test" ? <Loader2 className="mr-1 size-4 animate-spin" /> : <Mail className="mr-1 size-4" />}Enviarme una prueba</Button>
         <p className="text-xs text-[#6b6a7c]">Último envío: {when(sender.lastRunAt)}{sender.lastResult ? ` · ${sender.lastResult}` : ""}</p>

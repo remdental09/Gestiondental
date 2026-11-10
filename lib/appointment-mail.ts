@@ -15,13 +15,16 @@ export function whenParts(startAt: string) {
   return { day: `${parts.weekday} ${parts.day} de ${parts.month}`, time };
 }
 
-export type ReminderInput = { patientName: string; startAt: string; clinicName?: string; confirmUrl: string; declineUrl: string };
+export type ReminderInput = { patientName: string; startAt: string; clinicName?: string; confirmUrl: string; declineUrl: string; message?: string };
+/** Mensaje o firma del clínico: texto plano, sin saltos raros ni exceso de largo. */
+export const cleanMessage = (value: string | null | undefined) => (value ?? "").replace(/\r/g, "").replace(/\n{3,}/g, "\n\n").trim().slice(0, 600);
 
 export function reminderEmail(input: ReminderInput): { subject: string; text: string; html: string } {
   const first = header(input.patientName).split(/\s+/)[0] ?? "";
   const { day, time } = whenParts(input.startAt);
   const clinic = header(input.clinicName ?? "");
   const place = clinic ? ` en ${clinic}` : "";
+  const note = cleanMessage(input.message);
   const subject = `Confirma tu cita del ${day}${clinic ? ` · ${clinic}` : ""}`;
   const text = [
     `Hola ${first},`,
@@ -30,6 +33,7 @@ export function reminderEmail(input: ReminderInput): { subject: string; text: st
     "",
     `Para confirmar su asistencia: ${input.confirmUrl}`,
     `Si no puede asistir: ${input.declineUrl}`,
+    ...(note ? ["", note] : []),
     "",
     "Este es un recordatorio automático de su cita y no contiene información clínica.",
   ].join("\n");
@@ -39,7 +43,7 @@ export function reminderEmail(input: ReminderInput): { subject: string; text: st
 <p style="margin:0 0 20px;font-size:16px;line-height:1.5">Le recordamos su cita el <strong>${esc(day)}</strong> a las <strong>${esc(time)}</strong>${esc(place)}.</p>
 <p style="margin:0 0 20px"><a href="${esc(input.confirmUrl)}" style="display:inline-block;background:#473a6d;color:#fff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:bold">Confirmo mi asistencia</a></p>
 <p style="margin:0 0 20px;font-size:14px"><a href="${esc(input.declineUrl)}" style="color:#6b6a7c">No podré asistir</a></p>
-<p style="margin:0;font-size:12px;color:#6b6a7c">Este es un recordatorio automático de su cita y no contiene información clínica.</p>
+${note ? `<p style="margin:0 0 20px;font-size:14px;line-height:1.5">${esc(note).replace(/\n/g, "<br>")}</p>\n` : ""}<p style="margin:0;font-size:12px;color:#6b6a7c">Este es un recordatorio automático de su cita y no contiene información clínica.</p>
 </div></div></body></html>`;
   return { subject, text, html };
 }

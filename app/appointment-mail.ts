@@ -67,7 +67,7 @@ async function remindersFor(sender: MailSender, now: Date) {
     if (!(await insertReminder(owner, item.event.id, item.event.startAt, hash, item.email))) continue;
     try {
       const link = (answer: "si" | "no") => `${sender.base_url}/api/confirmar?t=${token}&a=${answer}`;
-      const mail = reminderEmail({ patientName: item.patient.name, startAt: item.event.startAt, clinicName: profile?.clinicName, confirmUrl: link("si"), declineUrl: link("no") });
+      const mail = reminderEmail({ patientName: item.patient.name, startAt: item.event.startAt, clinicName: profile?.clinicName, confirmUrl: link("si"), declineUrl: link("no"), message: sender.custom_message ?? undefined });
       await sendMailWithSender(sender, buildRawMessage({ from: sender.google_email, fromName: profile?.clinicName || undefined, to: item.email, replyTo: sender.google_email, ...mail }));
       sentCount++;
     } catch (error) {
@@ -88,6 +88,6 @@ export async function sendTestMail(ownerId: string) {
   if (!sender) throw new Error("Primero conecta el correo de envío.");
   const profile = await loadProfile(ownerId).catch(() => null);
   const start = new Date(Date.now() + 24 * 3600 * 1000).toISOString();
-  const mail = reminderEmail({ patientName: "Paciente de prueba", startAt: start, clinicName: profile?.clinicName, confirmUrl: `${sender.base_url}/`, declineUrl: `${sender.base_url}/` });
+  const mail = reminderEmail({ patientName: "Paciente de prueba", startAt: start, clinicName: profile?.clinicName, confirmUrl: `${sender.base_url}/`, declineUrl: `${sender.base_url}/`, message: sender.custom_message ?? undefined });
   await sendMailWithSender(sender, buildRawMessage({ from: sender.google_email, fromName: profile?.clinicName || undefined, to: sender.google_email, ...mail, subject: "[Prueba] " + mail.subject }));
 }

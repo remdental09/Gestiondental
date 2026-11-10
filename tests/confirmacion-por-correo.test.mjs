@@ -60,3 +60,13 @@ test("validación de correo", () => {
   assert.ok(!isValidEmail("a b@c.cl"));
   assert.ok(!isValidEmail(""));
 });
+
+test("el mensaje o firma del clínico sale en el correo, escapado y acotado", async () => {
+  const { reminderEmail, cleanMessage } = await import("../lib/appointment-mail.ts");
+  const base = { patientName: "Ana Pérez", startAt: "2026-11-11T18:00:00.000Z", clinicName: "Clínica", confirmUrl: "https://x/y?t=1&a=si", declineUrl: "https://x/y?t=1&a=no" };
+  const mail = reminderEmail({ ...base, message: "Responda este correo.\n<b>Dr. Rodríguez</b>" });
+  assert.match(mail.text, /Responda este correo\.\n<b>Dr\. Rodríguez<\/b>/);
+  assert.match(mail.html, /Responda este correo\.<br>&lt;b&gt;Dr\. Rodríguez&lt;\/b&gt;/);
+  assert.doesNotMatch(reminderEmail(base).text, /undefined/);
+  assert.equal(cleanMessage("x".repeat(900)).length, 600);
+});

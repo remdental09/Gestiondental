@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 const json = (data: unknown, status = 200) => Response.json(data, { status, headers: { "Cache-Control": "private, no-store" } });
 const sameOrigin = (request: Request) => request.headers.get("origin") === new URL(request.url).origin;
 
-const view = (sender: Awaited<ReturnType<typeof getSender>>) => sender ? { connected: true, email: sender.google_email, enabled: sender.enabled === 1, sendHour: sender.send_hour, lastRunAt: sender.last_run_at, lastResult: sender.last_result } : { connected: false };
+const view = (sender: Awaited<ReturnType<typeof getSender>>) => sender ? { connected: true, email: sender.google_email, enabled: sender.enabled === 1, sendHour: sender.send_hour, message: sender.custom_message ?? "", lastRunAt: sender.last_run_at, lastResult: sender.last_result } : { connected: false };
 
 export async function GET() {
   const user = await getChatGPTUser();
@@ -20,11 +20,15 @@ export async function PUT(request: Request) {
   const user = await getChatGPTUser();
   if (!user?.userId) return json({ error: "Inicia sesión." }, 401);
   if (!sameOrigin(request)) return json({ error: "Origen no permitido." }, 403);
-  const body = await request.json().catch(() => null) as { enabled?: unknown; sendHour?: unknown } | null;
+  const body = await request.json().catch(() => null) as { enabled?: unknown; sendHour?: unknown; message?: unknown } | null;
   if (!body) return json({ error: "Solicitud inválida." }, 400);
   const sender = await getSender(user.userId);
   if (!sender) return json({ error: "Primero conecta el correo de envío." }, 400);
-  const settings: { enabled?: boolean; sendHour?: number } = {};
+  const settings: { enabled?: boolean; sendHour?: number; message?: string } = {};
+  if (body.message !== undefined) {
+    if (typeof body.message !== "string" || body.message.length > 600) return json({ error: "El mensaje puede tener hasta 600 caracteres." }, 400);
+    settings.message = body.message;
+  }
   if (typeof body.enabled === "boolean") settings.enabled = body.enabled;
   if (body.sendHour !== undefined) {
     const hour = Number(body.sendHour);
