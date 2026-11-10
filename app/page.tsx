@@ -1,4 +1,5 @@
 "use client";
+import { appointmentsAsEvents } from "@/lib/appointment-events";
 import { CalendarSources } from "@/components/calendar-sources";
 import { TodayPanel } from "@/components/today-panel";
 import { AppointmentMailSettings } from "@/components/appointment-mail-settings";
@@ -131,7 +132,8 @@ export default function Home(){
   const weekEnd=shiftAgendaWeek(weekStart,1);
   const weekDays:WeekDay[]=agendaWeekDays(weekStart);
   const showCurrentAgendaWeek=()=>setWeekStart(mondayOfAgendaWeek(santiagoDateISO(new Date())));
-  const weekCalendarEvents=calendarEvents.filter(event=>{const day=chileDate(new Date(event.startAt));return day>=weekStart&&day<weekEnd}).sort((a,b)=>a.startAt.localeCompare(b.startAt));
+  const agendaEvents=[...calendarEvents,...appointmentsAsEvents(appointments,id=>patients.find(p=>p.id===id)?.name||"Paciente",calendarEvents)];
+  const weekCalendarEvents=agendaEvents.filter(event=>{const day=chileDate(new Date(event.startAt));return day>=weekStart&&day<weekEnd}).sort((a,b)=>a.startAt.localeCompare(b.startAt));
 
   const [selectedId,setSelectedId]=useState(0),[section,setSection]=useState("Inicio"),[modal,setModal]=useState<Modal>(null),[search,setSearch]=useState(""),[mobileNav,setMobileNav]=useState(false);
   const [navigationHistory,setNavigationHistory]=useState<Array<{section:string;patientId:number;tab:string}>>([]);
@@ -723,7 +725,7 @@ export default function Home(){
       <main className="mx-auto max-w-[1480px] px-5 pb-16 pt-8 md:px-9"><GoogleDriveBackup/>{loading&&<p role="status" className="mb-4">Cargando fichas…</p>}{loadError&&<p role="alert" className="mb-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-800">{loadError} <button type="button" className="underline" onClick={()=>location.reload()}>Reintentar</button></p>}{exportError&&<p role="alert" className="mb-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-800">{exportError}</p>}<div className="mb-7 flex flex-wrap items-end justify-between gap-4"><div><h1 className="text-3xl font-semibold tracking-tight md:text-[2.1rem]">{section}</h1><p className="mt-1 text-sm text-[#6b6a7c]">{section==="Ficha clínica"?"Historia y planificación del paciente":section==="Inicio"?"Tu día de un vistazo":section==="Resumen"?"Vista general de la consulta":section==="Pacientes"?"Busca y abre una ficha":section==="Agenda"?"Próximas atenciones":section==="Presupuestos"?"Elige un paciente para consultar sus planes individualmente":"Planes de tratamiento y valores"}</p></div><div className="flex flex-wrap items-center gap-2">{section!=="Inicio"&&section!=="Presupuestos"&&<Button className="fx-shine fx-shine-hover bg-gradient-to-br from-[#ef895f] to-[#c95f35] shadow-[0_6px_16px_-6px_rgba(201,95,53,.6)] hover:from-[#e07a50] hover:to-[#b2522c]" onClick={()=>setModal(section==="Agenda"&&patient?"appointment":section==="Presupuestos"&&patient?"budget":section==="Pacientes"||!patient?"patient":"note")}><Plus className="mr-2 size-4"/>{section==="Agenda"?"Nueva cita":section==="Presupuestos"?"Nuevo presupuesto":section==="Pacientes"?"Nuevo paciente":"Nueva evolución"}</Button>}{section==="Pacientes"&&<><Button type="button" variant="outline" onClick={()=>void downloadClinicalRecords("json")} disabled={exporting}><Download className="mr-2 size-4"/>{exporting?"Preparando…":"Descargar fichas (JSON)"}</Button><Button type="button" variant="outline" onClick={()=>void downloadClinicalRecords("md")} disabled={exporting} data-testid="download-md"><Download className="mr-2 size-4"/>Descargar en Markdown</Button><a href="/importar" className="px-1 text-sm font-medium text-[#473a6d] underline">Importar fichas desde Drive</a></>}</div></div>
         {section==="Inicio"&&<div className="space-y-8">
           <GlobalDictation patients={patients} notes={liveNotes} onUsePatient={openDictatedPatient} onCreatePatient={createDictatedPatient} onAnnul={annulEvolution}/>
-          <TodayPanel patients={patients} events={calendarEvents} budgets={budgets.map(b=>({id:b.id,patientId:b.patientId,total:budgetTotals(b.items).total,isAlternative:b.isAlternative}))} payments={payments} clinicName={clinicName} onOpenPatient={id=>openPatient(id)} onOpenAgenda={()=>openSection("Agenda")}/>
+          <TodayPanel patients={patients} events={agendaEvents} budgets={budgets.map(b=>({id:b.id,patientId:b.patientId,total:budgetTotals(b.items).total,isAlternative:b.isAlternative}))} payments={payments} clinicName={clinicName} onOpenPatient={id=>openPatient(id)} onOpenAgenda={()=>openSection("Agenda")}/>
           <section aria-label="Entradas de la aplicación">
             <div className="mb-4"><h2 className="text-xl font-semibold">Todas las secciones</h2><p className="mt-1 text-sm text-[#615f73]">Un toque desde aquí y vuelves a Inicio cuando quieras.</p></div>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 [&>*]:min-w-0">
