@@ -1,6 +1,6 @@
 import { DENTAL_DICTIONARY_HINTS } from "./dental-lexicon.ts";
 import { applyAiReview, clinicalCoherence, parseReview, parseReviewExtras, REVIEW_PROMPT, reviewPayload } from "./clinical-review.ts";
-import type { Learned } from "./learning.ts";
+import { isDeducedSuggestion, type Learned } from "./learning.ts";
 import { ACTS_PROMPT, ACTS_SCHEMA, addFacesFromActs, applyActsToOdontogram, parseActs, type ClinicalAct } from "./clinical-acts.ts";
 import { buildMinsalClinicalContext } from "./minsal-knowledge.ts";
 import { buildEndoPerioContext } from "./endoperio-knowledge.ts";
@@ -4049,7 +4049,7 @@ export async function proposeFromTranscript(
     if (typed.acts?.length) {
       const corrected = applyActsToOdontogram(typed.odontogram, typed.acts, (value) => cariesDepthFrom(value).depth);
       let added = 0;
-      const completed = addFacesFromActs(corrected.odontogram, typed.acts, text, (value) => cariesDepthFrom(value).depth, () => `odo-acto-${++added}`);
+      const completed = addFacesFromActs(corrected.odontogram, typed.acts, text, (value) => cariesDepthFrom(value).depth, () => `odo-acto-${++added}`, input.chart ?? []);
       const understood = { odontogram: completed.odontogram, notes: [...corrected.notes, ...completed.notes] };
       if (understood.notes.length) {
         typed.odontogram = understood.odontogram;
@@ -4081,11 +4081,12 @@ export async function proposeFromTranscript(
     const surgeryAsks = surgeryQuestions(fixed).filter((item) => !finished.clarifications.includes(item));
     // Lo aprendido de este profesional: sugerencias que nunca toma dejan de proponerse (lo dictado nunca se oculta).
     const learned = options.learned;
-    if (learned?.dxCodes.length) finished.diagnoses = (finished.diagnoses ?? []).filter((dx) => !(dx.suggested && learned.dxCodes.includes(dx.code)));
+    if (learned?.dxCodes.length) finished.diagnoses = (finished.diagnoses ?? []).filter((dx) => !(isDeducedSuggestion(dx.suggested) && learned.dxCodes.includes(dx.code)));
     if (learned?.hideUntimedAppointments && (finished.appointments ?? []).some((item) => !item.time)) {
       const reminders = (finished.appointments ?? []).filter((item) => !item.time).map((item) => `Control indicado ${item.said || clip(item.evidence, 60)}${item.day ? ` (≈ ${item.day.split("-").reverse().join("-")})` : ""}: agéndalo con «Agendar control» en la ficha.`);
       finished.appointments = (finished.appointments ?? []).filter((item) => item.time);
-      finished.clarifications = [...finished.clarifications, ...reminders];
+      // Sin la cita propuesta, la pregunta «¿A qué hora es la cita…?» sobra: queda solo el recordatorio.
+      finished.clarifications = [...finished.clarifications.filter((item) => !/^¿A qué hora es la cita/.test(item)), ...reminders];
     }
     return {
       ...finished,

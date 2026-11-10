@@ -89,7 +89,7 @@ export function summarizeImprovement(feedback: FeedbackRow[], usage: UsageRow[],
     return {
       owner_id: owner, label: labels.find((item) => item.owner_id === owner)?.label ?? "Colega sin perfil",
       fichas: used?.fichas ?? 0, evoluciones: used?.evoluciones ?? 0, evoluciones30d: used?.evoluciones_30d ?? 0,
-      dictados: rows.length, ultima, aceptacion: proposed ? accepted / proposed : null, groups: groupsOf(entries), aprendido: learnedOf(rows),
+      dictados: rows.length, ultima, aceptacion: proposed ? accepted / proposed : null, groups: groupsOf(entries), aprendido: learnedOf(rows.slice(0, 400)),
     };
   }).sort((a, b) => (b.ultima ?? "").localeCompare(a.ultima ?? ""));
   return { clinicians, overall: groupsOf(all), dictados: feedback.length };

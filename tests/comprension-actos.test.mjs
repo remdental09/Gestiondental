@@ -173,3 +173,31 @@ test("la IA no puede agregar una cara que no se dictó, ni tomar la cara de la p
   });
   assert.equal(proposal.odontogram.filter((item) => item.tooth === 16 && item.kind === "surface").length, 0);
 });
+
+const actoIon = (pieza, caras, evidencia) => ({ pieza, sistema: "FDI", caras, accion: "inactivar_caries", material_colocado: "ionomero", material_retirado: "", intencion: "inactivacion", estado_final_cara: "caries", evidencia });
+const caras = (proposal, tooth) => proposal.odontogram.filter((item) => item.tooth === tooth && item.kind === "surface").map((item) => item.surface).sort();
+
+test("revisión: pieza ausente en la ficha → no se agregan caras desde el acto", async () => {
+  const dictado = "Pieza 1.6 caras mesial y oclusal: se retira la amalgama fracturada y se elimina la caries. Se coloca vidrio ionómero en dos porciones para inactivar la caries de dentina superficial.";
+  const { proposal } = await proposeFromTranscript({ transcript: dictado, chart: [{ tooth: 16, status: "Ausente" }] }, { id: "t", model: "t", complete: async () => ({ presupuesto: [], ficha: [], periodonto: [], pagos: [], citas: [], diagnosticos: [], diagnosticos_sugeridos: [], dudas: [], texto_corregido: "", hallazgos: [], nota: { procedimientos: dictado }, procedimientos: [], actos: [actoIon("1.6", ["M", "O"], "Se coloca vidrio ionómero en dos porciones para inactivar la caries de dentina superficial.")] }) }, () => {});
+  assert.ok(proposal.odontogram.filter((item) => item.tooth === 16 && item.kind === "surface" && !item.advisory).length === 0, JSON.stringify(proposal.odontogram));
+});
+
+test("revisión: cita repetida sin pieza → no se agrega la cara dicha para otra pieza", async () => {
+  const dictado = "Pieza 1.6 oclusal: se coloca vidrio ionómero para inactivar la caries. Pieza 2.6 mesial: se coloca vidrio ionómero para inactivar la caries.";
+  const { proposal } = await run(dictado, { nota: { procedimientos: dictado }, procedimientos: [], actos: [actoIon("2.6", ["M", "O"], "se coloca vidrio ionómero para inactivar la caries")] });
+  assert.ok(!caras(proposal, 26).includes("O"), JSON.stringify(caras(proposal, 26)));
+});
+
+test("revisión: número sin punto («en la 46») corta la ventana: no se toma la oclusal de la 1.6", async () => {
+  const dictado = "Pieza 1.6 caries oclusal profunda. En la 46 se coloca vidrio ionómero en mesial para inactivar la caries.";
+  const { proposal } = await run(dictado, { nota: { procedimientos: dictado }, procedimientos: [], actos: [actoIon("46", ["M", "O"], "se coloca vidrio ionómero en mesial para inactivar la caries")] });
+  const tooth = proposal.acts?.[0]?.tooth;
+  if (tooth) assert.ok(!caras(proposal, tooth).includes("O"), JSON.stringify(caras(proposal, tooth)));
+});
+
+test("revisión: cara negada («sin caries en oclusal») no se agrega", async () => {
+  const dictado = "Pieza 1.6 sin caries en oclusal, caries en mesial: se coloca vidrio ionómero para inactivar la caries.";
+  const { proposal } = await run(dictado, { nota: { procedimientos: dictado }, procedimientos: [], actos: [actoIon("1.6", ["M", "O"], "caries en mesial: se coloca vidrio ionómero para inactivar la caries")] });
+  assert.ok(!caras(proposal, 16).includes("O"), JSON.stringify(caras(proposal, 16)));
+});

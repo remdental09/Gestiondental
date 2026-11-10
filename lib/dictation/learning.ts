@@ -6,6 +6,9 @@
 import { ICD11 } from "../icd11.ts";
 
 export const LEARN_MIN_SHOWN = 5;
+/** Solo se aprende de diagnósticos que la app DEDUJO (no de los dictados con otro nombre: AAE, término aproximado). */
+export const DEDUCED_FROM = new Set(["nota", "caries-pulpar"]);
+export const isDeducedSuggestion = (suggested: unknown) => Boolean(suggested && typeof suggested === "object" && DEDUCED_FROM.has(String((suggested as { from?: unknown }).from)));
 
 export type Learned = {
   /** Códigos CIE-11 que ya no se sugieren por deducción (el profesional nunca los aceptó como sugerencia). */
@@ -25,7 +28,7 @@ export function learnFromFeedback(rows: Array<{ entries: string }>): Learned {
   let untimed = { shown: 0, taken: 0 };
   for (const entry of entries) {
     if (entry.outcome === "agregado" || !entry.proposed) continue;
-    if (entry.category === "diagnostico" && entry.proposed.suggested && typeof entry.proposed.code === "string") {
+    if (entry.category === "diagnostico" && isDeducedSuggestion(entry.proposed.suggested) && typeof entry.proposed.code === "string") {
       const stat = dx.get(entry.proposed.code) ?? { shown: 0, taken: 0 };
       stat.shown++; if (taken(entry)) stat.taken++;
       dx.set(entry.proposed.code, stat);

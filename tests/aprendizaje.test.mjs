@@ -41,3 +41,22 @@ test("«en una semana» y «en un mes» se entienden como fecha", () => {
   assert.equal(structureTranscript("Control en una semana.", { today: "2026-11-07" }).appointments[0].day, "2026-11-14");
   assert.equal(structureTranscript("Control en un mes.", { today: "2026-11-07" }).appointments[0].day, "2026-12-07");
 });
+
+test("el aprendizaje nunca oculta un diagnóstico dictado con otro nombre (AAE o aproximado)", () => {
+  const ignored = (from) => ({ category: "diagnostico", outcome: "ignorado", proposed: { code: "DA09.0", suggested: { from } } });
+  assert.deepEqual(learnFromFeedback([row(Array.from({ length: 6 }, () => ignored("AAE")))]).dxCodes, []);
+  assert.deepEqual(learnFromFeedback([row(Array.from({ length: 6 }, () => ignored("aproximado")))]).dxCodes, []);
+  assert.deepEqual(learnFromFeedback([row(Array.from({ length: 6 }, () => ignored("nota")))]).dxCodes, ["DA09.0"]);
+});
+
+test("con citas sin hora aprendidas, no queda la pregunta por la hora junto al recordatorio", async () => {
+  const learned = learnFromFeedback([row(Array.from({ length: 5 }, () => citaSinHora("ignorado")))]);
+  const { proposal } = await proposeFromTranscript({ transcript: "Se realiza profilaxis. Control el martes 17.", chart: [] }, null, () => {}, { today: "2026-11-10", learned });
+  assert.ok(!proposal.clarifications.some((item) => /^¿A qué hora es la cita/.test(item)));
+});
+
+test("fechas: el plural gana al singular; mes corto; «y media»", () => {
+  assert.equal(structureTranscript("El dolor aumentó en una semana. Control en tres semanas.", { today: "2026-11-07" }).appointments[0].day, "2026-11-28");
+  assert.equal(structureTranscript("Control en un mes.", { today: "2027-01-31" }).appointments[0].day, "2027-02-28");
+  assert.equal(structureTranscript("Control en una semana y media.", { today: "2026-11-07" }).appointments[0].day, "2026-11-17");
+});
