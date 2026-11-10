@@ -242,3 +242,6 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 
 ## Evoluciones en la línea de tiempo de la pieza
 - `lib/tooth-evolution-milestones.ts`: cada evolución vigente aparece como hito fechado en «Evolución de la pieza» de las piezas que trata (FDI del título; si el título no nombra pieza, el cuerpo solo cuenta con una única pieza FDI). Se deriva de las notas, así que una evolución borrada o anulada desaparece sola. Cubre endodoncia, controles, importadas de Drive y cualquier especialidad. `endoMilestones` agrega lo registrado en la pestaña Endodoncia (apertura con diagnóstico, sesiones, obturación, controles) sin repetir lo ya enviado a la historia.
+
+## COP-D: implantes y causa de pérdida
+- P (perdidos) cuenta la pieza ausente o reemplazada por implante (incluida la corona sobre implante); no cuenta solo si la causa registrada es «Otra causa». La causa sin registrar cuenta y se avisa aparte para revisión. La causa se puede registrar también en piezas con implante.
