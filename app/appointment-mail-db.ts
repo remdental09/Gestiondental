@@ -61,6 +61,11 @@ export async function insertReminder(ownerId: string, eventId: number, startAt: 
     return true;
   } catch { return false; }
 }
+/** Envío manual: reemplaza el recordatorio anterior de la misma cita (el enlace antiguo deja de valer). */
+export async function replaceReminder(ownerId: string, eventId: number, startAt: string, tokenHash: string, toEmail: string) {
+  const db = need(); await ensureMailTables(db);
+  await db.prepare("INSERT OR REPLACE INTO appointment_reminders (owner_id, event_id, start_at, token_hash, to_email, sent_at, response, responded_at) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL)").bind(ownerId, eventId, startAt, tokenHash, toEmail, new Date().toISOString()).run();
+}
 export async function deleteReminder(ownerId: string, eventId: number, startAt: string) {
   const db = need(); await ensureMailTables(db);
   await db.prepare("DELETE FROM appointment_reminders WHERE owner_id = ? AND event_id = ? AND start_at = ?").bind(ownerId, eventId, startAt).run();

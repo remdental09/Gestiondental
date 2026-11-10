@@ -1,9 +1,10 @@
 import { chileDay } from "@/lib/chile-day";
-import { buildRawMessage, isSendWindow, reminderEmail, selectReminders } from "@/lib/appointment-mail";
-import { nextDay, type TodayEvent, type TodayPatient } from "@/lib/today-agenda";
+import { buildRawMessage, isSendWindow, reminderEmail, selectReminders, whenParts } from "@/lib/appointment-mail";
+import { nextDay, patientForEvent, type TodayEvent, type TodayPatient } from "@/lib/today-agenda";
+import { isValidEmail } from "@/lib/appointment-mail";
 import { loadHints } from "@/app/calendar-hints-db";
 import { loadProfile } from "@/app/clinician-profile-db";
-import { deleteReminder, ensureMailTables, getSender, insertReminder, listEnabledSenders, mailDb, recordRun, sentKeys, type MailSender } from "@/app/appointment-mail-db";
+import { deleteReminder, ensureMailTables, getSender, insertReminder, replaceReminder, listEnabledSenders, mailDb, recordRun, sentKeys, type MailSender } from "@/app/appointment-mail-db";
 import { sendMailWithSender } from "@/app/drive-oauth";
 
 const MAX_PER_RUN = 30;
@@ -93,20 +94,71 @@ async function sendCandidates(sender: MailSender, candidates: Awaited<ReturnType
   return { sent: sentCount, detail };
 }
 
+/** A quién iría el correo manual de una cita: paciente reconocido, su correo y la hora. Lanza un error claro si no se puede. */
+async function manualTarget(ownerId: string, eventId: number) {
+  const sender = await getSender(ownerId);
+  if (!sender) throw new Error("Primero conecta el correo de envío.");
+  const db = mailDb();
+  if (!db) throw new Error("La base de datos no está disponible.");
+  await ensureMailTables(db);
+  const event = await db.prepare("SELECT id, title, start_at AS startAt, end_at AS endAt, status, all_day AS allDay, patient_id AS patientId FROM calendar_events WHERE owner_id = ? AND id = ?").bind(ownerId, eventId).first<EventRow>();
+  if (!event || event.status !== "confirmed") throw new Error("No encontré esa cita en la agenda.");
+  if (new Date(event.endAt).getTime() < Date.now()) throw new Error("Esa cita ya pasó.");
+  const [patients, hints, profile] = await Promise.all([
+    db.prepare("SELECT id, name, rut, phone, email FROM patients WHERE owner_id = ?").bind(ownerId).all<PatientRow>(),
+    loadHints(ownerId).catch(() => ({} as Record<number, string>)),
+    loadProfile(ownerId).catch(() => null),
+  ]);
+  const patient = patientForEvent({ ...event, allDay: Boolean(event.allDay) }, patients.results, (hints as Record<number, string>)[event.id]);
+  if (!patient) throw new Error("No reconozco la ficha del paciente de esta cita. Escribe su nombre completo en la cita o su correo.");
+  if (!isValidEmail(patient.email)) throw new Error(`La ficha de ${patient.name} no tiene correo electrónico. Agrégalo en «Editar datos».`);
+  return { sender, event, patient, email: patient.email.trim(), profile };
+}
+
+/** Vista previa para que el clínico vea a quién le enviará el correo antes de hacerlo. */
+export async function previewReminder(ownerId: string, eventId: number) {
+  const { event, patient, email, sender } = await manualTarget(ownerId, eventId);
+  const { day, time } = whenParts(event.startAt);
+  const previous = await mailDb()?.prepare("SELECT sent_at, response FROM appointment_reminders WHERE owner_id = ? AND event_id = ? AND start_at = ?").bind(ownerId, event.id, event.startAt).first<{ sent_at: string; response: string | null }>();
+  return { patientName: patient.name, email, day, time, from: sender.google_email, previousSentAt: previous?.sent_at ?? null, previousResponse: previous?.response ?? null };
+}
+
+/** Envía ya el correo de una cita (de cualquier día) con enlaces reales: al responder, la cita queda marcada en la agenda.
+ * toSelf: llega al correo de envío del clínico (prueba) en vez del paciente. */
+export async function sendReminderNow(ownerId: string, eventId: number, toSelf = false): Promise<string> {
+  const { sender, event, patient, email, profile } = await manualTarget(ownerId, eventId);
+  const to = toSelf ? sender.google_email : email;
+  const token = newToken();
+  const hash = await hashToken(token);
+  await replaceReminder(ownerId, event.id, event.startAt, hash, to);
+  try {
+    const link = (answer: "si" | "no") => `${sender.base_url}/api/confirmar?t=${token}&a=${answer}`;
+    const mail = reminderEmail({ patientName: patient.name, startAt: event.startAt, clinicName: profile?.clinicName, confirmUrl: link("si"), declineUrl: link("no"), message: sender.custom_message ?? undefined });
+    await sendMailWithSender(sender, buildRawMessage({ from: sender.google_email, fromName: profile?.clinicName || undefined, to, replyTo: sender.google_email, ...mail, subject: (toSelf ? "[Prueba] " : "") + mail.subject }));
+  } catch (error) {
+    await deleteReminder(ownerId, event.id, event.startAt);
+    throw error;
+  }
+  return toSelf ? `Prueba con la cita real de ${patient.name} (sus botones sí la confirman)` : `Correo enviado a ${patient.name} (${to})`;
+}
+
 /** Correo de prueba a la propia cuenta de envío. Si mañana hay una cita que recibirá correo, la prueba muestra ese paciente y esa hora
  * (pero llega solo al clínico); sus botones abren la página de agradecimiento sin registrar ninguna respuesta. */
 export async function sendTestMail(ownerId: string) {
   const sender = await getSender(ownerId);
   if (!sender) throw new Error("Primero conecta el correo de envío.");
-  const { candidates, profile } = await candidatesFor(sender, new Date()).catch(() => ({ candidates: [], profile: null }));
-  const sample = candidates[0];
+  const found = await candidatesFor(sender, new Date()).catch(() => null);
+  const sample = found?.candidates[0];
+  const profile = found?.profile ?? await loadProfile(ownerId).catch(() => null);
+  // Con una cita real, la prueba lleva enlaces reales: confirmar desde la prueba marca la cita, para probar todo el circuito.
+  if (sample) return sendReminderNow(ownerId, sample.event.id, true);
   const mail = reminderEmail({
-    patientName: sample?.patient.name ?? "Paciente de prueba",
-    startAt: sample?.event.startAt ?? new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
+    patientName: "Paciente de prueba",
+    startAt: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
     clinicName: profile?.clinicName,
     confirmUrl: `${sender.base_url}/api/confirmar?prueba=si`, declineUrl: `${sender.base_url}/api/confirmar?prueba=no`,
     message: sender.custom_message ?? undefined,
   });
   await sendMailWithSender(sender, buildRawMessage({ from: sender.google_email, fromName: profile?.clinicName || undefined, to: sender.google_email, ...mail, subject: "[Prueba] " + mail.subject }));
-  return sample ? `Prueba con la cita real de ${sample.patient.name}` : "Prueba con datos de ejemplo (mañana no hay citas con correo en la ficha)";
+  return "Prueba con datos de ejemplo (mañana no hay citas pendientes con correo en la ficha)";
 }
