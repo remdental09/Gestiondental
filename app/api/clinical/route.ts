@@ -710,6 +710,10 @@ export async function POST(request: Request) {
       const before = toothHistorySnapshot(data, tooth);
       if (status === "Sin hallazgos") delete data.teeth[tooth];
       else data.teeth[tooth] = status;
+      // Coherencia: una pieza ausente o con implante no tiene caras de diente natural (quedan en el historial);
+      // una pieza natural no conserva la causa de pérdida (salvo la indicación de exodoncia, que la usa para el COP-D).
+      if (["Ausente", "Implante", "Implante con pilar"].includes(status)) delete data.surfaces[tooth];
+      else if (status !== "Indicación de exodoncia") delete data.missingReason[tooth];
       if (status === "Corona" && data.crowns?.[tooth]) data.crowns[tooth] = { ...data.crowns[tooth], foundation: "tooth" };
       else if (!(status === "Implante" && data.crowns?.[tooth]?.foundation === "implant")) delete data.crowns?.[tooth];
       const updatedAt = now();
@@ -751,7 +755,7 @@ export async function POST(request: Request) {
       if (!Number.isSafeInteger(tooth) || !allowedTeeth.has(tooth) || !["caries","other","unknown"].includes(reason)) return error("Causa de pérdida inválida.");
       const [old] = await db.select().from(toothStatuses).where(and(eq(toothStatuses.ownerId, ownerId), eq(toothStatuses.patientId, patientId)));
       const data = normalizeOdontogram(old ? JSON.parse(old.data) : {});
-      if (!data.teeth[tooth] || !["Ausente","Indicación de exodoncia"].includes(data.teeth[tooth])) return error("Primero registra la pieza como ausente o indicada para exodoncia.");
+      if (!data.teeth[tooth] || !["Ausente","Indicación de exodoncia","Implante","Implante con pilar"].includes(data.teeth[tooth])) return error("Primero registra la pieza como ausente, indicada para exodoncia o con implante.");
       const historyMeta = await chartHistoryMetadata("Causa de ausencia: " + (reason === "caries" ? "caries" : reason === "other" ? "otra causa" : "sin registrar"));
       if ("error" in historyMeta) return error(historyMeta.error);
       if (historyAlreadyRecorded(data, historyMeta)) return Response.json({ odontogram: data });
@@ -789,6 +793,7 @@ export async function POST(request: Request) {
       const [old] = await db.select().from(toothStatuses).where(and(eq(toothStatuses.ownerId, ownerId), eq(toothStatuses.patientId, patientId)));
       const data = normalizeOdontogram(old ? JSON.parse(old.data) : {});
       if (["Ausente","Implante","Implante con pilar"].includes(data.teeth[tooth]??"")) return error("No se registran superficies dentarias en dientes ausentes o implantes.");
+      if (condition === "sealant" && data.teeth[tooth] === "Corona") return error("Una pieza con corona no tiene superficie para sellar.");
       const priorFinding = data.surfaces[tooth]?.[surface as OdontogramSurface];
       if (condition === "restored" && priorFinding?.condition === "restored") {
         normalized = {
