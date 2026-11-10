@@ -1,7 +1,9 @@
 import { chileDay } from "./chile-day.ts";
 
 export type TodayEvent = { id: number; title: string; startAt: string; endAt: string; status: string; allDay: boolean; patientId: number | null };
-export type TodayPatient = { id: number; name: string; rut?: string; phone?: string };
+export type TodayPatient = { id: number; name: string; rut?: string; phone?: string; email?: string };
+/** Contactos hallados en la descripción o los invitados de cada cita (celulares y correos ya extraídos; no se guarda el texto). */
+export type EventHints = Record<number, string>;
 export type TodayBudget = { id: number; patientId: number; total: number; isAlternative: boolean };
 export type TodayPayment = { patientId: number; amount: number };
 
@@ -10,11 +12,33 @@ export type PendingBalance<P extends TodayPatient> = { patient: P; owed: number 
 
 const fold = (text: string) => text.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
 
-/** Paciente de una cita: por vínculo directo o, si falta, porque el título contiene el nombre completo (nombre y al menos un apellido). */
-export function patientForEvent<P extends TodayPatient>(event: TodayEvent, patients: P[]): P | null {
+const MOBILE_IN_TEXT = /(?<!\d)(?:\+?56[\s-]?)?9[\s-]?\d{4}[\s-]?\d{4}(?!\d)/g;
+const EMAIL_IN_TEXT = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi;
+const mobileKey = (value: string | undefined) => { const digits = (value ?? "").replace(/\D/g, ""); const national = digits.startsWith("56") && digits.length === 11 ? digits.slice(2) : digits; return /^9\d{8}$/.test(national) ? national : null; };
+
+/** Celulares chilenos (9 dígitos) y correos que aparecen en un texto, ya normalizados. */
+export function contactTokens(text: string): string[] {
+  const phones = (text.match(MOBILE_IN_TEXT) ?? []).map(match => mobileKey(match)).filter((key): key is string => key !== null);
+  const emails = (text.match(EMAIL_IN_TEXT) ?? []).map(email => email.toLowerCase());
+  return [...new Set([...phones, ...emails])];
+}
+
+/** Paciente de una cita: por vínculo directo, por celular o correo (en el título o en la descripción/invitados), o por nombre y apellido únicos. */
+export function patientForEvent<P extends TodayPatient>(event: TodayEvent, patients: P[], hint = ""): P | null {
   if (event.patientId !== null) {
     const linked = patients.find(patient => patient.id === event.patientId);
     if (linked) return linked;
+  }
+  const tokens = new Set([...contactTokens(event.title), ...contactTokens(hint), ...hint.split(/\s+/).map(part => part.toLowerCase()).filter(part => part.includes("@"))]);
+  if (tokens.size > 0) {
+    const byContact = patients.filter(patient => {
+      const phone = mobileKey(patient.phone);
+      const email = patient.email?.trim().toLowerCase();
+      return (phone !== null && tokens.has(phone)) || (!!email && tokens.has(email));
+    });
+    // Un celular o correo compartido por varias fichas (p. ej. una madre con sus hijos) es ambiguo: no se adivina.
+    if (byContact.length === 1) return byContact[0];
+    if (byContact.length > 1) return null;
   }
   const title = ` ${fold(event.title)} `;
   const matches = patients.filter(patient => {
@@ -27,11 +51,11 @@ export function patientForEvent<P extends TodayPatient>(event: TodayEvent, patie
 }
 
 /** Citas confirmadas de un día de Chile (AAAA-MM-DD), en orden, con su paciente si se reconoce. */
-export function agendaForDay<E extends TodayEvent, P extends TodayPatient>(events: E[], patients: P[], day: string): Array<{ event: E; patient: P | null }> {
+export function agendaForDay<E extends TodayEvent, P extends TodayPatient>(events: E[], patients: P[], day: string, hints: EventHints = {}): Array<{ event: E; patient: P | null }> {
   return events
     .filter(event => event.status === "confirmed" && !event.allDay && chileDay(event.startAt) === day)
     .sort((a, b) => a.startAt.localeCompare(b.startAt))
-    .map(event => ({ event, patient: patientForEvent(event, patients) }));
+    .map(event => ({ event, patient: patientForEvent(event, patients, hints[event.id]) }));
 }
 
 /** Día siguiente (AAAA-MM-DD) de un día de Chile. */
@@ -65,7 +89,7 @@ export function whatsappLink(phone: string | undefined, message: string): string
 }
 
 /** Citas de hoy (hora de Chile) en orden, marcando cuál está en curso y cuál sigue. */
-export function todayAgenda<E extends TodayEvent, P extends TodayPatient>(events: E[], patients: P[], now: Date = new Date()): TodayItem<E, P>[] {
+export function todayAgenda<E extends TodayEvent, P extends TodayPatient>(events: E[], patients: P[], now: Date = new Date(), hints: EventHints = {}): TodayItem<E, P>[] {
   const today = chileDay(now.toISOString());
   const list = events
     .filter(event => event.status === "confirmed" && !event.allDay && chileDay(event.startAt) === today)
@@ -80,7 +104,7 @@ export function todayAgenda<E extends TodayEvent, P extends TodayPatient>(events
     else if (start <= t) state = "ahora";
     else if (!nextMarked) { state = "siguiente"; nextMarked = true; }
     else state = "luego";
-    return { event, patient: patientForEvent(event, patients), state };
+    return { event, patient: patientForEvent(event, patients, hints[event.id]), state };
   });
 }
 

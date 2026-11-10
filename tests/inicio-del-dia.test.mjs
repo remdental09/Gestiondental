@@ -81,3 +81,25 @@ test("las citas de mañana se calculan por día de Chile", () => {
   ], patients, "2026-11-11");
   assert.deepEqual(items.map(i => i.event.id), [1, 2]);
 });
+
+import { contactTokens } from "../lib/today-agenda.ts";
+
+test("la cita se reconoce por celular o correo, en el título o en las pistas de la descripción", () => {
+  const ps = [
+    { id: 1, name: "Ana María Pérez Soto", phone: "+56 9 8765 4321", email: "ana@correo.cl" },
+    { id: 2, name: "Juan Pérez Rojas", phone: "9 1111 2222", email: "" },
+    { id: 3, name: "Luis Pérez Rojas", phone: "911112222", email: "" }, // mismo celular que Juan (hermanos)
+  ];
+  assert.equal(patientForEvent(ev(1, "", "", { title: "Control 987654321" }), ps)?.id, 1);
+  assert.equal(patientForEvent(ev(1, "", "", { title: "Limpieza" }), ps, "56987654321")?.id, 1);
+  assert.equal(patientForEvent(ev(1, "", "", { title: "Limpieza" }), ps, "ANA@correo.cl")?.id, 1);
+  // Celular compartido por dos fichas: ambiguo, no se adivina.
+  assert.equal(patientForEvent(ev(1, "", "", { title: "Cita 9 1111 2222" }), ps), null);
+  // Sin coincidencia de contacto, sigue valiendo el nombre.
+  assert.equal(patientForEvent(ev(1, "", "", { title: "Control Ana Pérez", }), ps, "999999999")?.id, 1);
+});
+
+test("se extraen celulares y correos de un texto sin guardar el resto", () => {
+  assert.deepEqual(contactTokens("Paciente llamar al +56 9 8765 4321 o a Ana@Correo.cl. Fijo 22 123 4567. Alergia a penicilina"), ["987654321", "ana@correo.cl"]);
+  assert.deepEqual(contactTokens("sin datos"), []);
+});

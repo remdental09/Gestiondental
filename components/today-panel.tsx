@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CalendarClock, Check, MessageCircle, Search, Wallet } from "lucide-react";
-import { agendaForDay, confirmationMessage, nextDay, pendingBalances, quickSearch, todayAgenda, whatsappLink, type TodayBudget, type TodayEvent, type TodayPatient, type TodayPayment } from "@/lib/today-agenda";
+import { agendaForDay, confirmationMessage, type EventHints, nextDay, pendingBalances, quickSearch, todayAgenda, whatsappLink, type TodayBudget, type TodayEvent, type TodayPatient, type TodayPayment } from "@/lib/today-agenda";
 
 const money = (amount: number) => "$" + amount.toLocaleString("es-CL");
 const hour = (iso: string) => new Intl.DateTimeFormat("es-CL", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/Santiago" }).format(new Date(iso));
@@ -22,10 +22,11 @@ export function TodayPanel({ patients, events, budgets, payments, clinicName, on
   const [query, setQuery] = useState("");
   const [confirmed, setConfirmed] = useState<Record<number, string>>({});
   const [confirmError, setConfirmError] = useState("");
+  const [hints, setHints] = useState<EventHints>({});
   useEffect(() => {
     let alive = true;
     void fetch("/api/appointment-confirmations", { cache: "no-store" })
-      .then(async response => { if (alive && response.ok) setConfirmed((await response.json() as { confirmed?: Record<number, string> }).confirmed ?? {}); })
+      .then(async response => { if (alive && response.ok) { const data = await response.json() as { confirmed?: Record<number, string>; hints?: EventHints }; setConfirmed(data.confirmed ?? {}); setHints(data.hints ?? {}); } })
       .catch(() => {});
     return () => { alive = false; };
   }, [events]);
@@ -41,10 +42,10 @@ export function TodayPanel({ patients, events, budgets, payments, clinicName, on
       setConfirmError("No se pudo guardar la confirmación. Reintenta.");
     }
   }, [confirmed]);
-  const items = useMemo(() => todayAgenda(events, patients), [events, patients]);
+  const items = useMemo(() => todayAgenda(events, patients, new Date(), hints), [events, patients, hints]);
   const balances = useMemo(() => pendingBalances(patients, budgets, payments), [patients, budgets, payments]);
   const results = useMemo(() => quickSearch(patients, query), [patients, query]);
-  const tomorrow = useMemo(() => agendaForDay(events, patients, nextDay(new Intl.DateTimeFormat("en-CA", { timeZone: "America/Santiago", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()))), [events, patients]);
+  const tomorrow = useMemo(() => agendaForDay(events, patients, nextDay(new Intl.DateTimeFormat("en-CA", { timeZone: "America/Santiago", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date())), hints), [events, patients, hints]);
   const focus = items.find(item => item.state === "ahora") ?? items.find(item => item.state === "siguiente");
   const pending = items.filter(item => item.state !== "pasada");
 

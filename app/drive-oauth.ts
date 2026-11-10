@@ -869,7 +869,7 @@ export async function removeCalendarConnection(ownerId: string, googleSub: strin
   await database().prepare("UPDATE calendar_events SET status = 'cancelled', imported_at = ? WHERE owner_id = ? AND calendar_id LIKE ?").bind(now(), ownerId, "g:" + googleSub + ":%").run();
 }
 
-type GoogleEvent = { id?: string; status?: string; summary?: string; updated?: string; start?: { dateTime?: string; date?: string }; end?: { dateTime?: string; date?: string } };
+type GoogleEvent = { id?: string; status?: string; summary?: string; description?: string; attendees?: Array<{ email?: string; self?: boolean; resource?: boolean }>; updated?: string; start?: { dateTime?: string; date?: string }; end?: { dateTime?: string; date?: string } };
 
 /** Lee los calendarios visibles de cada cuenta conectada y los copia a la agenda (ventana de 2 semanas). Nunca escribe en Google. */
 export async function syncGoogleCalendars(ownerId?: string) {
@@ -895,7 +895,7 @@ export async function syncGoogleCalendars(ownerId?: string) {
       const stamp = now();
       let count = 0;
       for (const cal of calendars) {
-        const params = new URLSearchParams({ timeMin: win.fromIso, timeMax: win.toIso, singleEvents: "true", orderBy: "startTime", maxResults: "2500", showDeleted: "false", fields: "items(id,status,summary,updated,start,end)" });
+        const params = new URLSearchParams({ timeMin: win.fromIso, timeMax: win.toIso, singleEvents: "true", orderBy: "startTime", maxResults: "2500", showDeleted: "false", fields: "items(id,status,summary,description,attendees(email,self,resource),updated,start,end)" });
         const events = await googleApi<{ items?: GoogleEvent[] }>(token, "https://www.googleapis.com/calendar/v3/calendars/" + encodeURIComponent(cal.id) + "/events?" + params.toString());
         const calendarId = "g:" + row.google_sub + ":" + cal.id;
         const rows = (events.items ?? []).filter(e => e.id && (e.start?.dateTime || e.start?.date));
@@ -907,6 +907,18 @@ export async function syncGoogleCalendars(ownerId?: string) {
         });
         stmts.push(database().prepare(PRUNE_EVENTS).bind(stamp, row.owner_id, calendarId, win.fromIso, win.toIso, JSON.stringify(rows.map(e => e.id))));
         for (const stmt of stmts) await stmt.run();
+        // Celulares y correos de la descripción o de los invitados, para reconocer al paciente de cada cita (solo esos datos, no el texto).
+        try {
+          const { HINTS_DDL, HINTS_UPSERT, HINTS_DELETE } = await import("@/app/calendar-hints-db");
+          const { contactTokens } = await import("@/lib/today-agenda");
+          await database().prepare(HINTS_DDL).run();
+          for (const e of rows) {
+            const guests = (e.attendees ?? []).filter(a => a.email && !a.self && !a.resource).map(a => a.email!.toLowerCase());
+            const tokens = [...new Set([...contactTokens(e.description ?? ""), ...guests])].slice(0, 12);
+            if (tokens.length) await database().prepare(HINTS_UPSERT).bind(row.owner_id, calendarId, e.id, tokens.join(" ")).run();
+            else await database().prepare(HINTS_DELETE).bind(row.owner_id, calendarId, e.id).run();
+          }
+        } catch { /* las pistas son un extra: la agenda ya quedó importada */ }
         count += rows.length;
       }
       ok = true;
