@@ -239,3 +239,6 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 - Endograma: cada guardado crea una versión fechada (`endodontic_versions`); `GET /api/endodontics?patientId=…&versions=1` lista los días y `&at=AAAA-MM-DD` devuelve el endograma de ese día. Las versiones existen desde este cambio en adelante.
 - Barra «Ver al» en Odontograma, Periodontograma (por fecha de examen) y Endograma; una fecha pasada es solo lectura.
 - Ortodoncia sigue sin versiones (no escribe en odontograma ni en otras especialidades).
+
+## Evoluciones en la línea de tiempo de la pieza
+- `lib/tooth-evolution-milestones.ts`: cada evolución vigente aparece como hito fechado en «Evolución de la pieza» de las piezas que trata (FDI del título; si el título no nombra pieza, el cuerpo solo cuenta con una única pieza FDI). Se deriva de las notas, así que una evolución borrada o anulada desaparece sola. Cubre endodoncia, controles, importadas de Drive y cualquier especialidad. `endoMilestones` agrega lo registrado en la pestaña Endodoncia (apertura con diagnóstico, sesiones, obturación, controles) sin repetir lo ya enviado a la historia.
