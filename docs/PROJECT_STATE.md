@@ -252,3 +252,8 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 - `lib/chart-audit.ts` + recuadro «Revisión clínica del odontograma» en la pestaña: lista lo imposible de cada ficha (no corrige solo).
 - Verificado: corpus de dictado 49/49, identificación 20/20, banco de coherencia 15/15, todas las pruebas.
 - Criterio vigente: la corona sobre diente natural es un indicador aparte, no cuenta como O en el COP-D.
+
+## Respaldo automático: revisión cada hora y constancia
+- Además de la ventana nocturna, el Cron `20 * * * *` revisa cada hora (cuenta principal y copias adicionales, 6 fichas por corrida). Una copia adicional recién conectada ya no espera hasta la noche ni depende del navegador.
+- Cada revisión deja constancia por dueño en `backup_heartbeat` («sin cambios pendientes» o cuántas copió); el aviso de Drive muestra «Última revisión automática».
+- El respaldo que se dispara al guardar una ficha se registra como «al guardar» (antes decía «manual»).

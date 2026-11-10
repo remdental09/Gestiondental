@@ -7,6 +7,7 @@ type DriveStatus = {
   connected: boolean;
   email?: string | null;
   lastRun?: { source: string; ranAt: string; ok: number; detail: string } | null;
+  lastCheck?: { ranAt: string; detail: string } | null;
   mirrors?: Array<{ email: string; backedUp: number; total: number; lastVerifiedAt: string | null }>;
 };
 type SyncResult = { saved?: boolean; message?: string };
@@ -150,9 +151,10 @@ export function GoogleDriveBackup() {
         <p className="font-semibold text-emerald-950">Respaldo automático activo en {status.email || "Google Drive"}.</p>
         {message && <p className="mt-1 text-emerald-900">{message}</p>}
         {status.lastRun && !status.lastRun.ok && status.lastRun.detail.includes("insufficientPermissions") && <p className="mt-1"><a href="/api/drive/connect" className="font-semibold text-emerald-950 underline">Volver a conectar Google Drive</a> y dejar marcada la casilla de Drive.</p>}
-        {(status.mirrors ?? []).map(mirror => <p key={mirror.email} className="mt-1 text-xs text-emerald-800">Copia adicional en {mirror.email}: {mirror.backedUp} de {mirror.total} fichas{mirror.lastVerifiedAt ? " (última " + fechaChile(mirror.lastVerifiedAt) + ")" : ""}.</p>)}
+        {(status.mirrors ?? []).map(mirror => <p key={mirror.email} className="mt-1 text-xs text-emerald-800">Copia adicional en {mirror.email}: {mirror.backedUp} de {mirror.total} fichas{mirror.lastVerifiedAt ? " (última " + fechaChile(mirror.lastVerifiedAt) + ")" : ""}.{mirror.backedUp < mirror.total ? " Las que faltan se copian solas en la revisión automática de cada hora." : ""}</p>)}
         <p className="mt-1 text-xs"><a href="/api/drive/connect?mirror=1" className="text-emerald-900 underline">{(status.mirrors ?? []).length ? "Agregar otra cuenta de Drive" : "Respaldar también en otra cuenta de Drive"}</a></p>
-        {status.lastRun && <p className={"mt-1 text-xs " + (status.lastRun.ok ? "text-emerald-800" : "text-rose-800")}>Último intento {status.lastRun.source === "cron" ? "automático" : "manual"} ({fechaChile(status.lastRun.ranAt)}): {status.lastRun.ok ? "correcto" : status.lastRun.detail}</p>}
+        {status.lastRun && <p className={"mt-1 text-xs " + (status.lastRun.ok ? "text-emerald-800" : "text-rose-800")}>Último respaldo {status.lastRun.source === "cron" ? "automático" : status.lastRun.source === "guardado" ? "al guardar" : "manual"} ({fechaChile(status.lastRun.ranAt)}): {status.lastRun.ok ? "correcto" : status.lastRun.detail}</p>}
+        <p className="mt-1 text-xs text-emerald-800" data-testid="drive-last-check">{status.lastCheck ? `Última revisión automática: ${fechaChile(status.lastCheck.ranAt)} (${status.lastCheck.detail}). Se revisa cada hora.` : "La revisión automática corre cada hora; aún no hay constancia de la primera."}</p>
       </div>
       {syncError && (
         <button type="button" onClick={() => void syncQueue()} disabled={busy} className="rounded-lg border border-emerald-300 bg-white px-3 py-2 font-semibold text-emerald-950 disabled:opacity-60">
