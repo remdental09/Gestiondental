@@ -1,6 +1,6 @@
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { getSender, removeSender, updateSettings } from "@/app/appointment-mail-db";
-import { runReminderCycle, sendTestMail } from "@/app/appointment-mail";
+import { runReminderCycle, sendReminderNow, sendTestMail } from "@/app/appointment-mail";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -47,6 +47,14 @@ export async function POST(request: Request) {
   const user = await getChatGPTUser();
   if (!user?.userId) return json({ error: "Inicia sesión." }, 401);
   if (!sameOrigin(request)) return json({ error: "Origen no permitido." }, 403);
+  const body = await request.json().catch(() => ({})) as { eventId?: unknown };
+  // {eventId}: envía ya el correo de esa cita al paciente. Sin eventId: correo de prueba al propio clínico.
+  if (body?.eventId !== undefined) {
+    const eventId = Number(body.eventId);
+    if (!Number.isSafeInteger(eventId) || eventId < 1) return json({ error: "Cita inválida." }, 400);
+    try { return json({ ok: true, detail: await sendReminderNow(user.userId, eventId) }); }
+    catch (error) { return json({ error: error instanceof Error ? error.message : "No se pudo enviar el correo." }, 502); }
+  }
   try { return json({ ok: true, detail: await sendTestMail(user.userId) }); }
   catch (error) { return json({ error: error instanceof Error ? error.message : "No se pudo enviar la prueba." }, 502); }
 }
