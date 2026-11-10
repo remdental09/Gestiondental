@@ -152,11 +152,12 @@ export async function beginGoogleDriveConnect(request: Request, user: ChatGPTUse
   authorization.searchParams.set("client_id", config.clientId);
   authorization.searchParams.set("redirect_uri", redirectUri);
   authorization.searchParams.set("response_type", "code");
-  authorization.searchParams.set("scope", "openid email https://www.googleapis.com/auth/drive.file");
+  const calendarMode = new URL(request.url).searchParams.get("calendar") === "1";
+  authorization.searchParams.set("scope", calendarMode ? "openid email " + CALENDAR_SCOPE : "openid email https://www.googleapis.com/auth/drive.file");
   authorization.searchParams.set("access_type", "offline");
   authorization.searchParams.set("include_granted_scopes", "true");
   // ?auto=1 (registro): Google parte con la misma cuenta con que se entró y no muestra el selector de cuentas.
-  const auto = new URL(request.url).searchParams.get("auto") === "1" && new URL(request.url).searchParams.get("mirror") !== "1";
+  const auto = new URL(request.url).searchParams.get("auto") === "1" && new URL(request.url).searchParams.get("mirror") !== "1" && new URL(request.url).searchParams.get("calendar") !== "1";
   if (auto && user.email) authorization.searchParams.set("login_hint", user.email);
   authorization.searchParams.set("prompt", auto && user.email ? "consent" : "consent select_account");
   authorization.searchParams.set("state", stateValue);
@@ -167,7 +168,8 @@ export async function beginGoogleDriveConnect(request: Request, user: ChatGPTUse
   headers.append("Set-Cookie", "__Host-gd-drive-state=" + stateValue + "; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=600");
   headers.append("Set-Cookie", "__Host-gd-drive-verifier=" + verifier + "; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=600");
   // ?mirror=1 conecta una segunda cuenta de Google Drive como copia adicional, sin reemplazar la principal.
-  headers.append("Set-Cookie", "__Host-gd-drive-mode=" + (new URL(request.url).searchParams.get("mirror") === "1" ? "mirror" : "primary") + "; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=600");
+  // ?calendar=1 conecta el Google Calendar de cualquier cuenta (solo lectura), sin tocar Drive.
+  headers.append("Set-Cookie", "__Host-gd-drive-mode=" + (calendarMode ? "calendar" : new URL(request.url).searchParams.get("mirror") === "1" ? "mirror" : "primary") + "; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=600");
   return new Response(null, { status: 302, headers });
 }
 
@@ -245,6 +247,20 @@ export async function finishGoogleDriveConnect(request: Request, user: ChatGPTUs
     if (!tokenResponse.ok) throw new Error("Google no pudo completar la autorización.");
     const tokens = await tokenResponse.json() as GoogleTokens;
     if (!tokens.access_token || !tokens.refresh_token) throw new Error("Google no entregó autorización permanente para Drive.");
+    if (cookieValue(request, "__Host-gd-drive-mode") === "calendar") {
+      if (!(tokens.scope || "").split(/\s+/).includes(CALENDAR_SCOPE)) return redirectWithDriveStatus(request, returnTo, "calendar-scope-missing", true);
+      const who = await fetch("https://openidconnect.googleapis.com/v1/userinfo", { headers: { Authorization: "Bearer " + tokens.access_token } });
+      const person = who.ok ? await who.json() as { sub?: string; email?: string } : {};
+      if (!person.sub || !person.email) throw new Error("No se pudo confirmar la cuenta de Google.");
+      await ensureCalendarTable();
+      const stamp = now();
+      await database().prepare(
+        "INSERT INTO google_calendar_connections (owner_id, google_sub, google_email, refresh_token_ciphertext, connected_at, last_sync_at, last_result, ok) VALUES (?, ?, ?, ?, ?, NULL, NULL, 0) " +
+        "ON CONFLICT(owner_id, google_sub) DO UPDATE SET google_email = excluded.google_email, refresh_token_ciphertext = excluded.refresh_token_ciphertext"
+      ).bind(user.userId, person.sub, person.email, await encryptRefreshToken(user.userId, tokens.refresh_token, config.clientSecret), stamp).run();
+      await syncGoogleCalendars(user.userId).catch(() => undefined);
+      return redirectWithDriveStatus(request, returnTo, "calendar-connected", true);
+    }
     // Google permite desmarcar el permiso de Drive en la pantalla de consentimiento: sin él, todo respaldo falla con 403.
     if (!(tokens.scope || "").split(/\s+/).includes("https://www.googleapis.com/auth/drive.file")) {
       return redirectWithDriveStatus(request, returnTo, "scope-missing", true);
@@ -816,4 +832,81 @@ export async function syncDriveMirrors(user: ChatGPTUser, source: "manual" | "cr
     }
   }
   return { results, budget };
+}
+
+
+// ---------------------------------------------------------------------------
+// Google Calendar de cualquier cuenta (solo lectura). Se conecta con «Conectar con Google», como Drive.
+const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
+type CalendarConnection = { owner_id: string; google_sub: string; google_email: string; refresh_token_ciphertext: string; connected_at: string; last_sync_at: string | null; last_result: string | null; ok: number };
+
+async function ensureCalendarTable() {
+  await database().prepare(
+    "CREATE TABLE IF NOT EXISTS google_calendar_connections (owner_id TEXT NOT NULL, google_sub TEXT NOT NULL, google_email TEXT NOT NULL, refresh_token_ciphertext TEXT NOT NULL, " +
+    "connected_at TEXT NOT NULL, last_sync_at TEXT, last_result TEXT, ok INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (owner_id, google_sub))"
+  ).run();
+}
+
+export async function listCalendarConnections(ownerId: string) {
+  await ensureCalendarTable();
+  const { results } = await database().prepare("SELECT * FROM google_calendar_connections WHERE owner_id = ? ORDER BY connected_at").bind(ownerId).all<CalendarConnection>();
+  return results.map(row => ({ id: row.google_sub, email: row.google_email, connectedAt: row.connected_at, lastSyncAt: row.last_sync_at, lastResult: row.last_result, ok: Boolean(row.ok) }));
+}
+
+export async function removeCalendarConnection(ownerId: string, googleSub: string) {
+  await ensureCalendarTable();
+  await database().prepare("DELETE FROM google_calendar_connections WHERE owner_id = ? AND google_sub = ?").bind(ownerId, googleSub).run();
+  await database().prepare("UPDATE calendar_events SET status = 'cancelled', imported_at = ? WHERE owner_id = ? AND calendar_id LIKE ?").bind(now(), ownerId, "g:" + googleSub + ":%").run();
+}
+
+type GoogleEvent = { id?: string; status?: string; summary?: string; updated?: string; start?: { dateTime?: string; date?: string }; end?: { dateTime?: string; date?: string } };
+
+/** Lee los calendarios visibles de cada cuenta conectada y los copia a la agenda (ventana de 2 semanas). Nunca escribe en Google. */
+export async function syncGoogleCalendars(ownerId?: string) {
+  const config = configuration();
+  if (!config.configured) return [];
+  await ensureCalendarTable();
+  const { syncWindow } = await import("@/app/calendar-ics");
+  const { UPSERT_EVENT, PRUNE_EVENTS } = await import("@/app/calendar-sync");
+  const query = ownerId
+    ? database().prepare("SELECT * FROM google_calendar_connections WHERE owner_id = ?").bind(ownerId)
+    : database().prepare("SELECT * FROM google_calendar_connections").bind();
+  const { results } = await query.all<CalendarConnection>();
+  const out: Array<{ email: string; ok: boolean; detail: string }> = [];
+  for (const row of results.slice(0, 20)) {
+    const user: ChatGPTUser = { userId: row.owner_id, displayName: "", email: row.google_email, fullName: null };
+    let detail: string, ok = false;
+    try {
+      const token = await getAccessToken(user, row as unknown as DriveConnection, config.clientSecret);
+      const list = await googleApi<{ items?: Array<{ id: string; summary?: string; selected?: boolean; primary?: boolean }> }>(token,
+        "https://www.googleapis.com/calendar/v3/users/me/calendarList?minAccessRole=reader&fields=items(id,summary,selected,primary)");
+      const calendars = (list.items ?? []).filter(cal => cal.primary || cal.selected).slice(0, 5);
+      const win = syncWindow(new Date());
+      const stamp = now();
+      let count = 0;
+      for (const cal of calendars) {
+        const params = new URLSearchParams({ timeMin: win.fromIso, timeMax: win.toIso, singleEvents: "true", orderBy: "startTime", maxResults: "2500", showDeleted: "false", fields: "items(id,status,summary,updated,start,end)" });
+        const events = await googleApi<{ items?: GoogleEvent[] }>(token, "https://www.googleapis.com/calendar/v3/calendars/" + encodeURIComponent(cal.id) + "/events?" + params.toString());
+        const calendarId = "g:" + row.google_sub + ":" + cal.id;
+        const rows = (events.items ?? []).filter(e => e.id && (e.start?.dateTime || e.start?.date));
+        const stmts = rows.map(e => {
+          const allDay = !e.start?.dateTime;
+          const startAt = e.start?.dateTime ? new Date(e.start.dateTime).toISOString() : e.start!.date! + "T03:00:00.000Z";
+          const endAt = e.end?.dateTime ? new Date(e.end.dateTime).toISOString() : (e.end?.date ?? e.start!.date!) + "T03:00:00.000Z";
+          return database().prepare(UPSERT_EVENT).bind(row.owner_id, calendarId, e.id, (e.summary || "(sin título)").slice(0, 300), startAt, endAt, "America/Santiago", e.status === "cancelled" ? "cancelled" : "confirmed", allDay ? 1 : 0, stamp, e.updated ?? null);
+        });
+        stmts.push(database().prepare(PRUNE_EVENTS).bind(stamp, row.owner_id, calendarId, win.fromIso, win.toIso, JSON.stringify(rows.map(e => e.id))));
+        for (const stmt of stmts) await stmt.run();
+        count += rows.length;
+      }
+      ok = true;
+      detail = `${count} citas en ${calendars.length} ${calendars.length === 1 ? "calendario" : "calendarios"}`;
+    } catch (error) {
+      const raw = error instanceof Error ? error.message : "error";
+      detail = /venció|invalid_grant|rechazada/.test(raw) ? "Google pide volver a conectar esta cuenta." : "No se pudo leer el calendario; se reintentará en la próxima actualización.";
+    }
+    await database().prepare("UPDATE google_calendar_connections SET last_sync_at = ?, last_result = ?, ok = ? WHERE owner_id = ? AND google_sub = ?").bind(now(), detail, ok ? 1 : 0, row.owner_id, row.google_sub).run();
+    out.push({ email: row.google_email, ok, detail });
+  }
+  return out;
 }

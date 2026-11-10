@@ -25,12 +25,15 @@ test("importa un calendario de otra cuenta para el profesional, con su propio id
   await assert.rejects(syncIcsSource(db, "https://calendar.google.com/x", "o", "src:1", new Date(), async () => new Response("", { status: 404 })), /HTTP 404/);
 });
 
-test("la agenda permite conectar calendarios y se refrescan cada hora", () => {
+test("la agenda conecta Google Calendar con un botón (sin direcciones iCal) y se actualiza cada hora", () => {
   const page = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const panel = readFileSync(new URL("../components/calendar-sources.tsx", import.meta.url), "utf8");
   const sched = readFileSync(new URL("../app/scheduled.ts", import.meta.url), "utf8");
-  const db = readFileSync(new URL("../app/calendar-sources-db.ts", import.meta.url), "utf8");
+  const oauth = readFileSync(new URL("../app/drive-oauth.ts", import.meta.url), "utf8");
   assert.match(page, /<CalendarSources onChanged=/);
-  assert.match(sched, /cron === HOURLY_BACKUP_CRON\) \{\n\s+const \{ syncSources \}/);
-  assert.match(db, /WHERE owner_id = \? AND id = \?/);
-  assert.doesNotMatch(db, /ics_url: row\.ics_url/, "la dirección secreta no se devuelve al navegador");
+  assert.match(panel, /href="\/api\/drive\/connect\?calendar=1"/);
+  assert.doesNotMatch(panel, /iCal/);
+  assert.match(oauth, /CALENDAR_SCOPE = "https:\/\/www\.googleapis\.com\/auth\/calendar\.readonly"/);
+  assert.match(oauth, /=== "calendar"\) \{\n\s+if \(!\(tokens\.scope/);
+  assert.equal(sched.split("syncGoogleCalendars()").length - 1, 2);
 });

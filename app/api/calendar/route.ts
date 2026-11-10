@@ -1,31 +1,26 @@
 import { getChatGPTUser } from "@/app/chatgpt-auth";
-import { addSource, listSources, removeSource, syncSources } from "@/app/calendar-sources-db";
+import { listCalendarConnections, removeCalendarConnection, syncGoogleCalendars } from "@/app/drive-oauth";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
 const json = (data: unknown, status = 200) => Response.json(data, { status, headers: { "Cache-Control": "no-store" } });
-const sameOrigin = (request: Request) => request.headers.get("origin") === new URL(request.url).origin;
 
 export async function GET() {
   const user = await getChatGPTUser();
   if (!user?.userId) return json({ error: "Inicia sesión." }, 401);
-  return json({ sources: await listSources(user.userId) });
+  return json({ accounts: await listCalendarConnections(user.userId) });
 }
 
-/** {url, label} agrega y sincroniza; {action:"sync"} sincroniza ahora; {action:"remove", id} quita. */
+/** {action:"sync"} actualiza ahora; {action:"remove", id} desconecta una cuenta. Conectar se hace con /api/drive/connect?calendar=1. */
 export async function POST(request: Request) {
   const user = await getChatGPTUser();
   if (!user?.userId) return json({ error: "Inicia sesión." }, 401);
-  if (!sameOrigin(request)) return json({ error: "Origen no permitido." }, 403);
-  const body = await request.json().catch(() => null) as { url?: unknown; label?: unknown; action?: unknown; id?: unknown } | null;
-  if (!body) return json({ error: "Solicitud inválida." }, 400);
+  if (request.headers.get("origin") !== new URL(request.url).origin) return json({ error: "Origen no permitido." }, 403);
+  const body = await request.json().catch(() => null) as { action?: unknown; id?: unknown } | null;
   try {
-    if (body.action === "sync") return json({ results: await syncSources(user.userId), sources: await listSources(user.userId) });
-    if (body.action === "remove" && typeof body.id === "string") { await removeSource(user.userId, body.id); return json({ sources: await listSources(user.userId) }); }
-    if (typeof body.url !== "string") return json({ error: "Falta la dirección del calendario." }, 400);
-    const result = await addSource(user.userId, body.url, typeof body.label === "string" ? body.label : "");
-    if ("error" in result) return json({ error: result.error }, 400);
-    return json({ ...result, sources: await listSources(user.userId) }, 201);
+    if (body?.action === "sync") return json({ results: await syncGoogleCalendars(user.userId), accounts: await listCalendarConnections(user.userId) });
+    if (body?.action === "remove" && typeof body.id === "string") { await removeCalendarConnection(user.userId, body.id); return json({ accounts: await listCalendarConnections(user.userId) }); }
+    return json({ error: "Acción no reconocida." }, 400);
   } catch {
     return json({ error: "No se pudo completar la acción con el calendario." }, 500);
   }
