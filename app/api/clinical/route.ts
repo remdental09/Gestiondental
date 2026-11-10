@@ -579,7 +579,10 @@ export async function POST(request: Request) {
       const day = string(input.day, 10), time = string(input.time, 5), reason = string(input.reason, 500);
       if (!validDate(day) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time) || !reason) return error("Revisa fecha, hora y motivo.");
       const [a] = await db.insert(appointments).values({ ownerId, patientId, day, time, reason, createdAt: now() }).returning();
-      return Response.json({ appointment: { id: a.id, patientId, day: day.split("-").reverse().join("-"), time, reason } }, { status: 201 });
+      const [who] = await db.select({ name: patients.name }).from(patients).where(and(eq(patients.id, patientId), eq(patients.ownerId, ownerId)));
+      const { pushAppointmentToGoogle } = await import("@/app/drive-oauth");
+      const calendar = await pushAppointmentToGoogle(ownerId, { id: a.id, day, time, reason }, who?.name || "").catch(() => "error" as const);
+      return Response.json({ appointment: { id: a.id, patientId, day: day.split("-").reverse().join("-"), time, reason }, calendar }, { status: 201 });
     }
     if (action === "addPayment") {
       const amount = Number(input.amount), method = string(input.method, 20), concept = string(input.concept, 240);
@@ -615,7 +618,10 @@ export async function POST(request: Request) {
       if (!Number.isSafeInteger(appointmentId) || appointmentId < 1 || !reason) return error("Revisa la cita y el motivo.");
       const [a] = await db.update(appointments).set({ reason }).where(and(eq(appointments.id, appointmentId), eq(appointments.patientId, patientId), eq(appointments.ownerId, ownerId))).returning();
       if (!a) return error("Cita no encontrada en esta ficha.", 404);
-      return Response.json({ appointment: { id: a.id, patientId, day: a.day.split("-").reverse().join("-"), time: a.time, reason: a.reason } });
+      const [who] = await db.select({ name: patients.name }).from(patients).where(and(eq(patients.id, patientId), eq(patients.ownerId, ownerId)));
+      const { updateAppointmentInGoogle } = await import("@/app/drive-oauth");
+      const calendar = await updateAppointmentInGoogle(ownerId, a.id, who?.name || "", a.reason).catch(() => "error" as const);
+      return Response.json({ appointment: { id: a.id, patientId, day: a.day.split("-").reverse().join("-"), time: a.time, reason: a.reason }, calendar });
     }
     if (action === "savePerio") {
       if (!validPerioTeeth(input.teeth) || JSON.stringify(input.teeth).length > 150000) return error("Examen periodontal inválido.");

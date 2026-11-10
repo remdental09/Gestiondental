@@ -158,7 +158,7 @@ export async function beginGoogleDriveConnect(request: Request, user: ChatGPTUse
   const mailMode = !calendarMode && new URL(request.url).searchParams.get("mail") === "1";
   // ?withCalendar=1 (registro): un solo consentimiento para Drive y Calendar.
   const withCalendar = !calendarMode && new URL(request.url).searchParams.get("withCalendar") === "1";
-  authorization.searchParams.set("scope", mailMode ? "openid email " + GMAIL_SEND_SCOPE : calendarMode ? "openid email " + CALENDAR_SCOPE : "openid email https://www.googleapis.com/auth/drive.file" + (withCalendar ? " " + CALENDAR_SCOPE : ""));
+  authorization.searchParams.set("scope", mailMode ? "openid email " + GMAIL_SEND_SCOPE : calendarMode ? "openid email " + CALENDAR_SCOPE + " " + CALENDAR_WRITE_SCOPE : "openid email https://www.googleapis.com/auth/drive.file" + (withCalendar ? " " + CALENDAR_SCOPE : ""));
   authorization.searchParams.set("access_type", "offline");
   authorization.searchParams.set("include_granted_scopes", "true");
   // ?auto=1 (registro): Google parte con la misma cuenta con que se entró y no muestra el selector de cuentas.
@@ -265,7 +265,7 @@ export async function finishGoogleDriveConnect(request: Request, user: ChatGPTUs
       const who = await fetch("https://openidconnect.googleapis.com/v1/userinfo", { headers: { Authorization: "Bearer " + tokens.access_token } });
       const person = who.ok ? await who.json() as { sub?: string; email?: string } : {};
       if (!person.sub || !person.email) throw new Error("No se pudo confirmar la cuenta de Google.");
-      await saveCalendarConnection(user.userId, person.sub, person.email, tokens.refresh_token, config.clientSecret);
+      await saveCalendarConnection(user.userId, person.sub, person.email, tokens.refresh_token, config.clientSecret, (tokens.scope || "").split(/\s+/).includes(CALENDAR_WRITE_SCOPE));
       return redirectWithDriveStatus(request, returnTo, "calendar-connected", true);
     }
     // Google permite desmarcar el permiso de Drive en la pantalla de consentimiento: sin él, todo respaldo falla con 403.
@@ -849,30 +849,34 @@ export async function syncDriveMirrors(user: ChatGPTUser, source: "manual" | "cr
 // ---------------------------------------------------------------------------
 // Google Calendar de cualquier cuenta (solo lectura). Se conecta con «Conectar con Google», como Drive.
 const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
+/** Crear y modificar citas en el calendario (sin acceso a borrar calendarios ni a ajustes). */
+const CALENDAR_WRITE_SCOPE = "https://www.googleapis.com/auth/calendar.events";
 const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
-type CalendarConnection = { owner_id: string; google_sub: string; google_email: string; refresh_token_ciphertext: string; connected_at: string; last_sync_at: string | null; last_result: string | null; ok: number };
+type CalendarConnection = { owner_id: string; google_sub: string; google_email: string; refresh_token_ciphertext: string; connected_at: string; last_sync_at: string | null; last_result: string | null; ok: number; can_write?: number };
 
 async function ensureCalendarTable() {
   await database().prepare(
     "CREATE TABLE IF NOT EXISTS google_calendar_connections (owner_id TEXT NOT NULL, google_sub TEXT NOT NULL, google_email TEXT NOT NULL, refresh_token_ciphertext TEXT NOT NULL, " +
     "connected_at TEXT NOT NULL, last_sync_at TEXT, last_result TEXT, ok INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (owner_id, google_sub))"
   ).run();
+  try { await database().prepare("ALTER TABLE google_calendar_connections ADD COLUMN can_write INTEGER NOT NULL DEFAULT 0").run(); } catch { /* la columna ya existe */ }
+  await database().prepare("CREATE TABLE IF NOT EXISTS appointment_google_events (owner_id TEXT NOT NULL, appointment_id INTEGER NOT NULL, google_sub TEXT NOT NULL, calendar_id TEXT NOT NULL, event_id TEXT NOT NULL, PRIMARY KEY (owner_id, appointment_id))").run();
 }
 
-async function saveCalendarConnection(ownerId: string, googleSub: string, email: string, refreshToken: string, clientSecret: string) {
+async function saveCalendarConnection(ownerId: string, googleSub: string, email: string, refreshToken: string, clientSecret: string, canWrite = false) {
   await ensureCalendarTable();
   const stamp = now();
   await database().prepare(
-    "INSERT INTO google_calendar_connections (owner_id, google_sub, google_email, refresh_token_ciphertext, connected_at, last_sync_at, last_result, ok) VALUES (?, ?, ?, ?, ?, NULL, NULL, 0) " +
-    "ON CONFLICT(owner_id, google_sub) DO UPDATE SET google_email = excluded.google_email, refresh_token_ciphertext = excluded.refresh_token_ciphertext"
-  ).bind(ownerId, googleSub, email, await encryptRefreshToken(ownerId, refreshToken, clientSecret), stamp).run();
+    "INSERT INTO google_calendar_connections (owner_id, google_sub, google_email, refresh_token_ciphertext, connected_at, last_sync_at, last_result, ok, can_write) VALUES (?, ?, ?, ?, ?, NULL, NULL, 0, ?) " +
+    "ON CONFLICT(owner_id, google_sub) DO UPDATE SET google_email = excluded.google_email, refresh_token_ciphertext = excluded.refresh_token_ciphertext, can_write = excluded.can_write"
+  ).bind(ownerId, googleSub, email, await encryptRefreshToken(ownerId, refreshToken, clientSecret), stamp, canWrite ? 1 : 0).run();
   await syncGoogleCalendars(ownerId).catch(() => undefined);
 }
 
 export async function listCalendarConnections(ownerId: string) {
   await ensureCalendarTable();
   const { results } = await database().prepare("SELECT * FROM google_calendar_connections WHERE owner_id = ? ORDER BY connected_at").bind(ownerId).all<CalendarConnection>();
-  return results.map(row => ({ id: row.google_sub, email: row.google_email, connectedAt: row.connected_at, lastSyncAt: row.last_sync_at, lastResult: row.last_result, ok: Boolean(row.ok) }));
+  return results.map(row => ({ id: row.google_sub, email: row.google_email, connectedAt: row.connected_at, lastSyncAt: row.last_sync_at, lastResult: row.last_result, ok: Boolean(row.ok), canWrite: Boolean(row.can_write) }));
 }
 
 export async function removeCalendarConnection(ownerId: string, googleSub: string) {
@@ -883,7 +887,7 @@ export async function removeCalendarConnection(ownerId: string, googleSub: strin
 
 type GoogleEvent = { id?: string; status?: string; summary?: string; description?: string; attendees?: Array<{ email?: string; self?: boolean; resource?: boolean }>; updated?: string; start?: { dateTime?: string; date?: string }; end?: { dateTime?: string; date?: string } };
 
-/** Lee los calendarios visibles de cada cuenta conectada y los copia a la agenda (ventana de 2 semanas). Nunca escribe en Google. */
+/** Lee los calendarios visibles de cada cuenta conectada y los copia a la agenda (ventana de 2 semanas). La escritura de citas está en pushAppointmentToGoogle. */
 export async function syncGoogleCalendars(ownerId?: string) {
   const config = configuration();
   if (!config.configured) return [];
@@ -968,4 +972,58 @@ export async function sendMailWithSender(sender: MailSender, raw: string): Promi
     const reason = await googleErrorReason(response);
     throw new Error(/accessNotConfigured|SERVICE_DISABLED|has not been used|is disabled/i.test(reason) ? "Falta activar la «Gmail API» en el proyecto de Google Cloud (" + reason + ")." : "Gmail no aceptó el envío (" + reason + ").");
   }
+}
+
+
+export type CalendarPushStatus = "ok" | "sin-conexion" | "solo-lectura" | "error";
+type AppointmentForGoogle = { id: number; day: string; time: string; reason: string };
+
+/** Crea la cita agendada en la ficha dentro del calendario principal de Google del profesional (si dio permiso de escritura). */
+export async function pushAppointmentToGoogle(ownerId: string, appointment: AppointmentForGoogle, patientName: string): Promise<CalendarPushStatus> {
+  const config = configuration();
+  if (!config.configured) return "sin-conexion";
+  await ensureCalendarTable();
+  const { results } = await database().prepare("SELECT * FROM google_calendar_connections WHERE owner_id = ? ORDER BY connected_at").bind(ownerId).all<CalendarConnection>();
+  if (!results.length) return "sin-conexion";
+  const row = results.find(r => r.can_write);
+  if (!row) return "solo-lectura";
+  try {
+    const { chileLocalToIso } = await import("@/lib/appointment-events");
+    const startIso = chileLocalToIso(appointment.day, appointment.time);
+    if (!startIso) return "error";
+    const endIso = new Date(new Date(startIso).getTime() + 30 * 60000).toISOString();
+    const user: ChatGPTUser = { userId: row.owner_id, displayName: "", email: row.google_email, fullName: null };
+    const token = await getAccessToken(user, row as unknown as DriveConnection, config.clientSecret);
+    const summary = [patientName, appointment.reason].filter(Boolean).join(" · ").slice(0, 300);
+    const wall = (iso: string) => new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Santiago", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).format(new Date(iso)).replace(" ", "T");
+    const created = await googleApi<{ id?: string; organizer?: { email?: string } }>(token, "https://www.googleapis.com/calendar/v3/calendars/primary/events?fields=id,organizer(email)", {
+      method: "POST",
+      body: JSON.stringify({ summary, start: { dateTime: wall(startIso), timeZone: "America/Santiago" }, end: { dateTime: wall(endIso), timeZone: "America/Santiago" } }),
+    });
+    if (!created.id) return "error";
+    const calendarId = "g:" + row.google_sub + ":" + (created.organizer?.email || row.google_email);
+    const { UPSERT_EVENT } = await import("@/app/calendar-sync");
+    await database().prepare(UPSERT_EVENT).bind(ownerId, calendarId, created.id, summary, startIso, endIso, "America/Santiago", "confirmed", 0, now(), null).run();
+    await database().prepare("INSERT OR REPLACE INTO appointment_google_events (owner_id, appointment_id, google_sub, calendar_id, event_id) VALUES (?, ?, ?, ?, ?)").bind(ownerId, appointment.id, row.google_sub, calendarId, created.id).run();
+    return "ok";
+  } catch { return "error"; }
+}
+
+/** Si la cita ya está en Google, actualiza su título cuando cambia el motivo. */
+export async function updateAppointmentInGoogle(ownerId: string, appointmentId: number, patientName: string, reason: string): Promise<CalendarPushStatus> {
+  const config = configuration();
+  if (!config.configured) return "sin-conexion";
+  await ensureCalendarTable();
+  const link = await database().prepare("SELECT * FROM appointment_google_events WHERE owner_id = ? AND appointment_id = ?").bind(ownerId, appointmentId).first<{ google_sub: string; calendar_id: string; event_id: string }>();
+  if (!link) return "sin-conexion";
+  const row = await database().prepare("SELECT * FROM google_calendar_connections WHERE owner_id = ? AND google_sub = ?").bind(ownerId, link.google_sub).first<CalendarConnection>();
+  if (!row?.can_write) return "solo-lectura";
+  try {
+    const user: ChatGPTUser = { userId: row.owner_id, displayName: "", email: row.google_email, fullName: null };
+    const token = await getAccessToken(user, row as unknown as DriveConnection, config.clientSecret);
+    const summary = [patientName, reason].filter(Boolean).join(" · ").slice(0, 300);
+    await googleApi(token, "https://www.googleapis.com/calendar/v3/calendars/primary/events/" + encodeURIComponent(link.event_id) + "?fields=id", { method: "PATCH", body: JSON.stringify({ summary }) });
+    await database().prepare("UPDATE calendar_events SET title = ? WHERE owner_id = ? AND calendar_id = ? AND google_event_id = ?").bind(summary, ownerId, link.calendar_id, link.event_id).run();
+    return "ok";
+  } catch { return "error"; }
 }

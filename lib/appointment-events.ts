@@ -20,14 +20,16 @@ export function chileLocalToIso(day: string, time: string): string | null {
 }
 
 export function appointmentsAsEvents(appointments: FichaAppointment[], patientName: (id: number) => string, existing: AgendaEvent[]): AgendaEvent[] {
-  const taken = new Set(existing.filter(e => e.patientId !== null).map(e => `${e.patientId}|${e.startAt.slice(0, 16)}`));
+  const taken = new Set(existing.flatMap(e => [e.patientId !== null ? `${e.patientId}|${e.startAt.slice(0, 16)}` : "", `${e.title}|${e.startAt.slice(0, 16)}`]).filter(Boolean));
   const out: AgendaEvent[] = [];
   for (const a of appointments) {
     const startAt = chileLocalToIso(a.day, a.time);
     if (!startAt || taken.has(`${a.patientId}|${startAt.slice(0, 16)}`)) continue;
     const endAt = new Date(new Date(startAt).getTime() + 30 * 60000).toISOString();
     const name = patientName(a.patientId);
-    out.push({ id: -a.id, title: [name, a.reason].filter(Boolean).join(" · "), startAt, endAt, sourceTimeZone: "America/Santiago", htmlLink: null, status: "confirmed", allDay: false, patientId: a.patientId });
+    const title = [name, a.reason].filter(Boolean).join(" · ");
+    if (taken.has(`${title}|${startAt.slice(0, 16)}`)) continue;
+    out.push({ id: -a.id, title, startAt, endAt, sourceTimeZone: "America/Santiago", htmlLink: null, status: "confirmed", allDay: false, patientId: a.patientId });
   }
   return out;
 }
