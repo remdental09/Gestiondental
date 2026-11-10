@@ -2835,7 +2835,7 @@ function onlyAsMeasure(raw: string, evidence: string): boolean {
   });
 }
 
-function resolveAiTooth(pieza: string, sistema: string, evidence: string): Mention {
+export function resolveAiTooth(pieza: string, sistema: string, evidence: string): Mention {
   const inQuote = toothMentions(evidence);
   const good = inQuote.filter((item): item is Extract<Mention, { ok: true }> => item.ok);
   const raw = pieza.trim().replace(/^(?:pieza|diente)\s+/i, "");

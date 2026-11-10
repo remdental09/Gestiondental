@@ -1,5 +1,6 @@
 "use client";
 
+import { EndoDictationSection } from "@/components/endo-dictation-section";
 import { chileDay } from "@/lib/chile-day";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Mic, MicOff, Sparkles } from "lucide-react";
@@ -1062,6 +1063,7 @@ export function ClinicalDictation({
               </li>)}</ul>
               <Button type="button" className="mt-3 bg-[#473a6d] hover:bg-[#3a2f5a]" disabled={transcribing || structuring || !Object.values(answers).some((value) => value.trim())} onClick={applyAnswers} data-testid="dictation-apply-answers">{structuring ? "Aplicando…" : "Aplicar respuestas"}</Button>
             </section>}
+            <EndoDictationSection patientId={patientId} text={workingText || transcript} attentionDate={attentionDate} />
             <details className="rounded-xl border border-[#dddbe6] bg-white p-3" data-testid="dictation-transcript-review">
               <summary className="cursor-pointer font-medium text-[#3b3355]">Ver transcripción y correcciones (opcional)</summary>
               <div className="mt-3">
