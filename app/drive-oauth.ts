@@ -153,11 +153,13 @@ export async function beginGoogleDriveConnect(request: Request, user: ChatGPTUse
   authorization.searchParams.set("redirect_uri", redirectUri);
   authorization.searchParams.set("response_type", "code");
   const calendarMode = new URL(request.url).searchParams.get("calendar") === "1";
-  authorization.searchParams.set("scope", calendarMode ? "openid email " + CALENDAR_SCOPE : "openid email https://www.googleapis.com/auth/drive.file");
+  // ?withCalendar=1 (registro): un solo consentimiento para Drive y Calendar.
+  const withCalendar = !calendarMode && new URL(request.url).searchParams.get("withCalendar") === "1";
+  authorization.searchParams.set("scope", calendarMode ? "openid email " + CALENDAR_SCOPE : "openid email https://www.googleapis.com/auth/drive.file" + (withCalendar ? " " + CALENDAR_SCOPE : ""));
   authorization.searchParams.set("access_type", "offline");
   authorization.searchParams.set("include_granted_scopes", "true");
   // ?auto=1 (registro): Google parte con la misma cuenta con que se entró y no muestra el selector de cuentas.
-  const auto = new URL(request.url).searchParams.get("auto") === "1" && new URL(request.url).searchParams.get("mirror") !== "1" && new URL(request.url).searchParams.get("calendar") !== "1";
+  const auto = new URL(request.url).searchParams.get("auto") === "1" && new URL(request.url).searchParams.get("mirror") !== "1";
   if (auto && user.email) authorization.searchParams.set("login_hint", user.email);
   authorization.searchParams.set("prompt", auto && user.email ? "consent" : "consent select_account");
   authorization.searchParams.set("state", stateValue);
@@ -169,7 +171,7 @@ export async function beginGoogleDriveConnect(request: Request, user: ChatGPTUse
   headers.append("Set-Cookie", "__Host-gd-drive-verifier=" + verifier + "; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=600");
   // ?mirror=1 conecta una segunda cuenta de Google Drive como copia adicional, sin reemplazar la principal.
   // ?calendar=1 conecta el Google Calendar de cualquier cuenta (solo lectura), sin tocar Drive.
-  headers.append("Set-Cookie", "__Host-gd-drive-mode=" + (calendarMode ? "calendar" : new URL(request.url).searchParams.get("mirror") === "1" ? "mirror" : "primary") + "; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=600");
+  headers.append("Set-Cookie", "__Host-gd-drive-mode=" + (calendarMode ? "calendar" : new URL(request.url).searchParams.get("mirror") === "1" ? "mirror" : withCalendar ? "primary-calendar" : "primary") + "; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=600");
   return new Response(null, { status: 302, headers });
 }
 
@@ -252,13 +254,7 @@ export async function finishGoogleDriveConnect(request: Request, user: ChatGPTUs
       const who = await fetch("https://openidconnect.googleapis.com/v1/userinfo", { headers: { Authorization: "Bearer " + tokens.access_token } });
       const person = who.ok ? await who.json() as { sub?: string; email?: string } : {};
       if (!person.sub || !person.email) throw new Error("No se pudo confirmar la cuenta de Google.");
-      await ensureCalendarTable();
-      const stamp = now();
-      await database().prepare(
-        "INSERT INTO google_calendar_connections (owner_id, google_sub, google_email, refresh_token_ciphertext, connected_at, last_sync_at, last_result, ok) VALUES (?, ?, ?, ?, ?, NULL, NULL, 0) " +
-        "ON CONFLICT(owner_id, google_sub) DO UPDATE SET google_email = excluded.google_email, refresh_token_ciphertext = excluded.refresh_token_ciphertext"
-      ).bind(user.userId, person.sub, person.email, await encryptRefreshToken(user.userId, tokens.refresh_token, config.clientSecret), stamp).run();
-      await syncGoogleCalendars(user.userId).catch(() => undefined);
+      await saveCalendarConnection(user.userId, person.sub, person.email, tokens.refresh_token, config.clientSecret);
       return redirectWithDriveStatus(request, returnTo, "calendar-connected", true);
     }
     // Google permite desmarcar el permiso de Drive en la pantalla de consentimiento: sin él, todo respaldo falla con 403.
@@ -300,6 +296,10 @@ export async function finishGoogleDriveConnect(request: Request, user: ChatGPTUs
 
     if (!previous || previous.google_sub !== profile.sub) {
       await db.prepare("UPDATE drive_backups SET snapshot_digest = '' WHERE owner_id = ?").bind(user.userId).run();
+    }
+    // Registro con «Ver mis citas de Google Calendar»: el mismo permiso sirve para la agenda.
+    if (cookieValue(request, "__Host-gd-drive-mode") === "primary-calendar" && (tokens.scope || "").split(/\s+/).includes(CALENDAR_SCOPE)) {
+      await saveCalendarConnection(user.userId, profile.sub, profile.email, tokens.refresh_token, config.clientSecret).catch(() => undefined);
     }
     return redirectWithDriveStatus(request, returnTo, "connected", true);
   } catch {
@@ -845,6 +845,16 @@ async function ensureCalendarTable() {
     "CREATE TABLE IF NOT EXISTS google_calendar_connections (owner_id TEXT NOT NULL, google_sub TEXT NOT NULL, google_email TEXT NOT NULL, refresh_token_ciphertext TEXT NOT NULL, " +
     "connected_at TEXT NOT NULL, last_sync_at TEXT, last_result TEXT, ok INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (owner_id, google_sub))"
   ).run();
+}
+
+async function saveCalendarConnection(ownerId: string, googleSub: string, email: string, refreshToken: string, clientSecret: string) {
+  await ensureCalendarTable();
+  const stamp = now();
+  await database().prepare(
+    "INSERT INTO google_calendar_connections (owner_id, google_sub, google_email, refresh_token_ciphertext, connected_at, last_sync_at, last_result, ok) VALUES (?, ?, ?, ?, ?, NULL, NULL, 0) " +
+    "ON CONFLICT(owner_id, google_sub) DO UPDATE SET google_email = excluded.google_email, refresh_token_ciphertext = excluded.refresh_token_ciphertext"
+  ).bind(ownerId, googleSub, email, await encryptRefreshToken(ownerId, refreshToken, clientSecret), stamp).run();
+  await syncGoogleCalendars(ownerId).catch(() => undefined);
 }
 
 export async function listCalendarConnections(ownerId: string) {

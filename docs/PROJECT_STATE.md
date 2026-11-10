@@ -273,3 +273,4 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 - `/api/clinical` con tiempo máximo de 15 s: si no responde, aviso con «Reintentar» (antes quedaba en «Cargando fichas…»).
 - `app/layout.tsx`: si falta un archivo de una versión anterior (tras un despliegue) o la página no arranca en 20 s, se recarga sola, a lo más una vez por minuto.
 - El panel «Google Calendar» (Conectar con Google) también está en el recuadro «Esta semana» de Inicio.
+- Registro inicial: casilla «Ver mis citas de Google Calendar» (marcada por defecto). Con Drive marcado, un solo consentimiento pide ambos permisos (`?withCalendar=1`, modo `primary-calendar`); sin Drive, va a `?calendar=1&auto=1`.
