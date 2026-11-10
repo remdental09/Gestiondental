@@ -2,6 +2,11 @@ import { env } from "cloudflare:workers";
 import { desc, eq } from "drizzle-orm";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { getDb } from "@/db";
+import { fichaMarkdown } from "@/lib/backup-markdown";
+import { chileDay } from "@/lib/chile-day";
+import { decodeBudgetData } from "@/lib/budget-plans";
+import { loadAddresses } from "@/app/patient-address-db";
+import { loadAnamnesis } from "@/app/anamnesis-db";
 import { appointments, budgets, clinicalImages, driveBackups, evolutions, patients, payments, periodontalExams, toothStatuses } from "@/db/schema";
 
 export const runtime = "edge";
@@ -18,7 +23,7 @@ function toBase64(bytes: Uint8Array) {
   return btoa(binary);
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const ownerId = (await getChatGPTUser())?.userId;
   if (!ownerId) return fail("Inicia sesión para descargar las fichas.", 401);
 
@@ -39,6 +44,29 @@ export async function GET() {
     // Las evoluciones anuladas no salen en la descarga; se conservan en la base y en el respaldo de Drive (marcadas).
     const evolutionRows = allEvolutionRows.filter((row) => row.status !== "anulada");
     const annulledEvolutionsOmitted = allEvolutionRows.length - evolutionRows.length;
+
+    // Markdown: una ficha legible tras otra, sin imágenes (quedan en la app). Mismos datos que la descarga JSON.
+    if (new URL(request.url).searchParams.get("format") === "md") {
+      const addresses = await loadAddresses(ownerId).catch(() => new Map());
+      const parts = await Promise.all(patientRows.map(async (patient) => {
+        const anamnesis = await loadAnamnesis(ownerId, patient.id).catch(() => null);
+        const tooth = toothRows.find((row) => row.patientId === patient.id);
+        return fichaMarkdown({
+          patient: { ...patient, rut: patient.rut || "" },
+          address: addresses.get(patient.id) ?? null,
+          anamnesis: anamnesis as Record<string, unknown> | null,
+          evolutions: evolutionRows.filter((row) => row.patientId === patient.id),
+          budgets: budgetRows.filter((row) => row.patientId === patient.id).map((row) => { const data = decodeBudgetData(row.items); return { id: row.id, title: row.title, items: data.items, status: row.status, createdAt: row.createdAt, isAlternative: data.isAlternative }; }),
+          appointments: appointmentRows.filter((row) => row.patientId === patient.id),
+          periodontalExams: perioRows.filter((row) => row.patientId === patient.id).map((row) => ({ recordedAt: row.recordedAt, data: null })),
+          odontogram: tooth ? JSON.parse(tooth.data) : null,
+          imageMetadata: imageRows.filter((row) => row.patientId === patient.id),
+        }, new Date().toISOString());
+      }));
+      const header = `# Fichas clínicas · Gestión Dental\n\n_${patientRows.length} ${patientRows.length === 1 ? "paciente" : "pacientes"} · descargado ${chileDay(new Date().toISOString()).split("-").reverse().join("-")}${annulledEvolutionsOmitted ? ` · ${annulledEvolutionsOmitted} evoluciones anuladas omitidas (se conservan en la app y en Drive)` : ""}_\n\n---\n\n`;
+      const body = header + parts.join("\n---\n\n");
+      return new Response(body, { headers: { "Content-Type": "text/markdown; charset=utf-8", "Content-Disposition": `attachment; filename="gestion-dental-pacientes.md"`, "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" } });
+    }
 
     const images = await Promise.all(imageRows.map(async (image) => {
       const object = env.BUCKET ? await env.BUCKET.get(image.objectKey) : null;

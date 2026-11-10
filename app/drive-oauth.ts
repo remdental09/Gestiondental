@@ -466,6 +466,43 @@ async function replaceDocumentText(accessToken: string, documentId: string, text
   if (!textInDocument(verified).includes(text)) throw new Error("No se pudo verificar el contenido guardado en Drive.");
 }
 
+
+// ---------------------------------------------------------------------------
+// Copia en Markdown (.md) de cada ficha, junto al documento de Google Docs.
+async function ensureMarkdownTable() {
+  await database().prepare("CREATE TABLE IF NOT EXISTS drive_md_files (owner_id TEXT NOT NULL, account TEXT NOT NULL, patient_id INTEGER NOT NULL, file_id TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (owner_id, account, patient_id))").run();
+}
+
+/** Crea o actualiza `ficha.md` en la carpeta del paciente. `account` = "principal" o la cuenta adicional. Una sola llamada a Google por ficha. */
+async function writeMarkdownFile(accessToken: string, ownerId: string, account: string, patientId: number, folderId: string, fileName: string, markdown: string) {
+  await ensureMarkdownTable();
+  const row = await database().prepare("SELECT file_id FROM drive_md_files WHERE owner_id = ? AND account = ? AND patient_id = ?").bind(ownerId, account, patientId).first<{ file_id: string }>();
+  let fileId = row?.file_id ?? null;
+  if (fileId) {
+    const response = await fetch("https://www.googleapis.com/upload/drive/v3/files/" + encodeURIComponent(fileId) + "?uploadType=media&fields=id", {
+      method: "PATCH", headers: { Authorization: "Bearer " + accessToken, "Content-Type": "text/markdown; charset=UTF-8" }, body: markdown,
+    });
+    if (response.status === 404) fileId = null; // borrado en Drive: se vuelve a crear
+    else if (!response.ok) throw new Error("Google Drive rechazó la copia .md (" + await googleErrorReason(response) + ").");
+  }
+  if (!fileId) {
+    const boundary = "gd" + randomToken(12);
+    const body = "--" + boundary + "\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n" + JSON.stringify({ name: fileName, mimeType: "text/markdown", parents: [folderId] }) +
+      "\r\n--" + boundary + "\r\nContent-Type: text/markdown; charset=UTF-8\r\n\r\n" + markdown + "\r\n--" + boundary + "--";
+    const response = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id", {
+      method: "POST", headers: { Authorization: "Bearer " + accessToken, "Content-Type": "multipart/related; boundary=" + boundary }, body,
+    });
+    if (!response.ok) throw new Error("Google Drive rechazó la copia .md (" + await googleErrorReason(response) + ").");
+    fileId = (await response.json() as { id?: string }).id ?? null;
+    if (!fileId) throw new Error("Google Drive no devolvió la copia .md.");
+  }
+  await database().prepare("INSERT INTO drive_md_files (owner_id, account, patient_id, file_id, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(owner_id, account, patient_id) DO UPDATE SET file_id = excluded.file_id, updated_at = excluded.updated_at")
+    .bind(ownerId, account, patientId, fileId, now()).run();
+  return fileId;
+}
+
+const markdownName = (patientId: number, name: string) => `Ficha ${patientId} - ${name.replace(/[\\/:*?"<>|]/g, " ").trim()}.md`;
+
 async function backupPatient(user: ChatGPTUser, patientId: number, tokenCache?: Map<string, string>) {
   const config = configuration();
   if (!config.configured) return { saved: false, configured: false, connected: false, message: "Google Drive requiere configuración." };
@@ -501,6 +538,7 @@ async function backupPatient(user: ChatGPTUser, patientId: number, tokenCache?: 
   }
 
   await replaceDocumentText(accessToken, documentId, snapshot.documentText);
+  await writeMarkdownFile(accessToken, user.userId, "principal", patientId, patientFolder.id, markdownName(patientId, snapshot.name), snapshot.markdown);
   const confirmed = await confirmDriveSnapshot(
     user.userId,
     patientId,
@@ -577,7 +615,8 @@ export async function syncGoogleDrive(user: ChatGPTUser, body: unknown) {
  * Each ficha costs ~6 Google subrequests, so a run handles at most `maxPatients`
  * (Workers Free allows 50 subrequests per invocation); the cron repeats every 10 minutes.
  */
-export async function runScheduledDriveBackup(maxPatients = 6) {
+// Cada ficha usa ~7 llamadas a Google (documento + copia .md): 5 por corrida respetan el límite de 50 del plan gratuito.
+export async function runScheduledDriveBackup(maxPatients = 5) {
   const config = configuration();
   if (!config.configured) return { configured: false, results: [] as Array<Record<string, unknown>> };
   await ensureConnectionTable();
@@ -735,6 +774,7 @@ async function backupPatientToMirror(user: ChatGPTUser, mirror: MirrorConnection
     documentId = created.id;
   }
   await replaceDocumentText(accessToken, documentId, snapshot.documentText);
+  await writeMarkdownFile(accessToken, user.userId, "copia:" + mirror.google_sub, patientId, folder.id, markdownName(patientId, snapshot.name), snapshot.markdown);
   const current = await getDriveSnapshot(user.userId, patientId);
   if (!current || current.digest !== snapshot.digest) return { saved: false, patientId, message: "La ficha cambió durante el respaldo; se copiará en el próximo intento." };
   await database().prepare(

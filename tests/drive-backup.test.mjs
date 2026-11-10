@@ -66,6 +66,9 @@ function fixture() {
       'drizzle-orm': { and, asc: value => value, eq, gt: () => null },
       '@/db': { getDb },
       '@/db/schema': tables,
+      '@/lib/backup-markdown': { fichaMarkdown: (record) => `# Ficha clínica · ${record.patient.name}\n` },
+      '@/app/anamnesis-db': { loadAnamnesis: async () => null },
+      '@/app/patient-address-db': { loadAddresses: async () => new Map() },
     })[name],
     crypto, TextEncoder, Date, Uint8Array, ArrayBuffer,
   });
