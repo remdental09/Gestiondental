@@ -209,8 +209,8 @@ export function GlobalDictation({ patients, notes = [], onUsePatient, onCreatePa
   };
 
   return <>
-    <button type="button" onClick={() => setOpen(true)} data-testid="global-dictation-open" className="flex w-full items-center gap-4 rounded-xl bg-gradient-to-r from-[#3b3355] via-[#5d4a8a] to-[#c9765a] p-4 text-left text-white shadow-[0_10px_30px_-12px_rgba(71,58,109,.55)] transition hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#473a6d] sm:p-5">
-      <span className="flex size-12 shrink-0 items-center justify-center rounded-full bg-white/15"><Mic className="size-6" aria-hidden="true" /></span>
+    <button type="button" onClick={() => setOpen(true)} data-testid="global-dictation-open" className="fx-shine fx-shine-auto flex w-full items-center gap-4 rounded-xl bg-gradient-to-r from-[#3b3355] via-[#5d4a8a] to-[#c9765a] p-4 text-left text-white shadow-[0_10px_30px_-12px_rgba(71,58,109,.55)] transition hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#473a6d] sm:p-5">
+      <span className="fx-mic flex size-12 shrink-0 items-center justify-center rounded-full bg-white/15"><Mic className="size-6" aria-hidden="true" /></span>
       <span className="min-w-0"><strong className="block text-lg">Dictar</strong><span className="block text-sm text-white/85">Dicta la atención de cualquier paciente, nuevo o con ficha. La app elige la ficha y la IA ordena la nota; tú confirmas.</span></span>
     </button>
     <Dialog open={open} onOpenChange={(next) => { if (!next) close(); else setOpen(true); }}>
@@ -221,7 +221,7 @@ export function GlobalDictation({ patients, notes = [], onUsePatient, onCreatePa
         </DialogHeader>
         <div className="space-y-4 text-sm">
           <div className="flex flex-wrap gap-2">
-            <Button type="button" size="lg" className={`min-h-12 flex-1 sm:flex-none ${listening ? "bg-[#a43542] hover:bg-[#8a2c37]" : "bg-[#473a6d] hover:bg-[#3a2f5a]"}`} disabled={transcribing} onClick={listening ? stop : () => void start()} aria-pressed={listening} data-testid="global-dictation-mic">
+            <Button type="button" size="lg" className={`min-h-12 flex-1 sm:flex-none ${listening ? "fx-mic-live bg-[#a43542] hover:bg-[#8a2c37]" : "bg-[#473a6d] hover:bg-[#3a2f5a]"}`} disabled={transcribing} onClick={listening ? stop : () => void start()} aria-pressed={listening} data-testid="global-dictation-mic">
               {listening ? <MicOff className="mr-2 size-5" /> : <Mic className="mr-2 size-5" />}{listening ? "Detener" : transcript ? "Seguir dictando" : "Empezar a dictar"}
             </Button>
             {!listening && !transcribing && transcript.trim().length >= 3 && !identifying && <Button type="button" size="lg" variant="outline" className="min-h-12" onClick={() => void identify(finalText())} data-testid="global-dictation-identify">{decision ? "Volver a buscar la ficha" : "Buscar la ficha"}</Button>}

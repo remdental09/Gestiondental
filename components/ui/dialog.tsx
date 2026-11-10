@@ -71,7 +71,7 @@ function DialogContent({
         data-genie=""
         ref={setOrigin}
         className={cn(
-          "fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border bg-background p-6 shadow-lg outline-none sm:max-w-lg",
+          "fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border bg-background/95 p-6 shadow-[0_30px_70px_-25px_rgba(42,37,64,.55)] backdrop-blur-xl outline-none sm:max-w-lg",
           className
         )}
         {...props}
