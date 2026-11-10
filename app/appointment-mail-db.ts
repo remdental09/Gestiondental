@@ -86,3 +86,12 @@ export async function declinedEvents(ownerId: string): Promise<number[]> {
   ).bind(ownerId).all<{ event_id: number }>();
   return results.map(row => row.event_id);
 }
+
+/** Correos de confirmación ya enviados por cita (solo si la cita sigue a la misma hora): eventId → fecha de envío. */
+export async function sentReminders(ownerId: string): Promise<Record<number, string>> {
+  const db = need(); await ensureMailTables(db);
+  const { results } = await db.prepare(
+    "SELECT r.event_id AS event_id, r.sent_at AS sent_at FROM appointment_reminders r JOIN calendar_events e ON e.id = r.event_id AND e.owner_id = r.owner_id AND e.start_at = r.start_at WHERE r.owner_id = ? AND e.status = 'confirmed'"
+  ).bind(ownerId).all<{ event_id: number; sent_at: string }>();
+  return Object.fromEntries(results.map(row => [row.event_id, row.sent_at]));
+}
