@@ -35,18 +35,18 @@ export function CalendarSources({ onChanged }: { onChanged: () => void }) {
     finally { setBusy(""); }
   };
 
-  return <section className="mt-6 rounded-xl border border-[#e4def3] bg-white p-4" aria-label="Google Calendar conectado" data-testid="calendar-sources">
+  return <section className="mt-6 rounded-xl border border-[#e6e4ee] bg-white p-4" aria-label="Google Calendar conectado" data-testid="calendar-sources">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div><h4 className="font-semibold">Google Calendar</h4>
-        <p className="text-xs text-[#6e6a8c]">Conecta el calendario de cualquier cuenta de Gmail. La app solo mira tus citas, no cambia nada, y se actualiza cada hora.</p></div>
+        <p className="text-xs text-[#6b6a7c]">Conecta el calendario de cualquier cuenta de Gmail. La app solo mira tus citas, no cambia nada, y se actualiza cada hora.</p></div>
       <div className="flex gap-2">
         {!!accounts?.length && <Button type="button" variant="outline" size="sm" disabled={!!busy} onClick={async () => { if (await call({ action: "sync" }, "sync")) setNotice("Agenda actualizada."); }}>
           {busy === "sync" ? <Loader2 className="mr-1 size-4 animate-spin" /> : <RefreshCw className="mr-1 size-4" />}Actualizar</Button>}
-        <a href="/api/drive/connect?calendar=1" className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#6a3fc8] px-4 text-sm font-semibold text-white hover:bg-[#5a33ad]" data-testid="calendar-connect">
+        <a href="/api/drive/connect?calendar=1" className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#473a6d] px-4 text-sm font-semibold text-white hover:bg-[#644e92]" data-testid="calendar-connect">
           <CalendarCheck className="size-4" />{accounts?.length ? "Conectar otra cuenta" : "Conectar con Google"}</a>
       </div>
     </div>
-    {accounts && accounts.length > 0 && <ul className="mt-3 space-y-2">{accounts.map(account => <li key={account.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#ebe6f6] px-3 py-2 text-sm">
+    {accounts && accounts.length > 0 && <ul className="mt-3 space-y-2">{accounts.map(account => <li key={account.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#ebeaf1] px-3 py-2 text-sm">
       <div><p className="font-medium">{account.email}</p>
         <p className={`text-xs ${account.ok || !account.lastSyncAt ? "text-emerald-800" : "text-rose-800"}`}>Actualizado: {when(account.lastSyncAt)}{account.lastResult ? ` · ${account.lastResult}` : ""}</p></div>
       <Button type="button" variant="ghost" size="sm" disabled={!!busy} aria-label={`Desconectar ${account.email}`} onClick={async () => { if (window.confirm(`¿Desconectar el calendario de ${account.email}? Sus citas dejarán de verse en la agenda.`) && await call({ action: "remove", id: account.id }, "remove")) setNotice("Calendario desconectado."); }}><Trash2 className="size-4 text-rose-700" /></Button>

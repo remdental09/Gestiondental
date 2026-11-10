@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { PRESTACION_SPECIALTIES, MAX_CREATE_AT_ONCE, variantName, type CustomPrestacion } from "@/lib/custom-prestaciones";
 
-const field = "mt-1 block min-h-11 w-full rounded-lg border border-[#d3cbe8] bg-white px-3 text-base text-[#1f1b3a] focus-visible:outline-2 focus-visible:outline-[#6a3fc8]";
+const field = "mt-1 block min-h-11 w-full rounded-lg border border-[#d2d4df] bg-white px-3 text-base text-[#35343f] focus-visible:outline-2 focus-visible:outline-[#473a6d]";
 const NONE = "", OWN = "__own";
 
 /** «Crear prestación»: una prestación propia, o una familia de variantes (1–5 caras, 1–4 conductos…) cada una con su precio. */
@@ -45,11 +45,11 @@ export function CreatePrestacionDialog({ onClose, onCreated }: { onClose: () => 
     finally { setSaving(false); }
   };
 
-  return <div role="dialog" aria-modal="true" aria-labelledby="crear-prestacion-titulo" className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-[#1b1245]/70 p-4 sm:items-center" data-testid="create-prestacion-dialog">
-    <div className="w-full max-w-2xl rounded-2xl bg-white p-5 shadow-2xl sm:p-6">
+  return <div role="dialog" aria-modal="true" aria-labelledby="crear-prestacion-titulo" className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-[#2a2540]/70 p-4 sm:items-center" data-testid="create-prestacion-dialog">
+    <div className="w-full max-w-2xl rounded-xl bg-white p-5 shadow-2xl sm:p-6">
       <div className="flex items-start justify-between gap-3">
-        <div><h2 id="crear-prestacion-titulo" className="text-xl font-semibold text-[#1f1b3a]">Crear prestación</h2><p className="mt-1 text-sm text-[#625e82]">Para lo que no está en el catálogo. Queda solo en tu cuenta y se ofrece al armar presupuestos.</p></div>
-        <button type="button" aria-label="Cerrar" onClick={close} className="rounded p-1 text-[#4f4a74] hover:bg-[#f3effd]"><X className="size-5"/></button>
+        <div><h2 id="crear-prestacion-titulo" className="text-xl font-semibold text-[#35343f]">Crear prestación</h2><p className="mt-1 text-sm text-[#615f73]">Para lo que no está en el catálogo. Queda solo en tu cuenta y se ofrece al armar presupuestos.</p></div>
+        <button type="button" aria-label="Cerrar" onClick={close} className="rounded p-1 text-[#4f4e62] hover:bg-[#efeef4]"><X className="size-5"/></button>
       </div>
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
         <label className="text-sm font-medium">Especialidad
@@ -62,7 +62,7 @@ export function CreatePrestacionDialog({ onClose, onCreated }: { onClose: () => 
           <input ref={nameRef} className={field} maxLength={100} value={name} onChange={event => setName(event.target.value)} placeholder="Ej.: Obturación de resina" data-testid="cp-name"/>
         </label>
       </div>
-      {spec && <div className="mt-4 rounded-xl border border-[#e4def3] bg-[#fbf9ff] p-4">
+      {spec && <div className="mt-4 rounded-xl border border-[#e6e4ee] bg-[#f9f9fb] p-4">
         <label className="text-sm font-medium">¿Cambia el precio según…?
           <select className={field} value={dimension} onChange={event => { setDimension(event.target.value); setRows({}); }} data-testid="cp-dimension">
             <option value={NONE}>No, un solo precio</option>
@@ -76,23 +76,23 @@ export function CreatePrestacionDialog({ onClose, onCreated }: { onClose: () => 
         {dimension === OWN && <label className="mt-3 block text-sm font-medium">Variantes, separadas por coma
           <input className={field} value={ownText} onChange={event => setOwnText(event.target.value)} placeholder="Ej.: Niño, Adulto, Adulto mayor" data-testid="cp-own"/>
         </label>}
-        {dimension !== NONE && options.length > 0 && <ul className="mt-3 divide-y divide-[#eee9fa] rounded-lg border border-[#e4def3] bg-white" data-testid="cp-variants">
+        {dimension !== NONE && options.length > 0 && <ul className="mt-3 divide-y divide-[#efeef4] rounded-lg border border-[#e6e4ee] bg-white" data-testid="cp-variants">
           {options.map(option => {
             const row = rows[option] ?? { on: true, price: "" };
             return <li key={option} className="grid grid-cols-[auto_minmax(0,1fr)_140px] items-center gap-3 px-3 py-2 text-sm">
               <input type="checkbox" className="size-4" checked={row.on} aria-label={`Incluir ${option}`} onChange={event => setRow(option, { on: event.target.checked })}/>
-              <span className={row.on ? "text-[#1f1b3a]" : "text-[#9a96b5]"}>{name.trim() ? variantName(name, option) : option}</span>
-              <span className="flex items-center gap-1"><span className="text-[#6e6a8c]">$</span><input className="h-9 w-full rounded-lg border border-[#d3cbe8] px-2 text-right disabled:bg-[#f4f2fa]" inputMode="numeric" placeholder="Sin precio" disabled={!row.on} value={row.price} onChange={event => setRow(option, { price: event.target.value })} aria-label={`Precio de ${option}`}/></span>
+              <span className={row.on ? "text-[#35343f]" : "text-[#9a96b5]"}>{name.trim() ? variantName(name, option) : option}</span>
+              <span className="flex items-center gap-1"><span className="text-[#6b6a7c]">$</span><input className="h-9 w-full rounded-lg border border-[#d2d4df] px-2 text-right disabled:bg-[#f5f4f8]" inputMode="numeric" placeholder="Sin precio" disabled={!row.on} value={row.price} onChange={event => setRow(option, { price: event.target.value })} aria-label={`Precio de ${option}`}/></span>
             </li>;
           })}
         </ul>}
-        {dimension !== NONE && <p className="mt-2 text-xs text-[#6e6a8c]">Se crea una prestación por cada variante marcada; puedes dejar precios vacíos y completarlos después. Desmarca las que no haces.</p>}
+        {dimension !== NONE && <p className="mt-2 text-xs text-[#6b6a7c]">Se crea una prestación por cada variante marcada; puedes dejar precios vacíos y completarlos después. Desmarca las que no haces.</p>}
       </div>}
       {error && <p role="alert" className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-800" data-testid="cp-error">{error}</p>}
       <div className="mt-5 flex flex-wrap items-center justify-end gap-3">
-        <span className="mr-auto text-sm text-[#625e82]">{spec ? `Se ${total === 1 ? "creará 1 prestación" : `crearán ${total} prestaciones`}` : ""}</span>
-        <button type="button" onClick={close} className="min-h-11 rounded-lg border border-[#d3cbe8] px-4 text-sm font-semibold text-[#4f4a74] hover:bg-[#f3effd]">Cancelar</button>
-        <button type="button" onClick={submit} disabled={saving} className="min-h-11 rounded-lg bg-[#6a3fc8] px-5 text-sm font-semibold text-white hover:bg-[#5a33b0] disabled:opacity-60" data-testid="cp-submit">{saving ? "Creando…" : "Crear"}</button>
+        <span className="mr-auto text-sm text-[#615f73]">{spec ? `Se ${total === 1 ? "creará 1 prestación" : `crearán ${total} prestaciones`}` : ""}</span>
+        <button type="button" onClick={close} className="min-h-11 rounded-lg border border-[#d2d4df] px-4 text-sm font-semibold text-[#4f4e62] hover:bg-[#efeef4]">Cancelar</button>
+        <button type="button" onClick={submit} disabled={saving} className="min-h-11 rounded-lg bg-[#473a6d] px-5 text-sm font-semibold text-white hover:bg-[#654f94] disabled:opacity-60" data-testid="cp-submit">{saving ? "Creando…" : "Crear"}</button>
       </div>
     </div>
   </div>;

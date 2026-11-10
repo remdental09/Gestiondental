@@ -170,15 +170,15 @@ export function Tooth3DModal({
       role="dialog"
       aria-modal="true"
       aria-labelledby="tooth-3d-title"
-      className="fixed top-1/2 left-1/2 z-10 flex max-h-[92vh] supports-[height:1dvh]:max-h-[92dvh] w-[min(68rem,calc(100%-1.5rem))] flex-col overflow-hidden rounded-2xl border border-[#d5e4e2] bg-white shadow-xl"
+      className="fixed top-1/2 left-1/2 z-10 flex max-h-[92vh] supports-[height:1dvh]:max-h-[92dvh] w-[min(68rem,calc(100%-1.5rem))] flex-col overflow-hidden rounded-xl border border-[#d5e4e2] bg-white shadow-xl"
       style={{ transform: placed ? "translate(-50%, -50%) scale(1)" : `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) scale(0.18)`, transition: reducedMotion ? "none" : "transform 480ms ease" }}
     >
       <div className="flex items-start justify-between gap-3 border-b border-[#e4eeed] px-4 py-3 sm:px-5">
         <div>
-          <p id="tooth-3d-title" className="text-lg font-semibold text-[#1b1245]">FDI {formatFdi(tooth)} · {chileLabel(tooth)}</p>
+          <p id="tooth-3d-title" className="text-lg font-semibold text-[#2a2540]">FDI {formatFdi(tooth)} · {chileLabel(tooth)}</p>
           <p className="mt-0.5 text-sm text-[#5d7579]">{toothKindLabel(toothKind(tooth))} · {periodontalSites ? "seis sitios periodontales · solo lectura" : onSetCrownDetails ? "vista 3D · odontograma editable" : "solo lectura"}</p>
         </div>
-        <button ref={closeRef} type="button" className="rounded-lg p-2 text-[#3d2f73] hover:bg-[#e7f3f1]" onClick={onClose} aria-label="Cerrar"><X className="size-5" /></button>
+        <button ref={closeRef} type="button" className="rounded-lg p-2 text-[#3b3355] hover:bg-[#e7f3f1]" onClick={onClose} aria-label="Cerrar"><X className="size-5" /></button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 sm:px-5">
         <div className={`grid grid-cols-1 gap-4 ${periodontalHistory !== undefined ? "lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]" : "lg:grid-cols-[minmax(0,1.1fr)_minmax(18rem,0.9fr)]"}`}>
@@ -199,14 +199,14 @@ export function Tooth3DModal({
           </label>}
         </div>}
         {periodontalSites ? <div className="mb-3 grid grid-cols-3 gap-1.5 text-center text-xs sm:gap-2" aria-label="Seis sitios periodontales">
-          {(["MV", "V", "DV", "ML", "L", "DL"] as PerioSiteKey[]).map(key => { const reading = periodontalSites[key]; const depth = reading?.depth; const measured = depth !== null && depth !== undefined; const color = !measured ? "#94a3b8" : depth >= 6 ? "#be123c" : depth >= 4 ? "#b45309" : "#047857"; return <div key={key} className="rounded-lg border border-[#e2dcf2] bg-white px-1 py-1.5"><span className="font-semibold">{key}</span><span className="ml-1 font-medium" style={{color}}>{measured ? `${depth} mm` : "sin medir"}</span>{reading?.bleeding && <span className="block text-red-700">Sangrado</span>}{reading?.suppuration && <span className="block text-violet-700">Supuración</span>}</div>; })}
-        </div> : findings.length > 0 ? <ul className="mb-3 flex flex-wrap gap-2">{findings.map((line) => <li key={line} className="rounded-full bg-[#f3f7f7] px-3 py-1 text-xs font-medium text-[#3d2f73]">{line}</li>)}</ul> : <p className="mb-3 text-sm text-[#6e6a8c]">Sin hallazgos registrados en esta pieza.</p>}
-        <div className="mb-2 flex gap-2" role="group" aria-label="Vista del odontograma 3D"><button type="button" onClick={() => setFullArch(false)} aria-pressed={!fullArch} className={`rounded-lg border px-3 py-1.5 text-sm ${!fullArch ? "border-[#6a3fc8] bg-[#efe9fc] text-[#4b2a99]" : "border-[#dcd5ee] bg-white text-[#565277]"}`}>Pieza seleccionada</button><button type="button" onClick={() => setFullArch(true)} aria-pressed={fullArch} className={`rounded-lg border px-3 py-1.5 text-sm ${fullArch ? "border-[#6a3fc8] bg-[#efe9fc] text-[#4b2a99]" : "border-[#dcd5ee] bg-white text-[#565277]"}`}>Todas las piezas en hueso</button></div>
-        {fullArch ? <FullArch3DStage reducedMotion={reducedMotion} /> : <Suspense fallback={<p className="grid h-[min(42vh,360px)] min-h-56 place-items-center text-sm text-[#6e6a8c]" role="status">Preparando el diente…</p>}>
+          {(["MV", "V", "DV", "ML", "L", "DL"] as PerioSiteKey[]).map(key => { const reading = periodontalSites[key]; const depth = reading?.depth; const measured = depth !== null && depth !== undefined; const color = !measured ? "#94a3b8" : depth >= 6 ? "#be123c" : depth >= 4 ? "#b45309" : "#047857"; return <div key={key} className="rounded-lg border border-[#e5e2ec] bg-white px-1 py-1.5"><span className="font-semibold">{key}</span><span className="ml-1 font-medium" style={{color}}>{measured ? `${depth} mm` : "sin medir"}</span>{reading?.bleeding && <span className="block text-red-700">Sangrado</span>}{reading?.suppuration && <span className="block text-violet-700">Supuración</span>}</div>; })}
+        </div> : findings.length > 0 ? <ul className="mb-3 flex flex-wrap gap-2">{findings.map((line) => <li key={line} className="rounded-full bg-[#f3f7f7] px-3 py-1 text-xs font-medium text-[#3b3355]">{line}</li>)}</ul> : <p className="mb-3 text-sm text-[#6b6a7c]">Sin hallazgos registrados en esta pieza.</p>}
+        <div className="mb-2 flex gap-2" role="group" aria-label="Vista del odontograma 3D"><button type="button" onClick={() => setFullArch(false)} aria-pressed={!fullArch} className={`rounded-lg border px-3 py-1.5 text-sm ${!fullArch ? "border-[#473a6d] bg-[#efeef4] text-[#473a6d]" : "border-[#dfdbe8] bg-white text-[#57566a]"}`}>Pieza seleccionada</button><button type="button" onClick={() => setFullArch(true)} aria-pressed={fullArch} className={`rounded-lg border px-3 py-1.5 text-sm ${fullArch ? "border-[#473a6d] bg-[#efeef4] text-[#473a6d]" : "border-[#dfdbe8] bg-white text-[#57566a]"}`}>Todas las piezas en hueso</button></div>
+        {fullArch ? <FullArch3DStage reducedMotion={reducedMotion} /> : <Suspense fallback={<p className="grid h-[min(42vh,360px)] min-h-56 place-items-center text-sm text-[#6b6a7c]" role="status">Preparando el diente…</p>}>
           {placed && <Tooth3DStage tooth={tooth} status={status} surfaces={surfaces} hasCrown={hasCrown} reducedMotion={reducedMotion} periodontalSites={periodontalSites} showPeriodontium={showPeriodontium} periodontiumOpacity={periodontiumOpacity} />}
         </Suspense>}
-        <p className="mt-2 text-xs leading-5 text-[#6e6a8c]">{reducedMotion ? "Arrastra para girar. Acerca con la rueda o con dos dedos. La rotación automática está desactivada." : "Las piezas giran juntas con la arcada. Arrastra para orientarlas y acerca con la rueda o con dos dedos."}</p>
-        <ul className="mt-3 flex flex-wrap gap-2 text-xs text-[#565277]" aria-label="Leyenda de colores">
+        <p className="mt-2 text-xs leading-5 text-[#6b6a7c]">{reducedMotion ? "Arrastra para girar. Acerca con la rueda o con dos dedos. La rotación automática está desactivada." : "Las piezas giran juntas con la arcada. Arrastra para orientarlas y acerca con la rueda o con dos dedos."}</p>
+        <ul className="mt-3 flex flex-wrap gap-2 text-xs text-[#57566a]" aria-label="Leyenda de colores">
           {([
             ["Lesión de caries", surfaceMarkColor("caries")],
             ["Obturación", surfaceMarkColor("restored")],
@@ -214,26 +214,26 @@ export function Tooth3DModal({
             ["Sellante", surfaceMarkColor("sealant")],
             ["Sin lesión visible", surfaceMarkColor("sound")],
             ["Sin examinar", surfaceMarkColor("not_examined")],
-          ] as const).map(([label, color]) => <li key={label} className="inline-flex items-center gap-1.5 rounded-full border border-[#e2dcf2] bg-white px-2.5 py-1"><span className="size-2.5 rounded-full" style={{ background: color }} />{label}</li>)}
+          ] as const).map(([label, color]) => <li key={label} className="inline-flex items-center gap-1.5 rounded-full border border-[#e5e2ec] bg-white px-2.5 py-1"><span className="size-2.5 rounded-full" style={{ background: color }} />{label}</li>)}
         </ul>
         </div>
         <aside className="min-w-0 space-y-4" aria-label={`Historia clínica de la pieza FDI ${formatFdi(tooth)}`}>
-          <section className="rounded-xl border border-[#dbe8e7] bg-[#f8f5ff] p-3 sm:p-4">
-            <h3 className="text-sm font-semibold text-[#1b1245]">Evolución de la pieza</h3>
-            <p className="mt-1 text-xs leading-5 text-[#6e6a8c]">Estado actual en 3D e hitos clínicos fechados registrados para esta pieza.</p>
+          <section className="rounded-xl border border-[#dbe8e7] bg-[#f7f6fa] p-3 sm:p-4">
+            <h3 className="text-sm font-semibold text-[#2a2540]">Evolución de la pieza</h3>
+            <p className="mt-1 text-xs leading-5 text-[#6b6a7c]">Estado actual en 3D e hitos clínicos fechados registrados para esta pieza.</p>
             {periodontalHistory === undefined && onEditEvent ? <ToothTimeline tooth={tooth} history={toothHistory} exams={[]} mode="odontograma" editableIds={editableEventIds} onDeleteEvent={onDeleteEvent} onEditEvent={onEditEvent} /> : sortedToothHistory.length ? <ol className="relative mt-3 space-y-0 border-l border-[#b8d2cf] pl-4">
               {sortedToothHistory.map(event => <li key={event.id} className="relative pb-4 last:pb-0">
-                <span className="absolute -left-[1.31rem] top-1.5 size-2 rounded-full bg-[#6a3fc8]" aria-hidden="true" />
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-[#6a3fc8]">{formatHistoryDate(event.clinicalDate, event.recordedAt)}{event.source === "evolution" ? " · Evolución" : ""}</p>
-                <p className="mt-0.5 text-sm font-medium text-[#3d2f73]">{eventDescription(event)}</p>
+                <span className="absolute -left-[1.31rem] top-1.5 size-2 rounded-full bg-[#473a6d]" aria-hidden="true" />
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-[#473a6d]">{formatHistoryDate(event.clinicalDate, event.recordedAt)}{event.source === "evolution" ? " · Evolución" : ""}</p>
+                <p className="mt-0.5 text-sm font-medium text-[#3b3355]">{eventDescription(event)}</p>
               </li>)}
-            </ol> : <p className="mt-3 rounded-lg bg-white px-3 py-2 text-sm text-[#6e6a8c]">Aún no hay cambios históricos registrados para esta pieza.</p>}
+            </ol> : <p className="mt-3 rounded-lg bg-white px-3 py-2 text-sm text-[#6b6a7c]">Aún no hay cambios históricos registrados para esta pieza.</p>}
           </section>
           {onSetCrownDetails && hasCrown && crown && <section className="rounded-xl border border-amber-200 bg-amber-50 p-3 sm:p-4" aria-label="Corregir soporte de la corona">
             <h3 className="text-sm font-semibold text-amber-950">¿La corona está clasificada incorrectamente?</h3>
             <p className="mt-1 text-xs leading-5 text-amber-900">Puedes corregir si va sobre un diente natural o sobre un implante. La aplicación conserva el material y registra la corrección en el historial.</p>
             <label className="mt-3 block text-xs font-medium text-amber-950">Soporte de la corona
-              <select value={crownFoundation} disabled={savingCrown} onChange={event => setCrownFoundationDraft({ key: crownFoundationKey, value: event.target.value === "implant" ? "implant" : "tooth" })} className="mt-1 block h-10 w-full rounded-lg border border-amber-300 bg-white px-3 text-sm text-[#3d2f73]">
+              <select value={crownFoundation} disabled={savingCrown} onChange={event => setCrownFoundationDraft({ key: crownFoundationKey, value: event.target.value === "implant" ? "implant" : "tooth" })} className="mt-1 block h-10 w-full rounded-lg border border-amber-300 bg-white px-3 text-sm text-[#3b3355]">
                 <option value="tooth">Diente natural</option>
                 <option value="implant">Implante</option>
               </select>

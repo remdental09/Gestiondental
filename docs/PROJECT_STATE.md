@@ -274,3 +274,7 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 - `app/layout.tsx`: si falta un archivo de una versión anterior (tras un despliegue) o la página no arranca en 20 s, se recarga sola, a lo más una vez por minuto.
 - El panel «Google Calendar» (Conectar con Google) también está en el recuadro «Esta semana» de Inicio.
 - Registro inicial: casilla «Ver mis citas de Google Calendar» (marcada por defecto). Con Drive marcado, un solo consentimiento pide ambos permisos (`?withCalendar=1`, modo `primary-calendar`); sin Drive, va a `?calendar=1&auto=1`.
+
+## Estilo visual tipo Exocad (sobrio)
+- Paleta tomada de exocad.com: violeta apagado #473A6D (menú, marca, botones), texto #35343F, fondos lavanda-gris (#F1F0F5 / #E6E4EE), bordes #DDDBE6, acento coral #EF895F (botón principal «Nueva …» en #C95F35 para buen contraste). Se quitaron degradados; violetas saturados desaturados al mismo tono. Rojo de anamnesis/errores y verde de guardado sin cambios.
+- Tipografía Fira Sans (similar a la Tisa Sans de Exocad) incluida en la app (@fontsource, sin depender de Google Fonts). Esquinas más rectas (radio .375rem; tarjetas .5rem).

@@ -10,10 +10,10 @@ const label = (date: string) => {
 /** Selector «Ver el odontograma al…»: Hoy (editable) o una fecha con cambios (solo lectura, reconstruida desde el historial). */
 export function OdontogramDateBar({ dates, value, onChange, what = "Odontograma" }: { dates: string[]; value: string | null; onChange: (date: string | null) => void; what?: string }) {
   if (!dates.length) return null;
-  const chip = (active: boolean) => `shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold ${active ? "border-[#6a3fc8] bg-[#6a3fc8] text-white" : "border-[#ddd6f0] bg-white text-[#3d2f73] hover:bg-[#f3effd]"}`;
+  const chip = (active: boolean) => `shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold ${active ? "border-[#473a6d] bg-[#473a6d] text-white" : "border-[#dddbe6] bg-white text-[#3b3355] hover:bg-[#efeef4]"}`;
   return <div className="mb-3 space-y-2" data-testid={`date-bar-${what.toLowerCase()}`}>
     <div className="flex items-center gap-2 overflow-x-auto pb-1">
-      <span className="flex shrink-0 items-center gap-1 text-xs font-semibold uppercase tracking-wide text-[#6e6a8c]"><History className="size-4" />Ver al</span>
+      <span className="flex shrink-0 items-center gap-1 text-xs font-semibold uppercase tracking-wide text-[#6b6a7c]"><History className="size-4" />Ver al</span>
       <button type="button" className={chip(value === null)} onClick={() => onChange(null)} aria-pressed={value === null}>Hoy</button>
       {dates.map(date => <button key={date} type="button" className={chip(value === date)} onClick={() => onChange(date)} aria-pressed={value === date} data-testid={`odontogram-date-${date}`}>{label(date)}</button>)}
     </div>
