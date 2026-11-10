@@ -1,3 +1,4 @@
+import { chileDay } from "./chile-day.ts";
 import type { OdontogramData, OdontogramSurface, ToothHistoryEvent, ToothHistorySnapshot } from "../app/clinical-data.ts";
 
 /**
@@ -12,7 +13,7 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stri
 const clone = <T,>(value: T): T => (value == null ? value : JSON.parse(JSON.stringify(value)));
 
 /** Fecha clínica del hito (la fecha de atención si existe; si no, el día en que se registró). */
-export const eventDate = (event: ToothHistoryEvent) => event.clinicalDate || event.recordedAt.slice(0, 10);
+export const eventDate = (event: ToothHistoryEvent) => event.clinicalDate || chileDay(event.recordedAt);
 const chronological = (a: ToothHistoryEvent, b: ToothHistoryEvent) => eventDate(a).localeCompare(eventDate(b)) || a.recordedAt.localeCompare(b.recordedAt);
 
 export function snapshotOf(chart: OdontogramData, tooth: number): ToothHistorySnapshot {

@@ -1,5 +1,6 @@
 "use client";
 
+import { chileDay } from "@/lib/chile-day";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Mic, MicOff, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -988,7 +989,7 @@ export function ClinicalDictation({
                 <p className="mt-3 text-sm font-medium text-[#3d2f73]">Nota clínica redactada · <span className="font-normal text-[#625e82]">toca el texto y corrígelo libremente antes de guardar</span></p>
                 <Input className="mt-1" aria-label="Título de la evolución" value={evolutionTitle} onChange={(event) => setEvolutionTitle(event.target.value)} />
                 <label className="mt-2 block text-xs text-[#6e6a8c]">Fecha de atención (opcional; vacío = hoy)
-                  <Input className="mt-1" type="date" aria-label="Fecha de atención" max={new Date().toISOString().slice(0, 10)} value={attentionDate} onChange={(event) => setAttentionDate(event.target.value)} />
+                  <Input className="mt-1" type="date" aria-label="Fecha de atención" max={chileDay(new Date().toISOString())} value={attentionDate} onChange={(event) => setAttentionDate(event.target.value)} />
                 </label>
                 <Textarea className="mt-2 min-h-56 cursor-text border-2 border-emerald-300 bg-emerald-50 text-base leading-6 focus-visible:border-[#6a3fc8] focus-visible:bg-white sm:text-sm" aria-label="Cuerpo de la evolución (editable)" spellCheck lang="es" rows={10} value={evolutionBody} onChange={(event) => setEvolutionBody(event.target.value)} data-testid="dictation-evolution-body" />
                 {(() => { const mismatch = toothMismatch(evolutionTitle, evolutionBody); return mismatch && <p role="alert" className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-sm text-amber-950" data-testid="dictation-tooth-mismatch">El título menciona la pieza {mismatch.title.join(", ")} pero el texto habla de la pieza {mismatch.body.join(", ")}. Corrige el que esté mal antes de guardar.</p>; })()}

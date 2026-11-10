@@ -1,3 +1,4 @@
+import { chileDay } from "../lib/chile-day.ts";
 import type { OdontogramData, ToothHistoryEvent } from "./clinical-data";
 
 /**
@@ -37,7 +38,7 @@ export type CopPoint = { date: string; caries: number; missing: number; filled: 
  * (ordenados por fecha clínica) y se recalcula el índice al cierre de cada fecha distinta.
  */
 export function copEvolution(teeth: readonly number[], history: readonly ToothHistoryEvent[]): CopPoint[] {
-  const dayOf = (event: ToothHistoryEvent) => (event.clinicalDate || event.recordedAt).slice(0, 10);
+  const dayOf = (event: ToothHistoryEvent) => event.clinicalDate || chileDay(event.recordedAt);
   const ordered = history
     .filter(event => event.after && teeth.includes(event.tooth))
     .slice()

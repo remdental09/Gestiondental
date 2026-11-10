@@ -293,7 +293,7 @@ export async function POST(request: Request) {
     if (!patient) return error("Paciente no encontrado.", 404);
     const chartHistoryMetadata = async (fallbackTitle: string): Promise<ChartHistoryMetadata | { error: string }> => {
       const rawId = input.sourceEvolutionId;
-      if (rawId === undefined || rawId === null || rawId === "") return { source: "manual", title: fallbackTitle };
+      if (rawId === undefined || rawId === null || rawId === "") return { source: "manual", title: fallbackTitle, clinicalDate: dateInChile() };
       const sourceEvolutionId = Number(rawId);
       const sourceActionId = string(input.sourceActionId, 180);
       if (!Number.isSafeInteger(sourceEvolutionId) || sourceEvolutionId <= 0 || !sourceActionId) return { error: "La vinculación con la evolución clínica no es válida." };

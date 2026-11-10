@@ -1,4 +1,5 @@
 import { and, eq } from "drizzle-orm";
+import { chileDay } from "@/lib/chile-day";
 import { getDb } from "@/db";
 import { toothStatuses } from "@/db/schema";
 import { installedImplantTeeth } from "@/app/implant-evidence";
@@ -8,7 +9,7 @@ import { projectEvolutionChart, projectionHolds } from "@/app/odontogram-project
 import { appendToothHistory, toothHistorySnapshot } from "@/app/odontogram-history";
 
 // The clinical note remains the history; the chart is a projection of the current state.
-export async function syncInstalledImplants(ownerId: string, patientId: number, body: string, recordedAt: string, evolutionId?: number, clinicalDate = recordedAt.slice(0, 10)) {
+export async function syncInstalledImplants(ownerId: string, patientId: number, body: string, recordedAt: string, evolutionId?: number, clinicalDate = chileDay(recordedAt)) {
   const implants = installedImplantTeeth(body);
   const crown = cementedCrownFromEvolution(body);
   if (!implants.length && !crown) return { updatedTeeth: [] as number[], odontogram: null as OdontogramData | null };
