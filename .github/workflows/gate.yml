@@ -1,0 +1,24 @@
+name: Gate de calidad
+# Ningún cambio llega a main sin pasar tipos, pruebas y compilación.
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --global pnpm@11.25.0
+      - run: pnpm install --frozen-lockfile
+      - name: Tipos
+        run: pnpm exec tsc --noEmit
+      - name: Pruebas
+        run: pnpm test
+      - name: Compilación
+        run: CLOUDFLARE_DEPLOY=1 pnpm build

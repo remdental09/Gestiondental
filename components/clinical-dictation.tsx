@@ -212,7 +212,7 @@ export function ClinicalDictation({
   /** Abre el dictado desde otro lugar (p. ej. «Nueva evolución») con un texto ya escrito o dictado, y lo corrige con IA. */
   request?: { nonce: number; text: string; ignoreCommand?: boolean; incorporate?: boolean } | null;
   /** Evoluciones del paciente, para resolver órdenes dictadas («elimina el último dictado…»). */
-  notes?: (CommandNote & { diagnoses?: Partial<EvolutionDiagnosisTag>[] })[];
+  notes?: (CommandNote & { diagnoses?: (Omit<Partial<EvolutionDiagnosisTag>, "suggestedFrom"> & { suggestedFrom?: string | null })[] })[];
   onAnnul?: AnnulHandler;
   /** Botón grande «Dictar en esta ficha» (barra fija de la ficha abierta). */
   prominent?: boolean;
