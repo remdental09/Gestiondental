@@ -1,4 +1,6 @@
 "use client";
+import { OdontogramDateBar } from "@/components/odontogram-date-bar";
+import { chartAt, chartDates } from "@/lib/odontogram-timeline";
 import { AnamnesisButton } from "@/components/anamnesis-dialog";
 import { emptyAddress, formatAddress, type PatientAddress } from "@/lib/patient-address";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -211,12 +213,18 @@ export default function Home(){
   /** Elimina definitivamente o anula (y opcionalmente reemplaza) una evolución tras la confirmación explícita del dentista. */
   const annulEvolution=useCallback(async(patientId:number,evolutionId:number,mode:RemovalMode,reason:string,replacement:AnnulReplacement|null)=>{
     const extra=replacement?{replacementTitle:replacement.title,replacementBody:replacement.body}:{};
-    await persist(mode==="delete"?{action:"deleteEvolution",patientId,evolutionId,confirm:"eliminar",...extra}:{action:"annulEvolution",patientId,evolutionId,reason,...extra});
+    const result=await persist(mode==="delete"?{action:"deleteEvolution",patientId,evolutionId,confirm:"eliminar",...extra}:{action:"annulEvolution",patientId,evolutionId,reason,...extra}) as {revertedTeeth?:number[]|null};
     const response=await fetch("/api/clinical",{cache:"no-store"});
     if(response.ok)applyClinicalLoad(await response.json() as ClinicalLoadResponse);
     const done=mode==="delete"?"Evolución eliminada":"Evolución anulada (visible con «Ver anuladas»)";
-    setChartMessage(`${done}${replacement?" y nueva evolución guardada":""}. El odontograma y los pagos no cambian solos.`);
+    const teeth=result?.revertedTeeth;
+    const chartNote=teeth===null?" No se pudo verificar el odontograma: revísalo.":teeth?.length?` Se deshicieron sus cambios en el odontograma (${teeth.map(formatFdi).join(", ")}).`:"";
+    setChartMessage(`${done}${replacement?" y nueva evolución guardada":""}.${chartNote} Los pagos no cambian solos.`);
   },[persist,applyClinicalLoad]);
+  // Fecha para ver el odontograma «al día X» (null = hoy, editable). Se vuelve a hoy al cambiar de paciente.
+  const [chartDate,setChartDate]=useState<string|null>(null);
+  useEffect(()=>{setChartDate(null)},[selectedId]);
+  const readOnlyChart=useCallback(async()=>{throw new Error("Estás viendo una fecha pasada. Vuelve a «Hoy» para editar el odontograma.")},[]);
   const [voiceToolsReady,setVoiceToolsReady]=useState(false);
   const [budgetTitle,setBudgetTitle]=useState(""),[budgetItems,setBudgetItems]=useState<BudgetPlan["items"]>([{label:"",amount:0,phase:"Fase 1",discountPercent:0}]);
   const [editingBudgetId,setEditingBudgetId]=useState<number|null>(null);
@@ -721,7 +729,7 @@ export default function Home(){
   }}
   onAnnul={note => setAnnulTarget(note)}
 /></div></TabsContent>
-            <TabsContent value="odontograma"><Suspense fallback={<div className="min-h-[320px] rounded-xl bg-white p-5 text-sm text-[#6e6a8c]" role="status">Cargando odontograma…</div>}><Odontogram key={selectedId} endo={endoMarks} onOpenEndo={tooth=>{setEndoFocus(tooth);setActiveTab("endodoncia")}} planned={plannedTeeth} onSetPlannedDone={setBudgetItemDone} onOpenPlan={()=>setActiveTab("presupuestos")} onDeleteEvent={deleteToothEvent} onEditEvent={editToothEvent} data={toothStatuses[selectedId]??emptyOdontogram()} evolutionEvents={toothEvolutionHistory} onSetStatus={updateTooth} onSetMissingReason={updateMissingReason} onSetSurface={updateSurface} onSetCrownDetails={updateCrownDetails}/></Suspense></TabsContent>
+            <TabsContent value="odontograma"><OdontogramDateBar dates={chartDates(toothStatuses[selectedId]??emptyOdontogram())} value={chartDate} onChange={setChartDate}/><Suspense fallback={<div className="min-h-[320px] rounded-xl bg-white p-5 text-sm text-[#6e6a8c]" role="status">Cargando odontograma…</div>}><Odontogram key={`${selectedId}-${chartDate??"hoy"}`} endo={endoMarks} onOpenEndo={tooth=>{setEndoFocus(tooth);setActiveTab("endodoncia")}} planned={plannedTeeth} onSetPlannedDone={setBudgetItemDone} onOpenPlan={()=>setActiveTab("presupuestos")} onDeleteEvent={deleteToothEvent} onEditEvent={editToothEvent} data={chartDate?chartAt(toothStatuses[selectedId]??emptyOdontogram(),chartDate):toothStatuses[selectedId]??emptyOdontogram()} evolutionEvents={toothEvolutionHistory} onSetStatus={chartDate?readOnlyChart:updateTooth} onSetMissingReason={chartDate?readOnlyChart:updateMissingReason} onSetSurface={chartDate?readOnlyChart:updateSurface} onSetCrownDetails={chartDate?readOnlyChart:updateCrownDetails}/></Suspense></TabsContent>
             <TabsContent value="presupuestos"><div className="surface"><div className="flex justify-between gap-3"><div><h3 className="font-semibold">Planes de tratamiento y presupuestos</h3><p className="mt-1 text-sm text-[#625e82]">Organiza prestaciones por fases y revisa total, abonos y saldo en cada plan.</p></div><Button variant="outline" size="sm" onClick={startNewBudget}>Añadir plan</Button></div><div className="mt-5 space-y-4">{patientBudgets.length?<>
               {patientBudgets.filter(b=>!b.isAlternative).map(primary=>{
                 const paid=patientPayments.filter(payment=>payment.budgetId===primary.id).reduce((sum,payment)=>sum+payment.amount,0);

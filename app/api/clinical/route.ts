@@ -16,6 +16,7 @@ import { budgetTotals, decodeBudgetData, encodeBudgetData, normalizeBudgetItems,
 import { sanitizeDiagnosisTags } from "@/lib/evolution-diagnoses";
 import type { OdontogramData, OdontogramSurface, SurfaceFinding } from "@/app/clinical-data";
 import { appendToothHistory, toothHistorySnapshot } from "@/app/odontogram-history";
+import { revertEvolution } from "@/lib/odontogram-timeline";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -138,6 +139,17 @@ function annulView(n: typeof evolutions.$inferSelect) {
     ...(n.status === "anulada" ? { annulledAt: n.annulledAt, annulledBy: n.annulledBy, annulReason: n.annulReason } : {}),
     ...(n.replacesId ? { replacesId: n.replacesId } : {}),
   };
+}
+
+
+/** Al borrar o anular una evolución, sus cambios en el odontograma se deshacen y las piezas se recalculan con lo que queda. */
+async function revertChartOf(db: ReturnType<typeof getDb>, ownerId: string, patientId: number, evolutionId: number): Promise<number[]> {
+  const [row] = await db.select().from(toothStatuses).where(and(eq(toothStatuses.ownerId, ownerId), eq(toothStatuses.patientId, patientId)));
+  if (!row) return [];
+  const { chart, teeth } = revertEvolution(normalizeOdontogram(JSON.parse(row.data)), evolutionId);
+  if (!teeth.length) return [];
+  await db.update(toothStatuses).set({ data: JSON.stringify(chart), updatedAt: now() }).where(and(eq(toothStatuses.ownerId, ownerId), eq(toothStatuses.patientId, patientId)));
+  return teeth;
 }
 
 export async function GET() {
@@ -362,6 +374,7 @@ export async function POST(request: Request) {
         const [, inserted] = await db.batch([annul, db.insert(evolutions).values({ ownerId, patientId, clinicalDate, recordedAt: t, title: replacementTitle, body: replacementBody, replacesId: evolutionId, backupStatus: "not_configured" }).returning()]);
         replacement = inserted[0];
       } else await annul;
+      const revertedTeeth = await revertChartOf(db, ownerId, patientId, evolutionId).catch(() => null);
       let chart;
       if (replacement) {
         try { chart = await syncInstalledImplants(ownerId, patientId, replacementBody, t, replacement.id, replacement.clinicalDate); }
@@ -369,12 +382,13 @@ export async function POST(request: Request) {
       }
       return Response.json({
         annulled: { id: evolutionId, status: "anulada", annulledAt: t, annulledBy, annulReason: reason },
+        revertedTeeth,
         ...(replacement ? { note: { id: replacement.id, patientId, date: displayDate(replacement.clinicalDate), clinicalDate: replacement.clinicalDate, recordedAt: t, title: replacement.title, body: replacement.body, backupStatus: replacement.backupStatus, status: "vigente", replacesId: evolutionId }, chart } : {}),
       });
     }
     if (action === "deleteEvolution") {
       // «Error del sistema»: el dentista elige borrar definitivamente. Se eliminan la evolución y sus etiquetas de
-      // diagnóstico; odontograma, pagos, citas y presupuestos no se tocan (no están ligados a la evolución).
+      // diagnóstico; los cambios de odontograma ligados a esta evolución se deshacen (revertChartOf). Pagos, citas y presupuestos no se tocan.
       const evolutionId = Number(input.evolutionId);
       if (!Number.isSafeInteger(evolutionId) || evolutionId <= 0) return error("Evolución inválida.");
       if (input.confirm !== "eliminar") return error("Falta confirmar la eliminación.");
@@ -390,6 +404,7 @@ export async function POST(request: Request) {
         const [, , inserted] = await db.batch([removeTags, removeNote, db.insert(evolutions).values({ ownerId, patientId, clinicalDate: dateInChile(), recordedAt: t, title: replacementTitle, body: replacementBody, backupStatus: "not_configured" }).returning()]);
         replacement = inserted[0];
       } else await db.batch([removeTags, removeNote]);
+      const revertedTeeth = await revertChartOf(db, ownerId, patientId, evolutionId).catch(() => null);
       let chart;
       if (replacement) {
         try { chart = await syncInstalledImplants(ownerId, patientId, replacementBody, t, replacement.id, replacement.clinicalDate); }
@@ -397,6 +412,7 @@ export async function POST(request: Request) {
       }
       return Response.json({
         deleted: { id: evolutionId },
+        revertedTeeth,
         ...(replacement ? { note: { id: replacement.id, patientId, date: displayDate(replacement.clinicalDate), clinicalDate: replacement.clinicalDate, recordedAt: t, title: replacement.title, body: replacement.body, backupStatus: replacement.backupStatus, status: "vigente" }, chart } : {}),
       });
     }

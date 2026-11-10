@@ -31,7 +31,7 @@ function ModeChoice({ mode, onChange, name }: { mode: RemovalMode | null; onChan
   </fieldset>;
 }
 
-const KEEP_NOTE = "El odontograma, pagos, citas y presupuestos no cambian; revísalos aparte si corresponde.";
+const KEEP_NOTE = "Los cambios que esta evolución hizo en el odontograma se deshacen y cada pieza se recalcula con las demás evoluciones. Pagos, citas y presupuestos no cambian; revísalos aparte si corresponde.";
 
 /** Editor del texto nuevo con «Corregir texto» y las palabras cambiadas marcadas. */
 function ReplacementEditor({ value, onChange, testId }: { value: string; onChange: (value: string) => void; testId: string }) {
