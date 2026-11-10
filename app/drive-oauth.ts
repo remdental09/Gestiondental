@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import type { ChatGPTUser } from "@/app/chatgpt-auth";
 import { confirmDriveSnapshot, getDriveSnapshot, listDriveBackupQueue } from "@/app/drive-backup";
+import { saveSender, type MailSender } from "@/app/appointment-mail-db";
 
 type DriveStatement = {
   bind(...values: unknown[]): DriveStatement;
@@ -153,9 +154,11 @@ export async function beginGoogleDriveConnect(request: Request, user: ChatGPTUse
   authorization.searchParams.set("redirect_uri", redirectUri);
   authorization.searchParams.set("response_type", "code");
   const calendarMode = new URL(request.url).searchParams.get("calendar") === "1";
+  // ?mail=1: cuenta de Google desde la que se enviarán las confirmaciones de cita (solo permiso de enviar correo).
+  const mailMode = !calendarMode && new URL(request.url).searchParams.get("mail") === "1";
   // ?withCalendar=1 (registro): un solo consentimiento para Drive y Calendar.
   const withCalendar = !calendarMode && new URL(request.url).searchParams.get("withCalendar") === "1";
-  authorization.searchParams.set("scope", calendarMode ? "openid email " + CALENDAR_SCOPE : "openid email https://www.googleapis.com/auth/drive.file" + (withCalendar ? " " + CALENDAR_SCOPE : ""));
+  authorization.searchParams.set("scope", mailMode ? "openid email " + GMAIL_SEND_SCOPE : calendarMode ? "openid email " + CALENDAR_SCOPE : "openid email https://www.googleapis.com/auth/drive.file" + (withCalendar ? " " + CALENDAR_SCOPE : ""));
   authorization.searchParams.set("access_type", "offline");
   authorization.searchParams.set("include_granted_scopes", "true");
   // ?auto=1 (registro): Google parte con la misma cuenta con que se entró y no muestra el selector de cuentas.
@@ -171,7 +174,7 @@ export async function beginGoogleDriveConnect(request: Request, user: ChatGPTUse
   headers.append("Set-Cookie", "__Host-gd-drive-verifier=" + verifier + "; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=600");
   // ?mirror=1 conecta una segunda cuenta de Google Drive como copia adicional, sin reemplazar la principal.
   // ?calendar=1 conecta el Google Calendar de cualquier cuenta (solo lectura), sin tocar Drive.
-  headers.append("Set-Cookie", "__Host-gd-drive-mode=" + (calendarMode ? "calendar" : new URL(request.url).searchParams.get("mirror") === "1" ? "mirror" : withCalendar ? "primary-calendar" : "primary") + "; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=600");
+  headers.append("Set-Cookie", "__Host-gd-drive-mode=" + (mailMode ? "mail" : calendarMode ? "calendar" : new URL(request.url).searchParams.get("mirror") === "1" ? "mirror" : withCalendar ? "primary-calendar" : "primary") + "; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=600");
   return new Response(null, { status: 302, headers });
 }
 
@@ -249,6 +252,14 @@ export async function finishGoogleDriveConnect(request: Request, user: ChatGPTUs
     if (!tokenResponse.ok) throw new Error("Google no pudo completar la autorización.");
     const tokens = await tokenResponse.json() as GoogleTokens;
     if (!tokens.access_token || !tokens.refresh_token) throw new Error("Google no entregó autorización permanente para Drive.");
+    if (cookieValue(request, "__Host-gd-drive-mode") === "mail") {
+      if (!(tokens.scope || "").split(/\s+/).includes(GMAIL_SEND_SCOPE)) return redirectWithDriveStatus(request, returnTo, "mail-scope-missing", true);
+      const who = await fetch("https://openidconnect.googleapis.com/v1/userinfo", { headers: { Authorization: "Bearer " + tokens.access_token } });
+      const person = who.ok ? await who.json() as { sub?: string; email?: string } : {};
+      if (!person.sub || !person.email) throw new Error("No se pudo confirmar la cuenta de Google.");
+      await saveSender(user.userId, person.sub, person.email, await encryptRefreshToken(user.userId, tokens.refresh_token, config.clientSecret), new URL(request.url).origin);
+      return redirectWithDriveStatus(request, returnTo, "mail-connected", true);
+    }
     if (cookieValue(request, "__Host-gd-drive-mode") === "calendar") {
       if (!(tokens.scope || "").split(/\s+/).includes(CALENDAR_SCOPE)) return redirectWithDriveStatus(request, returnTo, "calendar-scope-missing", true);
       const who = await fetch("https://openidconnect.googleapis.com/v1/userinfo", { headers: { Authorization: "Bearer " + tokens.access_token } });
@@ -838,6 +849,7 @@ export async function syncDriveMirrors(user: ChatGPTUser, source: "manual" | "cr
 // ---------------------------------------------------------------------------
 // Google Calendar de cualquier cuenta (solo lectura). Se conecta con «Conectar con Google», como Drive.
 const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
+const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 type CalendarConnection = { owner_id: string; google_sub: string; google_email: string; refresh_token_ciphertext: string; connected_at: string; last_sync_at: string | null; last_result: string | null; ok: number };
 
 async function ensureCalendarTable() {
@@ -869,7 +881,7 @@ export async function removeCalendarConnection(ownerId: string, googleSub: strin
   await database().prepare("UPDATE calendar_events SET status = 'cancelled', imported_at = ? WHERE owner_id = ? AND calendar_id LIKE ?").bind(now(), ownerId, "g:" + googleSub + ":%").run();
 }
 
-type GoogleEvent = { id?: string; status?: string; summary?: string; updated?: string; start?: { dateTime?: string; date?: string }; end?: { dateTime?: string; date?: string } };
+type GoogleEvent = { id?: string; status?: string; summary?: string; description?: string; attendees?: Array<{ email?: string; self?: boolean; resource?: boolean }>; updated?: string; start?: { dateTime?: string; date?: string }; end?: { dateTime?: string; date?: string } };
 
 /** Lee los calendarios visibles de cada cuenta conectada y los copia a la agenda (ventana de 2 semanas). Nunca escribe en Google. */
 export async function syncGoogleCalendars(ownerId?: string) {
@@ -895,7 +907,7 @@ export async function syncGoogleCalendars(ownerId?: string) {
       const stamp = now();
       let count = 0;
       for (const cal of calendars) {
-        const params = new URLSearchParams({ timeMin: win.fromIso, timeMax: win.toIso, singleEvents: "true", orderBy: "startTime", maxResults: "2500", showDeleted: "false", fields: "items(id,status,summary,updated,start,end)" });
+        const params = new URLSearchParams({ timeMin: win.fromIso, timeMax: win.toIso, singleEvents: "true", orderBy: "startTime", maxResults: "2500", showDeleted: "false", fields: "items(id,status,summary,description,attendees(email,self,resource),updated,start,end)" });
         const events = await googleApi<{ items?: GoogleEvent[] }>(token, "https://www.googleapis.com/calendar/v3/calendars/" + encodeURIComponent(cal.id) + "/events?" + params.toString());
         const calendarId = "g:" + row.google_sub + ":" + cal.id;
         const rows = (events.items ?? []).filter(e => e.id && (e.start?.dateTime || e.start?.date));
@@ -907,6 +919,18 @@ export async function syncGoogleCalendars(ownerId?: string) {
         });
         stmts.push(database().prepare(PRUNE_EVENTS).bind(stamp, row.owner_id, calendarId, win.fromIso, win.toIso, JSON.stringify(rows.map(e => e.id))));
         for (const stmt of stmts) await stmt.run();
+        // Celulares y correos de la descripción o de los invitados, para reconocer al paciente de cada cita (solo esos datos, no el texto).
+        try {
+          const { HINTS_DDL, HINTS_UPSERT, HINTS_DELETE } = await import("@/app/calendar-hints-db");
+          const { contactTokens } = await import("@/lib/today-agenda");
+          await database().prepare(HINTS_DDL).run();
+          for (const e of rows) {
+            const guests = (e.attendees ?? []).filter(a => a.email && !a.self && !a.resource).map(a => a.email!.toLowerCase());
+            const tokens = [...new Set([...contactTokens(e.description ?? ""), ...guests])].slice(0, 12);
+            if (tokens.length) await database().prepare(HINTS_UPSERT).bind(row.owner_id, calendarId, e.id, tokens.join(" ")).run();
+            else await database().prepare(HINTS_DELETE).bind(row.owner_id, calendarId, e.id).run();
+          }
+        } catch { /* las pistas son un extra: la agenda ya quedó importada */ }
         count += rows.length;
       }
       ok = true;
@@ -926,4 +950,22 @@ export async function syncGoogleCalendars(ownerId?: string) {
     out.push({ email: row.google_email, ok, detail });
   }
   return out;
+}
+
+
+/** Envía un correo con la cuenta de Google elegida por el clínico (permiso «solo enviar»). Nunca lee la bandeja. */
+export async function sendMailWithSender(sender: MailSender, raw: string): Promise<void> {
+  const config = configuration();
+  if (!config.configured) throw new Error("Falta configurar Google en la aplicación.");
+  const user: ChatGPTUser = { userId: sender.owner_id, displayName: "", email: sender.google_email, fullName: null };
+  const token = await getAccessToken(user, sender as unknown as DriveConnection, config.clientSecret);
+  const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+    method: "POST",
+    headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+    body: JSON.stringify({ raw }),
+  });
+  if (!response.ok) {
+    const reason = await googleErrorReason(response);
+    throw new Error(/accessNotConfigured|SERVICE_DISABLED|has not been used|is disabled/i.test(reason) ? "Falta activar la «Gmail API» en el proyecto de Google Cloud (" + reason + ")." : "Gmail no aceptó el envío (" + reason + ").");
+  }
 }
