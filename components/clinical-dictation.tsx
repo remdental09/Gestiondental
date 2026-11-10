@@ -696,6 +696,8 @@ export function ClinicalDictation({
           { category: "pago", proposed: (p.payments ?? []) as ReviewGroup["proposed"], final: paymentItems.map((item) => ({ ...item, amount: Number(item.amountText) || 0, method: item.methodValue })) as ReviewGroup["final"] },
           { category: "cita", proposed: (p.appointments ?? []) as ReviewGroup["proposed"], final: appointmentItems.map((item) => ({ ...item, day: item.dayValue, time: item.timeValue })) as ReviewGroup["final"] },
           { category: "diagnostico", proposed: (p.diagnoses ?? []).filter((item) => !item.code.startsWith("DA08.0")) as ReviewGroup["proposed"], final: dxItems as ReviewGroup["final"] },
+          // Prestaciones del arancel: cuáles quitó o agregó el profesional (incluye las objetadas por el revisor, marcadas con «objetada»).
+          { category: "prestacion", proposed: (p.prestaciones ?? []).map((item) => ({ id: item.id, code: item.code, name: item.name, tooth: item.tooth, objetada: Boolean(item.advisory) })) as ReviewGroup["proposed"], final: prestItems.map((item) => ({ id: item.id, code: item.code, name: item.name, tooth: item.tooth, objetada: Boolean(item.advisory), decision: item.decision })) as ReviewGroup["final"] },
         ];
         const entries = buildFeedback(groups);
         if (!entries.length) return;
