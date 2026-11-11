@@ -17,6 +17,8 @@ export type ToothTreatment = {
   status: TreatmentStatus;
   sessions: TreatmentSession[];
   planned: PlannedLink[];
+  /** Última etapa alcanzada en tratamientos de varias sesiones (p. ej. «instrumentación»). */
+  stage?: string;
   /** Qué falta, cuando el tratamiento quedó a medias. */
   next?: string;
   /** Prestación del plan que la evolución ya da por terminada pero sigue «pendiente» en el presupuesto. */
@@ -79,6 +81,8 @@ export function toothTreatments(sessions: SessionInput[], planned: PlanInput[]):
       if (closedByNote && pending.length === 1) treatment.closable = pending[0];
     } else if (treatment.sessions.length > 0) {
       treatment.status = "en curso";
+      const stage = stageOf(treatment.family, treatment.sessions);
+      if (stage) treatment.stage = stage;
       if (rule?.next) treatment.next = rule.next;
     } else treatment.status = "planificado";
   }
@@ -112,4 +116,47 @@ export function treatmentAdvances(before: SessionInput[], planned: PlanInput[], 
     out.push({ key: treatment.key, tooth, name: treatment.name, from: was?.status ?? "nuevo", to: treatment.status, ...(treatment.next ? { next: treatment.next } : {}), ...(treatment.closable ? { closable: treatment.closable } : {}) });
   }
   return out.sort((a, b) => a.tooth - b.tooth || a.name.localeCompare(b.name));
+}
+
+/** Etapas clínicas habituales por tratamiento, en orden; sirven para decir en qué va uno que quedó a medias. */
+const STAGES: Partial<Record<TreatmentFamily, Array<[string, RegExp]>>> = {
+  endodoncia: [["apertura y medicación", /apertura|trepanacion|pulpectom|medicacion|urgencia/], ["instrumentación", /instrumentacion|conductometr|preparacion (?:biomecanica|de conductos)/], ["conometría", /conometr|prueba de conos?/]],
+  corona: [["perno o muñón", /perno|munon|poste/], ["tallado e impresión", /tallado|preparacion|impresion|escaneo/], ["provisorio", /provisori/], ["prueba", /prueba de/]],
+  implante: [["instalación del implante", /instal\w* (?:el |un )?implante|se coloca\w* (?:el |un )?implante|cirugia de implante/], ["pilar de cicatrización", /pilar de cicatrizacion|segunda (?:cirugia|fase)/], ["impresión", /impresion|escaneo|transfer/]],
+  protesis: [["impresión", /impresion/], ["prueba", /prueba de|rodetes|enfilado/]],
+};
+function stageOf(family: TreatmentFamily, sessions: TreatmentSession[]): string | null {
+  const stages = STAGES[family];
+  if (!stages) return null;
+  let reached = -1;
+  for (const session of sessions) { const plain = fold(session.text); stages.forEach(([, test], index) => { if (test.test(plain) && index > reached) reached = index; }); }
+  return reached >= 0 ? stages[reached][0] : null;
+}
+
+/** Días sin avance a partir de los cuales un tratamiento a medias se avisa. */
+const STALE_DAYS: Partial<Record<TreatmentFamily, number>> = { provisorio: 30, endodoncia: 21, corona: 30, protesis: 45, implante: 150 };
+export type TreatmentAlert = { key: string; tooth: number; name: string; days: number; message: string };
+const daysBetween = (from: string, to: string) => Math.floor((Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86_400_000);
+
+/**
+ * Pendientes por tiempo: tratamientos en curso sin sesiones hace más de lo razonable (provisorio sin definitiva,
+ * endodoncia sin terminar…) y endodoncias terminadas sin rehabilitación posterior en la pieza.
+ */
+export function treatmentAlerts(all: Record<number, ToothTreatment[]>, today: string): TreatmentAlert[] {
+  const out: TreatmentAlert[] = [];
+  for (const list of Object.values(all)) for (const treatment of list) {
+    const last = treatment.sessions[treatment.sessions.length - 1]?.date;
+    if (!last) continue;
+    const days = daysBetween(last, today);
+    if (!Number.isFinite(days)) continue;
+    const limit = STALE_DAYS[treatment.family];
+    if (treatment.status === "en curso" && limit && days >= limit) {
+      out.push({ key: treatment.key, tooth: treatment.tooth, name: treatment.name, days, message: `${treatment.name} sin avance hace ${days} días${treatment.stage ? ` (quedó en ${treatment.stage})` : ""}. ${treatment.next ?? ""}`.trim() });
+    }
+    if (treatment.family === "endodoncia" && treatment.status === "realizado" && days >= 30) {
+      const rehabilitated = list.some((other) => (other.family === "corona" || other.family === "obturacion") && other.sessions.some((session) => session.date >= last));
+      if (!rehabilitated) out.push({ key: `${treatment.key}:rehab`, tooth: treatment.tooth, name: "Endodoncia sin rehabilitar", days, message: `Endodoncia terminada hace ${days} días sin restauración definitiva ni corona registrada.` });
+    }
+  }
+  return out.sort((a, b) => b.days - a.days);
 }

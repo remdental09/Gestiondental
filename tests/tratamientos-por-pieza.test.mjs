@@ -61,3 +61,22 @@ test("una evolución nueva dice qué tratamiento avanza y ofrece cerrar el del p
   assert.deepEqual(end.map((a) => [a.tooth, a.name, a.from, a.to, a.closable?.label ?? null]), [[36, "Endodoncia", "en curso", "realizado", "Endodoncia molar"], [46, "Obturación", "nuevo", "realizado", null]]);
   assert.deepEqual(treatmentAdvances(prior, planned, procedureSessions("Motivo de consulta\nControl.", "2026-11-09")), []);
 });
+
+import { treatmentAlerts } from "../lib/tooth-treatments.ts";
+
+test("etapa alcanzada y avisos por tiempo: provisorio sin definitiva, endodoncia a medias y sin rehabilitar", () => {
+  const all = toothTreatments([
+    { tooth: 16, date: "2026-09-01", text: "caries inactivada con vidrio ionómero provisorio" },
+    { tooth: 36, date: "2026-10-01", text: "apertura cameral y pulpectomía" },
+    { tooth: 36, date: "2026-10-10", text: "instrumentación de conductos" },
+    { tooth: 45, date: "2026-09-15", text: "obturación de conductos con gutapercha" },
+    { tooth: 26, date: "2026-11-05", text: "tallado para corona e impresión" },
+  ], []);
+  assert.equal(all[36][0].stage, "instrumentación");
+  const alerts = treatmentAlerts(all, "2026-11-11");
+  assert.deepEqual(alerts.map((a) => [a.tooth, a.name, a.days]), [[16, "Obturación provisoria", 71], [45, "Endodoncia sin rehabilitar", 57], [36, "Endodoncia", 32]]);
+  assert.match(alerts[2].message, /quedó en instrumentación/);
+  // Con rehabilitación posterior o dentro de plazo no avisa.
+  const fine = toothTreatments([{ tooth: 45, date: "2026-09-15", text: "obturación de conductos con gutapercha" }, { tooth: 45, date: "2026-09-30", text: "se cementa corona de zirconio" }], []);
+  assert.deepEqual(treatmentAlerts(fine, "2026-11-11"), []);
+});

@@ -5,7 +5,9 @@ import { TodayPanel } from "@/components/today-panel";
 import { AppointmentMailSettings } from "@/components/appointment-mail-settings";
 import "@/lib/window-origin";
 import { endoMilestones, evolutionMilestones } from "@/lib/tooth-evolution-milestones";
-import { toothTreatments } from "@/lib/tooth-treatments";
+import { toothTreatments, treatmentAlerts } from "@/lib/tooth-treatments";
+import { procedureSessions } from "@/lib/tooth-evolution-milestones";
+import { chileTodayIso } from "@/lib/dictation/voice-command";
 import { OdontogramDateBar } from "@/components/odontogram-date-bar";
 import { chartAt, chartDates } from "@/lib/odontogram-timeline";
 import { AnamnesisButton } from "@/components/anamnesis-dialog";
@@ -305,6 +307,13 @@ export default function Home(){
   const patientNotesAll=notes.filter(n=>n.patientId===selectedId),annulledCount=patientNotesAll.length-patientNotesAll.filter(n=>n.status!=="anulada").length;
   const patientNotes=patientNotesAll.filter(n=>n.status!=="anulada"),patientBudgets=budgets.filter(b=>b.patientId===selectedId),patientPayments=payments.filter(p=>p.patientId===selectedId);
   const printingBudget=patientBudgets.find(b=>b.id===printingBudgetId)??null;
+  // Pendientes por tiempo de todos los pacientes (provisorio sin definitiva, endodoncia a medias o sin rehabilitar…), para Inicio.
+  const pendingAcrossPatients=patients.flatMap(p=>{
+    const sessions=notes.filter(n=>n.patientId===p.id&&n.status!=="anulada").flatMap(n=>procedureSessions(n.body,n.clinicalDate,n.id));
+    if(!sessions.length)return[];
+    const plan=Object.entries(plannedByTooth(budgets.filter(b=>b.patientId===p.id))).flatMap(([tooth,items])=>items.map(item=>({...item,tooth:Number(tooth)})));
+    return treatmentAlerts(toothTreatments(sessions,plan),chileTodayIso()).map(alert=>({...alert,patientId:p.id,patientName:p.name}));
+  }).sort((a,b)=>b.days-a.days);
   const plannedTeeth=plannedByTooth(patientBudgets);
   // Tratamientos por pieza con estado (planificado / en curso / realizado), derivados del plan y de los procedimientos de las evoluciones.
   const toothTreatmentMap=toothTreatments(evolutionMilestones(patientNotes).filter(e=>/:proc\d+$/.test(e.id)).map(e=>({tooth:e.tooth,date:e.clinicalDate,text:e.detail??e.title??"",noteId:e.sourceEvolutionId})),Object.entries(plannedTeeth).flatMap(([tooth,items])=>items.map(item=>({...item,tooth:Number(tooth)}))));
@@ -763,6 +772,7 @@ export default function Home(){
         {section==="Inicio"&&<div className="space-y-8">
           <GlobalDictation patients={patients} notes={liveNotes} onUsePatient={openDictatedPatient} onCreatePatient={createDictatedPatient} onAnnul={annulEvolution} onOpenNewPatientForm={openNewPatientForm}/>
           <TodayPanel patients={patients} events={agendaEvents} budgets={budgets.map(b=>({id:b.id,patientId:b.patientId,total:budgetTotals(b.items).total,isAlternative:b.isAlternative}))} payments={payments} clinicName={clinicName} onOpenPatient={id=>openPatient(id)} onOpenAgenda={()=>openSection("Agenda")}/>
+          {pendingAcrossPatients.length>0&&<section aria-label="Tratamientos a medias" className="rounded-xl border border-amber-200 bg-amber-50 p-5" data-testid="pending-treatments"><h2 className="text-lg font-semibold text-amber-950">Tratamientos a medias ({pendingAcrossPatients.length})</h2><p className="mt-1 text-xs text-amber-900">Según las evoluciones: sin avance hace más tiempo del habitual.</p><ul className="mt-3 space-y-2 text-sm">{pendingAcrossPatients.slice(0,8).map(alert=><li key={`${alert.patientId}:${alert.key}`}><button type="button" className="font-semibold text-[#473a6d] underline" onClick={()=>openPatient(alert.patientId,"odontograma")}>{alert.patientName}</button> · FDI {formatFdi(alert.tooth)}: {alert.message}</li>)}</ul>{pendingAcrossPatients.length>8&&<p className="mt-2 text-xs text-amber-900">y {pendingAcrossPatients.length-8} más.</p>}</section>}
           <section aria-label="Entradas de la aplicación">
             <div className="mb-4"><h2 className="text-xl font-semibold">Todas las secciones</h2><p className="mt-1 text-sm text-[#615f73]">Un toque desde aquí y vuelves a Inicio cuando quieras.</p></div>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 [&>*]:min-w-0">
