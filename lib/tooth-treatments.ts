@@ -5,7 +5,7 @@
  *
  * Estados: planificado (está en el plan y no hay sesiones), en curso (hay sesiones y falta el cierre) y realizado.
  */
-export type TreatmentFamily = "endodoncia" | "corona" | "implante" | "obturacion" | "provisorio" | "exodoncia" | "protesis" | "otro";
+export type TreatmentFamily = "endodoncia" | "corona" | "implante" | "obturacion" | "provisorio" | "exodoncia" | "protesis" | "ortodoncia" | "otro";
 export type TreatmentStatus = "planificado" | "en curso" | "realizado";
 export type TreatmentSession = { date: string; text: string; noteId?: number };
 export type PlannedLink = { budgetId: number; index: number; label: string; budgetTitle?: string; doneOn?: string };
@@ -37,6 +37,7 @@ const RULES: FamilyRule[] = [
   { family: "endodoncia", name: "Endodoncia", is: /endodon|tratamiento de conductos?|pulpectom|trepanacion|apertura cameral|instrumentacion|conometr|conductometr|gutapercha|medicacion intraconducto|obturacion de (?:los )?conductos?/, closes: /gutapercha|obturacion de (?:los )?conductos?|(?:endodoncia|tratamiento de conductos?) (?:terminad|finalizad|completad)\w*|se obturan? (?:los )?conductos?/, next: "Falta obturar los conductos." },
   { family: "corona", name: "Corona", is: /corona|tallado|munon|perno|prueba de (?:metal|estructura|casquete|bizcocho)|incrustacion|onlay|inlay|carilla/, closes: /(?:se )?cementa\w* (?:la |una )?(?:corona|incrustacion|onlay|inlay|carilla)(?! provisori)|(?:corona|incrustacion|carilla) (?:definitiva )?cementada(?! provisori)|cementacion definitiva|instalacion de (?:la )?corona definitiva/, next: "Falta el cementado definitivo." },
   { family: "protesis", name: "Prótesis", is: /protesis|puente|rebasado/, closes: /se (?:instala|entrega)\w* (?:la )?protesis|instalacion de (?:la )?protesis|se cementa\w* (?:el )?puente/, next: "Falta la instalación." },
+  { family: "ortodoncia", name: "Ortodoncia", is: /bracket|ortodon|boton (?:para|de) traccion|tubo ortod|retenedor/, closes: /retiro de (?:brackets?|aparatologia|aparatos)|se retiran? (?:los )?brackets?|entrega de retenedor/, next: "Aparatología en boca." },
   { family: "exodoncia", name: "Exodoncia", is: /exodoncia|extraccion|se extrae/, single: true },
   { family: "provisorio", name: "Obturación provisoria", is: /provisori|cavit|\birm\b|eugenat|oxido de zinc|inactiva/, next: "Falta la restauración definitiva." },
   { family: "obturacion", name: "Obturación", is: /obtura|restaura|resina|composite|amalgama|ionomero|reconstru/, single: true },
@@ -159,4 +160,40 @@ export function treatmentAlerts(all: Record<number, ToothTreatment[]>, today: st
     }
   }
   return out.sort((a, b) => b.days - a.days);
+}
+
+/** Lo que se dibuja en la pieza además de caras, estado y corona. */
+export type ToothMarkKind = "endodoncia" | "perno" | "carilla" | "onlay" | "protesis" | "ortodoncia";
+export type ToothMark = { kind: ToothMarkKind; status: TreatmentStatus; label: string };
+export const MARK_LABEL: Record<ToothMarkKind, string> = { endodoncia: "Endodoncia", perno: "Perno / muñón", carilla: "Carilla", onlay: "Incrustación (onlay/inlay)", protesis: "Prótesis fija", ortodoncia: "Ortodoncia" };
+export const MARK_SHORT: Record<ToothMarkKind, string> = { endodoncia: "E", perno: "P", carilla: "Ca", onlay: "On", protesis: "Pr", ortodoncia: "Or" };
+const MARK_TEST: Array<[ToothMarkKind, RegExp, TreatmentFamily[]]> = [
+  ["endodoncia", /./, ["endodoncia"]],
+  ["perno", /perno|poste|munon/, ["corona", "endodoncia", "otro"]],
+  ["carilla", /carilla/, ["corona", "obturacion", "otro"]],
+  ["onlay", /onlay|inlay|incrustacion/, ["corona", "otro"]],
+  ["protesis", /puente|pontico|protesis fija|pilar de puente/, ["protesis", "corona", "otro"]],
+  ["ortodoncia", /./, ["ortodoncia"]],
+];
+const RANK: Record<TreatmentStatus, number> = { planificado: 0, "en curso": 1, realizado: 2 };
+
+/** Marcas por pieza derivadas de sus tratamientos (plan y evoluciones); no se guardan aparte. */
+export function toothMarks(all: Record<number, ToothTreatment[]>): Record<number, ToothMark[]> {
+  const out: Record<number, ToothMark[]> = {};
+  for (const [tooth, list] of Object.entries(all)) {
+    const marks = new Map<ToothMarkKind, ToothMark>();
+    for (const treatment of list) {
+      const texts = [...treatment.sessions.map((session) => session.text), ...treatment.planned.map((link) => link.label)].map(fold);
+      for (const [kind, test, families] of MARK_TEST) {
+        if (!families.includes(treatment.family) || !texts.some((text) => test.test(text))) continue;
+        // El perno o la carilla ya están puestos si alguna sesión los nombra, aunque la corona siga en curso.
+        const placed = kind !== "endodoncia" && kind !== "ortodoncia" && treatment.sessions.some((session) => test.test(fold(session.text)));
+        const status: TreatmentStatus = kind === "ortodoncia" ? (treatment.status === "realizado" ? "realizado" : treatment.sessions.length ? "en curso" : "planificado") : placed && treatment.status !== "planificado" ? (kind === "perno" ? "realizado" : treatment.status) : treatment.status;
+        const prior = marks.get(kind);
+        if (!prior || RANK[status] > RANK[prior.status]) marks.set(kind, { kind, status, label: MARK_LABEL[kind] });
+      }
+    }
+    if (marks.size) out[Number(tooth)] = [...marks.values()];
+  }
+  return out;
 }
