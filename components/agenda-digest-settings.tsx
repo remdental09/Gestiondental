@@ -34,7 +34,7 @@ export function AgendaDigestSettings() {
   return <section className="mt-6 rounded-xl border border-[#e6e4ee] bg-white p-4" aria-label="Agenda de la semana por correo" data-testid="agenda-digest">
     <div className="flex items-start gap-3"><CalendarDays className="mt-0.5 size-5 text-[#473a6d]" />
       <div><h4 className="font-semibold">Agenda de la semana por correo</h4>
-        <p className="text-xs text-[#6b6a7c]">Una vez al día se envía la agenda completa de los próximos 7 días, destacando qué cita es nueva, cuál cambió de día u hora y cuál se canceló. Solo lleva nombre, hora y motivo; no datos clínicos.</p></div></div>
+        <p className="text-xs text-[#6b6a7c]">Una vez al día se envía sola la agenda completa de los próximos 7 días, destacando qué cita es nueva, cuál cambió de día u hora y cuál se canceló. Además puedes enviarla tú cuando quieras, a quien necesites: escribe el correo y pulsa «Enviar ahora». Solo lleva nombre, hora y motivo; no datos clínicos.</p></div></div>
     {!digest.mailConnected ? <p className="mt-3 text-sm text-amber-900">Primero elige el correo de envío en «Correo para confirmar citas», aquí arriba.</p> : <div className="mt-3 space-y-3 text-sm">
       <div className="flex flex-wrap items-end gap-2">
         <label className="min-w-[220px] flex-1"><span className="block text-xs font-medium text-[#3b3355]">Correo de quien recibe la agenda</span>
@@ -48,7 +48,7 @@ export function AgendaDigestSettings() {
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <Button type="button" variant="outline" size="sm" disabled={!!busy} onClick={() => void call("POST", { accion: "prueba" }, "test")}>{busy === "test" ? <Loader2 className="size-4 animate-spin" /> : null}Enviarme una prueba</Button>
-        <Button type="button" size="sm" disabled={!!busy || !digest.toEmail} onClick={() => { if (window.confirm(`¿Enviar ahora la agenda a ${digest.toEmail}?`)) void call("POST", { accion: "enviar" }, "send"); }}>{busy === "send" ? <Loader2 className="size-4 animate-spin" /> : null}Enviar ahora</Button>
+        <Button type="button" size="sm" disabled={!!busy || !shown.trim()} onClick={() => { if (window.confirm(`¿Enviar ahora la agenda de la semana a ${shown.trim()}?`)) void call("POST", { accion: "enviar", toEmail: shown.trim() }, "send"); }} data-testid="digest-send-now">{busy === "send" ? <Loader2 className="size-4 animate-spin" /> : null}Enviar ahora a {shown.trim() || "…"}</Button>
         <span className="text-xs text-[#6b6a7c]">Se envía desde {digest.from}. Último envío: {when(digest.lastSentAt)}{digest.lastResult ? ` · ${digest.lastResult}` : ""}</span>
       </div>
     </div>}

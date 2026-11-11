@@ -56,15 +56,23 @@ async function deliver(sender: MailSender, to: string, mail: { subject: string; 
   await sendMailWithSender(sender, buildRawMessage({ from: sender.google_email, fromName: clinicName || undefined, to, replyTo: sender.google_email, ...mail }));
 }
 
-/** Envía la agenda a quien la recibe y guarda la foto para comparar mañana. */
-export async function sendDigest(ownerId: string, now = new Date()): Promise<string> {
+/**
+ * Envía la agenda a quien la recibe. Sin `to`, es el envío habitual: va a la persona guardada y deja la foto para comparar mañana.
+ * Con `to` (envío manual a otra persona, o ahora mismo): lleva los cambios desde el último envío habitual y NO mueve esa comparación,
+ * así el envío automático de la tarde sigue mostrando todo lo que cambió.
+ */
+export async function sendDigest(ownerId: string, options: { to?: string; now?: Date } = {}): Promise<string> {
+  const now = options.now ?? new Date();
   const sender = await getSender(ownerId);
   if (!sender) throw new Error("Primero conecta el correo de envío.");
-  const settings = await getDigest(ownerId);
-  if (!settings || !isValidEmail(settings.to_email)) throw new Error("Escribe el correo de quien recibirá la agenda.");
+  const settings = (await getDigest(ownerId)) ?? { owner_id: ownerId, enabled: 0, to_email: "", send_hour: 18, abbreviate: 0, last_sent_at: null, last_sent_day: null, last_result: null, snapshot: null, window_end: null };
+  const manual = options.to !== undefined;
+  const to = (options.to ?? settings.to_email).trim();
+  if (!isValidEmail(to)) throw new Error("Escribe el correo de quien recibirá la agenda.");
   const built = await compose(ownerId, settings, now);
-  await deliver(sender, settings.to_email, digestEmail({ clinicName: built.clinicName, days: built.days, entries: built.entries, changes: built.changes, first: built.first }), built.clinicName);
-  const detail = `Enviada a ${settings.to_email}: ${built.entries.length} citas${built.first ? " (primera agenda)" : `, ${changeCount(built.changes)} cambios`}.`;
+  await deliver(sender, to, digestEmail({ clinicName: built.clinicName, days: built.days, entries: built.entries, changes: built.changes, first: built.first }), built.clinicName);
+  const detail = `Enviada a ${to}: ${built.entries.length} citas${built.first ? "" : `, ${changeCount(built.changes)} ${changeCount(built.changes) === 1 ? "cambio" : "cambios"} desde el último envío automático`}.`;
+  if (manual && to !== settings.to_email.trim()) return detail;
   await need().prepare("UPDATE agenda_digest SET snapshot = ?, window_end = ?, last_sent_at = ?, last_sent_day = ?, last_result = ? WHERE owner_id = ?")
     .bind(JSON.stringify(built.entries), built.days[built.days.length - 1], now.toISOString(), built.today, detail, ownerId).run();
   return detail;
@@ -90,7 +98,7 @@ export async function runAgendaDigests(now = new Date()) {
   for (const row of rows.results.slice(0, 50)) {
     if (hour < row.send_hour || hour >= 20) { out.push({ ownerId: row.owner_id, detail: "fuera de horario" }); continue; }
     if (row.last_sent_day === today) { out.push({ ownerId: row.owner_id, detail: "ya enviada hoy" }); continue; }
-    try { out.push({ ownerId: row.owner_id, detail: await sendDigest(row.owner_id, now) }); }
+    try { out.push({ ownerId: row.owner_id, detail: await sendDigest(row.owner_id, { now }) }); }
     catch (error) {
       const detail = "Error: " + (error instanceof Error ? error.message.slice(0, 160) : "no se pudo enviar");
       await db.prepare("UPDATE agenda_digest SET last_result = ? WHERE owner_id = ?").bind(detail, row.owner_id).run().catch(() => undefined);

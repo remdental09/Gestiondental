@@ -100,7 +100,7 @@ export function digestEmail(input: { clinicName?: string; days: string[]; entrie
 
   const byDay = new Map<string, DigestEntry[]>();
   for (const entry of entries) { const day = chileDay(entry.startAt); byDay.set(day, [...(byDay.get(day) ?? []), entry]); }
-  const intro = input.first ? "Esta es la primera agenda que recibes; desde la próxima verás qué cambió." : total ? "Cambios desde la última agenda que recibiste:" : "No hubo cambios desde la última agenda.";
+  const intro = input.first ? "Agenda de los próximos 7 días." : total ? "Cambios desde la última agenda que recibiste:" : "No hubo cambios desde la última agenda.";
 
   const textDays = input.days.map((day) => {
     const list = byDay.get(day) ?? [];

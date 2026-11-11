@@ -53,6 +53,6 @@ test("el correo destaca cambios, lista cada día y no lleva datos clínicos ni e
   assert.match(mail.html, /&lt;b&gt;x&lt;\/b&gt;/);
   const first = digestEmail({ days, entries, changes: { added: [], moved: [], cancelled: [] }, first: true, test: true });
   assert.match(first.subject, /^\[Prueba\] /);
-  assert.match(first.text, /primera agenda/);
+  assert.match(first.text, /próximos 7 días/);
   assert.match(digestEmail({ days, entries, changes: { added: [], moved: [], cancelled: [] }, first: false }).text, /No hubo cambios/);
 });

@@ -49,14 +49,16 @@ export async function PUT(request: Request) {
   try { await saveDigest(user.userId, settings); return json({ digest: await view(user.userId) }); } catch { return json({ error: "No se pudo guardar." }, 500); }
 }
 
-/** {accion:"prueba"}: llega al correo de envío del clínico. {accion:"enviar"}: la envía ya a quien la recibe. */
+/** {accion:"prueba"}: llega al correo de envío del clínico. {accion:"enviar", toEmail?}: la envía ya, a ese correo o a quien la recibe. */
 export async function POST(request: Request) {
   const user = await getChatGPTUser();
   if (!user?.userId) return json({ error: "Inicia sesión." }, 401);
   if (!sameOrigin(request)) return json({ error: "Origen no permitido." }, 403);
-  const body = await request.json().catch(() => ({})) as { accion?: unknown };
+  const body = await request.json().catch(() => ({})) as { accion?: unknown; toEmail?: unknown };
+  const to = typeof body.toEmail === "string" ? body.toEmail.trim() : "";
+  if (body.accion === "enviar" && to && !isValidEmail(to)) return json({ error: "Escribe un correo válido." }, 400);
   try {
-    const detail = body.accion === "enviar" ? await sendDigest(user.userId) : await sendDigestTest(user.userId);
+    const detail = body.accion === "enviar" ? await sendDigest(user.userId, to ? { to } : {}) : await sendDigestTest(user.userId);
     return json({ ok: true, detail, digest: await view(user.userId) });
   } catch (error) { return json({ error: error instanceof Error ? error.message : "No se pudo enviar." }, 502); }
 }
