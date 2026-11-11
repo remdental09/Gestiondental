@@ -21,7 +21,7 @@ export type AuditFinding = {
   budgetId?: number;
   noteId?: number;
 };
-export type AuditRule = "odontograma" | "pendiente-sin-pieza" | "cobro-duplicado" | "hecha-sin-registro" | "material-distinto" | "evolucion-pieza-inexistente";
+export type AuditRule = "odontograma" | "pendiente-sin-pieza" | "cobro-duplicado" | "hecha-sin-registro" | "material-distinto" | "evolucion-pieza-inexistente" | "nota-vs-odontograma";
 
 export type AuditBudget = { id: number; title?: string; items: BudgetItem[] };
 export type AuditNote = { id: number; clinicalDate: string; body: string; status?: string };

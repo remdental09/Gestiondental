@@ -25,6 +25,11 @@ export async function runScheduled(cron: string, env: CalendarSyncEnv) {
       const { runReminderCycle } = await import("./appointment-mail");
       console.log("appointment-reminders", JSON.stringify(await runReminderCycle().catch(error => [{ ok: false, detail: String(error) }])));
     }
+    // Revisión posterior de las evoluciones recientes (IA): unas pocas por hora, para que lo pendiente no espere a que alguien abra la app.
+    if (cron === HOURLY_BACKUP_CRON) {
+      const { runNoteAudits } = await import("./audit-notes");
+      console.log("note-audits", JSON.stringify(await runNoteAudits().catch(error => [{ ok: false, detail: String(error) }])));
+    }
     const { runScheduledDriveBackup } = await import("./drive-oauth");
     const result = await runScheduledDriveBackup();
     console.log("drive-backup", JSON.stringify(result));

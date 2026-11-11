@@ -1,0 +1,188 @@
+{
+ "descripcion": "Evoluciones sintéticas (sin datos de pacientes) para medir la relectura de la auditoría posterior con la IA real.",
+ "casos": [
+  {
+   "id": "n01-coronas-plural",
+   "nota": "Cuatro coronas constatadas en una lista de piezas (numeración chilena) y el odontograma vacío.",
+   "body": "Anamnesis y antecedentes\nLa paciente comunica que las piezas 8 y 9 tienen tratamiento de endodoncia.\n\nExamen\nSe constatan cuatro coronas clínicas correspondientes a las piezas 7, 8, 9 y 10, confeccionadas en circonio y cementadas sobre dientes. No existe claridad respecto de la vitalidad de dichos dientes.\n\nPlan de tratamiento\nLa paciente solicitará una próxima sesión.",
+   "chart": {
+    "teeth": {},
+    "surfaces": {},
+    "missingReason": {},
+    "crowns": {}
+   },
+   "esperadas": [
+    "12:corona",
+    "11:corona",
+    "21:corona",
+    "22:corona"
+   ]
+  },
+  {
+   "id": "n02-coronas-ya-registradas",
+   "nota": "La misma nota con las cuatro coronas ya en el odontograma: no hay nada que avisar.",
+   "body": "Anamnesis y antecedentes\nLa paciente comunica que las piezas 8 y 9 tienen tratamiento de endodoncia.\n\nExamen\nSe constatan cuatro coronas clínicas correspondientes a las piezas 7, 8, 9 y 10, confeccionadas en circonio y cementadas sobre dientes. No existe claridad respecto de la vitalidad de dichos dientes.\n\nPlan de tratamiento\nLa paciente solicitará una próxima sesión.",
+   "chart": {
+    "teeth": {
+     "12": "Corona",
+     "11": "Corona",
+     "21": "Corona",
+     "22": "Corona"
+    },
+    "surfaces": {},
+    "missingReason": {},
+    "crowns": {
+     "12": {
+      "material": "Zirconio"
+     },
+     "11": {
+      "material": "Zirconio"
+     },
+     "21": {
+      "material": "Zirconio"
+     },
+     "22": {
+      "material": "Zirconio"
+     }
+    }
+   },
+   "esperadas": []
+  },
+  {
+   "id": "n03-implante-hoy",
+   "nota": "Implante instalado hoy y el odontograma no lo muestra.",
+   "body": "Cirugía\nSe instala implante en la pieza 3.6 sin incidentes. Se indican controles.",
+   "chart": {
+    "teeth": {},
+    "surfaces": {},
+    "missingReason": {},
+    "crowns": {}
+   },
+   "esperadas": [
+    "36:implante"
+   ]
+  },
+  {
+   "id": "n04-extraccion-hoy",
+   "nota": "Extracción hecha hoy y la pieza no figura ausente.",
+   "body": "Procedimiento\nSe realiza exodoncia de la pieza 3.8 sin complicaciones. Se indican cuidados posteriores.",
+   "chart": {
+    "teeth": {},
+    "surfaces": {},
+    "missingReason": {},
+    "crowns": {}
+   },
+   "esperadas": [
+    "38:ausente"
+   ]
+  },
+  {
+   "id": "n05-obturacion-hoy",
+   "nota": "Obturación de resina hecha hoy sin cara restaurada en el odontograma.",
+   "body": "Procedimiento\nSe realiza obturación de resina compuesta en la pieza 1.6, cara oclusal.",
+   "chart": {
+    "teeth": {},
+    "surfaces": {},
+    "missingReason": {},
+    "crowns": {}
+   },
+   "esperadas": [
+    "16:obturacion"
+   ]
+  },
+  {
+   "id": "n06-referido-por-paciente",
+   "nota": "Lo que cuenta la paciente no se exige en el odontograma.",
+   "body": "Anamnesis\nLa paciente refiere que tiene un implante en la pieza 4.6 desde hace años y una corona en la 1.1.",
+   "chart": {
+    "teeth": {},
+    "surfaces": {},
+    "missingReason": {},
+    "crowns": {}
+   },
+   "esperadas": []
+  },
+  {
+   "id": "n07-planificado",
+   "nota": "Lo planificado no es un hecho.",
+   "body": "Plan de tratamiento\nSe planifica implante en la pieza 3.6 y corona de circonio en la pieza 1.1. Se entrega presupuesto.",
+   "chart": {
+    "teeth": {},
+    "surfaces": {},
+    "missingReason": {},
+    "crowns": {}
+   },
+   "esperadas": []
+  },
+  {
+   "id": "n08-sin-piezas",
+   "nota": "Una nota sin piezas no genera nada.",
+   "body": "Motivo de consulta\nControl general. La paciente no refiere molestias. Se indica higiene dos veces al día.",
+   "chart": {
+    "teeth": {},
+    "surfaces": {},
+    "missingReason": {},
+    "crowns": {}
+   },
+   "esperadas": []
+  },
+  {
+   "id": "n09-caries-registrada",
+   "nota": "Caries constatada y registrada: no hay nada que avisar.",
+   "body": "Examen\nSe constata caries en la pieza 2.6.",
+   "chart": {
+    "teeth": {},
+    "surfaces": {
+     "26": {
+      "O": {
+       "condition": "caries"
+      }
+     }
+    },
+    "missingReason": {},
+    "crowns": {}
+   },
+   "esperadas": []
+  },
+  {
+   "id": "n10-endodoncia-no-se-compara",
+   "nota": "La endodoncia no se compara con el odontograma.",
+   "body": "Procedimiento\nControl de endodoncia de la pieza 1.1, asintomática, sin cambios radiográficos.",
+   "chart": {
+    "teeth": {},
+    "surfaces": {},
+    "missingReason": {},
+    "crowns": {}
+   },
+   "esperadas": []
+  },
+  {
+   "id": "n11-corona-provisoria",
+   "nota": "Una corona provisoria no es la corona definitiva del odontograma.",
+   "body": "Procedimiento\nSe instala corona provisoria en la pieza 2.1 mientras se confecciona la definitiva.",
+   "chart": {
+    "teeth": {},
+    "surfaces": {},
+    "missingReason": {},
+    "crowns": {}
+   },
+   "esperadas": []
+  },
+  {
+   "id": "n12-ausentes-plural",
+   "nota": "Ausencias constatadas con lista de piezas.",
+   "body": "Examen\nSe constatan ausentes las piezas 1.8, 2.8 y 3.8.",
+   "chart": {
+    "teeth": {},
+    "surfaces": {},
+    "missingReason": {},
+    "crowns": {}
+   },
+   "esperadas": [
+    "18:ausente",
+    "28:ausente",
+    "38:ausente"
+   ]
+  }
+ ]
+}
