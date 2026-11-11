@@ -1,0 +1,625 @@
+[
+ {
+  "id": "a01",
+  "nota": "Obturación pendiente en pieza ausente",
+  "esperadas": [
+   "pendiente-sin-pieza"
+  ],
+  "chart": {
+   "teeth": {
+    "16": "Ausente"
+   },
+   "surfaces": {},
+   "missingReason": {},
+   "crowns": {},
+   "history": []
+  },
+  "budgets": [
+   {
+    "id": 1,
+    "items": [
+     {
+      "label": "Composite fotocurado compuesto posterior",
+      "amount": 30000,
+      "code": "5005018",
+      "teeth": [
+       16
+      ]
+     }
+    ]
+   }
+  ],
+  "notes": [],
+  "today": "2026-11-10"
+ },
+ {
+  "id": "a02",
+  "nota": "Endodoncia pendiente en implante",
+  "esperadas": [
+   "pendiente-sin-pieza"
+  ],
+  "chart": {
+   "teeth": {
+    "45": "Implante"
+   },
+   "surfaces": {},
+   "missingReason": {},
+   "crowns": {},
+   "history": []
+  },
+  "budgets": [
+   {
+    "id": 1,
+    "items": [
+     {
+      "label": "Tratamiento de conductos premolares vitales",
+      "amount": 30000,
+      "code": "5006002",
+      "teeth": [
+       45
+      ]
+     }
+    ]
+   }
+  ],
+  "notes": [],
+  "today": "2026-11-10"
+ },
+ {
+  "id": "a03",
+  "nota": "Mismo cobro dos veces",
+  "esperadas": [
+   "cobro-duplicado"
+  ],
+  "chart": {
+   "teeth": {
+    "16": "Sin hallazgos"
+   },
+   "surfaces": {},
+   "missingReason": {},
+   "crowns": {},
+   "history": []
+  },
+  "budgets": [
+   {
+    "id": 1,
+    "items": [
+     {
+      "label": "Composite fotocurado compuesto posterior",
+      "amount": 30000,
+      "code": "5005018",
+      "teeth": [
+       16
+      ]
+     },
+     {
+      "label": "Composite fotocurado compuesto posterior",
+      "amount": 30000,
+      "code": "5005018",
+      "teeth": [
+       16
+      ]
+     }
+    ]
+   }
+  ],
+  "notes": [],
+  "today": "2026-11-10"
+ },
+ {
+  "id": "a04",
+  "nota": "Amalgama cobrada y odontograma con caries (caso 1.6)",
+  "esperadas": [
+   "hecha-sin-registro"
+  ],
+  "chart": {
+   "teeth": {
+    "16": "Sin hallazgos"
+   },
+   "surfaces": {
+    "16": {
+     "M": {
+      "condition": "caries"
+     },
+     "O": {
+      "condition": "caries"
+     }
+    }
+   },
+   "missingReason": {},
+   "crowns": {},
+   "history": []
+  },
+  "budgets": [
+   {
+    "id": 1,
+    "items": [
+     {
+      "label": "Obturación de amalgama compuesta",
+      "amount": 30000,
+      "code": "5005002",
+      "teeth": [
+       16
+      ],
+      "doneOn": "2026-11-09"
+     }
+    ]
+   }
+  ],
+  "notes": [],
+  "today": "2026-11-10"
+ },
+ {
+  "id": "a05",
+  "nota": "Cobra amalgama y el odontograma dice resina",
+  "esperadas": [
+   "material-distinto"
+  ],
+  "chart": {
+   "teeth": {
+    "26": "Sin hallazgos"
+   },
+   "surfaces": {
+    "26": {
+     "O": {
+      "condition": "restored",
+      "restorationMaterial": "Resina compuesta"
+     }
+    }
+   },
+   "missingReason": {},
+   "crowns": {},
+   "history": []
+  },
+  "budgets": [
+   {
+    "id": 1,
+    "items": [
+     {
+      "label": "Obturación de amalgama compuesta",
+      "amount": 30000,
+      "code": "5005002",
+      "teeth": [
+       26
+      ],
+      "doneOn": "2026-11-08"
+     }
+    ]
+   }
+  ],
+  "notes": [],
+  "today": "2026-11-10"
+ },
+ {
+  "id": "a06",
+  "nota": "Cobra resina y el odontograma dice amalgama",
+  "esperadas": [
+   "material-distinto"
+  ],
+  "chart": {
+   "teeth": {
+    "36": "Sin hallazgos"
+   },
+   "surfaces": {
+    "36": {
+     "O": {
+      "condition": "restored",
+      "restorationMaterial": "Amalgama"
+     }
+    }
+   },
+   "missingReason": {},
+   "crowns": {},
+   "history": []
+  },
+  "budgets": [
+   {
+    "id": 1,
+    "items": [
+     {
+      "label": "Composite fotocurado compuesto posterior",
+      "amount": 30000,
+      "code": "5005018",
+      "teeth": [
+       36
+      ],
+      "doneOn": "2026-11-08"
+     }
+    ]
+   }
+  ],
+  "notes": [],
+  "today": "2026-11-10"
+ },
+ {
+  "id": "a07",
+  "nota": "Evolución con pieza 1.9 inexistente",
+  "esperadas": [
+   "evolucion-pieza-inexistente"
+  ],
+  "chart": {
+   "teeth": {},
+   "surfaces": {},
+   "missingReason": {},
+   "crowns": {},
+   "history": []
+  },
+  "budgets": [],
+  "notes": [
+   {
+    "id": 5,
+    "clinicalDate": "2026-11-09",
+    "body": "Se realiza obturación en pieza 1.9 con resina."
+   }
+  ],
+  "today": "2026-11-10"
+ },
+ {
+  "id": "a08",
+  "nota": "Implante que conserva caras de diente natural",
+  "esperadas": [
+   "odontograma"
+  ],
+  "chart": {
+   "teeth": {
+    "46": "Implante"
+   },
+   "surfaces": {
+    "46": {
+     "O": {
+      "condition": "restored"
+     }
+    }
+   },
+   "missingReason": {},
+   "crowns": {},
+   "history": []
+  },
+  "budgets": [],
+  "notes": [],
+  "today": "2026-11-10"
+ },
+ {
+  "id": "c01",
+  "nota": "Obturación realizada y registrada",
+  "esperadas": [],
+  "chart": {
+   "teeth": {
+    "16": "Sin hallazgos"
+   },
+   "surfaces": {
+    "16": {
+     "O": {
+      "condition": "restored",
+      "restorationMaterial": "Resina compuesta"
+     }
+    }
+   },
+   "missingReason": {},
+   "crowns": {},
+   "history": []
+  },
+  "budgets": [
+   {
+    "id": 1,
+    "items": [
+     {
+      "label": "Composite fotocurado compuesto posterior",
+      "amount": 30000,
+      "code": "5005018",
+      "teeth": [
+       16
+      ],
+      "doneOn": "2026-11-09"
+     }
+    ]
+   }
+  ],
+  "notes": [],
+  "today": "2026-11-10"
+ },
+ {
+  "id": "c02",
+  "nota": "Obturación cobrada en pieza hoy con corona",
+  "esperadas": [],
+  "chart": {
+   "teeth": {
+    "46": "Corona"
+   },
+   "surfaces": {},
+   "missingReason": {},
+   "crowns": {
+    "46": {
+     "material": "Zirconio",
+     "foundation": "tooth"
+    }
+   },
+   "history": []
+  },
+  "budgets": [
+   {
+    "id": 1,
+    "items": [
+     {
+      "label": "Obturación de amalgama compuesta",
+      "amount": 30000,
+      "code": "5005002",
+      "teeth": [
+       46
+      ],
+      "doneOn": "2026-11-05"
+     }
+    ]
+   }
+  ],
+  "notes": [],
+  "today": "2026-11-10"
+ },
+ {
+  "id": "c03",
+  "nota": "Obturación pendiente en pieza con caries",
+  "esperadas": [],
+  "chart": {
+   "teeth": {
+    "16": "Sin hallazgos"
+   },
+   "surfaces": {
+    "16": {
+     "O": {
+      "condition": "caries"
+     }
+    }
+   },
+   "missingReason": {},
+   "crowns": {},
+   "history": []
+  },
+  "budgets": [
+   {
+    "id": 1,
+    "items": [
+     {
+      "label": "Composite fotocurado compuesto posterior",
+      "amount": 30000,
+      "code": "5005018",
+      "teeth": [
+       16
+      ]
+     }
+    ]
+   }
+  ],
+  "notes": [],
+  "today": "2026-11-10"
+ },
+ {
+  "id": "c04",
+  "nota": "Trabajo antiguo sin registro (fuera de la ventana)",
+  "esperadas": [],
+  "chart": {
+   "teeth": {
+    "16": "Sin hallazgos"
+   },
+   "surfaces": {},
+   "missingReason": {},
+   "crowns": {},
+   "history": []
+  },
+  "budgets": [
+   {
+    "id": 1,
+    "items": [
+     {
+      "label": "Composite fotocurado compuesto posterior",
+      "amount": 30000,
+      "code": "5005018",
+      "teeth": [
+       16
+      ],
+      "doneOn": "2026-08-01"
+     }
+    ]
+   }
+  ],
+  "notes": [],
+  "today": "2026-11-10"
+ },
+ {
+  "id": "c05",
+  "nota": "Misma prestación en piezas distintas",
+  "esperadas": [],
+  "chart": {
+   "teeth": {
+    "16": "Sin hallazgos",
+    "26": "Sin hallazgos"
+   },
+   "surfaces": {},
+   "missingReason": {},
+   "crowns": {},
+   "history": []
+  },
+  "budgets": [
+   {
+    "id": 1,
+    "items": [
+     {
+      "label": "Composite fotocurado compuesto posterior",
+      "amount": 30000,
+      "code": "5005018",
+      "teeth": [
+       16
+      ]
+     },
+     {
+      "label": "Composite fotocurado compuesto posterior",
+      "amount": 30000,
+      "code": "5005018",
+      "teeth": [
+       26
+      ]
+     }
+    ]
+   }
+  ],
+  "notes": [],
+  "today": "2026-11-10"
+ },
+ {
+  "id": "c06",
+  "nota": "Evolución con piezas válidas, permanente y temporal",
+  "esperadas": [],
+  "chart": {
+   "teeth": {},
+   "surfaces": {},
+   "missingReason": {},
+   "crowns": {},
+   "history": []
+  },
+  "budgets": [],
+  "notes": [
+   {
+    "id": 6,
+    "clinicalDate": "2026-11-09",
+    "body": "Control de la pieza 1.6 y del diente 5.5. Molar 3.6 sin sensibilidad. Paciente con 1.5 mm de recesión."
+   }
+  ],
+  "today": "2026-11-10"
+ },
+ {
+  "id": "c07",
+  "nota": "Inactivación de caries con caries registrada",
+  "esperadas": [],
+  "chart": {
+   "teeth": {
+    "16": "Sin hallazgos"
+   },
+   "surfaces": {
+    "16": {
+     "M": {
+      "condition": "caries"
+     },
+     "O": {
+      "condition": "caries"
+     }
+    }
+   },
+   "missingReason": {},
+   "crowns": {},
+   "history": []
+  },
+  "budgets": [
+   {
+    "id": 1,
+    "items": [
+     {
+      "label": "Inactivación de caries",
+      "amount": 30000,
+      "code": "5010029",
+      "teeth": [
+       16
+      ],
+      "doneOn": "2026-11-09"
+     }
+    ]
+   }
+  ],
+  "notes": [],
+  "today": "2026-11-10"
+ },
+ {
+  "id": "c08",
+  "nota": "Amalgama antigua y resina nueva en la misma pieza",
+  "esperadas": [],
+  "chart": {
+   "teeth": {
+    "16": "Sin hallazgos"
+   },
+   "surfaces": {
+    "16": {
+     "O": {
+      "condition": "restored",
+      "restorationMaterial": "Amalgama"
+     },
+     "M": {
+      "condition": "restored",
+      "restorationMaterial": "Resina compuesta"
+     }
+    }
+   },
+   "missingReason": {},
+   "crowns": {},
+   "history": []
+  },
+  "budgets": [
+   {
+    "id": 1,
+    "items": [
+     {
+      "label": "Composite fotocurado compuesto posterior",
+      "amount": 30000,
+      "code": "5005018",
+      "teeth": [
+       16
+      ],
+      "doneOn": "2026-11-09"
+     }
+    ]
+   }
+  ],
+  "notes": [],
+  "today": "2026-11-10"
+ },
+ {
+  "id": "c09",
+  "nota": "Evolución anulada con pieza mal escrita",
+  "esperadas": [],
+  "chart": {
+   "teeth": {},
+   "surfaces": {},
+   "missingReason": {},
+   "crowns": {},
+   "history": []
+  },
+  "budgets": [],
+  "notes": [
+   {
+    "id": 7,
+    "clinicalDate": "2026-11-09",
+    "body": "Pieza 1.9 tratada.",
+    "status": "anulada"
+   }
+  ],
+  "today": "2026-11-10"
+ },
+ {
+  "id": "c10",
+  "nota": "Endodoncia pendiente en pieza natural",
+  "esperadas": [],
+  "chart": {
+   "teeth": {
+    "45": "Sin hallazgos"
+   },
+   "surfaces": {},
+   "missingReason": {},
+   "crowns": {},
+   "history": []
+  },
+  "budgets": [
+   {
+    "id": 1,
+    "items": [
+     {
+      "label": "Tratamiento de conductos premolares vitales",
+      "amount": 30000,
+      "code": "5006002",
+      "teeth": [
+       45
+      ]
+     }
+    ]
+   }
+  ],
+  "notes": [],
+  "today": "2026-11-10"
+ }
+]
