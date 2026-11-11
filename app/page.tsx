@@ -5,6 +5,7 @@ import { TodayPanel } from "@/components/today-panel";
 import { AppointmentMailSettings } from "@/components/appointment-mail-settings";
 import "@/lib/window-origin";
 import { endoMilestones, evolutionMilestones } from "@/lib/tooth-evolution-milestones";
+import { toothTreatments } from "@/lib/tooth-treatments";
 import { OdontogramDateBar } from "@/components/odontogram-date-bar";
 import { chartAt, chartDates } from "@/lib/odontogram-timeline";
 import { AnamnesisButton } from "@/components/anamnesis-dialog";
@@ -305,6 +306,8 @@ export default function Home(){
   const patientNotes=patientNotesAll.filter(n=>n.status!=="anulada"),patientBudgets=budgets.filter(b=>b.patientId===selectedId),patientPayments=payments.filter(p=>p.patientId===selectedId);
   const printingBudget=patientBudgets.find(b=>b.id===printingBudgetId)??null;
   const plannedTeeth=plannedByTooth(patientBudgets);
+  // Tratamientos por pieza con estado (planificado / en curso / realizado), derivados del plan y de los procedimientos de las evoluciones.
+  const toothTreatmentMap=toothTreatments(evolutionMilestones(patientNotes).filter(e=>/:proc\d+$/.test(e.id)).map(e=>({tooth:e.tooth,date:e.clinicalDate,text:e.detail??e.title??"",noteId:e.sourceEvolutionId})),Object.entries(plannedTeeth).flatMap(([tooth,items])=>items.map(item=>({...item,tooth:Number(tooth)}))));
   const paymentTargetBudget=patientBudgets.find(b=>b.id===paymentBudgetId)??null;
   const paymentTargetPaid=paymentTargetBudget?patientPayments.filter(p=>p.budgetId===paymentTargetBudget.id).reduce((sum,p)=>sum+p.amount,0):0;
   const toothEvolutionHistory:ToothHistoryEvent[]=(patientNotes.flatMap(note=>(note.diagnoses??[]).filter(diagnosis=>diagnosis.tooth!==null).map((diagnosis,index)=>({
@@ -791,7 +794,7 @@ export default function Home(){
   }}
   onAnnul={note => setAnnulTarget(note)}
 /></div></TabsContent>
-            <TabsContent value="odontograma"><OdontogramDateBar dates={chartDates(toothStatuses[selectedId]??emptyOdontogram())} value={chartDate} onChange={setChartDate}/><Suspense fallback={<div className="min-h-[320px] rounded-xl bg-white p-5 text-sm text-[#6b6a7c]" role="status">Cargando odontograma…</div>}><Odontogram key={`${selectedId}-${chartDate??"hoy"}`} endo={endoMarks} onOpenEndo={tooth=>{setEndoFocus(tooth);setActiveTab("endodoncia")}} planned={plannedTeeth} onSetPlannedDone={setBudgetItemDone} onOpenPlan={()=>setActiveTab("presupuestos")} onDeleteEvent={deleteToothEvent} onEditEvent={editToothEvent} data={chartDate?chartAt(toothStatuses[selectedId]??emptyOdontogram(),chartDate):toothStatuses[selectedId]??emptyOdontogram()} evolutionEvents={toothEvolutionHistory} onSetStatus={chartDate?readOnlyChart:updateTooth} onSetMissingReason={chartDate?readOnlyChart:updateMissingReason} onSetSurface={chartDate?readOnlyChart:updateSurface} onSetCrownDetails={chartDate?readOnlyChart:updateCrownDetails}/></Suspense></TabsContent>
+            <TabsContent value="odontograma"><OdontogramDateBar dates={chartDates(toothStatuses[selectedId]??emptyOdontogram())} value={chartDate} onChange={setChartDate}/><Suspense fallback={<div className="min-h-[320px] rounded-xl bg-white p-5 text-sm text-[#6b6a7c]" role="status">Cargando odontograma…</div>}><Odontogram key={`${selectedId}-${chartDate??"hoy"}`} endo={endoMarks} onOpenEndo={tooth=>{setEndoFocus(tooth);setActiveTab("endodoncia")}} treatments={toothTreatmentMap} planned={plannedTeeth} onSetPlannedDone={setBudgetItemDone} onOpenPlan={()=>setActiveTab("presupuestos")} onDeleteEvent={deleteToothEvent} onEditEvent={editToothEvent} data={chartDate?chartAt(toothStatuses[selectedId]??emptyOdontogram(),chartDate):toothStatuses[selectedId]??emptyOdontogram()} evolutionEvents={toothEvolutionHistory} onSetStatus={chartDate?readOnlyChart:updateTooth} onSetMissingReason={chartDate?readOnlyChart:updateMissingReason} onSetSurface={chartDate?readOnlyChart:updateSurface} onSetCrownDetails={chartDate?readOnlyChart:updateCrownDetails}/></Suspense></TabsContent>
             <TabsContent value="presupuestos"><div className="surface"><div className="flex justify-between gap-3"><div><h3 className="font-semibold">Planes de tratamiento y presupuestos</h3><p className="mt-1 text-sm text-[#615f73]">Organiza prestaciones por fases y revisa total, abonos y saldo en cada plan.</p></div><Button variant="outline" size="sm" onClick={startNewBudget}>Añadir plan</Button></div><div className="mt-5 space-y-4">{patientBudgets.length?<>
               {patientBudgets.filter(b=>!b.isAlternative).map(primary=>{
                 const paid=patientPayments.filter(payment=>payment.budgetId===primary.id).reduce((sum,payment)=>sum+payment.amount,0);
