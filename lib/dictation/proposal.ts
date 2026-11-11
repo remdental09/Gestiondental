@@ -852,8 +852,8 @@ function missingReasonFrom(sentence: string): OdontogramChange["missingReason"] 
 }
 
 function crownOnImplantSentence(sentence: string): boolean {
-  return /\b(?:corona|pr[oó]tesis\s+fija)\b/i.test(sentence)
-    && /\b(?:sobre|encima\s+de|en)\s+(?:el\s+|la\s+|un\s+)?implante\b/i.test(sentence)
+  return /\b(?:coronas?|pr[oó]tesis\s+fija)\b/i.test(sentence)
+    && /\b(?:sobre|encima\s+de|en)\s+(?:el\s+|la\s+|un\s+|los\s+)?implantes?\b/i.test(sentence)
     && !(/\bprovisori[ao]\b/i.test(sentence) && !/\bdefinitiv[ao]\b/i.test(sentence));
 }
 
@@ -897,13 +897,13 @@ function statusFrom(sentence: string): ToothStatus | null {
   if (EXTRACTION_INDICATED.test(sentence)) return "Indicación de exodoncia";
   if (crownOnImplantSentence(sentence)) return null;
   if (/\bimplantes?\b/i.test(sentence) && IMPLANT_NOT_DONE.test(sentence)) return null;
-  if (/\bimplantes?\b/i.test(sentence) && !/\b(?:corona|pr[oó]tesis\s+fija)\b/i.test(sentence)) {
+  if (/\bimplantes?\b/i.test(sentence) && !/\b(?:coronas?|pr[oó]tesis\s+fija)\b/i.test(sentence)) {
     if (/\b(?:control\p{L}*|seguimiento|revisi[oó]n|mantenimiento)(?!\p{L})/iu.test(sentence) && !isPerformed(sentence)) return null;
     if (/\b(?:planific|se\s+indic|program)\b/i.test(sentence) || IMPLANT_LATER.test(sentence)) return null;
     return "Implante";
   }
-  if (/\b(?:corona|pr[oó]tesis\s+fija\s+definitiva)\b/i.test(sentence) && !/\bprovisori[ao]\b/i.test(sentence) && !/\b(?:alargamiento|aumento|elongaci[oó]n)\s+(?:de\s+)?(?:la\s+)?corona|corona\s+cl[ií]nica|preparaci[oó]n\s+(?:para|de)\s+(?:la\s+)?corona/i.test(sentence)) return "Corona";
-  if (/\b(?:ausente|extra[ií]d[oa]|exodonciad[oa])\b/i.test(sentence)) return "Ausente";
+  if (/\b(?:coronas?|pr[oó]tesis\s+fija\s+definitiva)\b/i.test(sentence) && !/\bprovisori[ao]s?\b/i.test(sentence) && !/\b(?:alargamiento|aumento|elongaci[oó]n)\s+(?:de\s+)?(?:la\s+)?corona|corona\s+cl[ií]nica|preparaci[oó]n\s+(?:para|de)\s+(?:la\s+)?corona/i.test(sentence)) return "Corona";
+  if (/\b(?:ausentes?|extra[ií]d[oa]s?|exodonciad[oa]s?)\b/i.test(sentence)) return "Ausente";
   if (/(?<!\p{L})ausencia\s+(?:de(?:l|\s+la)?\s+)?(?:pieza\s+|diente\s+)?\d/iu.test(sentence)) return "Ausente";
   return null;
 }
@@ -2813,9 +2813,9 @@ const CONDITION_CUE: Record<string, RegExp> = {
 };
 
 const STATUS_CUE: Record<string, RegExp> = {
-  Ausente: /(?<!\p{L})(?:ausente|extra[ií]d\p{L}*|exodonciad\p{L}*|no\s+est[aá]|falta)(?!\p{L})/iu,
+  Ausente: /(?<!\p{L})(?:ausentes?|extra[ií]d\p{L}*|exodonciad\p{L}*|no\s+est[aá]n?|falta)(?!\p{L})/iu,
   Implante: /(?<!\p{L})implantes?(?!\p{L})/iu,
-  Corona: /(?<!\p{L})(?:corona|pr[oó]tesis\s+fija)(?!\p{L})/iu,
+  Corona: /(?<!\p{L})(?:coronas?|pr[oó]tesis\s+fija)(?!\p{L})/iu,
   "Indicación de exodoncia": /(?<!\p{L})(?:indicaci[oó]n\s+de\s+exodoncia|indica\s+(?:la\s+)?exodoncia|exodoncia\s+indicada|para\s+exodoncia)(?!\p{L})/iu,
   "Resto radicular con endodoncia": /(?<!\p{L})resto\s+radicular(?!\p{L})/iu,
 };
