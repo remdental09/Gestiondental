@@ -55,7 +55,7 @@ export function AppointmentMailSettings() {
         <span className="text-xs text-[#6b6a7c]">(hora de Chile; solo a pacientes con correo en su ficha, sin repetir ni a quien ya confirmó)</span></label>
       <div className="space-y-1.5">
         <label className="block font-medium" htmlFor="mail-message">Tu mensaje o firma (opcional)</label>
-        <textarea id="mail-message" rows={3} maxLength={600} className="w-full rounded-md border p-2 text-sm" placeholder="Ej.: Si necesita cambiar su hora, responda este correo o escriba al +56 9 …. Dr. Luis Rodríguez" value={draft ?? sender.message} onChange={event => setDraft(event.target.value)} data-testid="mail-message" />
+        <textarea id="mail-message" rows={9} maxLength={600} className="min-h-48 w-full resize-y rounded-md border p-3 text-base leading-relaxed" placeholder="Ej.: Si necesita cambiar su hora, responda este correo o escriba al +56 9 …. Dr. Luis Rodríguez" value={draft ?? sender.message} onChange={event => setDraft(event.target.value)} data-testid="mail-message" />
         <div className="flex items-center gap-3"><Button type="button" variant="outline" size="sm" disabled={!!busy || draft === null || draft === sender.message} onClick={async () => { if (await call("PUT", { message: draft ?? "" })) { setDraft(null); setNotice("Mensaje guardado: saldrá en los próximos correos."); } }}>Guardar mensaje</Button>
           <span className="text-xs text-[#6b6a7c]">Se agrega bajo los botones. No escribas datos clínicos.</span></div>
       </div>
