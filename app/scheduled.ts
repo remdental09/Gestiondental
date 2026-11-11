@@ -25,6 +25,11 @@ export async function runScheduled(cron: string, env: CalendarSyncEnv) {
       const { runReminderCycle } = await import("./appointment-mail");
       console.log("appointment-reminders", JSON.stringify(await runReminderCycle().catch(error => [{ ok: false, detail: String(error) }])));
     }
+    // Agenda semanal por correo (técnico/TONS): una vez al día, solo para quienes la activaron.
+    if (cron === HOURLY_BACKUP_CRON) {
+      const { runAgendaDigests } = await import("./agenda-digest");
+      console.log("agenda-digest", JSON.stringify(await runAgendaDigests().catch(error => [{ ok: false, detail: String(error) }])));
+    }
     // Revisión posterior de las evoluciones recientes (IA): unas pocas por hora, para que lo pendiente no espere a que alguien abra la app.
     if (cron === HOURLY_BACKUP_CRON) {
       const { runNoteAudits } = await import("./audit-notes");
