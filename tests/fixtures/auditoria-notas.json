@@ -183,6 +183,27 @@
     "28:ausente",
     "38:ausente"
    ]
+  },
+  {
+   "id": "n13-inactivacion-con-ionomero",
+   "nota": "Retiro de amalgama con ionómero para inactivar la caries: la caries queda en el odontograma a propósito, no es una obturación faltante.",
+   "body": "Procedimiento\nEn la pieza 3 se retira la amalgama fracturada y se elimina la caries. Se coloca material de vidrio ionómero.",
+   "chart": {
+    "teeth": {},
+    "surfaces": {
+     "16": {
+      "M": {
+       "condition": "caries"
+      },
+      "O": {
+       "condition": "caries"
+      }
+     }
+    },
+    "missingReason": {},
+    "crowns": {}
+   },
+   "esperadas": []
   }
  ]
 }

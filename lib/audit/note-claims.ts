@@ -88,7 +88,9 @@ export function chartLacks(chart: OdontogramData, claim: NoteClaim): boolean {
     case "corona": return !hasCrown(chart, claim.tooth);
     case "implante": return !status.startsWith("Implante");
     case "ausente": return status !== "Ausente";
-    case "obturacion": return natural && !hasCrown(chart, claim.tooth) && !facesOf(chart, claim.tooth).some((face) => face?.condition === "restored" || face?.condition === "other_restoration");
+    // Con caries registrada en la pieza no se avisa: «se coloca ionómero» puede ser una inactivación de caries (la caries sigue en el
+    // odontograma a propósito) y no una obturación. Esa duda es del profesional, no del auditor.
+    case "obturacion": return natural && !hasCrown(chart, claim.tooth) && !facesOf(chart, claim.tooth).some((face) => face?.condition === "restored" || face?.condition === "other_restoration" || face?.condition === "caries");
     case "caries": return natural && !hasCrown(chart, claim.tooth) && !facesOf(chart, claim.tooth).some((face) => face?.condition === "caries");
   }
 }

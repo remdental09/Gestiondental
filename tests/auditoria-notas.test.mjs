@@ -57,6 +57,7 @@ test("la comparación avisa solo cuando de verdad falta y calla ante la duda", (
   assert.equal(chartLacks(chartOf({}), claim("obturacion", 16)), true);
   assert.equal(chartLacks(chartOf({ surfaces: { 16: { O: { condition: "restored" } } } }), claim("obturacion", 16)), false);
   assert.equal(chartLacks(chartOf({ teeth: { 16: "Corona" } }), claim("obturacion", 16)), false, "bajo una corona no se exige la obturación");
+  assert.equal(chartLacks(chartOf({ surfaces: { 16: { M: { condition: "caries" }, O: { condition: "caries" } } } }), claim("obturacion", 16)), false, "con caries registrada puede ser una inactivación con ionómero");
   assert.equal(chartLacks(chartOf({ teeth: { 16: "Ausente" } }), claim("caries", 16)), false, "una pieza ausente no se marca por caries");
   assert.equal(chartLacks(chartOf({ surfaces: { 26: { O: { condition: "caries" } } } }), claim("caries", 26)), false);
 });
