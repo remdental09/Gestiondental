@@ -51,7 +51,8 @@ export function AgendaDigestSettings() {
 
   if (!digest) return null;
   const shown = email ?? digest.toEmail;
-  return <section className="mt-6 rounded-xl border border-[#e6e4ee] bg-white p-4" aria-label="Agenda de la semana por correo" data-testid="agenda-digest">
+  return <section className="mt-6 overflow-hidden rounded-xl border border-[#e6e4ee] border-l-8 border-l-[#ef895f] bg-white p-4" aria-label="Agenda de la semana por correo" data-testid="agenda-digest">
+    <p className="-mx-4 -mt-4 mb-4 bg-[#ef895f] px-4 py-2 text-sm font-bold uppercase tracking-wide text-[#2b2140]" data-testid="audience-staff">Para el personal técnico de la clínica · agenda de la semana</p>
     <div className="flex items-start gap-3"><CalendarDays className="mt-0.5 size-5 text-[#473a6d]" />
       <div><h4 className="font-semibold">Agenda de la semana por correo</h4>
         <p className="text-xs text-[#6b6a7c]">Una vez al día se envía sola la agenda completa de hoy y los 6 días siguientes, destacando qué cita es nueva, cuál cambió de día u hora y cuál se canceló. Además puedes enviarla tú cuando quieras, a quien necesites: escribe el correo y pulsa «Enviar ahora». Solo lleva nombre, hora y motivo; no datos clínicos.</p></div></div>

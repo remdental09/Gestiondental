@@ -35,7 +35,8 @@ export function AppointmentMailSettings() {
     finally { setBusy(""); }
   };
 
-  return <section className="mt-6 rounded-xl border border-[#e6e4ee] bg-white p-4" aria-label="Correo para confirmar citas" data-testid="appointment-mail">
+  return <section className="mt-6 overflow-hidden rounded-xl border border-[#e6e4ee] border-l-8 border-l-[#473a6d] bg-white p-4" aria-label="Correo para confirmar citas" data-testid="appointment-mail">
+    <p className="-mx-4 -mt-4 mb-4 bg-[#473a6d] px-4 py-2 text-sm font-bold uppercase tracking-wide text-white" data-testid="audience-patients">Para tus pacientes · confirmación de citas</p>
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div><h4 className="font-semibold">Correo para confirmar citas</h4>
         <p className="text-xs text-[#6b6a7c]">Elige desde qué correo de Google se avisa a tus pacientes (puede ser el de tu asistente). Una vez al día se envía un recordatorio por cada cita de mañana, con un botón para confirmar. No lleva datos clínicos.</p></div>
