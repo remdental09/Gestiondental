@@ -58,3 +58,19 @@ test("el correo destaca cambios, lista cada día y no lleva datos clínicos ni e
   assert.match(first.text, /hoy y los 6 días siguientes/);
   assert.match(digestEmail({ days, entries, changes: { added: [], moved: [], cancelled: [] }, first: false }).text, /No hubo cambios/);
 });
+
+import { digestWhatsApp } from "../lib/agenda-digest.ts";
+import { whatsappLink } from "../lib/today-agenda.ts";
+
+test("WhatsApp: texto con negritas, cambios y días; el número chileno arma el enlace y uno inválido no", () => {
+  const entries = buildSnapshot({ events: [ev(1, "2026-11-12T13:00:00Z", "Olga Cea Zúñiga"), ev(5, "2026-11-15T13:00:00Z", "Cita nueva")], patients, days });
+  const text = digestWhatsApp({ clinicName: "Clínica Prueba", days, entries, first: false, changes: { added: [entries[1]], moved: [], cancelled: [] } });
+  assert.match(text, /^\*Agenda de la semana\* · Clínica Prueba/);
+  assert.match(text, /\*Cambios desde el último envío:\*\n🆕 NUEVA: .*Cita nueva/);
+  assert.match(text, /\*Jueves 12 de noviembre\*\n10:00 \(45 min\) · Olga Cea Zúñiga/);
+  assert.match(text, /Sin citas/);
+  assert.match(digestWhatsApp({ days, entries, first: false, changes: { added: [], moved: [], cancelled: [] } }), /Sin cambios desde el último envío\./);
+  const link = whatsappLink("9 1234 5678", text);
+  assert.ok(link.startsWith("https://wa.me/56912345678?text="));
+  assert.equal(whatsappLink("12345", text), null);
+});

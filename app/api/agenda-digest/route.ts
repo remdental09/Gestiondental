@@ -1,5 +1,5 @@
 import { getChatGPTUser } from "@/app/chatgpt-auth";
-import { getDigest, saveDigest, sendDigest, sendDigestTest } from "@/app/agenda-digest";
+import { digestWhatsAppText, getDigest, saveDigest, sendDigest, sendDigestTest } from "@/app/agenda-digest";
 import { getSender } from "@/app/appointment-mail-db";
 import { isValidEmail } from "@/lib/appointment-mail";
 
@@ -13,9 +13,13 @@ async function view(ownerId: string) {
   return { mailConnected: Boolean(sender), from: sender?.google_email ?? "", enabled: digest?.enabled === 1, toEmail: digest?.to_email ?? "", sendHour: digest?.send_hour ?? 18, abbreviate: digest?.abbreviate === 1, lastSentAt: digest?.last_sent_at ?? null, lastResult: digest?.last_result ?? null };
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const user = await getChatGPTUser();
   if (!user?.userId) return json({ error: "Inicia sesión." }, 401);
+  // ?formato=whatsapp: solo el texto, para abrirlo en WhatsApp con el número que escriba el clínico (nada se envía desde el servidor).
+  if (new URL(request.url).searchParams.get("formato") === "whatsapp") {
+    try { return json({ text: await digestWhatsAppText(user.userId) }); } catch { return json({ error: "No se pudo preparar la agenda." }, 500); }
+  }
   try { return json({ digest: await view(user.userId) }); } catch { return json({ error: "No se pudo leer la configuración." }, 500); }
 }
 

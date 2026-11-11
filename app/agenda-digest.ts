@@ -1,6 +1,6 @@
 import { chileDay } from "@/lib/chile-day";
 import { buildRawMessage, isValidEmail } from "@/lib/appointment-mail";
-import { buildSnapshot, changeCount, DIGEST_DAYS, diffSnapshots, digestDays, digestEmail, type DigestEntry } from "@/lib/agenda-digest";
+import { buildSnapshot, changeCount, DIGEST_DAYS, diffSnapshots, digestDays, digestEmail, digestWhatsApp, type DigestEntry } from "@/lib/agenda-digest";
 import { type TodayEvent } from "@/lib/today-agenda";
 import { loadHints } from "@/app/calendar-hints-db";
 import { loadProfile } from "@/app/clinician-profile-db";
@@ -76,6 +76,13 @@ export async function sendDigest(ownerId: string, options: { to?: string; now?: 
   await need().prepare("UPDATE agenda_digest SET snapshot = ?, window_end = ?, last_sent_at = ?, last_sent_day = ?, last_result = ? WHERE owner_id = ?")
     .bind(JSON.stringify(built.entries), built.days[built.days.length - 1], now.toISOString(), built.today, detail, ownerId).run();
   return detail;
+}
+
+/** Texto de la agenda para WhatsApp (no envía nada ni mueve la comparación): el clínico lo abre en WhatsApp y toca «enviar». */
+export async function digestWhatsAppText(ownerId: string, now = new Date()): Promise<string> {
+  const settings = (await getDigest(ownerId)) ?? { owner_id: ownerId, enabled: 0, to_email: "", send_hour: 18, abbreviate: 0, last_sent_at: null, last_sent_day: null, last_result: null, snapshot: null, window_end: null };
+  const built = await compose(ownerId, settings, now);
+  return digestWhatsApp({ clinicName: built.clinicName, days: built.days, entries: built.entries, changes: built.changes, first: built.first });
 }
 
 /** Prueba: llega al correo de envío del clínico y NO cambia la foto de comparación. */
