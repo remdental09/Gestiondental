@@ -34,7 +34,7 @@ export function AgendaDigestSettings() {
   return <section className="mt-6 rounded-xl border border-[#e6e4ee] bg-white p-4" aria-label="Agenda de la semana por correo" data-testid="agenda-digest">
     <div className="flex items-start gap-3"><CalendarDays className="mt-0.5 size-5 text-[#473a6d]" />
       <div><h4 className="font-semibold">Agenda de la semana por correo</h4>
-        <p className="text-xs text-[#6b6a7c]">Una vez al día se envía sola la agenda completa de los próximos 7 días, destacando qué cita es nueva, cuál cambió de día u hora y cuál se canceló. Además puedes enviarla tú cuando quieras, a quien necesites: escribe el correo y pulsa «Enviar ahora». Solo lleva nombre, hora y motivo; no datos clínicos.</p></div></div>
+        <p className="text-xs text-[#6b6a7c]">Una vez al día se envía sola la agenda completa de hoy y los 6 días siguientes, destacando qué cita es nueva, cuál cambió de día u hora y cuál se canceló. Además puedes enviarla tú cuando quieras, a quien necesites: escribe el correo y pulsa «Enviar ahora». Solo lleva nombre, hora y motivo; no datos clínicos.</p></div></div>
     {!digest.mailConnected ? <p className="mt-3 text-sm text-amber-900">Primero elige el correo de envío en «Correo para confirmar citas», aquí arriba.</p> : <div className="mt-3 space-y-3 text-sm">
       <div className="flex flex-wrap items-end gap-2">
         <label className="min-w-[220px] flex-1"><span className="block text-xs font-medium text-[#3b3355]">Correo de quien recibe la agenda</span>

@@ -6,10 +6,10 @@ const ev = (id, startAt, title = "Cita", extra = {}) => ({ id, title, startAt, e
 const patients = [{ id: 1, name: "Olga Cea Zúñiga" }, { id: 2, name: "Katherinne Saravia" }];
 const days = digestDays("2026-11-11");
 
-test("la ventana son los 7 días siguientes, desde mañana, en hora de Chile", () => {
+test("la ventana son 7 días que incluyen hoy, en hora de Chile", () => {
   assert.equal(days.length, 7);
-  assert.equal(days[0], "2026-11-12");
-  assert.equal(days[6], "2026-11-18");
+  assert.equal(days[0], "2026-11-11");
+  assert.equal(days[6], "2026-11-17");
 });
 
 test("la foto toma solo citas confirmadas de la ventana, ordenadas, con nombre abreviable", () => {
@@ -21,16 +21,18 @@ test("la foto toma solo citas confirmadas de la ventana, ordenadas, con nombre a
   ];
   const snap = buildSnapshot({ events, patients, days });
   assert.deepEqual(snap.map((e) => [e.id, e.label]), [[1, "Olga Cea Zúñiga"], [3, "Katherinne Saravia"]]);
+  // Las citas de hoy también salen, aunque ya hayan pasado.
+  assert.deepEqual(buildSnapshot({ events: [ev(7, "2026-11-11T13:00:00Z", "Violeta Concha")], patients, days }).map((e) => e.id), [7]);
   assert.equal(buildSnapshot({ events, patients, days, abbreviate: true })[0].label, "Olga C. Z.");
   assert.equal(abbreviateName("Luis Paul Rodríguez"), "Luis P. R.");
 });
 
 test("el cambio: cita nueva, cambiada de hora y de día, cancelada; lo que pasó o entró por el final no cuenta", () => {
-  const prev = buildSnapshot({ events: [ev(1, "2026-11-12T13:00:00Z", "Olga Cea Zúñiga"), ev(2, "2026-11-13T13:00:00Z", "Katherinne Saravia"), ev(3, "2026-11-14T13:00:00Z", "Cita tres"), ev(4, "2026-11-11T13:00:00Z", "Ya pasó")], patients, days: digestDays("2026-11-10") });
-  const nextEvents = [ev(1, "2026-11-12T15:00:00Z", "Olga Cea Zúñiga"), ev(5, "2026-11-15T13:00:00Z", "Cita nueva"), ev(2, "2026-11-25T13:00:00Z", "Katherinne Saravia"), ev(6, "2026-11-18T13:00:00Z", "Entra por el final")];
+  const prev = buildSnapshot({ events: [ev(1, "2026-11-12T13:00:00Z", "Olga Cea Zúñiga"), ev(2, "2026-11-13T13:00:00Z", "Katherinne Saravia"), ev(3, "2026-11-14T13:00:00Z", "Cita tres"), ev(4, "2026-11-10T13:00:00Z", "Ya pasó")], patients, days: digestDays("2026-11-09") });
+  const nextEvents = [ev(1, "2026-11-12T15:00:00Z", "Olga Cea Zúñiga"), ev(5, "2026-11-15T13:00:00Z", "Cita nueva"), ev(2, "2026-11-25T13:00:00Z", "Katherinne Saravia"), ev(6, "2026-11-17T13:00:00Z", "Entra por el final")];
   const next = buildSnapshot({ events: nextEvents, patients, days });
   const known = new Map(nextEvents.map((e) => [e.id, e.startAt]));
-  const changes = diffSnapshots(prev, next, known, { from: days[0], previousEnd: "2026-11-17" });
+  const changes = diffSnapshots(prev, next, known, { from: days[0], previousEnd: "2026-11-15" });
   assert.deepEqual(changes.added.map((e) => e.id), [5]);
   assert.deepEqual(changes.moved.map((m) => m.entry.id).sort(), [1, 2]);
   assert.deepEqual(changes.cancelled.map((e) => e.id), [3]);

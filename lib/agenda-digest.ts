@@ -15,11 +15,11 @@ export type DigestChanges = {
 };
 export const DIGEST_DAYS = 7;
 
-/** Los próximos `count` días a partir de mañana (AAAA-MM-DD, hora de Chile). */
+/** Hoy y los `count - 1` días siguientes (AAAA-MM-DD, hora de Chile). */
 export function digestDays(today: string, count = DIGEST_DAYS): string[] {
-  const days: string[] = [];
+  const days: string[] = [today];
   let day = today;
-  for (let i = 0; i < count; i++) { day = nextDay(day); days.push(day); }
+  for (let i = 1; i < count; i++) { day = nextDay(day); days.push(day); }
   return days;
 }
 
@@ -100,7 +100,7 @@ export function digestEmail(input: { clinicName?: string; days: string[]; entrie
 
   const byDay = new Map<string, DigestEntry[]>();
   for (const entry of entries) { const day = chileDay(entry.startAt); byDay.set(day, [...(byDay.get(day) ?? []), entry]); }
-  const intro = input.first ? "Agenda de los próximos 7 días." : total ? "Cambios desde la última agenda que recibiste:" : "No hubo cambios desde la última agenda.";
+  const intro = input.first ? "Agenda de hoy y los 6 días siguientes." : total ? "Cambios desde la última agenda que recibiste:" : "No hubo cambios desde la última agenda.";
 
   const textDays = input.days.map((day) => {
     const list = byDay.get(day) ?? [];
