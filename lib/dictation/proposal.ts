@@ -86,7 +86,7 @@ export type CrownMaterial = (typeof CROWN_MATERIALS)[number];
 export type OdontogramSurface = (typeof ODONTOGRAM_SURFACES)[number];
 export type PerioSite = (typeof PERIO_SITES)[number];
 export type ToothNumbering = "FDI" | "chilena" | "universal";
-export type RestorationMaterial = "Resina compuesta" | "Vidrio ionómero" | "Amalgama" | "Cavit" | "IRM" | "Otro";
+export type RestorationMaterial = "Resina compuesta" | "Vidrio ionómero" | "Amalgama" | "Cavit" | "IRM" | "Eugenato" | "Otro";
 
 export type SurfaceFinding = {
   condition: "not_examined" | "sound" | "caries" | "restored" | "sealant" | "other_restoration";
@@ -313,7 +313,7 @@ export type StructureOutcome = {
   aiNote?: string;
 };
 
-type ChartActionMetadata = { sourceEvolutionId?: number; sourceActionId?: string; historyTitle?: string };
+type ChartActionMetadata = { sourceEvolutionId?: number; sourceActionId?: string; historyTitle?: string; historyDetail?: string };
 
 export type ChartAction =
   | ({ action: "setToothStatus"; patientId: number; tooth: number; status: string } & ChartActionMetadata)
@@ -825,7 +825,7 @@ function icdasFrom(sentence: string): number | null {
 }
 
 function activityFrom(sentence: string): SurfaceFinding["activity"] {
-  if (/\binactiv[ao]\b/i.test(sentence)) return "inactive";
+  if (/\binactiv(?:[ao]|ad[oa])s?\b/i.test(sentence)) return "inactive";
   if (/\binciert[ao]\b|\bdudos[ao]\b/i.test(sentence)) return "uncertain";
   if (/\bactiv[ao]\b/i.test(sentence)) return "active";
   return null;
@@ -926,10 +926,12 @@ function restorationDetailsFrom(sentence: string): Pick<SurfaceFinding, "restora
   if (/\b(?:composite|resina\s+compuesta|resina)\b/iu.test(sentence)) restorationMaterial = "Resina compuesta";
   else if (/\b(?:vidrio\s+ion[oó]mero|ion[oó]mero\s+de\s+vidrio|\bgic\b)/iu.test(sentence)) restorationMaterial = "Vidrio ionómero";
   else if (/\bamalgama\b/iu.test(sentence)) restorationMaterial = "Amalgama";
+  else if (/(?<!\p{L})(?:eugenat\p{L}*|[oó]xido\s+de\s+zinc(?:\s+eugenol)?|zinc[-\s]?eugenol|zoe)(?!\p{L})/iu.test(sentence)) restorationMaterial = "Eugenato";
   else if (/\bcavit\b/iu.test(sentence)) restorationMaterial = "Cavit";
   else if (/\birm\b/iu.test(sentence)) restorationMaterial = "IRM";
   else if (/\botro\s+material\b/iu.test(sentence)) restorationMaterial = "Otro";
-  return { restorationStage, restorationMaterial };
+  // Cavit, IRM y eugenato son materiales provisorios por naturaleza.
+  return { restorationStage: restorationStage ?? (restorationMaterial === "Cavit" || restorationMaterial === "IRM" || restorationMaterial === "Eugenato" ? "provisional" : null), restorationMaterial };
 }
 
 function restoredFinding(sentence: string): SurfaceFinding {
@@ -947,9 +949,14 @@ function findingFrom(sentence: string): FindingResult {
   // «Se realiza obturación … por caries de dentina»: la caries es el motivo; la cara queda obturada.
   const nominalTreated = /^\s*(?:obturaci[oó]n|restauraci[oó]n)(?!\p{L})/iu.test(sentence) && /(?<!\p{L})(?:por|debido\s+a|a\s+causa\s+de)\s+(?:una\s+|la\s+)?caries/iu.test(sentence);
   // «Se coloca vidrio ionómero para inactivar la caries»: la cara sigue con lesión de caries (inactivada), no queda obturada.
-  if (hasCaries && /(?<!\p{L})inactiv(?:ar|a|aci[oó]n|ando)(?!\p{L})/iu.test(sentence)) {
+  if (hasCaries && /(?<!\p{L})inactiv(?:ar|a|ad[oa]s?|aci[oó]n|ando)(?!\p{L})/iu.test(sentence)) {
     const reading = cariesDepthFrom(sentence);
-    const finding: SurfaceFinding = { condition: "caries", depth: reading.depth, icdas: (icdasFrom(sentence) ?? null) as SurfaceFinding["icdas"], activity: activityFrom(sentence) };
+    // Lo colocado para inactivar es un material provisorio: queda consignado junto a la caries inactiva.
+    const cover = restorationDetailsFrom(sentence);
+    const finding: SurfaceFinding = {
+      condition: "caries", depth: reading.depth, icdas: (icdasFrom(sentence) ?? null) as SurfaceFinding["icdas"], activity: "inactive",
+      ...(cover.restorationMaterial && cover.restorationMaterial !== "Amalgama" ? { restorationStage: "provisional" as const, restorationMaterial: cover.restorationMaterial } : {}),
+    };
     return reading.depth ? { finding } : { finding, depthNote: reading.ambiguous ?? "" };
   }
   if (hasCaries && restored && !sealant && !other && !sound && (TREATED_RESTORATION.test(sentence) || nominalTreated)) {
@@ -1016,7 +1023,8 @@ function describeFinding(tooth: number, finding: SurfaceFinding, surfaces: Odont
   if (finding.condition === "caries") {
     const name = finding.depth && isCariesDepth(finding.depth) ? CARIES_DEPTH_LABEL[finding.depth].toLowerCase() : "caries (profundidad no consignada)";
     const legacy = !finding.depth && finding.icdas ? `, ICDAS ${finding.icdas}` : "";
-    const activity = finding.activity === "active" ? ", activa" : finding.activity === "inactive" ? ", inactiva" : "";
+    const activity = finding.activity === "active" ? ", activa" : finding.activity === "inactive"
+      ? `, inactiva${finding.restorationMaterial ? ` (con ${finding.restorationMaterial.toLowerCase()}${finding.restorationStage === "provisional" ? ", provisorio" : ""})` : ""}` : "";
     return `${name} ${faces}${legacy}${activity} (${icd11Label(cariesIcd11(finding.depth, root))})`;
   }
   if (finding.condition === "restored") {
@@ -2250,11 +2258,15 @@ function coerceFinding(value: unknown): SurfaceFinding | { error: string } {
   const depth = isCariesDepth(record.depth) ? record.depth : null;
   const icdas = Number(record.icdas);
   const activity = text(record.activity, 16);
+  const stage = text(record.restorationStage, 16);
+  const material = text(record.restorationMaterial, 32);
+  const cover = activity === "inactive" && ["Resina compuesta", "Vidrio ionómero", "Amalgama", "Cavit", "IRM", "Eugenato", "Otro"].includes(material);
   return {
     condition: "caries",
     depth,
     icdas: (Number.isInteger(icdas) && icdas >= 1 && icdas <= 6 ? icdas : null) as SurfaceFinding["icdas"],
     activity: (["active", "inactive", "uncertain"].includes(activity) ? activity : null) as SurfaceFinding["activity"],
+    ...(cover ? { restorationMaterial: material as RestorationMaterial, restorationStage: (stage === "provisional" || stage === "definitive" ? stage : null) as SurfaceFinding["restorationStage"] } : {}),
   };
 }
 
@@ -4168,6 +4180,9 @@ function cariesBeforeRestoration(item: OdontogramChange): SurfaceFinding | null 
 }
 
 function surfaceHistoryTitle(item: OdontogramChange, finding: SurfaceFinding): string {
+  // «Caries inactivada con vidrio ionómero provisorio · mesial»: en el historial de la pieza debe quedar qué se hizo con la caries.
+  if (finding.condition === "caries" && finding.activity === "inactive" && finding.restorationMaterial && item.surface)
+    return `Caries inactivada con ${finding.restorationMaterial.toLowerCase()}${finding.restorationStage === "provisional" ? " provisorio" : ""} · ${facesLabel(item.tooth, [item.surface])}`;
   const detail = describeFinding(item.tooth, finding, item.surface ? [item.surface] : []);
   const kind = finding.condition === "caries" ? "Diagnóstico" : finding.condition === "restored" ? "Tratamiento" : "Hallazgo";
   return kind + " · " + detail;
@@ -4230,7 +4245,8 @@ export function planChartWrites(patientId: number, before: ChartSnapshot, after:
       if (prior && JSON.stringify(prior) !== JSON.stringify(next ?? null)) {
         // Se restaura tal cual, incluida una caries antigua con ICDAS.
         const finding: SurfaceFinding = prior.condition === "caries"
-          ? { condition: "caries", depth: prior.depth ?? null, icdas: prior.icdas ?? null, activity: prior.activity ?? null }
+          ? { condition: "caries", depth: prior.depth ?? null, icdas: prior.icdas ?? null, activity: prior.activity ?? null,
+              ...(prior.activity === "inactive" && prior.restorationMaterial ? { restorationStage: prior.restorationStage ?? null, restorationMaterial: prior.restorationMaterial } : {}) }
           : {
               condition: prior.condition, depth: null, icdas: null, activity: null,
               ...(prior.restorationStage ? { restorationStage: prior.restorationStage } : {}),
@@ -4260,6 +4276,8 @@ export function planChartWrites(patientId: number, before: ChartSnapshot, after:
       actions.push({
         action: "setToothSurface", patientId, tooth: item.tooth, surface: item.surface, finding: finalFinding,
         sourceActionId: item.id + ":state", historyTitle: surfaceHistoryTitle(item, finalFinding),
+        // La cita del dictado queda en el detalle del hito cuando se inactivó una caries con un material provisorio.
+        ...(finalFinding.condition === "caries" && finalFinding.activity === "inactive" && finalFinding.restorationMaterial ? { historyDetail: (item.evidence || item.sourceText || "").slice(0, 280) } : {}),
       });
     }
   }

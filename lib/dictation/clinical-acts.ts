@@ -46,7 +46,7 @@ export const ACTS_SCHEMA = {
 
 export const ACTS_PROMPT = `12) "actos": COMPRENDE cada procedimiento realizado HOY como un acto clínico, leyendo los verbos y la intención, no palabras sueltas. Un elemento por acto y pieza, con:
 - "accion": obturar | retirar_restauracion | inactivar_caries | sellar | exodoncia | endodoncia | destartraje | pulido | otro.
-- "material_colocado": el material que QUEDA puesto en el diente (resina, amalgama, ionomero, provisorio, otro o ""). "material_retirado": el que se SACÓ ("" si ninguno). Nunca confundas uno con otro: «se retira la amalgama» significa material_retirado = amalgama, NO que se obturó con amalgama.
+- "material_colocado": el material que QUEDA puesto en el diente (resina, amalgama, ionomero, provisorio —Cavit, IRM, eugenato u óxido de zinc eugenol—, otro o ""). "material_retirado": el que se SACÓ ("" si ninguno). Nunca confundas uno con otro: «se retira la amalgama» significa material_retirado = amalgama, NO que se obturó con amalgama.
 - "intencion": definitiva | provisoria | inactivacion | "". Un vidrio ionómero (u otro material) colocado «para inactivar la caries» es intención inactivacion, aunque el material quede en la cavidad.
 - "estado_final_cara": cómo queda la cara al terminar: obturada (restauración definitiva o provisoria), caries (lesión que sigue presente o solo inactivada), sellada, sana o "".
 - "pieza", "sistema", "caras" como en "hallazgos" (si el acto es en caras distintas de la misma pieza, un acto por cada grupo de caras); "evidencia": cita EXACTA y continua del dictado, de UNA sola frase, que respalde el acto (verbo + material) e incluya el número de la pieza.
@@ -59,7 +59,7 @@ const MATERIAL_WORDS: Record<Exclude<ActMaterial, "" | "otro">, RegExp> = {
   resina: /resina|composite|composit|fotocur/,
   amalgama: /amalgama/,
   ionomero: /ionomero|\bciv\b|vitremer|fuji|ketac|chemfil/,
-  provisorio: /provisori|cavit|\birm\b|fermit/,
+  provisorio: /provisori|cavit|\birm\b|fermit|eugenat|zinc|\bzoe\b/,
 };
 const PLACE_VERB = /\b(?:se\s+)?(?:coloc|obtur|restaur|aplic|rellen|sell|cement|instal|reemplaz|reconstru|condens|recambi)\w*/;
 const REMOVE_VERB = /\b(?:retir|remov|remueve|elimin|sac|desobtur)\w*/;
@@ -111,6 +111,15 @@ export function parseActs(raw: unknown, evidenceOk: (evidence: string) => boolea
 const isInactivation = (act: ClinicalAct) => act.action === "inactivar_caries" || act.intent === "inactivacion";
 const MATERIAL_LABEL: Partial<Record<ActMaterial, "Resina compuesta" | "Vidrio ionómero" | "Amalgama">> = { resina: "Resina compuesta", ionomero: "Vidrio ionómero", amalgama: "Amalgama" };
 
+/** Lo que dejó puesto el acto, para consignarlo en la pieza: el material y si es provisorio (ionómero y eugenato para inactivar lo son). */
+function placedCover(act: ClinicalAct): { restorationMaterial: NonNullable<OdontogramChange["finding"]>["restorationMaterial"]; restorationStage: "provisional" } | null {
+  if (act.placed === "ionomero") return { restorationMaterial: "Vidrio ionómero", restorationStage: "provisional" };
+  if (act.placed !== "provisorio") return null;
+  const text = fold(act.evidence);
+  const restorationMaterial = /eugenat|zinc|\bzoe\b/.test(text) ? "Eugenato" : /cavit/.test(text) ? "Cavit" : /\birm\b/.test(text) ? "IRM" : "Otro";
+  return { restorationMaterial, restorationStage: "provisional" };
+}
+
 /**
  * Ajusta el odontograma según lo comprendido: una cara «obturada» que en realidad quedó con caries inactivada vuelve a
  * caries; una obturación toma el material que se colocó (no el retirado). Solo corrige cambios ya propuestos; no inventa.
@@ -125,7 +134,7 @@ export function applyActsToOdontogram(odontogram: OdontogramChange[], acts: Clin
     const label = `FDI ${Math.floor(item.tooth / 10)}.${item.tooth % 10} ${item.surface}`;
     if (item.finding.condition === "restored" && (isInactivation(act) || act.finalState === "caries")) {
       notes.push(`${label}: queda con caries ${isInactivation(act) ? "inactivada" : ""} (no obturada), según lo realizado: «${act.evidence.slice(0, 140)}».`.replace(/\s+\(/, " ("));
-      return { ...item, finding: { condition: "caries", depth: (depthOf(`${act.evidence} ${item.sourceText ?? ""}`) as NonNullable<typeof item.finding>["depth"]) ?? null, icdas: null, activity: isInactivation(act) ? "inactive" : null } };
+      return { ...item, finding: { condition: "caries", depth: (depthOf(`${act.evidence} ${item.sourceText ?? ""}`) as NonNullable<typeof item.finding>["depth"]) ?? null, icdas: null, activity: isInactivation(act) ? "inactive" : null, ...(isInactivation(act) ? placedCover(act) ?? {} : {}) } };
     }
     if (item.finding.condition === "restored" && act.placed && MATERIAL_LABEL[act.placed] && item.finding.restorationMaterial !== MATERIAL_LABEL[act.placed]) {
       return { ...item, finding: { ...item.finding, restorationMaterial: MATERIAL_LABEL[act.placed]! } };
@@ -221,7 +230,7 @@ export function addFacesFromActs(odontogram: OdontogramChange[], acts: ClinicalA
       if (!said.includes(face)) continue;
       if (out.some((item) => item.tooth === act.tooth && item.kind === "surface" && item.surface === face)) continue;
       const finding: NonNullable<OdontogramChange["finding"]> = act.finalState === "caries"
-        ? { condition: "caries", depth: (depthOf(act.evidence) as NonNullable<OdontogramChange["finding"]>["depth"]) ?? template?.finding?.depth ?? null, icdas: null, activity: isInactivation(act) ? "inactive" : null }
+        ? { condition: "caries", depth: (depthOf(act.evidence) as NonNullable<OdontogramChange["finding"]>["depth"]) ?? template?.finding?.depth ?? null, icdas: null, activity: isInactivation(act) ? "inactive" : null, ...(isInactivation(act) ? placedCover(act) ?? {} : {}) }
         : { condition: "restored", depth: null, icdas: null, activity: null, ...(MATERIAL_LABEL[act.placed] ? { restorationMaterial: MATERIAL_LABEL[act.placed]! } : {}) };
       out.push({
         id: makeId(), tooth: act.tooth, kind: "surface", surface: face, finding,

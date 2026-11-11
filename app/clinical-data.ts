@@ -42,7 +42,7 @@ export type PerioExam = {
 };
 
 export type OdontogramSurface = "V" | "P" | "M" | "D" | "O";
-export type RestorationMaterial = "Resina compuesta" | "Vidrio ionómero" | "Amalgama" | "Cavit" | "IRM" | "Otro";
+export type RestorationMaterial = "Resina compuesta" | "Vidrio ionómero" | "Amalgama" | "Cavit" | "IRM" | "Eugenato" | "Otro";
 export type SurfaceFinding = {
   condition: "not_examined" | "sound" | "caries" | "restored" | "sealant" | "other_restoration";
   /** Profundidad de la caries (esmalte, dentina superficial, dentina profunda, compromiso pulpar). Opcional. */
