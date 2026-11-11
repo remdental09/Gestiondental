@@ -5,6 +5,8 @@ export const CALENDAR_CRON = "0 11,16,21 * * *"; // 08/13/18 Chile (UTC-3)
 export const BACKUP_CRON = "*/10 2 * * *"; // 23:00-23:50 Chile (UTC-3), a few fichas per run
 // Revisión cada hora: lo pendiente (p. ej. una cuenta adicional recién conectada) no espera hasta la noche.
 export const HOURLY_BACKUP_CRON = "20 * * * *";
+// Cada 15 minutos: se leen los calendarios y, si la agenda cambió, se avisa al técnico en el momento.
+export const AGENDA_CHANGES_CRON = "*/15 * * * *";
 
 export async function runScheduled(cron: string, env: CalendarSyncEnv) {
   if (cron === CALENDAR_CRON) {
@@ -12,6 +14,14 @@ export async function runScheduled(cron: string, env: CalendarSyncEnv) {
     console.log("google-calendars", JSON.stringify(await syncGoogleCalendars().catch(error => [{ ok: false, detail: String(error) }])));
     const result = await syncCalendarFromIcs(env);
     console.log("calendar-sync", JSON.stringify(result));
+    return result;
+  }
+  if (cron === AGENDA_CHANGES_CRON) {
+    const { syncGoogleCalendars } = await import("./drive-oauth");
+    console.log("google-calendars", JSON.stringify(await syncGoogleCalendars().catch(error => [{ ok: false, detail: String(error) }])));
+    const { runAgendaChangeAlerts } = await import("./agenda-digest");
+    const result = await runAgendaChangeAlerts().catch(error => [{ ok: false, detail: String(error) }]);
+    console.log("agenda-changes", JSON.stringify(result));
     return result;
   }
   if (cron === BACKUP_CRON || cron === HOURLY_BACKUP_CRON) {

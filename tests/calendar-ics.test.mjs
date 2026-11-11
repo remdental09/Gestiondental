@@ -102,7 +102,7 @@ test('failed or invalid fetch never prunes', async () => {
 test('cron strings match wrangler config', async () => {
   const { readFileSync } = await import('node:fs');
   const cfg = readFileSync(new URL('../wrangler.cloudflare.jsonc', import.meta.url), 'utf8');
-  assert.ok(cfg.includes(`"${m.CALENDAR_CRON}"`) && cfg.includes(`"${m.BACKUP_CRON}"`) && cfg.includes(`"${m.HOURLY_BACKUP_CRON}"`));
+  assert.ok(cfg.includes(`"${m.CALENDAR_CRON}"`) && cfg.includes(`"${m.BACKUP_CRON}"`) && cfg.includes(`"${m.HOURLY_BACKUP_CRON}"`) && cfg.includes(`"${m.AGENDA_CHANGES_CRON}"`));
 });
 
 test('worker exports scheduled() that hands the cron to app/scheduled', async () => {
