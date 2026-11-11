@@ -80,3 +80,22 @@ test("etapa alcanzada y avisos por tiempo: provisorio sin definitiva, endodoncia
   const fine = toothTreatments([{ tooth: 45, date: "2026-09-15", text: "obturación de conductos con gutapercha" }, { tooth: 45, date: "2026-09-30", text: "se cementa corona de zirconio" }], []);
   assert.deepEqual(treatmentAlerts(fine, "2026-11-11"), []);
 });
+
+import { toothMarks } from "../lib/tooth-treatments.ts";
+
+test("marcas por pieza: endodoncia, perno, carilla, incrustación, prótesis y ortodoncia con su estado", () => {
+  const all = toothTreatments([
+    { tooth: 15, date: "2026-10-01", text: "obturación de conductos con gutapercha" },
+    { tooth: 15, date: "2026-10-20", text: "poste de fibra y muñón, tallado para corona" },
+    { tooth: 13, date: "2026-10-05", text: "colocación de botón para tracción ortodóncica" },
+    { tooth: 46, date: "2026-10-06", text: "se cementa incrustación de cerámica onlay" },
+  ], [plan(21, "Carilla de porcelana"), plan(35, "Puente de tres unidades 3.5 a 3.7")]);
+  const marks = toothMarks(all);
+  const of2 = (tooth) => (marks[tooth] ?? []).map((m) => [m.kind, m.status]).sort();
+  assert.deepEqual(of2(15), [["endodoncia", "realizado"], ["perno", "realizado"]]);
+  assert.deepEqual(of2(13), [["ortodoncia", "en curso"]]);
+  assert.deepEqual(of2(46), [["onlay", "realizado"]]);
+  assert.deepEqual(of2(21), [["carilla", "planificado"]]);
+  assert.deepEqual(of2(35), [["protesis", "planificado"]]);
+  assert.equal(marks[11], undefined);
+});
