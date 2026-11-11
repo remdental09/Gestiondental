@@ -48,7 +48,7 @@ export function cariesDepthFrom(text: string): DepthReading {
   return { depth: null };
 }
 
-type AnyFinding = { condition?: string; depth?: CariesDepth | null; icdas?: number | null; activity?: string | null };
+type AnyFinding = { condition?: string; depth?: CariesDepth | null; icdas?: number | null; activity?: string | null; restorationStage?: string | null; restorationMaterial?: string | null };
 
 /** Detalle de una caries: profundidad si existe; si no, el ICDAS de un registro anterior; si no, sin registrar. */
 export function cariesDetail(finding: AnyFinding): string {
@@ -57,6 +57,6 @@ export function cariesDetail(finding: AnyFinding): string {
   else if (finding.icdas) parts.push(`ICDAS ${finding.icdas} (registro anterior)`);
   else parts.push("profundidad sin registrar");
   if (finding.activity === "active") parts.push("activa");
-  else if (finding.activity === "inactive") parts.push("inactiva");
+  else if (finding.activity === "inactive") parts.push(finding.restorationMaterial ? `inactiva con ${finding.restorationMaterial.toLowerCase()}${finding.restorationStage === "provisional" ? " provisorio" : ""}` : "inactiva");
   return parts.join(" · ");
 }

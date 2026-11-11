@@ -23,7 +23,7 @@ export async function persistMcpToothSurface(ownerId: string, patientId: number,
   } else {
     const stage = condition === "restored" ? text(rawFinding.restorationStage) : "";
     const material = condition === "restored" ? text(rawFinding.restorationMaterial) : "";
-    if ((stage && !["provisional", "definitive"].includes(stage)) || (material && !["Resina compuesta", "Vidrio ionómero", "Amalgama", "Cavit", "IRM", "Otro"].includes(material))) return { saved: false, invalidFields: ["Detalle de restauración"] };
+    if ((stage && !["provisional", "definitive"].includes(stage)) || (material && !["Resina compuesta", "Vidrio ionómero", "Amalgama", "Cavit", "IRM", "Eugenato", "Otro"].includes(material))) return { saved: false, invalidFields: ["Detalle de restauración"] };
     finding = { condition: condition as SurfaceFinding["condition"], depth: null, icdas: null, activity: null, ...(stage ? { restorationStage: stage as SurfaceFinding["restorationStage"] } : {}), ...(material ? { restorationMaterial: material as SurfaceFinding["restorationMaterial"] } : {}) };
   }
 

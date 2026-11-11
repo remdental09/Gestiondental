@@ -129,7 +129,7 @@ const tools = [
         condition: { type: "string", enum: ["not_examined", "sound", "caries", "restored", "sealant", "other_restoration"] },
         depth: { type: ["string", "null"], enum: ["esmalte", "dentina_superficial", "dentina_profunda", "pulpar", null] },
         restorationStage: { type: "string", enum: ["provisional", "definitive"] },
-        restorationMaterial: { type: "string", enum: ["Resina compuesta", "Vidrio ionómero", "Amalgama", "Cavit", "IRM", "Otro"] },
+        restorationMaterial: { type: "string", enum: ["Resina compuesta", "Vidrio ionómero", "Amalgama", "Cavit", "IRM", "Eugenato", "Otro"] },
       }, required: ["condition"], additionalProperties: false },
       confirmed: { type: "boolean", description: "true solo tras autorización expresa del clínico" },
     }, required: ["patientId", "fullName", "toothFDI", "surface", "finding", "confirmed"], additionalProperties: false },

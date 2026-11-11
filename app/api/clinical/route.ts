@@ -39,7 +39,7 @@ const displayDate = (value: string) => {
   return new Intl.DateTimeFormat("es-CL", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(Date.UTC(y, m - 1, d)));
 };
 const diagnosisView = (d: typeof evolutionDiagnoses.$inferSelect) => ({ id: d.id, evolutionId: d.evolutionId, code: d.code, title: d.title, tooth: d.tooth, findings: d.findings, evidence: d.evidence, origin: d.origin, suggestedFrom: d.suggestedFrom });
-type ChartHistoryMetadata = { source: "manual" | "evolution"; sourceEvolutionId?: number; sourceActionId?: string; clinicalDate?: string; title: string };
+type ChartHistoryMetadata = { source: "manual" | "evolution"; sourceEvolutionId?: number; sourceActionId?: string; clinicalDate?: string; title: string; detail?: string };
 const error = (message: string, status = 400) => Response.json({ error: message }, { status });
 const string = (value: unknown, max: number) => typeof value === "string" ? value.trim().slice(0, max) : "";
 const normalizePatientName = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
@@ -300,7 +300,7 @@ export async function POST(request: Request) {
       const [sourceNote] = await db.select({ id: evolutions.id, clinicalDate: evolutions.clinicalDate }).from(evolutions)
         .where(and(eq(evolutions.id, sourceEvolutionId), eq(evolutions.patientId, patientId), eq(evolutions.ownerId, ownerId))).limit(1);
       if (!sourceNote) return { error: "La evolución vinculada no pertenece a esta ficha." };
-      return { source: "evolution", sourceEvolutionId, sourceActionId, clinicalDate: sourceNote.clinicalDate, title: string(input.historyTitle, 180) || fallbackTitle };
+      return { source: "evolution", sourceEvolutionId, sourceActionId, clinicalDate: sourceNote.clinicalDate, title: string(input.historyTitle, 180) || fallbackTitle, ...(string(input.historyDetail, 300) ? { detail: string(input.historyDetail, 300) } : {}) };
     };
     const historyAlreadyRecorded = (data: OdontogramData, metadata: ChartHistoryMetadata) =>
       metadata.source === "evolution" && Boolean(metadata.sourceActionId && data.history?.some(event =>
@@ -803,12 +803,20 @@ export async function POST(request: Request) {
         if (depthRaw != null && depthRaw !== "" && !isCariesDepth(depthRaw)) return error("Profundidad de caries inválida.");
         if (icdas !== null && (!Number.isInteger(icdas) || icdas < 1 || icdas > 6)) return error("ICDAS inválido.");
         if (activity !== null && !["active","inactive","uncertain"].includes(activity)) return error("Actividad de la lesión inválida.");
-        normalized = { condition:"caries", depth: isCariesDepth(depthRaw) ? depthRaw : null, icdas:icdas as SurfaceFinding["icdas"], activity:activity as SurfaceFinding["activity"] };
+        // Una caries inactivada con un material provisorio (vidrio ionómero, eugenato…) conserva qué se colocó.
+        const coverStage = activity === "inactive" ? string(finding.restorationStage, 20) : "", coverMaterial = activity === "inactive" ? string(finding.restorationMaterial, 40) : "";
+        if (coverStage && !["provisional", "definitive"].includes(coverStage)) return error("Tipo de restauración inválido.");
+        if (coverMaterial && !["Resina compuesta", "Vidrio ionómero", "Amalgama", "Cavit", "IRM", "Eugenato", "Otro"].includes(coverMaterial)) return error("Material de restauración inválido.");
+        normalized = {
+          condition:"caries", depth: isCariesDepth(depthRaw) ? depthRaw : null, icdas:icdas as SurfaceFinding["icdas"], activity:activity as SurfaceFinding["activity"],
+          ...(coverStage ? { restorationStage: coverStage as SurfaceFinding["restorationStage"] } : {}),
+          ...(coverMaterial ? { restorationMaterial: coverMaterial as SurfaceFinding["restorationMaterial"] } : {}),
+        };
       } else {
         const restorationStage = condition === "restored" ? string(finding.restorationStage, 20) : "";
         const restorationMaterial = condition === "restored" ? string(finding.restorationMaterial, 40) : "";
         if (restorationStage && !["provisional", "definitive"].includes(restorationStage)) return error("Tipo de restauración inválido.");
-        if (restorationMaterial && !["Resina compuesta", "Vidrio ionómero", "Amalgama", "Cavit", "IRM", "Otro"].includes(restorationMaterial)) return error("Material de restauración inválido.");
+        if (restorationMaterial && !["Resina compuesta", "Vidrio ionómero", "Amalgama", "Cavit", "IRM", "Eugenato", "Otro"].includes(restorationMaterial)) return error("Material de restauración inválido.");
         normalized = {
           condition:condition as SurfaceFinding["condition"], depth:null, icdas:null, activity:null,
           ...(condition === "restored" && restorationStage ? { restorationStage: restorationStage as SurfaceFinding["restorationStage"] } : {}),
