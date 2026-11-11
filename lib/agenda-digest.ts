@@ -118,4 +118,24 @@ ${input.days.map((day) => { const list = byDay.get(day) ?? []; return `<h3 style
   return { subject, text, html };
 }
 
+/** Versión para WhatsApp: texto corto con *negritas* de WhatsApp, lista para que quien envía solo toque «enviar». */
+export function digestWhatsApp(input: { clinicName?: string; days: string[]; entries: DigestEntry[]; changes: DigestChanges; first: boolean }): string {
+  const { entries, changes } = input;
+  const byDay = new Map<string, DigestEntry[]>();
+  for (const entry of entries) { const day = chileDay(entry.startAt); byDay.set(day, [...(byDay.get(day) ?? []), entry]); }
+  const lines = [`*Agenda de la semana*${input.clinicName ? ` · ${clean(input.clinicName, 60)}` : ""}`];
+  const changeLines = [
+    ...changes.added.map((entry) => `🆕 NUEVA: ${cap(dayText(entry.startAt))}, ${hourText(entry)} · ${entry.label}`),
+    ...changes.moved.map(({ entry, fromStartAt }) => `🔁 CAMBIÓ: ${entry.label} · de ${dayText(fromStartAt)} ${hhmm(fromStartAt)} a ${dayText(entry.startAt)} ${hhmm(entry.startAt)}`),
+    ...changes.cancelled.map((entry) => `❌ CANCELADA: ${cap(dayText(entry.startAt))}, ${hhmm(entry.startAt)} · ${entry.label}`),
+  ];
+  if (changeLines.length) lines.push("", "*Cambios desde el último envío:*", ...changeLines);
+  else if (!input.first) lines.push("", "Sin cambios desde el último envío.");
+  for (const day of input.days) {
+    const list = byDay.get(day) ?? [];
+    lines.push("", `*${cap(dayText(`${day}T12:00:00Z`))}*`, ...(list.length ? list.map((entry) => `${hourText(entry)} · ${entry.label}`) : ["Sin citas"]));
+  }
+  return lines.join("\n");
+}
+
 export const isDigestEmail = isValidEmail;

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Loader2, CalendarDays } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { whatsappLink } from "@/lib/today-agenda";
 
 type Digest = { mailConnected: boolean; from: string; enabled: boolean; toEmail: string; sendHour: number; abbreviate: boolean; lastSentAt: string | null; lastResult: string | null };
 const when = (iso: string | null) => iso ? new Intl.DateTimeFormat("es-CL", { dateStyle: "short", timeStyle: "short", timeZone: "America/Santiago" }).format(new Date(iso)) : "aún no";
@@ -12,6 +13,9 @@ const HOURS = [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
 export function AgendaDigestSettings() {
   const [digest, setDigest] = useState<Digest | null>(null);
   const [email, setEmail] = useState<string | null>(null);
+  // El número se recuerda solo en este dispositivo; WhatsApp no se envía desde el servidor.
+  const [phone, setPhone] = useState("");
+  useEffect(() => { try { setPhone(localStorage.getItem("agenda-whatsapp") ?? ""); } catch { /* sin almacenamiento */ } }, []);
   const [busy, setBusy] = useState(""), [error, setError] = useState(""), [notice, setNotice] = useState("");
 
   useEffect(() => { fetch("/api/agenda-digest", { cache: "no-store" }).then(r => r.ok ? r.json() as Promise<{ digest: Digest }> : null).then(r => setDigest(r?.digest ?? null)).catch(() => setDigest(null)); }, []);
@@ -26,6 +30,22 @@ export function AgendaDigestSettings() {
       if (data.detail) setNotice(data.detail);
       return true;
     } catch (cause) { setError(cause instanceof Error ? cause.message : "No se pudo completar la acción."); return false; }
+    finally { setBusy(""); }
+  };
+
+  const sendWhatsApp = async () => {
+    setError(""); setNotice("");
+    if (!whatsappLink(phone, "x")) { setError("Escribe un celular chileno de 9 dígitos que parta con 9 (por ejemplo 9 1234 5678)."); return; }
+    setBusy("wa");
+    try {
+      const response = await fetch("/api/agenda-digest?formato=whatsapp", { cache: "no-store" });
+      const data = await response.json().catch(() => ({})) as { text?: string; error?: string };
+      if (!response.ok || !data.text) throw new Error(data.error || "No se pudo preparar la agenda.");
+      try { localStorage.setItem("agenda-whatsapp", phone); } catch { /* sin almacenamiento */ }
+      const link = whatsappLink(phone, data.text);
+      if (link) window.open(link, "_blank", "noopener");
+      setNotice("Se abrió WhatsApp con la agenda lista. Toca «enviar» allí.");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "No se pudo preparar la agenda."); }
     finally { setBusy(""); }
   };
 
@@ -52,6 +72,12 @@ export function AgendaDigestSettings() {
         <span className="text-xs text-[#6b6a7c]">Se envía desde {digest.from}. Último envío: {when(digest.lastSentAt)}{digest.lastResult ? ` · ${digest.lastResult}` : ""}</span>
       </div>
     </div>}
+    <div className="mt-4 flex flex-wrap items-end gap-2 border-t border-[#ebeaf1] pt-3 text-sm" data-testid="digest-whatsapp">
+      <label className="min-w-[200px] flex-1"><span className="block text-xs font-medium text-[#3b3355]">Celular para WhatsApp</span>
+        <input type="tel" inputMode="tel" value={phone} onChange={event => setPhone(event.target.value)} placeholder="9 1234 5678" className="mt-1 h-10 w-full rounded-lg border border-[#cfcde0] px-3" data-testid="digest-phone" /></label>
+      <Button type="button" size="sm" disabled={!!busy || !phone.trim()} onClick={() => void sendWhatsApp()} data-testid="digest-send-whatsapp">{busy === "wa" ? <Loader2 className="size-4 animate-spin" /> : null}Enviar por WhatsApp</Button>
+      <p className="w-full text-xs text-[#6b6a7c]">Se abre WhatsApp con la agenda ya escrita y el número puesto; tú solo tocas «enviar». No se envía sola, y no necesita el correo de envío.</p>
+    </div>
     {error && <p role="alert" className="mt-2 text-sm text-rose-800">{error}</p>}
     {notice && <p role="status" className="mt-2 text-sm text-emerald-800">{notice}</p>}
   </section>;
