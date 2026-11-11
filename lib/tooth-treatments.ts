@@ -93,3 +93,23 @@ export function toothTreatments(sessions: SessionInput[], planned: PlanInput[]):
 export function openTreatments(all: Record<number, ToothTreatment[]>): ToothTreatment[] {
   return Object.values(all).flat().filter((treatment) => treatment.status === "en curso").sort((a, b) => a.tooth - b.tooth);
 }
+
+export type TreatmentAdvance = { key: string; tooth: number; name: string; from: TreatmentStatus | "nuevo"; to: TreatmentStatus; next?: string; closable?: PlannedLink };
+
+/**
+ * Qué tratamientos avanza una evolución nueva: compara el estado de cada pieza antes y después de sumar sus sesiones.
+ * Sirve para mostrarlo al revisar el dictado y ofrecer cerrar en el presupuesto lo que la evolución da por terminado.
+ */
+export function treatmentAdvances(before: SessionInput[], planned: PlanInput[], added: SessionInput[]): TreatmentAdvance[] {
+  if (!added.length) return [];
+  const prior = toothTreatments(before, planned);
+  const after = toothTreatments([...before, ...added], planned);
+  const touched = new Set(added.map((session) => session.tooth));
+  const out: TreatmentAdvance[] = [];
+  for (const tooth of touched) for (const treatment of after[tooth] ?? []) {
+    const was = (prior[tooth] ?? []).find((item) => item.key === treatment.key);
+    if (was && was.sessions.length === treatment.sessions.length) continue;
+    out.push({ key: treatment.key, tooth, name: treatment.name, from: was?.status ?? "nuevo", to: treatment.status, ...(treatment.next ? { next: treatment.next } : {}), ...(treatment.closable ? { closable: treatment.closable } : {}) });
+  }
+  return out.sort((a, b) => a.tooth - b.tooth || a.name.localeCompare(b.name));
+}

@@ -31,6 +31,11 @@ function procedureLines(body: string): string[] {
   return out;
 }
 
+/** Sesiones por pieza que aporta el texto de una evolución: cada procedimiento realizado que nombra una pieza. */
+export function procedureSessions(body: string, date?: string, noteId?: number): Array<{ tooth: number; date?: string; text: string; noteId?: number }> {
+  return procedureLines(body).flatMap(line => [...new Set(dotted(line))].map(tooth => ({ tooth, date, text: line, ...(noteId ? { noteId } : {}) })));
+}
+
 /** Título corto de un procedimiento: la línea sin el encabezado «FDI 4.6 (Chile 19):». */
 function procedureTitle(line: string): string {
   const text = line.replace(/^(?:pieza\s+)?(?:FDI\s+)?[1-8]\.[1-8](?:\s*\([^)]*\))?\s*[:\-–]\s*/i, "").trim() || line;

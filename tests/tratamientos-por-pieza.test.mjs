@@ -48,3 +48,16 @@ test("un procedimiento no clasificado igual queda en la pieza como realizado, y 
   assert.deepEqual(of(all, 45), [["corona", "realizado"]]);
   assert.equal(all[45][0].closable, undefined);
 });
+
+import { treatmentAdvances } from "../lib/tooth-treatments.ts";
+import { procedureSessions } from "../lib/tooth-evolution-milestones.ts";
+
+test("una evolución nueva dice qué tratamiento avanza y ofrece cerrar el del presupuesto", () => {
+  const prior = procedureSessions("Procedimientos realizados\n- FDI 3.6 (Chile 30): apertura cameral y pulpectomía.\n", "2026-11-01", 1);
+  const planned = [plan(36, "Endodoncia molar"), plan(11, "Corona zirconio")];
+  const mid = treatmentAdvances(prior, planned, procedureSessions("Procedimientos realizados\n- FDI 3.6: instrumentación y conometría.\n- Instrucción de higiene.\n", "2026-11-05"));
+  assert.deepEqual(mid.map((a) => [a.tooth, a.name, a.from, a.to, Boolean(a.closable)]), [[36, "Endodoncia", "en curso", "en curso", false]]);
+  const end = treatmentAdvances(prior, planned, procedureSessions("Procedimientos realizados\n- FDI 3.6: obturación de conductos con gutapercha.\n- FDI 4.6: obturación con resina oclusal.\n", "2026-11-08"));
+  assert.deepEqual(end.map((a) => [a.tooth, a.name, a.from, a.to, a.closable?.label ?? null]), [[36, "Endodoncia", "en curso", "realizado", "Endodoncia molar"], [46, "Obturación", "nuevo", "realizado", null]]);
+  assert.deepEqual(treatmentAdvances(prior, planned, procedureSessions("Motivo de consulta\nControl.", "2026-11-09")), []);
+});

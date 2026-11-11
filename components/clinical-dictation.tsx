@@ -61,6 +61,8 @@ import {
 import { searchDiagnoses } from "@/lib/icd11";
 import { prestacionName, withPrestacionesSection, type PrestacionItem } from "@/lib/dictation/prestaciones";
 import { searchPrestaciones } from "@/lib/prestaciones-catalog";
+import { procedureSessions } from "@/lib/tooth-evolution-milestones";
+import { treatmentAdvances, type PlannedLink } from "@/lib/tooth-treatments";
 import { sameDiagnosisTags, sanitizeDiagnosisTags, type EvolutionDiagnosisTag } from "@/lib/evolution-diagnoses";
 import { evolutionNotices, type EvolutionNoticeKey } from "@/lib/dictation/evolution-notices";
 import { buildFeedback, type ReviewGroup } from "@/lib/dictation/feedback";
@@ -196,6 +198,7 @@ export function ClinicalDictation({
   persist,
   onApplied,
   budgetOptions = [],
+  plannedItems = [],
   request = null,
   notes = [],
   onAnnul,
@@ -208,6 +211,8 @@ export function ClinicalDictation({
   patient?: PatientFicha | null;
   persist: (input: Record<string, unknown>) => Promise<{ note?: { id: number; title: string; body: string; clinicalDate?: string }; budget?: { id: number }; payment?: { id: number }; appointment?: { id: number }; exam?: { id: number } }>;
   budgetOptions?: { id: number; title: string }[];
+  /** Prestaciones del plan con pieza, para enlazar la evolución con el tratamiento que avanza. */
+  plannedItems?: (PlannedLink & { tooth: number })[];
   onApplied: (data: Reload) => void;
   /** Abre el dictado desde otro lugar (p. ej. «Nueva evolución») con un texto ya escrito o dictado, y lo corrige con IA. */
   request?: { nonce: number; text: string; ignoreCommand?: boolean; incorporate?: boolean } | null;
@@ -218,6 +223,7 @@ export function ClinicalDictation({
   prominent?: boolean;
 }) {
   const engine = useRef(createAudioTranscription());
+  const linkKey = (link: PlannedLink) => `${link.budgetId}:${link.index}`;
   const answerEngine = useRef(createAudioTranscription());
   const requestId = useRef("");
   const session = useRef("");
@@ -242,6 +248,8 @@ export function ClinicalDictation({
   const [evolutionTitle, setEvolutionTitle] = useState("");
   const [attentionDate, setAttentionDate] = useState("");
   const [evolutionBody, setEvolutionBody] = useState("");
+  // Prestaciones del plan que NO se marcarán como realizadas aunque la evolución las cierre (el profesional las destildó).
+  const [keepPending, setKeepPending] = useState<Set<string>>(new Set());
   const [teeth, setTeeth] = useState<ReviewTooth[]>([]);
   const [budgets, setBudgets] = useState<ReviewBudget[]>([]);
   const [fichaItems, setFichaItems] = useState<ReviewFicha[]>([]);
@@ -741,6 +749,12 @@ export function ClinicalDictation({
           : action;
         await persist(linkedAction);
       }
+      // Lo que la evolución da por terminado y sigue pendiente en el presupuesto se marca realizado (salvo lo que el profesional destildó).
+      for (const advance of advances) {
+        const link = advance.closable;
+        if (!link || keepPending.has(linkKey(link))) continue;
+        await once("plan-done:" + linkKey(link), async () => { await persist({ action: "setBudgetItemDone", patientId, budgetId: link.budgetId, index: link.index, done: true, doneOn: attentionDate || chileTodayIso() }); return 1; });
+      }
       // Un plan por opción dictada (la primera es el principal, las demás son alternativas), con todas sus prestaciones y fases.
       const budgetGroups = new Map<string, typeof acceptedBudgets>();
       for (const item of acceptedBudgets) budgetGroups.set(item.option ?? "", [...(budgetGroups.get(item.option ?? "") ?? []), item]);
@@ -840,6 +854,12 @@ export function ClinicalDictation({
 
   const proposal = outcome?.proposal;
   const missing = useMemo(() => proposal ? missingData(proposal) : [], [proposal]);
+  // Tratamientos por pieza que esta evolución hace avanzar (según sus «Procedimientos realizados» y lo ya registrado).
+  const advances = useMemo(() => {
+    if (!evolutionBody.trim()) return [];
+    const prior = notes.flatMap((note) => procedureSessions(note.body ?? "", (note as { clinicalDate?: string }).clinicalDate, note.id));
+    return treatmentAdvances(prior, plannedItems, procedureSessions(evolutionBody, attentionDate || chileTodayIso()));
+  }, [evolutionBody, notes, plannedItems, attentionDate]);
   // Avisos en voz alta cuando algo falta o genera duda. Interruptor guardado en este navegador; por defecto activado.
   const [speakAlerts, setSpeakAlerts] = useState(true);
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -998,6 +1018,16 @@ export function ClinicalDictation({
                 <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-[#615f73]"><span>Una vez guardada, la evolución queda cerrada: solo puede anularse y registrarse otra.</span>{proposal.evolution && (evolutionBody !== proposal.evolution.body || evolutionTitle !== proposal.evolution.title) && <button type="button" className="font-semibold text-[#473a6d] underline" onClick={() => { if (window.confirm("¿Descartar tus cambios y volver al texto propuesto?")) { setEvolutionTitle(proposal.evolution?.title ?? ""); setEvolutionBody(proposal.evolution?.body ?? ""); } }}>Volver al texto propuesto</button>}</div>
               </> : <p className="mt-3 text-[#6b6a7c]">El dictado no produjo una evolución.</p>}
             </section>
+            {advances.length > 0 && <section className="rounded-xl border border-[#dddbe6] p-4" data-testid="dictation-advances">
+              <h3 className="font-semibold">Tratamientos que avanza esta evolución</h3>
+              <p className="mt-1 text-xs text-[#615f73]">Según los procedimientos realizados y lo ya registrado en cada pieza.</p>
+              <ul className="mt-2 space-y-2 text-sm">{advances.map((item) => <li key={item.key} className="rounded-lg border border-[#ebe9f2] px-3 py-2">
+                <span className="font-medium">{item.name} · FDI {formatFdi(item.tooth)}</span>{" "}
+                <span className="text-xs text-[#57566a]">{item.from === "nuevo" ? "nuevo" : item.from} → <strong>{item.to}</strong></span>
+                {item.next && <p className="mt-1 text-xs font-medium text-amber-900">{item.next}</p>}
+                {item.closable && <label className="mt-2 flex items-start gap-2 text-xs text-[#3b3355]"><input type="checkbox" className="mt-0.5" checked={!keepPending.has(linkKey(item.closable))} onChange={(event) => { const key = linkKey(item.closable!); setKeepPending((previous) => { const next = new Set(previous); if (event.target.checked) next.delete(key); else next.add(key); return next; }); }} /><span>Marcar realizada en el presupuesto: «{item.closable.label}»</span></label>}
+              </li>)}</ul>
+            </section>}
             <section className="rounded-xl border border-[#dddbe6] p-4" data-testid="dictation-prestaciones">
               <h3 className="font-semibold">Prestaciones realizadas (arancel)</h3>
               <p className="mt-1 text-xs text-[#615f73]">Prestaciones del arancel que la app identificó en lo que dictaste hoy (sin montos). Se guardan en la nota. Quita las que no correspondan o agrega otra.</p>
