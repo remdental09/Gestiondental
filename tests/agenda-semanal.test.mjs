@@ -93,3 +93,11 @@ test('se puede agendar un paciente nuevo sin ficha directamente en la agenda', a
   assert.match(route, /body\?\.action === "createEvent"[\s\S]*createAgendaEvent/);
   assert.match(readFileSync('app/drive-oauth.ts', 'utf8'), /export async function createAgendaEvent[\s\S]*can_write/);
 });
+
+test('la ficha muestra también las citas de Google Calendar reconocidas para ese paciente', async () => {
+  const { readFileSync } = await import('node:fs');
+  const page = readFileSync('app/page.tsx', 'utf8');
+  assert.match(page, /calendarUpcomingFor=\(patientId:number\)/);
+  assert.match(page, /patientForEvent\(e,patients\)\?\.id===patientId/);
+  assert.match(page, /data-testid="ficha-cita-calendar"/);
+});
