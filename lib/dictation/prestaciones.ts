@@ -88,6 +88,22 @@ const KEYWORDS: Array<{ test: RegExp; code: (text: string, teeth?: number[], con
   { test: /\bradiografia\s+retroalveolar\b/, code: () => "5002001" },
   { test: /\bradiografia\s+panoramica\b|\bortopantomografia\b/, code: () => "5002010" },
   { test: /\bbite\s?wing\b|\baleta\s+mordida\b/, code: () => "5002004" },
+  // Actos diarios con código inequívoco en el arancel. Solo se sugieren; el profesional los acepta o quita.
+  { test: /\brecubrimiento\s+(?:pulpar\s+)?directo\b/, code: () => "5001034" },
+  { test: /\brecubrimiento\s+(?:pulpar\s+)?indirecto\b/, code: () => "5001038" },
+  // Pulpotomía: solo en diente temporal (piezas 5.x–8.x); en permanente el arancel distingue «joven» y se deja a elección.
+  { test: /\bpulpotomia\b/, code: (_t, teeth = []) => (teeth.length === 1 && teeth[0] >= 50 ? "5010042" : null) },
+  { test: /\balveolitis\b/, code: () => "5001015" },
+  { test: /\bfrenectomia\b/, code: () => "5009041" },
+  { test: /\bbiopsia\b/, code: (t) => (/\bhueso|oseo|tejido\s+duro\b/.test(t) ? "5003019" : /\bmucosa|encia|labio|lengua|piso\s+de\s+boca|paladar|tejido\s+blando|carrillo\b/.test(t) ? "5003010" : null) },
+  { test: /\bdrenaje\s+(?:de\s+)?(?:un\s+)?absceso/, code: (t) => (/periodont/.test(t) ? "5009014" : "5003022") },
+  { test: /\bcorona\s+provisoria\s+adhesiva\b/, code: () => "5007029" },
+  { test: /\bcorona\s+provisoria\b/, code: () => "5007005" },
+  { test: /\bmantenedor\s+de\s+espacio\s+(?:fijo|banda\s+y\s+asa)|\bbanda\s+y\s+asa\b/, code: () => "5010005" },
+  { test: /\bmantenedor\s+de\s+espacio\s+removible\b/, code: () => "5010037" },
+  { test: /\bcorona\s+(?:de\s+)?acero(?:\s+cromo)?\b|\bcorona\s+metalica\s+(?:pediatrica|infantil)\b/, code: () => "5010036" },
+  { test: /\bblanqueamiento\s+(?:dental\s+|profesional\s+)?(?:en\s+)?(?:clinica|consultorio)\b/, code: () => "5001011" },
+  { test: /\brestauracion\s+provisoria\s+para\s+restauracion\s+indirecta\b/, code: () => "5005023" },
   { test: /\bfluor(?:uro)?\b/, code: () => "5005033" },
   { test: /\bpulido\s+de\s+restauraciones\b/, code: () => "5005034" },
 ];

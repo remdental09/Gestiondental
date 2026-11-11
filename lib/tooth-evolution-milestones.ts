@@ -21,19 +21,54 @@ const firstLine = (body: string) => {
   return line.length > 160 ? `${line.slice(0, 157)}…` : line;
 };
 
-/** Cada evolución vigente aparece como hito fechado en la línea de tiempo de las piezas que trata, sea de la especialidad que sea. */
+/** Líneas de «Procedimientos realizados» de una nota, sin viñetas. */
+function procedureLines(body: string): string[] {
+  const lines = body.replace(/\r\n/g, "\n").split("\n");
+  const start = lines.findIndex(line => line.trim() === "Procedimientos realizados");
+  if (start < 0) return [];
+  const out: string[] = [];
+  for (let index = start + 1; index < lines.length && lines[index].trim() !== ""; index++) out.push(lines[index].trim().replace(/^[-•*]\s*/, ""));
+  return out;
+}
+
+/** Título corto de un procedimiento: la línea sin el encabezado «FDI 4.6 (Chile 19):». */
+function procedureTitle(line: string): string {
+  const text = line.replace(/^(?:pieza\s+)?(?:FDI\s+)?[1-8]\.[1-8](?:\s*\([^)]*\))?\s*[:\-–]\s*/i, "").trim() || line;
+  return text.length > 90 ? `${text.slice(0, 87)}…` : text;
+}
+
+/**
+ * Cada evolución vigente aparece como hito fechado en la línea de tiempo de las piezas que trata, sea de la especialidad que sea.
+ * Además, cada línea de «Procedimientos realizados» que nombra una pieza queda en el historial de ESA pieza: lo hecho en cada
+ * diente (obturación provisoria, pulpotomía, recubrimiento pulpar, corona provisoria…) no depende de que el odontograma lo dibuje.
+ */
 export function evolutionMilestones(notes: NoteLike[]): ToothHistoryEvent[] {
-  return notes.filter(note => note.status !== "anulada").flatMap(note => teethOfNote(note).map(tooth => ({
-    id: `evolution:${note.id}:${tooth}`,
-    tooth,
-    recordedAt: note.recordedAt ?? (note.clinicalDate ? `${note.clinicalDate}T12:00:00.000Z` : ""),
-    clinicalDate: note.clinicalDate,
-    eventType: "evolution" as const,
-    source: "evolution" as const,
-    sourceEvolutionId: note.id,
-    title: note.title,
-    detail: firstLine(note.body),
-  })));
+  return notes.filter(note => note.status !== "anulada").flatMap(note => {
+    const recordedAt = note.recordedAt ?? (note.clinicalDate ? `${note.clinicalDate}T12:00:00.000Z` : "");
+    const whole: ToothHistoryEvent[] = teethOfNote(note).map(tooth => ({
+      id: `evolution:${note.id}:${tooth}`,
+      tooth,
+      recordedAt,
+      clinicalDate: note.clinicalDate,
+      eventType: "evolution" as const,
+      source: "evolution" as const,
+      sourceEvolutionId: note.id,
+      title: note.title,
+      detail: firstLine(note.body),
+    }));
+    const done: ToothHistoryEvent[] = procedureLines(note.body).flatMap((line, index) => [...new Set(dotted(line))].map(tooth => ({
+      id: `evolution:${note.id}:${tooth}:proc${index + 1}`,
+      tooth,
+      recordedAt,
+      clinicalDate: note.clinicalDate,
+      eventType: "evolution" as const,
+      source: "evolution" as const,
+      sourceEvolutionId: note.id,
+      title: procedureTitle(line),
+      detail: line,
+    })));
+    return [...whole, ...done];
+  });
 }
 
 type EndoCaseLike = {
