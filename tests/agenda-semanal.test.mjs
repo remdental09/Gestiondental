@@ -82,3 +82,11 @@ test('el aviso de cambios corre cada 15 minutos y está conectado al cron', asyn
   assert.match(cron, /cron === AGENDA_CHANGES_CRON[\s\S]*runAgendaChangeAlerts/);
   assert.match(readFileSync('app/agenda-digest.ts', 'utf8'), /export async function runAgendaChangeAlerts[\s\S]*changeCount\(built\.changes\) === 0/);
 });
+
+test('la ficha muestra también las citas de Google Calendar reconocidas para ese paciente', async () => {
+  const { readFileSync } = await import('node:fs');
+  const page = readFileSync('app/page.tsx', 'utf8');
+  assert.match(page, /calendarUpcomingFor=\(patientId:number\)/);
+  assert.match(page, /patientForEvent\(e,patients\)\?\.id===patientId/);
+  assert.match(page, /data-testid="ficha-cita-calendar"/);
+});
