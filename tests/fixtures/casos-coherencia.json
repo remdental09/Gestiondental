@@ -1,282 +1,299 @@
 {
-  "descripcion": "Banco de casos de coherencia clínica del odontograma. Casos anónimos (sin datos de pacientes). Cada caso: odontograma previo, dictado y qué debe pasar. aplica = se propone marcado; noAplica = no puede quedar marcado solo (ausente, rechazado o con aviso); confirmar = se propone pero espera confirmación del clínico. Formato: «45 Implante», «45 Corona:tooth», «14 O caries».",
-  "casos": [
+ "descripcion": "Banco de casos de coherencia clínica del odontograma. Casos anónimos (sin datos de pacientes). Cada caso: odontograma previo, dictado y qué debe pasar. aplica = se propone marcado; noAplica = no puede quedar marcado solo (ausente, rechazado o con aviso); confirmar = se propone pero espera confirmación del clínico. Formato: «45 Implante», «45 Corona:tooth», «14 O caries».",
+ "casos": [
+  {
+   "id": "k01-vecino-implante",
+   "trampa": true,
+   "nota": "Lo que se dice del implante vecino no se le atribuye a la pieza tratada.",
+   "chart": [
     {
-      "id": "k01-vecino-implante",
-      "trampa": true,
-      "nota": "Lo que se dice del implante vecino no se le atribuye a la pieza tratada.",
-      "chart": [
-        {
-          "tooth": 45,
-          "status": "Corona",
-          "foundation": "tooth"
-        },
-        {
-          "tooth": 46,
-          "status": "Implante"
-        }
-      ],
-      "dictado": "Se realiza trepanación de la pieza 4.5 por pulpitis. La pieza 4.5 se encuentra adyacente al implante de la pieza 4.6.",
-      "noAplica": [
-        "45 Implante",
-        "45 Corona:implant",
-        "44 Implante"
-      ]
+     "tooth": 45,
+     "status": "Corona",
+     "foundation": "tooth"
     },
     {
-      "id": "k02-trepanacion-corona",
-      "trampa": true,
-      "nota": "Trepanar una corona sobre diente natural no la vuelve implante.",
-      "chart": [
-        {
-          "tooth": 45,
-          "status": "Corona",
-          "foundation": "tooth"
-        }
-      ],
-      "dictado": "La pieza 4.5 tiene corona de zirconio. Se trepana la corona de la pieza 4.5 por pulpitis y se deja hidróxido de calcio.",
-      "noAplica": [
-        "45 Implante",
-        "45 Corona:implant"
-      ]
-    },
-    {
-      "id": "k03-exodoncia-realizada",
-      "nota": "Extracción dicha como hecha: la indicación pasa a ausente.",
-      "chart": [
-        {
-          "tooth": 48,
-          "status": "Indicación de exodoncia"
-        }
-      ],
-      "dictado": "Se realiza exodoncia de la pieza 4.8 sin complicaciones, se sutura con seda.",
-      "aplica": [
-        "48 Ausente"
-      ]
-    },
-    {
-      "id": "k04-ausente-sin-extraccion",
-      "trampa": true,
-      "nota": "Un diente con corona no queda ausente si no se dijo que se extrajo.",
-      "chart": [
-        {
-          "tooth": 36,
-          "status": "Corona",
-          "foundation": "tooth"
-        }
-      ],
-      "dictado": "Pieza 3.6 ausente.",
-      "noAplica": [
-        "36 Ausente"
-      ]
-    },
-    {
-      "id": "k05-implante-en-ausente",
-      "nota": "Instalar un implante donde faltaba la pieza es la secuencia normal.",
-      "chart": [
-        {
-          "tooth": 36,
-          "status": "Ausente"
-        }
-      ],
-      "dictado": "Se instala implante en la pieza 3.6 con torque de 35 newton.",
-      "aplica": [
-        "36 Implante"
-      ]
-    },
-    {
-      "id": "k06-planificado",
-      "trampa": true,
-      "nota": "Lo planificado no cambia el odontograma.",
-      "chart": [
-        {
-          "tooth": 36,
-          "status": "Ausente"
-        }
-      ],
-      "dictado": "Se planifica implante en la pieza 3.6 para el próximo mes.",
-      "noAplica": [
-        "36 Implante"
-      ]
-    },
-    {
-      "id": "k07-implante-inmediato",
-      "nota": "Extracción e implante inmediato en la misma sesión.",
-      "chart": [
-        {
-          "tooth": 21,
-          "status": "Corona",
-          "foundation": "tooth"
-        }
-      ],
-      "dictado": "Se extrae la pieza 2.1 y se instala un implante inmediato en el alvéolo.",
-      "aplica": [
-        "21 Implante"
-      ]
-    },
-    {
-      "id": "k08-caries-en-ausente",
-      "trampa": true,
-      "nota": "Una pieza ausente no tiene caras.",
-      "chart": [
-        {
-          "tooth": 14,
-          "status": "Ausente"
-        }
-      ],
-      "dictado": "Caries de dentina profunda en oclusal de la pieza 1.4.",
-      "noAplica": [
-        "14 O caries"
-      ]
-    },
-    {
-      "id": "k09-caries-en-implante",
-      "trampa": true,
-      "nota": "Un implante no tiene caries.",
-      "chart": [
-        {
-          "tooth": 46,
-          "status": "Implante"
-        }
-      ],
-      "dictado": "Caries de dentina profunda en mesial de la pieza 4.6.",
-      "noAplica": [
-        "46 M caries"
-      ]
-    },
-    {
-      "id": "k10-pilar",
-      "nota": "Pilar sobre un implante registrado.",
-      "chart": [
-        {
-          "tooth": 36,
-          "status": "Implante"
-        }
-      ],
-      "dictado": "Se instala pilar protésico en el implante de la pieza 3.6.",
-      "aplica": [
-        "36 Implante con pilar"
-      ]
-    },
-    {
-      "id": "k11-primer-registro",
-      "nota": "Sin registro previo: lo observado se registra.",
-      "chart": [],
-      "dictado": "Pieza 1.6 con corona de disilicato en buen estado.",
-      "aplica": [
-        "16 Corona:tooth"
-      ]
-    },
-    {
-      "id": "k12-reemplazo-sin-hecho",
-      "nota": "Cambiar un estado registrado sin un hecho que lo explique pide confirmación.",
-      "chart": [
-        {
-          "tooth": 16,
-          "status": "Corona",
-          "foundation": "tooth"
-        }
-      ],
-      "dictado": "Pieza 1.6 con indicación de exodoncia por fractura radicular.",
-      "confirmar": [
-        "16 Indicación de exodoncia"
-      ]
-    },
-    {
-      "id": "k13-extraccion-negada",
-      "trampa": true,
-      "nota": "«No se extrae» no deja la pieza ausente.",
-      "chart": [
-        {
-          "tooth": 26,
-          "status": "Corona",
-          "foundation": "tooth"
-        }
-      ],
-      "dictado": "No se realiza la extracción de la pieza 2.6, se mantiene en observación.",
-      "noAplica": [
-        "26 Ausente"
-      ]
-    },
-    {
-      "id": "k14-diente-vuelve",
-      "trampa": true,
-      "nota": "Un diente extraído no vuelve a tener corona natural.",
-      "chart": [
-        {
-          "tooth": 11,
-          "status": "Ausente"
-        }
-      ],
-      "dictado": "Pieza 1.1 con corona de disilicato.",
-      "noAplica": [
-        "11 Corona:tooth"
-      ]
-    },
-    {
-      "id": "k15-implante-con-pulpitis",
-      "trampa": true,
-      "nota": "Pulpitis en la misma pieza contradice un implante.",
-      "chart": [],
-      "dictado": "Pieza 3.5 con pulpitis irreversible, dolor provocado por frío. Pieza 3.5 implante.",
-      "noAplica": [
-        "35 Implante"
-      ]
-    },
-    {
-      "id": "m01-retira-amalgama-inactiva",
-      "trampa": true,
-      "nota": "«Se retira la amalgama» no es obturar con amalgama; el ionómero para inactivar caries se cobra como inactivación y la cara queda con caries. Requiere comprensión (actos de la IA): con solo reglas no se puede saber cómo queda la cara.",
-      "chart": [],
-      "dictado": "Pieza 1.6 caras mesial y oclusal: se retira la amalgama fracturada y se elimina la caries. Se coloca vidrio ionómero en dos porciones para inactivar la caries de dentina superficial.",
-      "aplica": [
-        "16 M caries",
-        "16 O caries"
-      ],
-      "noAplica": [
-        "16 M restored",
-        "16 O restored"
-      ],
-      "prestaciones": [
-        "5010029"
-      ],
-      "noPrestaciones": [
-        "5005002",
-        "5005001",
-        "5005004"
-      ],
-      "soloIA": true
-    },
-    {
-      "id": "m02-retira-amalgama-obtura-resina",
-      "trampa": true,
-      "nota": "Al cambiar amalgama por resina se cobra la resina (material colocado), nunca la amalgama retirada.",
-      "chart": [],
-      "dictado": "Pieza 4.6 caras oclusal y distal: se retira la amalgama filtrada y se obtura con resina compuesta.",
-      "aplica": [
-        "46 O restored",
-        "46 D restored"
-      ],
-      "prestaciones": [
-        "5005018"
-      ],
-      "noPrestaciones": [
-        "5005002",
-        "5005001"
-      ]
-    },
-    {
-      "id": "m03-obtura-amalgama",
-      "nota": "Obturar con amalgama sigue cobrando amalgama.",
-      "chart": [],
-      "dictado": "Se realiza obturación de amalgama en la pieza 3.6, caras oclusal y distal.",
-      "aplica": [
-        "36 O restored",
-        "36 D restored"
-      ],
-      "prestaciones": [
-        "5005002"
-      ]
+     "tooth": 46,
+     "status": "Implante"
     }
-  ]
+   ],
+   "dictado": "Se realiza trepanación de la pieza 4.5 por pulpitis. La pieza 4.5 se encuentra adyacente al implante de la pieza 4.6.",
+   "noAplica": [
+    "45 Implante",
+    "45 Corona:implant",
+    "44 Implante"
+   ]
+  },
+  {
+   "id": "k02-trepanacion-corona",
+   "trampa": true,
+   "nota": "Trepanar una corona sobre diente natural no la vuelve implante.",
+   "chart": [
+    {
+     "tooth": 45,
+     "status": "Corona",
+     "foundation": "tooth"
+    }
+   ],
+   "dictado": "La pieza 4.5 tiene corona de zirconio. Se trepana la corona de la pieza 4.5 por pulpitis y se deja hidróxido de calcio.",
+   "noAplica": [
+    "45 Implante",
+    "45 Corona:implant"
+   ]
+  },
+  {
+   "id": "k03-exodoncia-realizada",
+   "nota": "Extracción dicha como hecha: la indicación pasa a ausente.",
+   "chart": [
+    {
+     "tooth": 48,
+     "status": "Indicación de exodoncia"
+    }
+   ],
+   "dictado": "Se realiza exodoncia de la pieza 4.8 sin complicaciones, se sutura con seda.",
+   "aplica": [
+    "48 Ausente"
+   ]
+  },
+  {
+   "id": "k04-ausente-sin-extraccion",
+   "trampa": true,
+   "nota": "Un diente con corona no queda ausente si no se dijo que se extrajo.",
+   "chart": [
+    {
+     "tooth": 36,
+     "status": "Corona",
+     "foundation": "tooth"
+    }
+   ],
+   "dictado": "Pieza 3.6 ausente.",
+   "noAplica": [
+    "36 Ausente"
+   ]
+  },
+  {
+   "id": "k05-implante-en-ausente",
+   "nota": "Instalar un implante donde faltaba la pieza es la secuencia normal.",
+   "chart": [
+    {
+     "tooth": 36,
+     "status": "Ausente"
+    }
+   ],
+   "dictado": "Se instala implante en la pieza 3.6 con torque de 35 newton.",
+   "aplica": [
+    "36 Implante"
+   ]
+  },
+  {
+   "id": "k06-planificado",
+   "trampa": true,
+   "nota": "Lo planificado no cambia el odontograma.",
+   "chart": [
+    {
+     "tooth": 36,
+     "status": "Ausente"
+    }
+   ],
+   "dictado": "Se planifica implante en la pieza 3.6 para el próximo mes.",
+   "noAplica": [
+    "36 Implante"
+   ]
+  },
+  {
+   "id": "k07-implante-inmediato",
+   "nota": "Extracción e implante inmediato en la misma sesión.",
+   "chart": [
+    {
+     "tooth": 21,
+     "status": "Corona",
+     "foundation": "tooth"
+    }
+   ],
+   "dictado": "Se extrae la pieza 2.1 y se instala un implante inmediato en el alvéolo.",
+   "aplica": [
+    "21 Implante"
+   ]
+  },
+  {
+   "id": "k08-caries-en-ausente",
+   "trampa": true,
+   "nota": "Una pieza ausente no tiene caras.",
+   "chart": [
+    {
+     "tooth": 14,
+     "status": "Ausente"
+    }
+   ],
+   "dictado": "Caries de dentina profunda en oclusal de la pieza 1.4.",
+   "noAplica": [
+    "14 O caries"
+   ]
+  },
+  {
+   "id": "k09-caries-en-implante",
+   "trampa": true,
+   "nota": "Un implante no tiene caries.",
+   "chart": [
+    {
+     "tooth": 46,
+     "status": "Implante"
+    }
+   ],
+   "dictado": "Caries de dentina profunda en mesial de la pieza 4.6.",
+   "noAplica": [
+    "46 M caries"
+   ]
+  },
+  {
+   "id": "k10-pilar",
+   "nota": "Pilar sobre un implante registrado.",
+   "chart": [
+    {
+     "tooth": 36,
+     "status": "Implante"
+    }
+   ],
+   "dictado": "Se instala pilar protésico en el implante de la pieza 3.6.",
+   "aplica": [
+    "36 Implante con pilar"
+   ]
+  },
+  {
+   "id": "k11-primer-registro",
+   "nota": "Sin registro previo: lo observado se registra.",
+   "chart": [],
+   "dictado": "Pieza 1.6 con corona de disilicato en buen estado.",
+   "aplica": [
+    "16 Corona:tooth"
+   ]
+  },
+  {
+   "id": "k12-reemplazo-sin-hecho",
+   "nota": "Cambiar un estado registrado sin un hecho que lo explique pide confirmación.",
+   "chart": [
+    {
+     "tooth": 16,
+     "status": "Corona",
+     "foundation": "tooth"
+    }
+   ],
+   "dictado": "Pieza 1.6 con indicación de exodoncia por fractura radicular.",
+   "confirmar": [
+    "16 Indicación de exodoncia"
+   ]
+  },
+  {
+   "id": "k13-extraccion-negada",
+   "trampa": true,
+   "nota": "«No se extrae» no deja la pieza ausente.",
+   "chart": [
+    {
+     "tooth": 26,
+     "status": "Corona",
+     "foundation": "tooth"
+    }
+   ],
+   "dictado": "No se realiza la extracción de la pieza 2.6, se mantiene en observación.",
+   "noAplica": [
+    "26 Ausente"
+   ]
+  },
+  {
+   "id": "k14-diente-vuelve",
+   "trampa": true,
+   "nota": "Un diente extraído no vuelve a tener corona natural.",
+   "chart": [
+    {
+     "tooth": 11,
+     "status": "Ausente"
+    }
+   ],
+   "dictado": "Pieza 1.1 con corona de disilicato.",
+   "noAplica": [
+    "11 Corona:tooth"
+   ]
+  },
+  {
+   "id": "k15-implante-con-pulpitis",
+   "trampa": true,
+   "nota": "Pulpitis en la misma pieza contradice un implante.",
+   "chart": [],
+   "dictado": "Pieza 3.5 con pulpitis irreversible, dolor provocado por frío. Pieza 3.5 implante.",
+   "noAplica": [
+    "35 Implante"
+   ]
+  },
+  {
+   "id": "m01-retira-amalgama-inactiva",
+   "trampa": true,
+   "nota": "«Se retira la amalgama» no es obturar con amalgama; el ionómero para inactivar caries se cobra como inactivación y la cara queda con caries. Requiere comprensión (actos de la IA): con solo reglas no se puede saber cómo queda la cara.",
+   "chart": [],
+   "dictado": "Pieza 1.6 caras mesial y oclusal: se retira la amalgama fracturada y se elimina la caries. Se coloca vidrio ionómero en dos porciones para inactivar la caries de dentina superficial.",
+   "aplica": [
+    "16 M caries",
+    "16 O caries"
+   ],
+   "noAplica": [
+    "16 M restored",
+    "16 O restored"
+   ],
+   "prestaciones": [
+    "5010029"
+   ],
+   "noPrestaciones": [
+    "5005002",
+    "5005001",
+    "5005004"
+   ],
+   "soloIA": true
+  },
+  {
+   "id": "m02-retira-amalgama-obtura-resina",
+   "trampa": true,
+   "nota": "Al cambiar amalgama por resina se cobra la resina (material colocado), nunca la amalgama retirada.",
+   "chart": [],
+   "dictado": "Pieza 4.6 caras oclusal y distal: se retira la amalgama filtrada y se obtura con resina compuesta.",
+   "aplica": [
+    "46 O restored",
+    "46 D restored"
+   ],
+   "prestaciones": [
+    "5005018"
+   ],
+   "noPrestaciones": [
+    "5005002",
+    "5005001"
+   ]
+  },
+  {
+   "id": "m03-obtura-amalgama",
+   "nota": "Obturar con amalgama sigue cobrando amalgama.",
+   "chart": [],
+   "dictado": "Se realiza obturación de amalgama en la pieza 3.6, caras oclusal y distal.",
+   "aplica": [
+    "36 O restored",
+    "36 D restored"
+   ],
+   "prestaciones": [
+    "5005002"
+   ]
+  },
+  {
+   "id": "m04-coronas-plural",
+   "nota": "«Coronas» en plural con lista de piezas (numeración chilena) se registran una por pieza, con material y sobre diente, sin cobrar nada ni inventar endodoncia.",
+   "chart": [],
+   "dictado": "La paciente comunica que las piezas 8 y 9 tienen tratamiento de endodoncia. Se constatan cuatro coronas clínicas correspondientes a las piezas 7, 8, 9 y 10, confeccionadas en circonio y cementadas sobre dientes. No existe claridad respecto de la vitalidad de dichos dientes.",
+   "aplica": [
+    "12 Corona:tooth",
+    "11 Corona:tooth",
+    "21 Corona:tooth",
+    "22 Corona:tooth"
+   ],
+   "noPrestaciones": [
+    "5006001",
+    "5006002",
+    "5006003"
+   ]
+  }
+ ]
 }
