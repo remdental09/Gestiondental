@@ -35,7 +35,7 @@ test("la agenda conecta Google Calendar con un botón (sin direcciones iCal) y s
   assert.doesNotMatch(panel, /iCal/);
   assert.match(oauth, /CALENDAR_SCOPE = "https:\/\/www\.googleapis\.com\/auth\/calendar\.readonly"/);
   assert.match(oauth, /=== "calendar"\) \{\n\s+if \(!\(tokens\.scope/);
-  assert.equal(sched.split("syncGoogleCalendars()").length - 1, 2);
+  assert.equal(sched.split("syncGoogleCalendars()").length - 1, 3, "al día, cada hora y cada 15 minutos");
 });
 
 test("el registro ofrece conectar Google Calendar junto con Drive, en un solo paso", () => {

@@ -95,6 +95,27 @@ export async function sendDigestTest(ownerId: string, now = new Date()): Promise
   return `Prueba enviada a ${sender.google_email} con ${built.entries.length} citas de la semana.`;
 }
 
+/** Cada 15 minutos: si la agenda cambió desde el último envío (cita nueva, cambiada o cancelada), se envía de inmediato a quien la recibe (7:00 a 21:00, hora de Chile). */
+export async function runAgendaChangeAlerts(now = new Date()) {
+  const db = need(); await ensure(db);
+  const hour = Number(new Intl.DateTimeFormat("en-GB", { hour: "2-digit", hour12: false, timeZone: "America/Santiago" }).format(now)) % 24;
+  if (hour < 7 || hour >= 21) return [{ ownerId: "", detail: "fuera de horario" }];
+  const rows = await db.prepare("SELECT * FROM agenda_digest WHERE enabled = 1 AND snapshot IS NOT NULL AND to_email <> ''").all<DigestSettings>();
+  const out: Array<{ ownerId: string; detail: string }> = [];
+  for (const row of rows.results.slice(0, 50)) {
+    try {
+      const built = await compose(row.owner_id, row, now);
+      if (built.first || changeCount(built.changes) === 0) { out.push({ ownerId: row.owner_id, detail: "sin cambios" }); continue; }
+      out.push({ ownerId: row.owner_id, detail: await sendDigest(row.owner_id, { now }) });
+    } catch (error) {
+      const detail = "Error: " + (error instanceof Error ? error.message.slice(0, 160) : "no se pudo enviar");
+      await db.prepare("UPDATE agenda_digest SET last_result = ? WHERE owner_id = ?").bind(detail, row.owner_id).run().catch(() => undefined);
+      out.push({ ownerId: row.owner_id, detail });
+    }
+  }
+  return out;
+}
+
 /** Cada hora: envía la agenda a quienes la activaron, una vez al día, desde su hora elegida y hasta las 20:00 (Chile). */
 export async function runAgendaDigests(now = new Date()) {
   const db = need(); await ensure(db);

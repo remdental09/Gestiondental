@@ -74,3 +74,11 @@ test("WhatsApp: texto con negritas, cambios y días; el número chileno arma el 
   assert.ok(link.startsWith("https://wa.me/56912345678?text="));
   assert.equal(whatsappLink("12345", text), null);
 });
+
+test('el aviso de cambios corre cada 15 minutos y está conectado al cron', async () => {
+  const { readFileSync } = await import('node:fs');
+  const cron = readFileSync('app/scheduled.ts', 'utf8');
+  assert.match(cron, /AGENDA_CHANGES_CRON = "\*\/15 \* \* \* \*"/);
+  assert.match(cron, /cron === AGENDA_CHANGES_CRON[\s\S]*runAgendaChangeAlerts/);
+  assert.match(readFileSync('app/agenda-digest.ts', 'utf8'), /export async function runAgendaChangeAlerts[\s\S]*changeCount\(built\.changes\) === 0/);
+});

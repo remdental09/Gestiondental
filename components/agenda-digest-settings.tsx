@@ -55,7 +55,7 @@ export function AgendaDigestSettings() {
     <p className="-mx-4 -mt-4 mb-4 bg-[#ef895f] px-4 py-2 text-sm font-bold uppercase tracking-wide text-[#2b2140]" data-testid="audience-staff">Para el personal técnico de la clínica · agenda de la semana</p>
     <div className="flex items-start gap-3"><CalendarDays className="mt-0.5 size-5 text-[#473a6d]" />
       <div><h4 className="font-semibold">Agenda de la semana por correo</h4>
-        <p className="text-xs text-[#6b6a7c]">Una vez al día se envía sola la agenda completa de hoy y los 6 días siguientes, destacando qué cita es nueva, cuál cambió de día u hora y cuál se canceló. Además puedes enviarla tú cuando quieras, a quien necesites: escribe el correo y pulsa «Enviar ahora». Solo lleva nombre, hora y motivo; no datos clínicos.</p></div></div>
+        <p className="text-xs text-[#6b6a7c]">Se envía sola una vez al día con la agenda completa de hoy y los 6 días siguientes, y además al momento en que cambia (se revisa cada 15 minutos, de 7:00 a 21:00): destaca qué cita es nueva, cuál cambió de día u hora y cuál se canceló. Además puedes enviarla tú cuando quieras, a quien necesites: escribe el correo y pulsa «Enviar ahora». Solo lleva nombre, hora y motivo; no datos clínicos.</p></div></div>
     {!digest.mailConnected ? <p className="mt-3 text-sm text-amber-900">Primero elige el correo de envío en «Correo para confirmar citas», aquí arriba.</p> : <div className="mt-3 space-y-3 text-sm">
       <div className="flex flex-wrap items-end gap-2">
         <label className="min-w-[220px] flex-1"><span className="block text-xs font-medium text-[#3b3355]">Correo de quien recibe la agenda</span>
