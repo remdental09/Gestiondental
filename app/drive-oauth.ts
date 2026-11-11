@@ -1101,6 +1101,37 @@ export async function updateAgendaEvent(ownerId: string, eventId: number, change
   return { ok: true };
 }
 
+/** Cita nueva directamente en la agenda (p. ej. un paciente que aún no tiene ficha): se crea en el Google Calendar principal con permiso de escritura. */
+export async function createAgendaEvent(ownerId: string, input: { title: string; day: string; time: string; minutes?: number }): Promise<AgendaEventResult> {
+  const config = configuration();
+  if (!config.configured) return { ok: false, error: "Falta configurar Google en la aplicación." };
+  const { chileLocalToIso } = await import("@/lib/appointment-events");
+  const startIso = chileLocalToIso(input.day, input.time);
+  const title = input.title.trim().slice(0, 300);
+  if (!startIso || !title) return { ok: false, error: "Revisa el nombre, el día y la hora." };
+  await ensureCalendarTable();
+  const { results } = await database().prepare("SELECT * FROM google_calendar_connections WHERE owner_id = ? ORDER BY connected_at").bind(ownerId).all<CalendarConnection>();
+  if (!results.length) return { ok: false, error: "Primero conecta tu Google Calendar." };
+  const row = results.find(r => r.can_write);
+  if (!row) return { ok: false, error: "Tu Google Calendar está conectado solo para lectura: vuelve a conectarlo dando permiso para modificar eventos." };
+  const minutes = [15, 30, 45, 60, 90, 120].includes(Number(input.minutes)) ? Number(input.minutes) : 30;
+  const endIso = new Date(new Date(startIso).getTime() + minutes * 60000).toISOString();
+  const wall = (iso: string) => new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Santiago", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).format(new Date(iso)).replace(" ", "T");
+  try {
+    const user: ChatGPTUser = { userId: row.owner_id, displayName: "", email: row.google_email, fullName: null };
+    const token = await getAccessToken(user, row as unknown as DriveConnection, config.clientSecret);
+    const created = await googleApi<{ id?: string; organizer?: { email?: string } }>(token, "https://www.googleapis.com/calendar/v3/calendars/primary/events?fields=id,organizer(email)", {
+      method: "POST",
+      body: JSON.stringify({ summary: title, start: { dateTime: wall(startIso), timeZone: "America/Santiago" }, end: { dateTime: wall(endIso), timeZone: "America/Santiago" } }),
+    });
+    if (!created.id) return { ok: false, error: "Google no devolvió la cita creada." };
+    const calendarId = "g:" + row.google_sub + ":" + (created.organizer?.email || row.google_email);
+    const { UPSERT_EVENT } = await import("@/app/calendar-sync");
+    await database().prepare(UPSERT_EVENT).bind(ownerId, calendarId, created.id, title, startIso, endIso, "America/Santiago", "confirmed", 0, now(), null).run();
+    return { ok: true };
+  } catch (error) { return { ok: false, error: error instanceof Error ? error.message : "No se pudo crear la cita en Google." }; }
+}
+
 /** Cita de la ficha → id de su evento en la agenda (si se escribió en Google Calendar). */
 async function agendaEventForAppointment(ownerId: string, appointmentId: number): Promise<number | null> {
   await ensureCalendarTable();
