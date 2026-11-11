@@ -82,3 +82,14 @@ test('el aviso de cambios corre cada 15 minutos y está conectado al cron', asyn
   assert.match(cron, /cron === AGENDA_CHANGES_CRON[\s\S]*runAgendaChangeAlerts/);
   assert.match(readFileSync('app/agenda-digest.ts', 'utf8'), /export async function runAgendaChangeAlerts[\s\S]*changeCount\(built\.changes\) === 0/);
 });
+
+test('se puede agendar un paciente nuevo sin ficha directamente en la agenda', async () => {
+  const { readFileSync } = await import('node:fs');
+  const page = readFileSync('app/page.tsx', 'utf8');
+  assert.match(page, /data-testid="agenda-nuevo-paciente"/);
+  assert.match(page, /\(newAppt\.name\.trim\(\)\|\|"Paciente nuevo"\)/);
+  assert.match(page, /action:"createEvent"/);
+  const route = readFileSync('app/api/calendar/route.ts', 'utf8');
+  assert.match(route, /body\?\.action === "createEvent"[\s\S]*createAgendaEvent/);
+  assert.match(readFileSync('app/drive-oauth.ts', 'utf8'), /export async function createAgendaEvent[\s\S]*can_write/);
+});
