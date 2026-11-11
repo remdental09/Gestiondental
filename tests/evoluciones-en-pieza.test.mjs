@@ -35,3 +35,15 @@ test("lo registrado en Endodoncia aparece fechado en la pieza, sin repetir lo ya
   ]);
   assert.ok(events.every((e) => e.tooth === 45));
 });
+
+test("cada procedimiento que nombra una pieza queda en el historial de esa pieza (no solo el título de la evolución)", () => {
+  const notes = [{ id: 210, title: "Operatoria", body: "Motivo de consulta\nDolor.\n\nProcedimientos realizados\n- FDI 1.6 (Chile 3): caries inactivada con vidrio ionómero provisorio en M y O.\n- FDI 3.5 (Chile 21): recubrimiento pulpar indirecto con hidróxido de calcio.\n- Instrucción de higiene oral.\n\nPlan\nControl.", clinicalDate: "2026-11-10" }];
+  const events = evolutionMilestones(notes);
+  assert.deepEqual(events.map((e) => [e.tooth, e.title]), [
+    [16, "caries inactivada con vidrio ionómero provisorio en M y O."],
+    [35, "recubrimiento pulpar indirecto con hidróxido de calcio."],
+  ]);
+  assert.match(events[0].detail, /ionómero provisorio/);
+  assert.equal(new Set(events.map((e) => e.id)).size, 2);
+  assert.ok(events.every((e) => e.clinicalDate === "2026-11-10" && e.sourceEvolutionId === 210));
+});

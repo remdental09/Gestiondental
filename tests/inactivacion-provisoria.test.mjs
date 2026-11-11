@@ -49,3 +49,10 @@ test("el texto de la cara muestra el material provisorio de la caries inactiva",
   const detail = cariesDetail({ condition: "caries", depth: "dentina_superficial", icdas: null, activity: "inactive", restorationStage: "provisional", restorationMaterial: "Vidrio ionómero" });
   assert.match(detail, /inactiva con vidrio ionómero provisorio/);
 });
+
+test("«Pieza 1.6 oclusal obturación con resina compuesta por caries» queda como obturación (la caries es el motivo)", () => {
+  const [item] = surfaceOf("Pieza 1.6 oclusal obturación con resina compuesta por caries de dentina.");
+  assert.equal(item?.tooth, 16);
+  assert.equal(item?.surface, "O");
+  assert.equal(item?.finding.condition, "restored");
+});

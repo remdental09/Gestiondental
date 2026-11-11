@@ -947,7 +947,8 @@ function findingFrom(sentence: string): FindingResult {
   const other = /\botra\s+restauraci[oó]n\b/i.test(sentence);
   const sound = /\b(?:sana|sano|sin\s+lesi[oó]n)\b/i.test(sentence) || deniesCaries;
   // «Se realiza obturación … por caries de dentina»: la caries es el motivo; la cara queda obturada.
-  const nominalTreated = /^\s*(?:obturaci[oó]n|restauraci[oó]n)(?!\p{L})/iu.test(sentence) && /(?<!\p{L})(?:por|debido\s+a|a\s+causa\s+de)\s+(?:una\s+|la\s+)?caries/iu.test(sentence);
+  // La pieza y la cara pueden ir antes: «Pieza 1.6 oclusal obturación con resina por caries de dentina».
+  const nominalTreated = /^\s*(?:(?:pieza\s+)?(?:fdi\s+)?[1-8]\.?[1-8]?\s+)?(?:(?:oclusal|mesial|distal|vestibular|palatin[ao]|lingual|incisal)\s+)*(?:obturaci[oó]n|restauraci[oó]n)(?!\p{L})/iu.test(sentence) && /(?<!\p{L})(?:por|debido\s+a|a\s+causa\s+de)\s+(?:una\s+|la\s+)?caries/iu.test(sentence);
   // «Se coloca vidrio ionómero para inactivar la caries»: la cara sigue con lesión de caries (inactivada), no queda obturada.
   if (hasCaries && /(?<!\p{L})inactiv(?:ar|a|ad[oa]s?|aci[oó]n|ando)(?!\p{L})/iu.test(sentence)) {
     const reading = cariesDepthFrom(sentence);
