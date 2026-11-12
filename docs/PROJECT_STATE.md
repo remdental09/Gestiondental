@@ -326,3 +326,4 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 - Ingreso de paciente más grande: el diálogo de paciente nuevo/editar usa ancho amplio, campos y letras mayores; se quitó el recuadro de dictado.
 - Vista ampliada de pieza: fotos realistas por tipo de diente y estado (public/dientes/*.webp, lib/tooth-photos.ts); lado izquierdo espejado; sin foto cae al esquema SVG. Falta solo la imagen del implante del incisivo central inferior (cae al esquema).
 - Implantes según fase: sumergido, con pilar (imágenes por diámetro: angosto incisivos, regular canino/premolares, ancho molares) y con corona (imagen por pieza).
+- Odontograma en celular (<640px): vista por cuadrante (8 piezas, sin scroll lateral), sin esquema oclusal en la cuadrícula; al tocar una pieza se abre su ficha como hoja inferior con la foto primero.
