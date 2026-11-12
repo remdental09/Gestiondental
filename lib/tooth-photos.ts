@@ -3,7 +3,7 @@
  * Hay una imagen por tipo de diente (8 por arcada) y por situación; las piezas del lado opuesto usan la misma
  * imagen espejada. No son fotos del paciente: ilustran el tipo de pieza y lo que consta en la ficha.
  */
-export type ToothPhotoKind = "sano" | "corona" | "endodoncia" | "restauracion" | "caries" | "implante" | "implante-sumergido" | "implante-pilar";
+export type ToothPhotoKind = "lesion" | "sano" | "corona" | "endodoncia" | "restauracion" | "caries" | "implante" | "implante-sumergido" | "implante-pilar";
 /** Fase del implante: sumergido (solo el cuerpo), con pilar (sin corona) o rehabilitado con corona. */
 export type ImplantPhase = "sumergido" | "pilar" | "corona";
 
@@ -176,11 +176,116 @@ export const TOOTH_PHOTOS: ReadonlySet<string> = new Set([
   "upper-premolar-2-caries-vestibular",
   "upper-premolar-2-restauracion-lado",
   "upper-premolar-2-restauracion-vestibular",
+  // Estados generales de lesión apical y fractura: una imagen por familia de pieza (incisivo, canino, premolar, molar).
+  "lower-canino-absceso-apical-agudo",
+  "lower-canino-absceso-apical-cronico",
+  "lower-canino-fisura-coronaria",
+  "lower-canino-fractura-coronaria-dentina",
+  "lower-canino-fractura-coronaria-esmalte",
+  "lower-canino-fractura-coronaria-pulpa",
+  "lower-canino-fractura-corono-radicular",
+  "lower-canino-fractura-radicular-horizontal",
+  "lower-canino-fractura-radicular-vertical",
+  "lower-canino-granuloma-apical",
+  "lower-canino-osteitis-condensante",
+  "lower-canino-periodontitis-apical",
+  "lower-canino-quiste-radicular",
+  "lower-incisivo-absceso-apical-agudo",
+  "lower-incisivo-absceso-apical-cronico",
+  "lower-incisivo-fisura-coronaria",
+  "lower-incisivo-fractura-coronaria-dentina",
+  "lower-incisivo-fractura-coronaria-esmalte",
+  "lower-incisivo-fractura-coronaria-pulpa",
+  "lower-incisivo-fractura-corono-radicular",
+  "lower-incisivo-fractura-radicular-horizontal",
+  "lower-incisivo-fractura-radicular-vertical",
+  "lower-incisivo-granuloma-apical",
+  "lower-incisivo-osteitis-condensante",
+  "lower-incisivo-periodontitis-apical",
+  "lower-incisivo-quiste-radicular",
+  "lower-molar-absceso-apical-agudo",
+  "lower-molar-absceso-apical-cronico",
+  "lower-molar-fisura-coronaria",
+  "lower-molar-fractura-coronaria-dentina",
+  "lower-molar-fractura-coronaria-esmalte",
+  "lower-molar-fractura-coronaria-pulpa",
+  "lower-molar-fractura-corono-radicular",
+  "lower-molar-fractura-radicular-horizontal",
+  "lower-molar-fractura-radicular-vertical",
+  "lower-molar-granuloma-apical",
+  "lower-molar-osteitis-condensante",
+  "lower-molar-periodontitis-apical",
+  "lower-molar-quiste-radicular",
+  "lower-premolar-absceso-apical-agudo",
+  "lower-premolar-absceso-apical-cronico",
+  "lower-premolar-fisura-coronaria",
+  "lower-premolar-fractura-coronaria-dentina",
+  "lower-premolar-fractura-coronaria-esmalte",
+  "lower-premolar-fractura-coronaria-pulpa",
+  "lower-premolar-fractura-corono-radicular",
+  "lower-premolar-fractura-radicular-horizontal",
+  "lower-premolar-fractura-radicular-vertical",
+  "lower-premolar-granuloma-apical",
+  "lower-premolar-osteitis-condensante",
+  "lower-premolar-periodontitis-apical",
+  "lower-premolar-quiste-radicular",
+  "upper-canino-absceso-apical-agudo",
+  "upper-canino-absceso-apical-cronico",
+  "upper-canino-fisura-coronaria",
+  "upper-canino-fractura-coronaria-dentina",
+  "upper-canino-fractura-coronaria-esmalte",
+  "upper-canino-fractura-coronaria-pulpa",
+  "upper-canino-fractura-corono-radicular",
+  "upper-canino-fractura-radicular-horizontal",
+  "upper-canino-fractura-radicular-vertical",
+  "upper-canino-granuloma-apical",
+  "upper-canino-osteitis-condensante",
+  "upper-canino-periodontitis-apical",
+  "upper-canino-quiste-radicular",
+  "upper-incisivo-absceso-apical-agudo",
+  "upper-incisivo-absceso-apical-cronico",
+  "upper-incisivo-fisura-coronaria",
+  "upper-incisivo-fractura-coronaria-dentina",
+  "upper-incisivo-fractura-coronaria-esmalte",
+  "upper-incisivo-fractura-coronaria-pulpa",
+  "upper-incisivo-fractura-corono-radicular",
+  "upper-incisivo-fractura-radicular-horizontal",
+  "upper-incisivo-fractura-radicular-vertical",
+  "upper-incisivo-granuloma-apical",
+  "upper-incisivo-osteitis-condensante",
+  "upper-incisivo-periodontitis-apical",
+  "upper-incisivo-quiste-radicular",
+  "upper-molar-absceso-apical-agudo",
+  "upper-molar-absceso-apical-cronico",
+  "upper-molar-fisura-coronaria",
+  "upper-molar-fractura-coronaria-dentina",
+  "upper-molar-fractura-coronaria-esmalte",
+  "upper-molar-fractura-coronaria-pulpa",
+  "upper-molar-fractura-corono-radicular",
+  "upper-molar-fractura-radicular-horizontal",
+  "upper-molar-fractura-radicular-vertical",
+  "upper-molar-granuloma-apical",
+  "upper-molar-osteitis-condensante",
+  "upper-molar-periodontitis-apical",
+  "upper-molar-quiste-radicular",
+  "upper-premolar-absceso-apical-agudo",
+  "upper-premolar-absceso-apical-cronico",
+  "upper-premolar-fisura-coronaria",
+  "upper-premolar-fractura-coronaria-dentina",
+  "upper-premolar-fractura-coronaria-esmalte",
+  "upper-premolar-fractura-coronaria-pulpa",
+  "upper-premolar-fractura-corono-radicular",
+  "upper-premolar-fractura-radicular-horizontal",
+  "upper-premolar-fractura-radicular-vertical",
+  "upper-premolar-granuloma-apical",
+  "upper-premolar-osteitis-condensante",
+  "upper-premolar-periodontitis-apical",
+  "upper-premolar-quiste-radicular",
 ]);
 
 /** Superficie FDI con caries y su profundidad (null = sin profundidad registrada). */
 export type CariesSpotInput = { surface: "V" | "P" | "M" | "D" | "O"; depth: "esmalte" | "dentina_superficial" | "dentina_profunda" | "pulpar" | null };
-export type ToothPhotoState = { fdi: number; implant?: boolean; implantPhase?: ImplantPhase; crown?: boolean; endo?: boolean; caries?: boolean; restored?: boolean; cariesSurfaces?: CariesSpotInput[]; restoredSurfaces?: CariesSpotInput["surface"][] };
+export type ToothPhotoState = { fdi: number; status?: string; implant?: boolean; implantPhase?: ImplantPhase; crown?: boolean; endo?: boolean; caries?: boolean; restored?: boolean; cariesSurfaces?: CariesSpotInput[]; restoredSurfaces?: CariesSpotInput["surface"][] };
 /** upper: pieza superior, se muestra invertida (raíces arriba, corona hacia el plano oclusal). transform: CSS listo para la imagen. */
 export type ToothPhoto = { src: string; kind: ToothPhotoKind; mirror: boolean; upper: boolean; transform: string | undefined; lesions: CariesSpot[] };
 
@@ -227,6 +332,24 @@ export function cariesSpots(fdi: number, findings: CariesSpotInput[]): CariesSpo
   return spots;
 }
 
+/** Estado general de la pieza (lesión apical o fractura) → sufijo de la imagen. */
+const LESION_PHOTO: Record<string, string> = {
+  "Periodontitis apical": "periodontitis-apical",
+  "Absceso apical agudo": "absceso-apical-agudo",
+  "Absceso apical crónico (fístula)": "absceso-apical-cronico",
+  "Granuloma apical": "granuloma-apical",
+  "Quiste radicular": "quiste-radicular",
+  "Osteítis condensante": "osteitis-condensante",
+  "Fisura coronaria": "fisura-coronaria",
+  "Fractura coronaria de esmalte": "fractura-coronaria-esmalte",
+  "Fractura coronaria con dentina": "fractura-coronaria-dentina",
+  "Fractura coronaria con pulpa expuesta": "fractura-coronaria-pulpa",
+  "Fractura corono-radicular": "fractura-corono-radicular",
+  "Fractura radicular horizontal": "fractura-radicular-horizontal",
+  "Fractura radicular vertical": "fractura-radicular-vertical",
+};
+const LESION_FAMILY = ["incisivo", "incisivo", "canino", "premolar", "premolar", "molar", "molar", "molar"] as const;
+
 /** Situación que manda la imagen: implante, corona, endodoncia, caries, obturación y, si no hay nada, pieza sana. */
 export function toothPhotoKind(state: Omit<ToothPhotoState, "fdi">): ToothPhotoKind {
   if (state.implant) {
@@ -244,6 +367,15 @@ export function toothPhotoFor(state: ToothPhotoState): ToothPhoto | null {
   const quadrant = Math.floor(state.fdi / 10);
   const index = state.fdi % 10;
   if (quadrant < 1 || quadrant > 4 || index < 1 || index > 8) return null;
+  const lesion = !state.implant && !state.crown && state.status ? LESION_PHOTO[state.status] : undefined;
+  if (lesion) {
+    const arch = quadrant <= 2 ? "upper" : "lower";
+    const base = `${arch}-${LESION_FAMILY[index - 1]}-${lesion}`;
+    if (!TOOTH_PHOTOS.has(base)) return null;
+    const mirror = quadrant === 2 || quadrant === 3, upper = quadrant <= 2;
+    const transform = mirror && upper ? "scale(-1,-1)" : mirror ? "scaleX(-1)" : upper ? "scaleY(-1)" : undefined;
+    return { src: `/dientes/${base}.webp`, kind: "lesion", mirror, upper, transform, lesions: [] };
+  }
   const kind = toothPhotoKind(state);
   // Sin corona el implante no depende de la anatomía de la pieza: una imagen por diámetro (anterior, premolar/canino, molar).
   const name = kind === "implante-sumergido" || kind === "implante-pilar"
