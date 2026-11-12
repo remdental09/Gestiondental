@@ -325,3 +325,4 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 - Actos clínicos completan caras: si el acto comprendido nombra una cara que falta en el odontograma y esa cara se dijo en el dictado (desde la última mención de pieza antes de la cita), se agrega con su estado final (`addFacesFromActs`).
 - Ingreso de paciente más grande: el diálogo de paciente nuevo/editar usa ancho amplio, campos y letras mayores; se quitó el recuadro de dictado.
 - Vista ampliada de pieza: fotos realistas por tipo de diente y estado (public/dientes/*.webp, lib/tooth-photos.ts); lado izquierdo espejado; sin foto cae al esquema SVG. Falta solo la imagen del implante del incisivo central inferior (cae al esquema).
+- Implantes según fase: sumergido, con pilar (imágenes por diámetro: angosto incisivos, regular canino/premolares, ancho molares) y con corona (imagen por pieza).

@@ -3,12 +3,20 @@
  * Hay una imagen por tipo de diente (8 por arcada) y por situación; las piezas del lado opuesto usan la misma
  * imagen espejada. No son fotos del paciente: ilustran el tipo de pieza y lo que consta en la ficha.
  */
-export type ToothPhotoKind = "sano" | "corona" | "endodoncia" | "restauracion" | "caries" | "implante";
+export type ToothPhotoKind = "sano" | "corona" | "endodoncia" | "restauracion" | "caries" | "implante" | "implante-sumergido" | "implante-pilar";
+/** Fase del implante: sumergido (solo el cuerpo), con pilar (sin corona) o rehabilitado con corona. */
+export type ImplantPhase = "sumergido" | "pilar" | "corona";
 
 const TYPES = ["incisivo-central", "incisivo-lateral", "canino", "premolar-1", "premolar-2", "molar-1", "molar-2", "molar-3"] as const;
 
 /** Imágenes disponibles en /public/dientes (arcada-tipo-situación). Si falta una, la vista cae al esquema dibujado. */
 export const TOOTH_PHOTOS: ReadonlySet<string> = new Set([
+  "implante-pilar-ancho",
+  "implante-pilar-angosto",
+  "implante-pilar-regular",
+  "implante-sumergido-ancho",
+  "implante-sumergido-angosto",
+  "implante-sumergido-regular",
   "lower-canino-caries",
   "lower-canino-corona",
   "lower-canino-endodoncia",
@@ -106,13 +114,16 @@ export const TOOTH_PHOTOS: ReadonlySet<string> = new Set([
   "upper-premolar-2-sano",
 ]);
 
-export type ToothPhotoState = { fdi: number; implant?: boolean; crown?: boolean; endo?: boolean; caries?: boolean; restored?: boolean };
+export type ToothPhotoState = { fdi: number; implant?: boolean; implantPhase?: ImplantPhase; crown?: boolean; endo?: boolean; caries?: boolean; restored?: boolean };
 /** upper: pieza superior, se muestra invertida (raíces arriba, corona hacia el plano oclusal). transform: CSS listo para la imagen. */
 export type ToothPhoto = { src: string; kind: ToothPhotoKind; mirror: boolean; upper: boolean; transform: string | undefined };
 
 /** Situación que manda la imagen: implante, corona, endodoncia, caries, obturación y, si no hay nada, pieza sana. */
 export function toothPhotoKind(state: Omit<ToothPhotoState, "fdi">): ToothPhotoKind {
-  if (state.implant) return "implante";
+  if (state.implant) {
+    const phase = state.implantPhase ?? (state.crown ? "corona" : "sumergido");
+    return phase === "corona" ? "implante" : phase === "pilar" ? "implante-pilar" : "implante-sumergido";
+  }
   if (state.crown) return "corona";
   if (state.endo) return "endodoncia";
   if (state.caries) return "caries";
@@ -125,7 +136,10 @@ export function toothPhotoFor(state: ToothPhotoState): ToothPhoto | null {
   const index = state.fdi % 10;
   if (quadrant < 1 || quadrant > 4 || index < 1 || index > 8) return null;
   const kind = toothPhotoKind(state);
-  const name = `${quadrant <= 2 ? "upper" : "lower"}-${TYPES[index - 1]}-${kind}`;
+  // Sin corona el implante no depende de la anatomía de la pieza: una imagen por diámetro (anterior, premolar/canino, molar).
+  const name = kind === "implante-sumergido" || kind === "implante-pilar"
+    ? `${kind}-${index <= 2 ? "angosto" : index <= 5 ? "regular" : "ancho"}`
+    : `${quadrant <= 2 ? "upper" : "lower"}-${TYPES[index - 1]}-${kind}`;
   if (!TOOTH_PHOTOS.has(name)) return null;
   const mirror = quadrant === 2 || quadrant === 3;
   const upper = quadrant === 1 || quadrant === 2;
