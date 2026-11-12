@@ -43,6 +43,7 @@ function createHandler(record, duplicates = []) {
     '@/app/mcp-chart-read': { readDentalChart() {} },
     '@/app/mcp-periodontal': { periodontalExamTool: { name: 'save_periodontal_exam' }, savePeriodontalExam() {} },
     '@/app/mcp-tooth-status': { persistMcpToothStatus() {} },
+    '@/lib/tooth-status': { ALL_TOOTH_STATUSES: ['Sin hallazgos', 'Implante', 'Implante con pilar', 'Corona', 'Ausente', 'Indicación de exodoncia', 'Resto radicular con endodoncia'] },
     '@/app/mcp-tooth-surface': { persistMcpToothSurface() {} },
     '@/app/clinical-import': { ClinicalImportError: class ClinicalImportError extends Error {}, runDriveRecordImport: async () => ({}) },
     '@/app/drive-backup': { confirmDriveSnapshot: async () => ({}), getDriveSnapshot: async () => ({}), listDriveBackupQueue: async () => ({}) },
