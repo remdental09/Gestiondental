@@ -21,7 +21,7 @@ export function ToothDetailView({ toothLabel, marks, crown = false, absent = fal
   return <div className="mt-4 rounded-xl border border-[#dddbe6] bg-white p-4" data-testid="tooth-detail-view">
     <p className="text-sm font-semibold text-[#3b3355]">Vista ampliada · FDI {toothLabel}</p>
     <div className="mt-2 flex flex-wrap items-start gap-5">
-      {photo ? <figure className="relative m-0 w-[210px] shrink-0 overflow-hidden rounded-xl bg-[#14161b]" data-testid="tooth-photo" data-kind={photo.kind}>
+      {photo ? <figure className="relative m-0 w-[210px] shrink-0 overflow-hidden max-sm:mx-auto rounded-xl bg-[#14161b]" data-testid="tooth-photo" data-kind={photo.kind}>
         <img src={photo.src} alt={`Imagen referencial de la pieza ${toothLabel}: ${absent ? "ausente" : photo.kind === "sano" ? "sin tratamientos registrados" : photo.kind.replace("-", " ")}`} width={420} height={576} loading="lazy" decoding="async" className="block h-auto w-full" style={{ transform: photo.transform, opacity: absent ? 0.18 : 1, filter: absent ? "grayscale(1)" : undefined }} />
         {absent && <figcaption className="absolute inset-x-0 top-1/2 -translate-y-1/2 text-center text-sm font-semibold text-white">Ausente</figcaption>}
         {plannedEndo && <span className={`absolute left-2 ${photo.upper ? "bottom-2" : "top-2"} rounded-full bg-[#f5b946] px-2 py-0.5 text-[11px] font-semibold text-[#3b2a05]`}>Planificado</span>}
