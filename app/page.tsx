@@ -62,7 +62,7 @@ import { cariesDetail } from "@/lib/caries";
 import { cementedCrownFromEvolution } from "@/app/crown-evidence";
 import { bestStoredNameMatches, hasFourNameParts, normalizePatientName } from "@/app/patient-identity";
 import { nameSimilarity, type DictatedIdentity } from "@/lib/dictation/patient-identify";
-import { endoMarksByTooth, type EndoData } from "@/lib/endodontics";
+import { endoMarksByTooth, priorCase, type EndoData } from "@/lib/endodontics";
 import { agendaWeekDays, agendaWeekRangeLabel, mondayOfAgendaWeek, santiagoDateISO, shiftAgendaWeek } from "@/app/agenda-week";
 
 type Patient = { id:number; name:string; birthDate:string; rut:string; phone:string; email:string; reason:string; status:string; allergies:string; history:string; address?:PatientAddress };
@@ -467,6 +467,13 @@ export default function Home(){
     setEndoByPatient(previous=>({...previous,[patientId]:result.data!}));
     return result.data;
   };
+  const setPriorEndo=async(tooth:number,on:boolean,year="")=>{
+    const base=endoByPatient[selectedId];
+    if(!base)throw new Error("El endograma aún no carga; espera un momento.");
+    const rest=base.cases.filter(c=>!(c.tooth===tooth&&c.prior));
+    const day=new Date().toISOString().slice(0,10);
+    await saveEndo({...base,cases:on?[...rest,priorCase(crypto.randomUUID(),tooth,day,year)]:rest});
+  };
   const uploadOrthoImage=async(file:File,kind:"Foto ortodoncia"|"RX ortodoncia"|"RX endodoncia",note:string)=>{
     const patientId=selectedId,data=new FormData();data.set("file",file);data.set("name",file.name);data.set("patientId",String(patientId));data.set("kind",kind);data.set("note",note);
     const response=await fetch("/api/images",{method:"POST",body:data});
@@ -796,7 +803,7 @@ export default function Home(){
   }}
   onAnnul={note => setAnnulTarget(note)}
 /></div></TabsContent>
-            <TabsContent value="odontograma"><OdontogramDateBar dates={chartDates(toothStatuses[selectedId]??emptyOdontogram())} value={chartDate} onChange={setChartDate}/><Suspense fallback={<div className="min-h-[320px] rounded-xl bg-white p-5 text-sm text-[#6b6a7c]" role="status">Cargando odontograma…</div>}><Odontogram key={`${selectedId}-${chartDate??"hoy"}`} endo={endoMarks} onOpenEndo={tooth=>{setEndoFocus(tooth);setActiveTab("endodoncia")}} treatments={toothTreatmentMap} planned={plannedTeeth} onSetPlannedDone={setBudgetItemDone} onOpenPlan={()=>setActiveTab("presupuestos")} onDeleteEvent={deleteToothEvent} onEditEvent={editToothEvent} data={chartDate?chartAt(toothStatuses[selectedId]??emptyOdontogram(),chartDate):toothStatuses[selectedId]??emptyOdontogram()} evolutionEvents={toothEvolutionHistory} onSetStatus={chartDate?readOnlyChart:updateTooth} onSetMissingReason={chartDate?readOnlyChart:updateMissingReason} onSetSurface={chartDate?readOnlyChart:updateSurface} onSetCrownDetails={chartDate?readOnlyChart:updateCrownDetails}/></Suspense></TabsContent>
+            <TabsContent value="odontograma"><OdontogramDateBar dates={chartDates(toothStatuses[selectedId]??emptyOdontogram())} value={chartDate} onChange={setChartDate}/><Suspense fallback={<div className="min-h-[320px] rounded-xl bg-white p-5 text-sm text-[#6b6a7c]" role="status">Cargando odontograma…</div>}><Odontogram key={`${selectedId}-${chartDate??"hoy"}`} endo={endoMarks} onOpenEndo={tooth=>{setEndoFocus(tooth);setActiveTab("endodoncia")}} onSetPriorEndo={endoData?setPriorEndo:undefined} priorEndo={Object.fromEntries((endoData?.cases??[]).filter(c=>c.prior).map(c=>[c.tooth,c.priorYear??""]))} treatments={toothTreatmentMap} planned={plannedTeeth} onSetPlannedDone={setBudgetItemDone} onOpenPlan={()=>setActiveTab("presupuestos")} onDeleteEvent={deleteToothEvent} onEditEvent={editToothEvent} data={chartDate?chartAt(toothStatuses[selectedId]??emptyOdontogram(),chartDate):toothStatuses[selectedId]??emptyOdontogram()} evolutionEvents={toothEvolutionHistory} onSetStatus={chartDate?readOnlyChart:updateTooth} onSetMissingReason={chartDate?readOnlyChart:updateMissingReason} onSetSurface={chartDate?readOnlyChart:updateSurface} onSetCrownDetails={chartDate?readOnlyChart:updateCrownDetails}/></Suspense></TabsContent>
             <TabsContent value="presupuestos"><div className="surface"><div className="flex justify-between gap-3"><div><h3 className="font-semibold">Planes de tratamiento y presupuestos</h3><p className="mt-1 text-sm text-[#615f73]">Organiza prestaciones por fases y revisa total, abonos y saldo en cada plan.</p></div><Button variant="outline" size="sm" onClick={startNewBudget}>Añadir plan</Button></div><div className="mt-5 space-y-4">{patientBudgets.length?<>
               {patientBudgets.filter(b=>!b.isAlternative).map(primary=>{
                 const paid=patientPayments.filter(payment=>payment.budgetId===primary.id).reduce((sum,payment)=>sum+payment.amount,0);
