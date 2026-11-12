@@ -58,3 +58,18 @@ test("las piezas superiores se ven invertidas: raíces arriba, corona hacia oclu
   assert.equal(toothPhotoFor({ fdi: 11 })?.upper, true);
   assert.equal(toothPhotoFor({ fdi: 41 })?.upper, false);
 });
+
+test("el implante se muestra según su fase: sumergido, con pilar o con corona", () => {
+  assert.equal(toothPhotoKind({ implant: true }), "implante-sumergido");
+  assert.equal(toothPhotoKind({ implant: true, implantPhase: "pilar" }), "implante-pilar");
+  assert.equal(toothPhotoKind({ implant: true, crown: true }), "implante");
+  assert.equal(toothPhotoKind({ implant: true, implantPhase: "corona" }), "implante");
+  // sin corona no se usa la foto con corona: si falta la imagen de la fase, cae al esquema
+  const p = toothPhotoFor({ fdi: 36, implant: true, implantPhase: "pilar" });
+  assert.equal(p?.src, "/dientes/implante-pilar-ancho.webp");
+  const q = toothPhotoFor({ fdi: 11, implant: true, implantPhase: "sumergido" });
+  assert.equal(q?.src, "/dientes/implante-sumergido-angosto.webp");
+  assert.equal(toothPhotoFor({ fdi: 36, implant: true, crown: true })?.src, "/dientes/lower-molar-1-implante.webp");
+  const odo = readFileSync(new URL("../components/odontogram.tsx", import.meta.url), "utf8");
+  assert.match(odo, /implantPhase:toothStatus==="Implante con pilar"\?"pilar"/);
+});
