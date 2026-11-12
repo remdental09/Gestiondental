@@ -109,7 +109,7 @@ export function EndodonticsPanel({ data: saved, onSave, focusTooth, patientName,
     }).catch(() => undefined);
   };
   const createCase = () => {
-    const open = data.cases.find(x => x.tooth === newTooth && !x.closedReason && !x.obturation.date);
+    const open = data.cases.find(x => x.tooth === newTooth && !x.closedReason && !x.obturation.date && !x.prior);
     if (open && !window.confirm(`La pieza ${fdi(newTooth)} ya tiene una ficha abierta. ¿Crear otra de todas formas?\n\nPulsa «Cancelar» para abrir la que ya existe.`)) { setSelectedId(open.id); setSection("Diagnóstico"); return; }
     const c = { ...newCase(uid(), newTooth, day), type: newType };
     void persist({ ...data, cases: [...data.cases, c] }, `Ficha endodóntica abierta en FDI ${fdi(newTooth)}.`).then(() => { setSelectedId(c.id); setSection("Diagnóstico"); }).catch(() => undefined);

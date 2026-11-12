@@ -79,11 +79,17 @@ export type EndoCase = {
   nextControlDate: string;
   /** Derivado, extraído o abandonado: cierra el caso sin obturación. */
   closedReason: string;
+  /** Endodoncia ya tratada antes de la consulta (sin ficha técnica): marca la pieza como obturada. */
+  prior?: boolean;
+  /** Año aproximado del tratamiento previo (opcional). */
+  priorYear?: string;
 };
 export type EndoData = { version: 1; cases: EndoCase[] };
 
 export const emptyEndo = (): EndoData => ({ version: 1, cases: [] });
 export const emptyTests = () => Object.fromEntries(TESTS.map(test => [test.key, ""])) as Record<TestKey, string>;
+/** Caso mínimo para una pieza que ya llegó endodonciada. */
+export const priorCase = (id: string, tooth: number, openedOn: string, year = ""): EndoCase => ({ ...newCase(id, tooth, openedOn), pulpal: "Previamente tratado", prior: true, priorYear: year });
 export const newCase = (id: string, tooth: number, openedOn: string): EndoCase => ({
   id, tooth, type: CASE_TYPES[0], openedOn, complaint: "", pain: "", tests: emptyTests(), pulpal: "", periapical: "", difficulty: "", diagnosisNotes: "",
   canals: [], sessions: [], obturation: { date: "", technique: "", sealer: "", coronalSeal: "", notes: "" }, rx: [], followUps: [], nextControlDate: "", closedReason: "",
@@ -143,6 +149,7 @@ export function normalizeEndo(raw: unknown): EndoData {
       canals, sessions,
       obturation: { date: date(o.date), technique: text(o.technique, 80), sealer: text(o.sealer, 80), coronalSeal: text(o.coronalSeal, 80), notes: text(o.notes, 2000) },
       rx, followUps, nextControlDate: date(c.nextControlDate), closedReason: text(c.closedReason, 200),
+      ...(c.prior === true ? { prior: true, priorYear: /^\d{4}$/.test(String(c.priorYear ?? "")) ? String(c.priorYear) : "" } : {}),
     }];
   }));
   return { version: 1, cases };
@@ -158,6 +165,7 @@ export type EndoToothMark = "en curso" | "obturado";
 
 export function caseStatus(c: EndoCase, today: string): EndoStatus {
   if (c.closedReason) return "Cerrado";
+  if (c.prior) return "Obturado";
   if (c.obturation.date) return c.nextControlDate && c.nextControlDate < today ? "Control atrasado" : "Obturado";
   if (c.sessions.length) return "En curso";
   return "Diagnóstico";
@@ -169,7 +177,7 @@ export function endoMarksByTooth(data: EndoData): Record<number, EndoToothMark> 
   const ordered = [...data.cases].sort((a, b) => a.openedOn.localeCompare(b.openedOn));
   for (const c of ordered) {
     if (c.closedReason && !c.obturation.date) { delete marks[c.tooth]; continue; }
-    if (c.obturation.date) marks[c.tooth] = "obturado";
+    if (c.obturation.date || c.prior) marks[c.tooth] = "obturado";
     else if (c.sessions.length) marks[c.tooth] = "en curso";
   }
   return marks;
@@ -178,6 +186,7 @@ export function endoMarksByTooth(data: EndoData): Record<number, EndoToothMark> 
 /** Datos que faltan para considerar el caso bien documentado (no bloquea, avisa). */
 export function missingDocumentation(c: EndoCase): string[] {
   const missing: string[] = [];
+  if (c.prior) return missing;
   if (!c.pulpal) missing.push("diagnóstico pulpar");
   if (!c.periapical) missing.push("diagnóstico periapical");
   if (!Object.values(c.tests).some(Boolean)) missing.push("pruebas de sensibilidad");
