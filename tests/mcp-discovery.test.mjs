@@ -17,6 +17,7 @@ const imports = {
   '@/app/mcp-chart-read': { readDentalChart: async (owner, patientId) => ({ owner, patientId, found: true }) },
   '@/app/mcp-periodontal': { periodontalExamTool: { name: 'save_periodontal_exam' }, savePeriodontalExam: async (owner, args, verify) => ({ owner, patientId: args.patientId, hasIdentityCheck: typeof verify === 'function' }) },
   '@/app/mcp-tooth-status': { persistMcpToothStatus() {} },
+  '@/lib/tooth-status': { ALL_TOOTH_STATUSES: ['Sin hallazgos', 'Implante', 'Implante con pilar', 'Corona', 'Ausente', 'Indicación de exodoncia', 'Resto radicular con endodoncia'] },
   '@/app/mcp-tooth-surface': { persistMcpToothSurface() {} },
   '@/app/clinical-data': { formatFdi: tooth => String(tooth) },
   '@/app/clinical-import': { ClinicalImportError: class ClinicalImportError extends Error {}, runDriveRecordImport: () => { throw new Error('Unexpected import'); } },

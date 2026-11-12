@@ -1,4 +1,5 @@
 import { and, desc, eq, gt, inArray, ne } from "drizzle-orm";
+import { ALL_TOOTH_STATUSES } from "@/lib/tooth-status";
 import { readDentalChart } from "@/app/mcp-chart-read";
 import { periodontalExamTool, savePeriodontalExam } from "@/app/mcp-periodontal";
 import { persistMcpToothStatus } from "@/app/mcp-tooth-status";
@@ -111,7 +112,7 @@ const tools = [
     name: "set_tooth_status",
     title: "Actualizar estado general de una pieza",
     description: "Actualiza el estado general de una pieza del odontograma de una ficha ya identificada. Envía todos los componentes del nombre que el clínico conozca junto con el ID; permite coincidencia con nombres registrados incompletos y solicita RUT o fecha de nacimiento ante empate. La interfaz muestra FDI con punto (1.2, 1.3, 2.1); el almacenamiento usa el entero compacto (1.2 se guarda como 12). En esta aplicación, una referencia dictada como 'pieza 12' sin etiqueta FDI usa numeración nacional chilena y corresponde a FDI 2.4; no la interpretes como FDI 1.2. Modifica solo la pieza indicada y conserva las superficies y demás datos del odontograma. Llama solo después de que el clínico haya confirmado explícitamente el registro.",
-    inputSchema: { type: "object", properties: { patientId: { type: "integer", description: "ID de la ficha clínica ya identificada" }, fullName: { type: "string", description: "Nombre registrado o nombre dictado con todos los componentes conocidos; la ficha puede tener menos componentes" }, identityBirthDate: { type: "string", description: "Fecha de nacimiento para distinguir homónimos, si hace falta" }, identityRut: { type: "string", description: "RUT para distinguir homónimos, si hace falta" }, toothFDI: { type: "integer", description: "Código FDI compacto para almacenamiento (por ejemplo, entero 12 representa FDI 1.2); no es numeración nacional chilena" }, status: { type: "string", enum: ["Sin hallazgos", "Implante", "Implante con pilar", "Corona", "Ausente", "Indicación de exodoncia", "Resto radicular con endodoncia"] }, confirmed: { type: "boolean", description: "true solo tras confirmación expresa del clínico" } }, required: ["patientId", "fullName", "toothFDI", "status", "confirmed"], additionalProperties: false },
+    inputSchema: { type: "object", properties: { patientId: { type: "integer", description: "ID de la ficha clínica ya identificada" }, fullName: { type: "string", description: "Nombre registrado o nombre dictado con todos los componentes conocidos; la ficha puede tener menos componentes" }, identityBirthDate: { type: "string", description: "Fecha de nacimiento para distinguir homónimos, si hace falta" }, identityRut: { type: "string", description: "RUT para distinguir homónimos, si hace falta" }, toothFDI: { type: "integer", description: "Código FDI compacto para almacenamiento (por ejemplo, entero 12 representa FDI 1.2); no es numeración nacional chilena" }, status: { type: "string", enum: [...ALL_TOOTH_STATUSES] }, confirmed: { type: "boolean", description: "true solo tras confirmación expresa del clínico" } }, required: ["patientId", "fullName", "toothFDI", "status", "confirmed"], additionalProperties: false },
     annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
   },
   {
@@ -425,7 +426,7 @@ async function setToothStatus(ownerId: string, args: JsonRecord) {
   if (args.confirmed !== true) return { saved: false, needsConfirmation: true, message: "Confirma verbalmente con el clínico antes de modificar el odontograma." };
   const patientId = Number(args.patientId), tooth = Number(args.toothFDI), status = string(args.status, 48);
   const allowedTeeth = new Set([11,12,13,14,15,16,17,18,21,22,23,24,25,26,27,28,31,32,33,34,35,36,37,38,41,42,43,44,45,46,47,48,51,52,53,54,55,61,62,63,64,65,71,72,73,74,75,81,82,83,84,85]);
-  const statuses = ["Sin hallazgos", "Implante", "Implante con pilar", "Corona", "Ausente", "Indicación de exodoncia", "Resto radicular con endodoncia"];
+  const statuses = ALL_TOOTH_STATUSES;
   if (!Number.isSafeInteger(patientId) || patientId <= 0) return { saved: false, missingFields: ["Paciente"] };
   if (!Number.isSafeInteger(tooth) || !allowedTeeth.has(tooth) || !statuses.includes(status)) return { saved: false, invalidFields: ["Pieza o estado general"] };
   const db = getDb();

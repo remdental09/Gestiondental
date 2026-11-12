@@ -1,4 +1,5 @@
 import { and, desc, eq, ne } from "drizzle-orm";
+import { ALL_TOOTH_STATUSES } from "@/lib/tooth-status";
 import { isCariesDepth } from "@/lib/caries";
 import { env } from "cloudflare:workers";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
@@ -730,7 +731,7 @@ export async function POST(request: Request) {
     }
     if (action === "setToothStatus") {
       const tooth = Number(input.tooth), status = string(input.status, 48);
-      if (!Number.isSafeInteger(tooth) || !allowedTeeth.has(tooth) || !["Sin hallazgos", "Implante", "Implante con pilar", "Corona", "Ausente", "Indicación de exodoncia", "Resto radicular con endodoncia"].includes(status)) return error("Estado dental inválido.");
+      if (!Number.isSafeInteger(tooth) || !allowedTeeth.has(tooth) || !ALL_TOOTH_STATUSES.includes(status)) return error("Estado dental inválido.");
       const [old] = await db.select().from(toothStatuses).where(and(eq(toothStatuses.ownerId, ownerId), eq(toothStatuses.patientId, patientId)));
       const data = normalizeOdontogram(old ? JSON.parse(old.data) : {});
       const historyMeta = await chartHistoryMetadata(status === "Sin hallazgos" ? "Estado registrado: sin hallazgos" : "Estado actualizado: " + status);
