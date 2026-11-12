@@ -5,6 +5,8 @@ import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
 import { resolveOwner, resolveOwnerWithRegistration } from '../app/access-owners.ts';
 import { aboutPage, privacyPage } from '../lib/public-pages.ts';
+import * as portada from '../lib/portada-page.ts';
+import * as googleLogin from '../lib/google-login.ts';
 
 const source = readFileSync(new URL('../worker.ts', import.meta.url), 'utf8');
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText;
@@ -31,8 +33,10 @@ function worker() {
     } } },
     './app/access-owners': { resolveOwner, resolveOwnerWithRegistration },
     './lib/public-pages': { aboutPage, privacyPage },
+    './lib/portada-page': portada,
+    './lib/google-login': googleLogin,
   };
-  runInNewContext(compiled, { exports: exported, require: name => { assert.ok(name in imports, name); return imports[name]; }, Request, Response, Headers, URL, Map, atob, console });
+  runInNewContext(compiled, { exports: exported, require: name => { assert.ok(name in imports, name); return imports[name]; }, Request, Response, Headers, URL, URLSearchParams, Map, atob, btoa, console, crypto, TextEncoder, TextDecoder, Date, fetch: async () => { throw new Error('sin red en pruebas'); } });
   return {
     fetch: (request, requestEnv, context) => exported.default.fetch(request, requestEnv, context),
     mcp: (request, requestEnv, context) => handlers.apiHandler.fetch(request, requestEnv, context),
@@ -95,4 +99,42 @@ test('las páginas /acerca y /privacidad son públicas y no delegan a la aplicac
   assert.equal(w.count(), 0);
   const posted = await w.fetch(new Request('https://example.test/privacidad', { method: 'POST' }), env, {});
   assert.equal(posted.status, 401);
+});
+
+const googleEnv = { ...env, GOOGLE_DRIVE_CLIENT_ID: 'id-cliente', GOOGLE_DRIVE_CLIENT_SECRET: 'secreto-cliente' };
+const sessionCookie = async (sessionEmail, secret = 'google-client:secreto-cliente', exp = Date.now() + 60_000) =>
+  'sd_session=' + await googleLogin.signSession({ email: sessionEmail, name: '', exp }, secret);
+
+test('con sesión de Google válida se delega con el propietario de ese correo; nunca con el que mande el navegador', async () => {
+  const instance = worker();
+  const req = new Request('https://example.test/api/clinical', { headers: { Cookie: await sessionCookie(email), 'x-clinic-access-owner-id': 'forged-owner', 'oai-authenticated-user-id': 'forged-owner' } });
+  const response = await instance.fetch(req, googleEnv, {});
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { owner: null, clinic: ownerId });
+});
+
+test('una sesión falsificada, vencida o firmada con otro secreto no entra', async () => {
+  for (const value of [await sessionCookie(email, 'otro-secreto'), await sessionCookie(email, undefined, Date.now() - 1), 'sd_session=basura.firma']) {
+    const instance = worker();
+    const response = await instance.fetch(new Request('https://example.test/api/clinical', { headers: { Cookie: value } }), googleEnv, {});
+    assert.equal(response.status, 401);
+    assert.equal(instance.count(), 0);
+  }
+});
+
+test('sin sesión, una página muestra la portada y no delega; el botón inicia Google con estado', async () => {
+  const instance = worker();
+  const page = await instance.fetch(new Request('https://example.test/', { headers: { Accept: 'text/html' } }), googleEnv, {});
+  assert.equal(page.status, 200);
+  assert.match(await page.text(), /Entrar con Google/);
+  assert.equal(instance.count(), 0);
+  const start = await instance.fetch(new Request('https://example.test/auth/google'), googleEnv, {});
+  assert.equal(start.status, 302);
+  const location = new URL(start.headers.get('location'));
+  assert.equal(location.hostname, 'accounts.google.com');
+  assert.match(start.headers.get('set-cookie'), /sd_oauth_state=/);
+  const badState = await instance.fetch(new Request('https://example.test/auth/google/callback?code=x&state=otro', { headers: { Cookie: 'sd_oauth_state=esperado' } }), googleEnv, {});
+  assert.equal(badState.headers.get('location'), '/?error=vencido');
+  const out = await instance.fetch(new Request('https://example.test/auth/salir'), googleEnv, {});
+  assert.match(out.headers.get('set-cookie'), /sd_session=; .*Max-Age=0/);
 });
