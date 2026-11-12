@@ -43,3 +43,9 @@ test("la vista ampliada usa la foto y conserva el esquema como respaldo", () => 
   const odo = readFileSync(new URL("../components/odontogram.tsx", import.meta.url), "utf8");
   assert.match(odo, /fdi=\{selected\}/);
 });
+
+test("el odontograma muestra una miniatura con foto en cada pieza permanente", () => {
+  const odo = readFileSync(new URL("../components/odontogram.tsx", import.meta.url), "utf8");
+  assert.match(odo, /tooth-thumb-\$\{tooth\}/);
+  assert.match(odo, /toothPhotoFor\(\{fdi:tooth/);
+});
