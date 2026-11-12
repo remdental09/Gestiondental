@@ -2,6 +2,11 @@ import { AuthorizationError, OAuthProvider, type ConsentDescription, type OAuthH
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import app from "vinext/server/fetch-handler";
 import { aboutPage, privacyPage } from "./lib/public-pages";
+import { portadaPage, PORTADA_CSP } from "./lib/portada-page";
+import {
+  SESSION_COOKIE, STATE_COOKIE, SESSION_DAYS, LOGIN_PATH, CALLBACK_PATH, LOGOUT_PATH,
+  signSession, verifySession, readCookie, cookie, randomToken, googleAuthUrl, acceptedGoogleProfile,
+} from "./lib/google-login";
 import { resolveOwner, resolveOwnerWithRegistration, type OwnerConfig, type ClinicOwner } from "./app/access-owners";
 
 type AccessIdentity = { email?: string | null };
@@ -21,6 +26,9 @@ type OAuthEnv = Cloudflare.Env & OwnerConfig & {
   ACCESS_TEAM_DOMAIN?: string;
   ACCESS_POLICY_AUD?: string;
   MCP_OAUTH_ALLOWED_EMAIL?: string;
+  GOOGLE_DRIVE_CLIENT_ID?: string;
+  GOOGLE_DRIVE_CLIENT_SECRET?: string;
+  SESSION_SECRET?: string;
 };
 
 const ACCESS_EMAIL_HEADER = "x-clinic-access-email";
@@ -158,8 +166,101 @@ function clearInboundIdentityHeaders(headers: Headers) {
   }
 }
 
+// ---------- Inicio de sesión con Google (portada) ----------
+
+function googleLoginConfig(env: OAuthEnv) {
+  const clientId = env.GOOGLE_DRIVE_CLIENT_ID?.trim() || "";
+  const clientSecret = env.GOOGLE_DRIVE_CLIENT_SECRET?.trim() || "";
+  // SESSION_SECRET propio si existe; si no, una clave derivada del secreto de Google (nunca se expone).
+  const sessionSecret = env.SESSION_SECRET?.trim() || (clientSecret ? "google-client:" + clientSecret : "");
+  return { clientId, clientSecret, sessionSecret, configured: Boolean(clientId && clientSecret && sessionSecret) };
+}
+
+function portadaResponse(errorCode: string | null, method = "GET", status = 200) {
+  const headers = securePageHeaders();
+  headers.set("Content-Security-Policy", PORTADA_CSP);
+  return new Response(method === "HEAD" ? null : portadaPage(errorCode), { status, headers });
+}
+
+function redirect(location: string, cookies: string[] = []) {
+  const headers = new Headers({ Location: location, "Cache-Control": "no-store" });
+  for (const value of cookies) headers.append("Set-Cookie", value);
+  return new Response(null, { status: 302, headers });
+}
+
+function startGoogleLogin(request: Request, env: OAuthEnv): Response {
+  const config = googleLoginConfig(env);
+  if (!config.configured) return redirect("/?error=configuracion");
+  const state = randomToken();
+  const redirectUri = new URL(CALLBACK_PATH, request.url).toString();
+  return redirect(googleAuthUrl(config.clientId, redirectUri, state), [cookie(STATE_COOKIE, state, 600)]);
+}
+
+async function finishGoogleLogin(request: Request, env: OAuthEnv): Promise<Response> {
+  const config = googleLoginConfig(env);
+  const clearState = cookie(STATE_COOKIE, "", 0);
+  if (!config.configured) return redirect("/?error=configuracion", [clearState]);
+  const url = new URL(request.url);
+  if (url.searchParams.get("error")) return redirect("/?error=cancelado", [clearState]);
+  const code = url.searchParams.get("code") || "";
+  const state = url.searchParams.get("state") || "";
+  const expected = readCookie(request.headers.get("Cookie"), STATE_COOKIE);
+  if (!code || !state || !expected || state !== expected) return redirect("/?error=vencido", [clearState]);
+  try {
+    const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        code,
+        client_id: config.clientId,
+        client_secret: config.clientSecret,
+        redirect_uri: new URL(CALLBACK_PATH, request.url).toString(),
+        grant_type: "authorization_code",
+      }),
+    });
+    if (!tokenResponse.ok) return redirect("/?error=vencido", [clearState]);
+    const tokens = await tokenResponse.json() as { access_token?: string };
+    if (!tokens.access_token) return redirect("/?error=vencido", [clearState]);
+    const profileResponse = await fetch("https://openidconnect.googleapis.com/v1/userinfo", { headers: { Authorization: "Bearer " + tokens.access_token } });
+    if (!profileResponse.ok) return redirect("/?error=vencido", [clearState]);
+    const profile = acceptedGoogleProfile(await profileResponse.json());
+    if (!profile) return redirect("/?error=no-verificado", [clearState]);
+    const resolved = await resolveOwnerWithRegistration(profile.email, ownerConfig(env));
+    if (!resolved.ok) return redirect(resolved.status === 503 ? "/?error=configuracion" : "/?error=sin-acceso", [clearState]);
+    const token = await signSession({ email: profile.email, name: profile.name, exp: Date.now() + SESSION_DAYS * 86_400_000 }, config.sessionSecret);
+    return redirect("/", [clearState, cookie(SESSION_COOKIE, token, SESSION_DAYS * 86_400)]);
+  } catch {
+    return redirect("/?error=vencido", [clearState]);
+  }
+}
+
+function logout(request: Request): Response {
+  // Si aún se entró por Cloudflare Access, también se cierra esa sesión.
+  const viaAccess = Boolean(request.headers.get("Cf-Access-Jwt-Assertion"));
+  return redirect(viaAccess ? "/cdn-cgi/access/logout" : "/", [cookie(SESSION_COOKIE, "", 0)]);
+}
+
+async function sessionOwner(request: Request, env: OAuthEnv, allowRegistration: boolean): Promise<{ email: string; owner: ClinicOwner } | null> {
+  const config = googleLoginConfig(env);
+  const session = await verifySession(readCookie(request.headers.get("Cookie"), SESSION_COOKIE), config.sessionSecret);
+  if (!session) return null;
+  const owners = ownerConfig(env);
+  const resolved = allowRegistration ? await resolveOwnerWithRegistration(session.email, owners) : resolveOwner(session.email, owners);
+  return resolved.ok ? { email: session.email, owner: resolved.owner } : null;
+}
+
+/** Sesión de Google primero; Cloudflare Access sigue sirviendo mientras se retira. Sin ninguna: portada (páginas) o 401 (API). */
+async function identify(request: Request, env: OAuthEnv, context: ExecutionContext, allowRegistration = true): Promise<{ email: string; owner: ClinicOwner } | Response> {
+  const fromSession = await sessionOwner(request, env, allowRegistration);
+  if (fromSession) return fromSession;
+  const hasAccess = Boolean((context as WorkerContext).access) || Boolean(request.headers.get("Cf-Access-Jwt-Assertion"));
+  if (hasAccess) return accessOwner(request, env, context, allowRegistration);
+  const wantsPage = (request.method === "GET" || request.method === "HEAD") && (request.headers.get("Accept") ?? "").includes("text/html");
+  return wantsPage ? portadaResponse(new URL(request.url).searchParams.get("error"), request.method) : denied();
+}
+
 async function privateAppFetch(request: Request, env: OAuthEnv, context: ExecutionContext): Promise<Response> {
-  const identity = await accessOwner(request, env, context);
+  const identity = await identify(request, env, context);
   if (identity instanceof Response) return identity;
 
   const headers = new Headers(request.headers);
@@ -223,7 +324,7 @@ async function authorize(request: Request, env: OAuthEnv, context: ExecutionCont
     return new Response("Método no permitido.", { status: 405, headers: { Allow: "GET, POST", "Cache-Control": "no-store" } });
   }
 
-  const identity = await accessOwner(request, env, context, false);
+  const identity = await identify(request, env, context, false);
   if (identity instanceof Response) return identity;
   const allowedEmail = env.MCP_OAUTH_ALLOWED_EMAIL?.trim().toLowerCase();
   if (!allowedEmail) return notReady();
@@ -316,6 +417,11 @@ const oauthProvider = new OAuthProvider<OAuthEnv>({
         for (const name of [ACCESS_EMAIL_HEADER, ACCESS_OWNER_ID_HEADER, ACCESS_NAME_HEADER, USER_ID_HEADER, USER_EMAIL_HEADER, USER_FULL_NAME_HEADER, USER_FULL_NAME_ENCODING_HEADER]) headers.delete(name);
         return app.fetch(new Request(request, { headers }), env, context);
       }
+      // Portada: imágenes públicas, inicio y cierre de sesión con Google.
+      if (path.startsWith("/portada/") && (request.method === "GET" || request.method === "HEAD")) return (env as unknown as { ASSETS: Fetcher }).ASSETS.fetch(request);
+      if (path === LOGIN_PATH && request.method === "GET") return startGoogleLogin(request, env);
+      if (path === CALLBACK_PATH && request.method === "GET") return finishGoogleLogin(request, env);
+      if (path === LOGOUT_PATH && (request.method === "GET" || request.method === "POST")) return logout(request);
       if (path === "/authorize") return authorize(request, env, context);
       return privateAppFetch(request, env, context);
     },

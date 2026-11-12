@@ -61,7 +61,7 @@ export function ProfessionalRegistration({ email, onSaved }: { email: string; on
         {error && <p role="alert" className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-800">{error}</p>}
         <button type="submit" disabled={saving} className="mt-5 min-h-11 w-full rounded-lg bg-[#473a6d] px-4 text-base font-semibold text-white hover:bg-[#066d71] disabled:opacity-60">{saving ? "Guardando…" : "Guardar y entrar"}</button>
         <p className="mt-3 text-center text-xs text-[#6b6a7c]">Se mostrará como {form.firstName.trim() && form.lastName.trim() ? displayName(form) : "Dr(a). Nombre Apellido"}.</p>
-        <a href="/cdn-cgi/access/logout" className="mt-4 flex items-center justify-center gap-2 text-sm font-medium text-[#57566a] hover:text-[#473a6d]"><LogOut className="size-4" />No soy yo, entrar con otra cuenta</a>
+        <a href="/auth/salir" className="mt-4 flex items-center justify-center gap-2 text-sm font-medium text-[#57566a] hover:text-[#473a6d]"><LogOut className="size-4" />No soy yo, entrar con otra cuenta</a>
       </form>
     </div>
   );
