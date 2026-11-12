@@ -3,6 +3,8 @@ import { isCariesDepth } from "@/lib/caries";
 import { env } from "cloudflare:workers";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { loadProfile } from "@/app/clinician-profile-db";
+import { touchAppUser } from "@/app/app-users-db";
+import { isDeveloperEmail } from "@/lib/developer-dashboard";
 import { loadAddresses, saveAddress } from "@/app/patient-address-db";
 import { emptyAddress } from "@/lib/patient-address";
 import { displayName } from "@/lib/clinician-profile";
@@ -168,6 +170,8 @@ export async function GET() {
     const db = getDb();
     let profileFailed = false;
     const profile = await loadProfile(ownerId).catch(() => { profileFailed = true; return null; });
+    // Registro de ingresos para el panel del desarrollador; si falla, la ficha carga igual.
+    await touchAppUser(ownerId, viewer?.email || "", viewer?.fullName || "").catch(() => undefined);
     const addresses = await loadAddresses(ownerId);
     const [ps, ns, bs, as, pe, ts, imgs, ces, pays, dxs] = await Promise.all([
       db.select().from(patients).where(eq(patients.ownerId, ownerId)).orderBy(patients.name),
@@ -221,7 +225,7 @@ export async function GET() {
       calendarEvents: [...ces.filter(e => e.status !== "cancelled").map(e => ({ id: e.id, title: e.title, startAt: e.startAt, endAt: e.endAt, sourceTimeZone: e.sourceTimeZone, htmlLink: e.htmlLink, status: e.status, allDay: e.allDay, patientId: e.patientId })), ...snapshot.events],
       calendarSnapshotAt: snapshot.events.length ? snapshot.capturedAt : null,
       calendarSyncedAt: ces.reduce<string | null>((latest, e) => (e.importedAt && (!latest || e.importedAt > latest) ? e.importedAt : latest), null),
-      viewer: { name: profile ? displayName(profile) : viewer?.displayName || "", email: viewer?.email || "", registered: Boolean(profile) || profileFailed, specialty: profile?.specialty || "", clinicName: profile?.clinicName || "" },
+      viewer: { name: profile ? displayName(profile) : viewer?.displayName || "", email: viewer?.email || "", registered: Boolean(profile) || profileFailed, specialty: profile?.specialty || "", clinicName: profile?.clinicName || "", developer: isDeveloperEmail(viewer?.email, (env as unknown as { DEVELOPER_EMAILS?: string }).DEVELOPER_EMAILS) },
       periodontalExams: Object.fromEntries(ps.map(p => [p.id, (examsByPatient.get(p.id) ?? []).map(x => ({ id: x.id, recordedAt: x.recordedAt, ...normalizePerio(JSON.parse(x.teeth)) }))])),
       toothStatuses: charts,
       clinicalImages: imgs.map(i => ({ id: i.id, patientId: i.patientId, url: "/api/images/" + i.id, name: i.name, kind: i.kind, note: i.note, addedAt: displayDate(i.addedAt.slice(0, 10)), size: i.size, contentType: i.contentType })),
