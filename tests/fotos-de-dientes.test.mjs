@@ -76,12 +76,15 @@ test("el implante se muestra según su fase: sumergido, con pilar o con corona",
 
 test("la caries se dibuja en la superficie registrada, no donde la trae la foto", async () => {
   const { toothPhotoFor, cariesSpots } = await import("../lib/tooth-photos.ts");
-  // 2.6 con caries distal en dentina profunda (caso reportado): pieza sana + lesión distal.
+  // 2.6 con caries distal en dentina profunda (caso reportado): foto con la lesión en la cara proximal, sin dibujo encima.
   const p26 = toothPhotoFor({ fdi: 26, caries: true, cariesSurfaces: [{ surface: "D", depth: "dentina_profunda" }] });
   assert.equal(p26.kind, "caries");
-  assert.equal(p26.src, "/dientes/upper-molar-1-sano.webp", "la foto de caries trae la lesión en oclusal: no sirve para distal");
-  assert.equal(p26.lesions.length, 1);
-  const [d26] = p26.lesions;
+  assert.equal(p26.src, "/dientes/upper-molar-1-caries-lado.webp", "foto con la lesión en la cara proximal");
+  assert.equal(p26.lesions.length, 0);
+  // Palatina no tiene foto propia: pieza sana + lesión dibujada.
+  const pal = toothPhotoFor({ fdi: 26, caries: true, cariesSurfaces: [{ surface: "P", depth: "dentina_profunda" }] });
+  assert.equal(pal.src, "/dientes/upper-molar-1-sano.webp");
+  const [d26] = cariesSpots(26, [{ surface: "D", depth: "dentina_profunda" }]);
   assert.equal(d26.surface, "D");
   assert.ok(d26.x > 210, "en el cuadrante 2 distal queda a la derecha (mesial mira a la línea media, a la izquierda)");
   assert.ok(d26.y > 288, "en superiores la corona va abajo");
@@ -105,4 +108,32 @@ test("la caries se dibuja en la superficie registrada, no donde la trae la foto"
   const mixed = toothPhotoFor({ fdi: 14, caries: true, restored: true, cariesSurfaces: [{ surface: "M", depth: "esmalte" }, { surface: "O", depth: "esmalte" }] });
   assert.equal(mixed.src, "/dientes/upper-premolar-1-restauracion.webp");
   assert.deepEqual(mixed.lesions.map(l => l.surface), ["M", "O"]);
+});
+
+test("caries y obturaciones usan la foto de su cara (proximal o vestibular) y espejan según mesial/distal", () => {
+  const mesial = toothPhotoFor({ fdi: 16, caries: true, cariesSurfaces: [{ surface: "M", depth: null }] });
+  assert.equal(mesial?.src, "/dientes/upper-molar-1-caries-lado.webp");
+  assert.equal(mesial?.transform, "scaleY(-1)");
+  assert.equal(mesial?.lesions.length, 0);
+  const distal26 = toothPhotoFor({ fdi: 26, caries: true, cariesSurfaces: [{ surface: "D", depth: null }] });
+  assert.equal(distal26?.src, "/dientes/upper-molar-1-caries-lado.webp");
+  assert.equal(distal26?.transform, "scaleY(-1)", "distal en el cuadrante 2: sin espejo horizontal");
+  const mesial26 = toothPhotoFor({ fdi: 26, caries: true, cariesSurfaces: [{ surface: "M", depth: null }] });
+  assert.equal(mesial26?.transform, "scale(-1,-1)");
+  const vest = toothPhotoFor({ fdi: 33, caries: true, cariesSurfaces: [{ surface: "V", depth: null }] });
+  assert.equal(vest?.src, "/dientes/lower-canino-caries-vestibular.webp");
+  const obt = toothPhotoFor({ fdi: 46, restored: true, restoredSurfaces: ["D"] });
+  assert.equal(obt?.src, "/dientes/lower-molar-1-restauracion-lado.webp");
+  assert.equal(obt?.transform, "scaleX(-1)");
+  const oclusal = toothPhotoFor({ fdi: 46, restored: true, restoredSurfaces: ["O"] });
+  assert.equal(oclusal?.src, "/dientes/lower-molar-1-restauracion.webp");
+  const extra = toothPhotoFor({ fdi: 16, caries: true, cariesSurfaces: [{ surface: "M", depth: null }, { surface: "P", depth: null }] });
+  assert.equal(extra?.lesions.length, 1, "la palatina se dibuja aparte sobre la foto");
+});
+
+test("existen las 64 fotos de caries y obturación por cara", () => {
+  for (const arch of ["upper", "lower"]) for (const t of ["incisivo-central", "incisivo-lateral", "canino", "premolar-1", "premolar-2", "molar-1", "molar-2", "molar-3"]) for (const k of ["caries", "restauracion"]) for (const v of ["lado", "vestibular"]) {
+    const n = `${arch}-${t}-${k}-${v}`;
+    assert.ok(TOOTH_PHOTOS.has(n), n);
+  }
 });

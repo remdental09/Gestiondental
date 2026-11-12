@@ -11,13 +11,13 @@ const COLOR: Record<ToothMarkKind, string> = { endodoncia: "#d9743f", perno: "#6
  * Dibuja lo que el odontograma chico no alcanza a mostrar: endodoncia, perno, carilla, incrustación, prótesis fija y ortodoncia.
  * Lo planificado va con línea punteada; lo realizado, lleno.
  */
-export function ToothDetailView({ toothLabel, marks, crown = false, absent = false, fdi, implant = false, implantPhase, caries = false, restored = false, endoDone = false, cariesSurfaces = [] }: { toothLabel: string; marks: ToothMark[]; crown?: boolean; absent?: boolean; fdi?: number; implant?: boolean; implantPhase?: ImplantPhase; caries?: boolean; restored?: boolean; endoDone?: boolean; cariesSurfaces?: CariesSpotInput[] }) {
+export function ToothDetailView({ toothLabel, marks, crown = false, absent = false, fdi, implant = false, implantPhase, caries = false, restored = false, endoDone = false, cariesSurfaces = [], restoredSurfaces = [] }: { toothLabel: string; marks: ToothMark[]; crown?: boolean; absent?: boolean; fdi?: number; implant?: boolean; implantPhase?: ImplantPhase; caries?: boolean; restored?: boolean; endoDone?: boolean; cariesSurfaces?: CariesSpotInput[]; restoredSurfaces?: CariesSpotInput["surface"][] }) {
   const mark = (kind: ToothMarkKind) => marks.find((item) => item.kind === kind);
   const dash = (kind: ToothMarkKind) => (mark(kind)?.status === "planificado" ? "6 5" : undefined);
   const soft = (kind: ToothMarkKind) => (mark(kind)?.status === "realizado" ? 1 : 0.55);
   const endo = mark("endodoncia"), perno = mark("perno"), carilla = mark("carilla"), onlay = mark("onlay"), protesis = mark("protesis"), orto = mark("ortodoncia");
   const endoShown = Boolean(endo && endo.status !== "planificado") || endoDone;
-  const photo = fdi ? toothPhotoFor({ fdi, implant, implantPhase, crown, endo: endoShown, caries, restored, cariesSurfaces }) : null;
+  const photo = fdi ? toothPhotoFor({ fdi, implant, implantPhase, crown, endo: endoShown, caries, restored, cariesSurfaces, restoredSurfaces }) : null;
   const plannedEndo = Boolean(endo && endo.status === "planificado" && !endoDone && !crown && !implant);
   return <div className="mt-4 rounded-xl border border-[#dddbe6] bg-white p-4" data-testid="tooth-detail-view">
     <p className="text-sm font-semibold text-[#3b3355]">Vista ampliada · FDI {toothLabel}</p>
