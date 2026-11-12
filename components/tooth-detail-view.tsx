@@ -22,10 +22,10 @@ export function ToothDetailView({ toothLabel, marks, crown = false, absent = fal
     <p className="text-sm font-semibold text-[#3b3355]">Vista ampliada · FDI {toothLabel}</p>
     <div className="mt-2 flex flex-wrap items-start gap-5">
       {photo ? <figure className="relative m-0 w-[210px] shrink-0 overflow-hidden rounded-xl bg-[#14161b]" data-testid="tooth-photo" data-kind={photo.kind}>
-        <img src={photo.src} alt={`Imagen referencial de la pieza ${toothLabel}: ${absent ? "ausente" : photo.kind === "sano" ? "sin tratamientos registrados" : photo.kind}`} width={420} height={576} loading="lazy" decoding="async" className="block h-auto w-full" style={{ transform: photo.mirror ? "scaleX(-1)" : undefined, opacity: absent ? 0.18 : 1, filter: absent ? "grayscale(1)" : undefined }} />
+        <img src={photo.src} alt={`Imagen referencial de la pieza ${toothLabel}: ${absent ? "ausente" : photo.kind === "sano" ? "sin tratamientos registrados" : photo.kind}`} width={420} height={576} loading="lazy" decoding="async" className="block h-auto w-full" style={{ transform: photo.transform, opacity: absent ? 0.18 : 1, filter: absent ? "grayscale(1)" : undefined }} />
         {absent && <figcaption className="absolute inset-x-0 top-1/2 -translate-y-1/2 text-center text-sm font-semibold text-white">Ausente</figcaption>}
-        {plannedEndo && <span className="absolute left-2 top-2 rounded-full bg-[#f5b946] px-2 py-0.5 text-[11px] font-semibold text-[#3b2a05]">Planificado</span>}
-        <p className="absolute inset-x-0 bottom-0 bg-black/55 px-2 py-1 text-center text-[10px] text-white/80">Imagen referencial, no es el paciente</p>
+        {plannedEndo && <span className={`absolute left-2 ${photo.upper ? "bottom-2" : "top-2"} rounded-full bg-[#f5b946] px-2 py-0.5 text-[11px] font-semibold text-[#3b2a05]`}>Planificado</span>}
+        <p className={`absolute inset-x-0 ${photo.upper ? "top-0" : "bottom-0"} bg-black/55 px-2 py-1 text-center text-[10px] text-white/80`}>Imagen referencial, no es el paciente</p>
       </figure> : <svg viewBox="0 0 240 320" role="img" aria-label={`Esquema ampliado de la pieza ${toothLabel}: ${marks.length ? marks.map((item) => `${item.label} ${STATUS_TEXT[item.status]}`).join(", ") : "sin tratamientos dibujados"}`} className="h-[300px] w-[225px] shrink-0">
         <text x="14" y="18" fontSize="11" fill="#6b6a7c">vestibular</text>
         <text x="226" y="18" fontSize="11" fill="#6b6a7c" textAnchor="end">palatino / lingual</text>

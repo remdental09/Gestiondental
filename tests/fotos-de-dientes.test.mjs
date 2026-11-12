@@ -49,3 +49,12 @@ test("el odontograma muestra una miniatura con foto en cada pieza permanente", (
   assert.match(odo, /tooth-thumb-\$\{tooth\}/);
   assert.match(odo, /toothPhotoFor\(\{fdi:tooth/);
 });
+
+test("las piezas superiores se ven invertidas: raíces arriba, corona hacia oclusal", () => {
+  assert.equal(toothPhotoFor({ fdi: 16 })?.transform, "scaleY(-1)");
+  assert.equal(toothPhotoFor({ fdi: 26 })?.transform, "scale(-1,-1)");
+  assert.equal(toothPhotoFor({ fdi: 36 })?.transform, "scaleX(-1)");
+  assert.equal(toothPhotoFor({ fdi: 46 })?.transform, undefined);
+  assert.equal(toothPhotoFor({ fdi: 11 })?.upper, true);
+  assert.equal(toothPhotoFor({ fdi: 41 })?.upper, false);
+});

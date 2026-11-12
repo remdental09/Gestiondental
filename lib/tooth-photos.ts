@@ -107,7 +107,8 @@ export const TOOTH_PHOTOS: ReadonlySet<string> = new Set([
 ]);
 
 export type ToothPhotoState = { fdi: number; implant?: boolean; crown?: boolean; endo?: boolean; caries?: boolean; restored?: boolean };
-export type ToothPhoto = { src: string; kind: ToothPhotoKind; mirror: boolean };
+/** upper: pieza superior, se muestra invertida (raíces arriba, corona hacia el plano oclusal). transform: CSS listo para la imagen. */
+export type ToothPhoto = { src: string; kind: ToothPhotoKind; mirror: boolean; upper: boolean; transform: string | undefined };
 
 /** Situación que manda la imagen: implante, corona, endodoncia, caries, obturación y, si no hay nada, pieza sana. */
 export function toothPhotoKind(state: Omit<ToothPhotoState, "fdi">): ToothPhotoKind {
@@ -126,5 +127,8 @@ export function toothPhotoFor(state: ToothPhotoState): ToothPhoto | null {
   const kind = toothPhotoKind(state);
   const name = `${quadrant <= 2 ? "upper" : "lower"}-${TYPES[index - 1]}-${kind}`;
   if (!TOOTH_PHOTOS.has(name)) return null;
-  return { src: `/dientes/${name}.webp`, kind, mirror: quadrant === 2 || quadrant === 3 };
+  const mirror = quadrant === 2 || quadrant === 3;
+  const upper = quadrant === 1 || quadrant === 2;
+  const transform = mirror && upper ? "scale(-1,-1)" : mirror ? "scaleX(-1)" : upper ? "scaleY(-1)" : undefined;
+  return { src: `/dientes/${name}.webp`, kind, mirror, upper, transform };
 }
