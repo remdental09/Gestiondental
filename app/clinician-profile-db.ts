@@ -6,6 +6,7 @@ export const profileDb = () => (env as unknown as { DB?: Db }).DB;
 
 let extraTitlesReady = false;
 let clinicNameReady = false;
+let countryReady = false;
 export async function ensureProfileTable(database: Db) {
   await database.prepare(
     "CREATE TABLE IF NOT EXISTS clinician_profiles (owner_id TEXT PRIMARY KEY, email TEXT NOT NULL, first_name TEXT NOT NULL, last_name TEXT NOT NULL, " +
@@ -20,15 +21,19 @@ export async function ensureProfileTable(database: Db) {
     await database.prepare("ALTER TABLE clinician_profiles ADD COLUMN clinic_name TEXT NOT NULL DEFAULT ''").run().catch(() => undefined);
     clinicNameReady = true;
   }
+  if (!countryReady) {
+    await database.prepare("ALTER TABLE clinician_profiles ADD COLUMN country TEXT NOT NULL DEFAULT 'Chile'").run().catch(() => undefined);
+    countryReady = true;
+  }
 }
 
 export async function loadProfile(ownerId: string): Promise<ClinicianProfile | null> {
   const database = profileDb();
   if (!database) return null;
   await ensureProfileTable(database);
-  const row = await database.prepare("SELECT first_name, last_name, rut, specialty, extra_titles, clinic_name FROM clinician_profiles WHERE owner_id = ?")
-    .bind(ownerId).first<{ first_name: string; last_name: string; rut: string; specialty: string; extra_titles: string | null; clinic_name: string | null }>();
-  return row ? { firstName: row.first_name, lastName: row.last_name, rut: row.rut, specialty: row.specialty, extraTitles: row.extra_titles ?? "", clinicName: row.clinic_name ?? "" } : null;
+  const row = await database.prepare("SELECT first_name, last_name, rut, specialty, extra_titles, clinic_name, country FROM clinician_profiles WHERE owner_id = ?")
+    .bind(ownerId).first<{ first_name: string; last_name: string; rut: string; specialty: string; extra_titles: string | null; clinic_name: string | null; country: string | null }>();
+  return row ? { firstName: row.first_name, lastName: row.last_name, rut: row.rut, specialty: row.specialty, extraTitles: row.extra_titles ?? "", clinicName: row.clinic_name ?? "", country: row.country || "Chile" } : null;
 }
 
 export async function saveProfile(ownerId: string, email: string, p: ClinicianProfile) {
@@ -37,7 +42,7 @@ export async function saveProfile(ownerId: string, email: string, p: ClinicianPr
   await ensureProfileTable(database);
   const stamp = new Date().toISOString();
   await database.prepare(
-    "INSERT INTO clinician_profiles (owner_id, email, first_name, last_name, rut, specialty, extra_titles, clinic_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) " +
-    "ON CONFLICT(owner_id) DO UPDATE SET email = excluded.email, first_name = excluded.first_name, last_name = excluded.last_name, rut = excluded.rut, specialty = excluded.specialty, extra_titles = excluded.extra_titles, clinic_name = excluded.clinic_name, updated_at = excluded.updated_at"
-  ).bind(ownerId, email, p.firstName, p.lastName, p.rut, p.specialty, p.extraTitles ?? "", p.clinicName ?? "", stamp, stamp).run();
+    "INSERT INTO clinician_profiles (owner_id, email, first_name, last_name, rut, specialty, extra_titles, clinic_name, country, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) " +
+    "ON CONFLICT(owner_id) DO UPDATE SET email = excluded.email, first_name = excluded.first_name, last_name = excluded.last_name, rut = excluded.rut, specialty = excluded.specialty, extra_titles = excluded.extra_titles, clinic_name = excluded.clinic_name, country = excluded.country, updated_at = excluded.updated_at"
+  ).bind(ownerId, email, p.firstName, p.lastName, p.rut, p.specialty, p.extraTitles ?? "", p.clinicName ?? "", p.country ?? "Chile", stamp, stamp).run();
 }

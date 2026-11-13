@@ -36,3 +36,19 @@ test("los dos formularios ofrecen el tipo de documento", () => {
     assert.match(s, /Documento extranjero/);
   }
 });
+
+import { COUNTRIES, asCountry } from "../lib/clinician-profile.ts";
+test("el profesional elige su país: América y Europa", () => {
+  for (const c of ["Chile", "Costa Rica", "Estados Unidos", "Canadá", "España", "Alemania", "Portugal", "Reino Unido", "Brasil"]) assert.ok(COUNTRIES.includes(c), c);
+  assert.equal(new Set(COUNTRIES).size, COUNTRIES.length);
+  assert.equal(asCountry("España"), "España");
+  assert.equal(asCountry("Narnia"), "Chile");
+  assert.equal(asCountry(undefined), "Chile");
+  const r = checkProfile({ ...base, rut: "X1234567", documentType: "extranjero", country: "España" });
+  assert.equal(r.ok && r.profile.country, "España");
+  assert.equal(checkProfile({ ...base, rut: "12345678-5" }).ok && true, true);
+});
+test("ambos formularios y la base guardan el país", () => {
+  for (const f of ["components/professional-registration.tsx", "components/profile-dialog.tsx"]) assert.match(readFileSync(new URL(`../${f}`, import.meta.url), "utf8"), /professional-country/);
+  assert.match(readFileSync(new URL("../app/clinician-profile-db.ts", import.meta.url), "utf8"), /ADD COLUMN country/);
+});

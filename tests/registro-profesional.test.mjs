@@ -26,7 +26,7 @@ test("formatRut da puntos y guion", () => {
 test("checkProfile valida y normaliza", () => {
   const ok = checkProfile({ firstName: "  Luis ", lastName: "Rodríguez  M", rut: "123456785", specialty: "Implantología oral" });
   assert.equal(ok.ok, true);
-  assert.deepEqual(ok.profile, { firstName: "Luis", lastName: "Rodríguez M", rut: "12.345.678-5", specialty: "Implantología oral", extraTitles: "", clinicName: "" });
+  assert.deepEqual(ok.profile, { firstName: "Luis", lastName: "Rodríguez M", rut: "12.345.678-5", specialty: "Implantología oral", extraTitles: "", clinicName: "", country: "Chile" });
   assert.equal(displayName(ok.profile), "Dr(a). Luis Rodríguez M");
 });
 

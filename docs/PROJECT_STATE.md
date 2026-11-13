@@ -377,3 +377,6 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 ## Documento extranjero para el profesional (registro y perfil)
 - El registro del profesional y «Mi perfil» tienen selector «RUT chileno / Documento extranjero». El extranjero acepta 4–20 letras o números (con al menos un número), sin dígito verificador; se guarda limpio en la columna `rut` (sin migración). Al reabrir el perfil, un valor que no es RUT válido se muestra como extranjero.
 - Limitación: el panel del desarrollador sigue rotulando la columna como «RUT».
+
+## País del profesional
+- Registro y «Mi perfil» piden el país (América y Europa, más «Otro país»; por defecto Chile). Elegir un país distinto de Chile cambia el documento a extranjero (se puede volver a cambiar). Se guarda en la columna nueva `country` (se crea sola, default Chile). Aún no se usa para nada más (zona horaria, idioma, etc.).
