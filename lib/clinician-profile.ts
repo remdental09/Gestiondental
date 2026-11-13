@@ -1,4 +1,4 @@
-/** Registro mínimo del profesional: nombre, apellido, RUT y especialidad. Lógica pura (sin acceso a la base). */
+/** Registro mínimo del profesional: nombre, apellido, RUT (o documento extranjero) y especialidad. Lógica pura (sin acceso a la base). */
 export const SPECIALTIES = [
   "Odontología general",
   "Implantología oral",
@@ -15,6 +15,7 @@ export const SPECIALTIES = [
   "Otra",
 ] as const;
 
+export type ProfessionalDocumentType = "rut" | "extranjero";
 export type ClinicianProfile = { firstName: string; lastName: string; rut: string; specialty: string; /** Otros títulos o especialidades (texto libre, opcional). */ extraTitles?: string; /** Nombre de la clínica o consulta que se muestra arriba (opcional, hasta 60 caracteres). */ clinicName?: string };
 export type ProfileCheck = { ok: true; profile: ClinicianProfile } | { ok: false; error: string };
 
@@ -36,6 +37,18 @@ export function formatRut(value: string): string {
   return `${v.slice(0, -1).replace(/\B(?=(\d{3})+(?!\d))/g, ".")}-${v.slice(-1)}`;
 }
 
+/** Documento extranjero (DNI, cédula, DPI, pasaporte…): de 4 a 20 letras o números, con al menos un número. Sin dígito verificador. */
+export const cleanForeignDocument = (value: string) => value.normalize("NFD").replace(/\p{M}/gu, "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+export function validForeignDocument(value: string): boolean {
+  const v = cleanForeignDocument(value);
+  return v.length >= 4 && v.length <= 20 && /\d/.test(v);
+}
+/** Un documento guardado que no es un RUT válido es un documento extranjero. */
+export const professionalDocumentTypeOf = (stored: string | null | undefined): ProfessionalDocumentType => (stored && !validRut(stored) ? "extranjero" : "rut");
+export const asProfessionalDocumentType = (value: unknown): ProfessionalDocumentType => (value === "extranjero" ? "extranjero" : "rut");
+export const formatDocument = (value: string, type: ProfessionalDocumentType) => (type === "extranjero" ? cleanForeignDocument(value) : formatRut(value));
+export const DOCUMENT_ERROR = { rut: "El RUT no es válido. Revisa el número y el dígito verificador.", extranjero: "El documento debe tener entre 4 y 20 letras o números, con al menos un número." } as const;
+
 const NAME = /^[\p{L}][\p{L}' .-]{0,59}$/u;
 const tidy = (value: unknown) => (typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "");
 
@@ -44,11 +57,12 @@ export function checkProfile(input: unknown): ProfileCheck {
   const firstName = tidy(raw.firstName), lastName = tidy(raw.lastName), rut = tidy(raw.rut), specialty = tidy(raw.specialty);
   if (!NAME.test(firstName)) return { ok: false, error: "Escribe tu nombre." };
   if (!NAME.test(lastName)) return { ok: false, error: "Escribe tu apellido." };
-  if (!validRut(rut)) return { ok: false, error: "El RUT no es válido. Revisa el número y el dígito verificador." };
+  const documentType = asProfessionalDocumentType(raw.documentType);
+  if (documentType === "extranjero" ? !validForeignDocument(rut) : !validRut(rut)) return { ok: false, error: DOCUMENT_ERROR[documentType] };
   if (!(SPECIALTIES as readonly string[]).includes(specialty)) return { ok: false, error: "Elige tu especialidad." };
   const extraTitles = tidy(raw.extraTitles).slice(0, 300);
   const clinicName = tidy(raw.clinicName).slice(0, 60);
-  return { ok: true, profile: { firstName, lastName, rut: formatRut(rut), specialty, extraTitles, clinicName } };
+  return { ok: true, profile: { firstName, lastName, rut: formatDocument(rut, documentType), specialty, extraTitles, clinicName } };
 }
 
 export const displayName = (profile: Pick<ClinicianProfile, "firstName" | "lastName">) => `Dr(a). ${profile.firstName} ${profile.lastName}`;
