@@ -28,7 +28,11 @@ const CLEARS_LESIONS = new Set(["Sin hallazgos", "Ausente", "Indicación de exod
 /** Aplica un estado a una pieza. Las lesiones se acumulan; los demás estados reemplazan al principal. */
 export function applyToothStatus(state: ToothStatusState, status: string): ToothStatusState {
   if (status === "Sin hallazgos") return { extras: [] };
-  if (!isLesionStatus(status)) return { primary: status, extras: CLEARS_LESIONS.has(status) ? [] : [...state.extras] };
+  if (!isLesionStatus(status)) {
+    if (CLEARS_LESIONS.has(status)) return { primary: status, extras: [] };
+    const kept = [...(state.primary && isLesionStatus(state.primary) ? [state.primary] : []), ...state.extras];
+    return { primary: status, extras: kept };
+  }
   if (state.primary && CLEARS_LESIONS.has(state.primary) && state.primary !== "Sin hallazgos") return { ...state, extras: [...state.extras] };
   if (!state.primary) return { primary: status, extras: [...state.extras] };
   if (state.primary === status || state.extras.includes(status)) return { ...state, extras: [...state.extras] };
@@ -62,4 +66,15 @@ export function removeLesionFromChart(chart: { teeth: Record<number, string>; ex
 function setExtras(chart: { extras?: Record<number, string[]> }, tooth: number, extras: string[]) {
   if (extras.length) { chart.extras = chart.extras ?? {}; chart.extras[tooth] = extras; }
   else if (chart.extras) delete chart.extras[tooth];
+}
+
+/** Deja `extras` coherente: solo lesiones, sin duplicar el principal, y nada en piezas ausentes/implantes/con exodoncia indicada. */
+export function pruneChartExtras(chart: { teeth: Record<number, string>; extras?: Record<number, string[]> }) {
+  if (!chart.extras) return;
+  for (const key of Object.keys(chart.extras)) {
+    const tooth = Number(key), primary = chart.teeth[tooth];
+    const blocked = primary !== undefined && CLEARS_LESIONS.has(primary) && primary !== "Sin hallazgos";
+    const list = blocked ? [] : [...new Set((chart.extras[tooth] ?? []).filter((item) => isLesionStatus(item) && item !== primary))];
+    if (list.length) chart.extras[tooth] = list; else delete chart.extras[tooth];
+  }
 }

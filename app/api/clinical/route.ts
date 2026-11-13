@@ -1,5 +1,5 @@
 import { and, desc, eq, ne } from "drizzle-orm";
-import { ALL_TOOTH_STATUSES, applyStatusToChart, isLesionStatus, removeLesionFromChart } from "@/lib/tooth-status";
+import { ALL_TOOTH_STATUSES, applyStatusToChart, isLesionStatus, pruneChartExtras, removeLesionFromChart } from "@/lib/tooth-status";
 import { isCariesDepth } from "@/lib/caries";
 import { env } from "cloudflare:workers";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
@@ -111,11 +111,13 @@ const normalizeOdontogram = (raw: unknown): OdontogramData => {
   if (source.extras && typeof source.extras === "object" && !Array.isArray(source.extras)) {
     for (const [key, value] of Object.entries(source.extras)) {
       if (!/^\d{2}$/.test(key) || !Array.isArray(value)) continue;
-      const list = value.filter((item): item is string => typeof item === "string" && ALL_TOOTH_STATUSES.includes(item));
+      const list = value.filter((item): item is string => typeof item === "string" && isLesionStatus(item));
       if (list.length) extras[Number(key)] = [...new Set(list)];
     }
   }
-  return { teeth, surfaces, missingReason, crowns, extras, history };
+  const chart = { teeth, surfaces, missingReason, crowns, extras, history };
+  pruneChartExtras(chart);
+  return chart;
 };
 const normalizePerio = (raw: unknown) => {
   const source = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string,unknown> : {};
@@ -749,10 +751,12 @@ export async function POST(request: Request) {
       applyStatusToChart(data, tooth, status);
       // Coherencia: una pieza ausente o con implante no tiene caras de diente natural (quedan en el historial);
       // una pieza natural no conserva la causa de pérdida (salvo la indicación de exodoncia, que la usa para el COP-D).
-      if (["Ausente", "Implante", "Implante con pilar"].includes(status)) delete data.surfaces[tooth];
-      else if (status !== "Indicación de exodoncia") delete data.missingReason[tooth];
-      if (status === "Corona" && data.crowns?.[tooth]) data.crowns[tooth] = { ...data.crowns[tooth], foundation: "tooth" };
-      else if (!(status === "Implante" && data.crowns?.[tooth]?.foundation === "implant")) delete data.crowns?.[tooth];
+      // Una lesión que se suma a otro estado principal no debe borrar la corona, las caras ni la causa de pérdida de ese estado.
+      const effective = isLesionStatus(status) && data.teeth[tooth] ? data.teeth[tooth] : status;
+      if (["Ausente", "Implante", "Implante con pilar"].includes(effective)) delete data.surfaces[tooth];
+      else if (effective !== "Indicación de exodoncia") delete data.missingReason[tooth];
+      if (effective === "Corona" && data.crowns?.[tooth]) data.crowns[tooth] = { ...data.crowns[tooth], foundation: "tooth" };
+      else if (!(effective === "Implante" && data.crowns?.[tooth]?.foundation === "implant") && !(effective === "Implante con pilar" && data.crowns?.[tooth])) delete data.crowns?.[tooth];
       const updatedAt = now();
       appendToothHistory(data, tooth, "status", before, { recordedAt: updatedAt, ...historyMeta });
       await db.insert(toothStatuses).values({ ownerId, patientId, data: JSON.stringify(data), updatedAt }).onConflictDoUpdate({ target: toothStatuses.patientId, set: { data: JSON.stringify(data), updatedAt } });
@@ -790,6 +794,7 @@ export async function POST(request: Request) {
       if (foundation === "tooth" && ["Implante", "Implante con pilar"].includes(data.teeth[tooth] ?? "")) data.teeth[tooth] = "Corona";
       if (foundation === "implant" && data.teeth[tooth] === "Corona") data.teeth[tooth] = "Implante";
       if (foundation === "implant" && data.teeth[tooth] === "Implante con pilar") data.teeth[tooth] = "Implante";
+      pruneChartExtras(data);
       if (foundation === "implant" && data.teeth[tooth] !== "Implante") return error("Primero registra el implante en la pieza indicada.");
       if (foundation === "tooth" && data.teeth[tooth] !== "Corona") return error("Primero registra una corona en la pieza indicada.");
       if (!material && foundation !== "implant") return error("Revisa la pieza y el material de la corona.");

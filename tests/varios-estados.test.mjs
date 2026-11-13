@@ -49,3 +49,22 @@ test("quitar la última lesión deja la pieza limpia", () => {
   assert.equal(chart.teeth[26], undefined);
   assert.equal(chart.extras[26], undefined);
 });
+
+import { pruneChartExtras } from "../lib/tooth-status.ts";
+import { projectEvolutionChart } from "../app/odontogram-projection.ts";
+
+test("lesión → Corona conserva la lesión, igual que Corona → lesión", () => {
+  const a = applyToothStatus({ primary: "Granuloma apical", extras: [] }, "Corona");
+  assert.deepEqual(allToothStatuses(a).sort(), ["Corona", "Granuloma apical"]);
+  assert.equal(a.primary, "Corona");
+});
+test("pruneChartExtras limpia basura y piezas ausentes", () => {
+  const chart = { teeth: { 11: "Ausente", 12: "Corona", 13: "Granuloma apical" }, extras: { 11: ["Quiste radicular"], 12: ["Corona", "Fisura coronaria", "Fisura coronaria"], 13: ["Granuloma apical"] } };
+  pruneChartExtras(chart);
+  assert.deepEqual(chart.extras, { 12: ["Fisura coronaria"] });
+});
+test("proyectar un implante no pierde las lesiones de otras piezas", () => {
+  const chart = { teeth: { 16: "Corona" }, surfaces: {}, missingReason: {}, crowns: {}, extras: { 16: ["Granuloma apical"] }, history: [] };
+  const out = projectEvolutionChart(chart, [46], null, false);
+  assert.deepEqual(out.data.extras, { 16: ["Granuloma apical"] });
+});

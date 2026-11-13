@@ -22,6 +22,6 @@ test("la auditoría encuentra las combinaciones imposibles y nada más", () => {
 
 test("el servidor limpia caras al marcar implante o ausente y no acepta sellante sobre corona", () => {
   const route = readFileSync(new URL("../app/api/clinical/route.ts", import.meta.url), "utf8");
-  assert.match(route, /\["Ausente", "Implante", "Implante con pilar"\]\.includes\(status\)\) delete data\.surfaces\[tooth\]/);
+  assert.match(route, /\["Ausente", "Implante", "Implante con pilar"\]\.includes\(effective\)\) delete data\.surfaces\[tooth\]/);
   assert.match(route, /condition === "sealant" && data\.teeth\[tooth\] === "Corona"/);
 });

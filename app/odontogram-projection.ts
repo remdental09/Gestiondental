@@ -13,6 +13,7 @@ function copyChart(source: OdontogramData): OdontogramData {
     surfaces: { ...(source.surfaces ?? {}) },
     missingReason: { ...(source.missingReason ?? {}) },
     crowns: { ...(source.crowns ?? {}) },
+    ...(source.extras ? { extras: { ...source.extras } } : {}),
     history: [...(source.history ?? [])],
   };
 }
