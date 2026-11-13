@@ -216,7 +216,9 @@
         "diagnoses": [
           "46 DA09.71"
         ],
-        "odontogram": [],
+        "odontogram": [
+          "46 Periodontitis apical"
+        ],
         "patientWarning": false
       }
     },
@@ -323,7 +325,10 @@
       "id": "c29-aae-sugeridos",
       "text": "pieza 3.6 periodontitis apical sintomática punto pieza 4.6 absceso apical crónico punto",
       "expect": {
-        "odontogram": [],
+        "odontogram": [
+          "36 Periodontitis apical",
+          "46 Absceso apical crónico (fístula)"
+        ],
         "diagnoses": [
           "36 DA09.70 (sugerido)",
           "46 DA09.61 (sugerido)"

@@ -1,4 +1,5 @@
 import { DENTAL_DICTIONARY_HINTS } from "./dental-lexicon.ts";
+import { APICAL_STATUSES, FRACTURE_STATUSES, isLesionStatus } from "../tooth-status.ts";
 import { applyAiReview, clinicalCoherence, parseReview, parseReviewExtras, REVIEW_PROMPT, reviewPayload } from "./clinical-review.ts";
 import { isDeducedSuggestion, type Learned } from "./learning.ts";
 import { ACTS_PROMPT, ACTS_SCHEMA, addFacesFromActs, applyActsToOdontogram, parseActs, type ClinicalAct } from "./clinical-acts.ts";
@@ -75,6 +76,9 @@ export const TOOTH_STATUSES = [
   "Ausente",
   "Indicación de exodoncia",
   "Resto radicular con endodoncia",
+  // Lesiones apicales y fracturas: se registran cuando el profesional dicta el diagnóstico o hallazgo con su nombre.
+  ...APICAL_STATUSES,
+  ...FRACTURE_STATUSES,
 ] as const;
 
 export const CROWN_MATERIALS = ["Zirconio", "Disilicato", "Metal cerámica", "Resina", "Otro"] as const;
@@ -887,6 +891,40 @@ function withoutExtractionBeforeImplant(list: OdontogramChange[], implanted: Set
   return list.filter((item) => !(item.kind === "status" && item.status === "Ausente" && implanted.has(item.tooth) && EXTRACTION_ANY.test(item.sourceText ?? "")));
 }
 
+/**
+ * Lesiones apicales y fracturas dictadas con su nombre. De lo más específico a lo más general. Una frase ambigua
+ * («absceso apical» sin agudo/crónico, «fractura de la pieza» sin tipo) no se adivina: queda en la nota.
+ */
+const LESION_SPOKEN: Array<[ToothStatus, RegExp]> = [
+  ["Fractura corono-radicular", /(?<!\p{L})fractura\s+corono[-\s]?radicular(?!\p{L})/iu],
+  ["Fractura radicular horizontal", /(?<!\p{L})(?:fractura\s+radicular\s+horizontal|fractura\s+horizontal\s+(?:de\s+)?(?:la\s+)?ra[ií]z)(?!\p{L})/iu],
+  ["Fractura radicular vertical", /(?<!\p{L})(?:fractura\s+radicular\s+vertical|fractura\s+vertical\s+(?:de\s+)?(?:la\s+)?ra[ií]z)(?!\p{L})/iu],
+  ["Fractura coronaria con pulpa expuesta", /(?<!\p{L})(?:fractura\s+coronaria\s+complicada|fractura\s+(?:coronaria\s+)?con\s+(?:exposici[oó]n\s+pulpar|pulpa\s+expuesta))(?!\p{L})/iu],
+  ["Fractura coronaria con dentina", /(?<!\p{L})fractura\s+coronaria\s+(?:no\s+complicada\s+)?(?:con|que\s+compromete)\s+(?:exposici[oó]n\s+de\s+|compromiso\s+de\s+)?dentina(?!\p{L})/iu],
+  ["Fractura coronaria de esmalte", /(?<!\p{L})fractura\s+(?:coronaria\s+)?(?:no\s+complicada\s+)?(?:solo\s+)?(?:de|del|en)\s+(?:el\s+)?esmalte(?!\p{L})/iu],
+  ["Fisura coronaria", /(?<!\p{L})(?:fisura\s+coronaria|fisura\s+(?:en|de)\s+(?:la\s+)?corona)(?!\p{L})/iu],
+  ["Absceso apical agudo", /(?<!\p{L})absceso\s+(?:apical|periapical)\s+agudo(?!\p{L})/iu],
+  ["Absceso apical crónico (fístula)", /(?<!\p{L})(?:absceso\s+(?:apical|periapical)\s+cr[oó]nico|f[ií]stula)(?!\p{L})/iu],
+  ["Granuloma apical", /(?<!\p{L})granuloma(?:\s+(?:apical|periapical))?(?!\p{L})/iu],
+  ["Quiste radicular", /(?<!\p{L})quiste\s+(?:radicular|periapical|apical)(?!\p{L})/iu],
+  ["Osteítis condensante", /(?<!\p{L})oste[ií]tis\s+condensante(?!\p{L})/iu],
+  ["Periodontitis apical", /(?<!\p{L})periodontitis\s+(?:apical|periapical)(?!\p{L})/iu],
+];
+/** Lo negado, descartado, sospechado o solo relatado no es un hallazgo confirmado por el profesional. */
+const LESION_NOT_CONFIRMED = /(?<!\p{L})(?:sin|no\s+(?:se\s+)?(?:presenta|observa|aprecia|hay|evidencia)|descart\p{L}*|ausencia\s+de|riesgo\s+de|evitar|prevenir|prevenci[oó]n\s+de|posible|sospecha\s+de|probable|antecedentes?\s+de|historia\s+de|r\/o|descartar)(?!\p{L})/iu;
+
+export function lesionStatusFrom(sentence: string): ToothStatus | null {
+  if (isPatient(sentence)) return null;
+  for (const [status, pattern] of LESION_SPOKEN) {
+    const match = pattern.exec(sentence);
+    if (!match) continue;
+    const before = sentence.slice(Math.max(0, match.index - 70), match.index);
+    if (LESION_NOT_CONFIRMED.test(before) || isNegatedFinding(before + match[0])) return null;
+    return status;
+  }
+  return null;
+}
+
 function statusFrom(sentence: string): ToothStatus | null {
   if (EXTRACTION_DONE.test(sentence) && !/\b(?:planific|se\s+indic|se\s+plante)/i.test(sentence)) {
     // Extracción e instalación en la misma frase («extracción y se instala un implante en el alvéolo fresco»): queda el implante.
@@ -905,7 +943,7 @@ function statusFrom(sentence: string): ToothStatus | null {
   if (/\b(?:coronas?|pr[oó]tesis\s+fija\s+definitiva)\b/i.test(sentence) && !/\bprovisori[ao]s?\b/i.test(sentence) && !/\b(?:alargamiento|aumento|elongaci[oó]n)\s+(?:de\s+)?(?:la\s+)?corona|corona\s+cl[ií]nica|preparaci[oó]n\s+(?:para|de)\s+(?:la\s+)?corona/i.test(sentence)) return "Corona";
   if (/\b(?:ausentes?|extra[ií]d[oa]s?|exodonciad[oa]s?)\b/i.test(sentence)) return "Ausente";
   if (/(?<!\p{L})ausencia\s+(?:de(?:l|\s+la)?\s+)?(?:pieza\s+|diente\s+)?\d/iu.test(sentence)) return "Ausente";
-  return null;
+  return lesionStatusFrom(sentence);
 }
 
 type FindingResult = { finding: SurfaceFinding; depthNote?: string } | { error: string; partial?: SurfaceFinding } | null;
@@ -1052,6 +1090,7 @@ function describeStatus(item: OdontogramChange): string {
   if (item.status === "Implante con pilar") return "implante con pilar";
   if (item.status === "Indicación de exodoncia") return "indicación de exodoncia";
   if (item.status === "Resto radicular con endodoncia") return "resto radicular con endodoncia";
+  if (item.status && isLesionStatus(item.status)) return item.status.charAt(0).toLowerCase() + item.status.slice(1);
   return item.status ?? "estado registrado";
 }
 
@@ -1817,7 +1856,8 @@ export function structureTranscript(transcript: string, options: { today?: strin
             odontogram.push(item);
           }
         }
-        continue;
+        // Una lesión apical o fractura convive con lo observado en las caras («caries distal y quiste radicular»).
+        if (!(status && isLesionStatus(status) && surfaceResult)) continue;
       }
       if (!surfaceResult) continue;
       if ("error" in surfaceResult) {
@@ -2574,12 +2614,13 @@ Examen vs procedimientos: «Examen» recoge solo lo que el profesional OBSERVA o
 2) "hallazgos": un elemento por cada pieza y hallazgo de odontograma OBSERVADO HOY en el examen o realizado hoy. No incluyas lo que el paciente relata, lo planificado, presupuestado o negado.
 - "pieza": el número tal como se dictó ("30", "3.6", "cuarenta y seis").
 - "sistema": "chilena" si dijo pieza 1 a 32 sin etiqueta (p. ej. «pieza 30» = FDI 3.6) o dijo chilena/nacional; "FDI" si dijo FDI/ISO, con punto (2.6, «dos punto seis»), dos dígitos separados (tres seis) o un número sin etiqueta del 33 al 48 o del 51 al 85; "universal" si lo dijo; "sin_etiqueta" si es otro número sin sistema.
-- "tipo": "superficie" para caries, obturación, sellante, otra restauración o cara sana; "estado" para Ausente, Implante, Corona, Indicación de exodoncia o Resto radicular con endodoncia.
-- "condicion" (solo superficie): caries | obturacion | sellante | otra_restauracion | sana. "estado" (solo estado): Ausente | Implante | Corona | Indicación de exodoncia | Resto radicular con endodoncia. Deja "" lo que no aplique.
+- "tipo": "superficie" para caries, obturación, sellante, otra restauración o cara sana; "estado" para Ausente, Implante, Corona, Indicación de exodoncia, una lesión apical o fractura dictada con su nombre, o Resto radicular con endodoncia.
+- "condicion" (solo superficie): caries | obturacion | sellante | otra_restauracion | sana. "estado" (solo estado): Ausente | Implante | Corona | Indicación de exodoncia | ${[...APICAL_STATUSES, ...FRACTURE_STATUSES].join(" | ")} | Resto radicular con endodoncia. Deja "" lo que no aplique.
 - "caras": letras M, O, D, V, P (O también es incisal; P es palatina o lingual) SOLO si se dictaron para ese hallazgo. MOD = M,O,D.
 - "profundidad" (solo caries): "esmalte" (caries de esmalte, mancha blanca), "dentina_superficial" (dentina superficial o media), "dentina_profunda" (dentina profunda, caries profunda) o "pulpar" (compromiso pulpar, penetrante); "" si no se dijo. No uses ICDAS.
 - «resina», «amalgama» o «ionómero» con una cara (p. ej. «pieza 1.1 resina vestibular») es una obturación existente: condicion "obturacion".
 - «indica exodoncia», «exodoncia indicada» o «para exodoncia» de una pieza es el estado "Indicación de exodoncia" aunque sea una indicación. Otros planes («se indica endodoncia») no van en hallazgos.
+- Una lesión apical o fractura que el profesional dicta con su nombre («absceso apical agudo», «granuloma apical», «fractura radicular vertical») es un "estado" de esa pieza. No la incluyas si es solo sospecha, si se descarta, si la relata el paciente o si el nombre es ambiguo (no adivines agudo o crónico).
 - Una exodoncia o extracción REALIZADA hoy («se realiza exodoncia de la 4.8», «se extrae la 1.8») es el estado "Ausente" de esa pieza, aunque la ficha la tuviera como indicada: inclúyela con evidencia literal. Si solo está indicada o planificada, no es "Ausente".
 - Lo negado («sin caries», «no hay caries») no va en hallazgos.
 - Una fractura, fisura o cúspide fracturada NO es caries ni obturación: no la pongas en hallazgos; va en la nota (examen).
@@ -2627,7 +2668,7 @@ export const AI_JSON_SCHEMA = {
           sistema: { type: "string", enum: ["chilena", "FDI", "universal", "sin_etiqueta"] },
           tipo: { type: "string", enum: ["superficie", "estado"] },
           condicion: { type: "string", enum: ["", "caries", "obturacion", "sellante", "otra_restauracion", "sana"] },
-          estado: { type: "string", enum: ["", "Ausente", "Implante", "Corona", "Indicación de exodoncia", "Resto radicular con endodoncia"] },
+          estado: { type: "string", enum: ["", "Ausente", "Implante", "Corona", "Indicación de exodoncia", ...APICAL_STATUSES, ...FRACTURE_STATUSES, "Resto radicular con endodoncia"] },
           caras: { type: "array", items: { type: "string", enum: ["M", "O", "D", "V", "P"] } },
           profundidad: { type: "string", enum: ["", "esmalte", "dentina_superficial", "dentina_profunda", "pulpar"] },
           material: STRING,
@@ -2831,6 +2872,7 @@ const STATUS_CUE: Record<string, RegExp> = {
   Corona: /(?<!\p{L})(?:coronas?|pr[oó]tesis\s+fija)(?!\p{L})/iu,
   "Indicación de exodoncia": /(?<!\p{L})(?:indicaci[oó]n\s+de\s+exodoncia|indica\s+(?:la\s+)?exodoncia|exodoncia\s+indicada|para\s+exodoncia)(?!\p{L})/iu,
   "Resto radicular con endodoncia": /(?<!\p{L})resto\s+radicular(?!\p{L})/iu,
+  ...Object.fromEntries(LESION_SPOKEN.map(([status, pattern]) => [status, pattern])),
 };
 
 type AiExtraction = {
@@ -3044,7 +3086,7 @@ export function validateAiExtraction(input: unknown, transcript: string, options
       if (!status) continue;
       if (!cue || !TOOTH_STATUSES.includes(status)) { reject(`Estado «${status}» no reconocido en ${heading}.`); continue; }
       if (!cue.test(segment)) { reject(`La cita de ${heading} no dice «${status.toLowerCase()}»: «${clip(segment)}».`); continue; }
-      if (status !== "Indicación de exodoncia" && (isPlan(segment) || planContextOfSegment(segment, transcript)) && !isPerformed(segment)) { continue; }
+      if (status !== "Indicación de exodoncia" && !isLesionStatus(status) && (isPlan(segment) || planContextOfSegment(segment, transcript)) && !isPerformed(segment)) { continue; }
       if (isNegatedFinding(segment)) { reject(`Hallazgo negado, sin cambio de odontograma: «${clip(segment)}».`); continue; }
       if (status === "Resto radicular con endodoncia" && !/endodoncia/i.test(segment)) { reject(`${heading}: resto radicular sin decir si tiene endodoncia.`); continue; }
       // Corona provisoria: aún no es la definitiva, no cambia el estado general.
