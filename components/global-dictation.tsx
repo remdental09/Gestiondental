@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { createAudioTranscription, AUDIO_DICTATION_NOTICE } from "@/lib/dictation/audio-transcription";
 import { validRut } from "@/lib/dictation/patient-check";
+import { PatientDocumentField } from "@/components/patient-document-field";
+import { asDocumentType, isValidDocument, type DocumentType } from "@/lib/patient-document";
 import type { DictatedIdentity, PatientDecision } from "@/lib/dictation/patient-identify";
 import { hasFourNameParts } from "@/app/patient-identity";
 import { WordDiffView, useTextCorrection } from "@/components/text-correction";
@@ -17,7 +19,7 @@ import { chileTodayIso, parseVoiceCommand, type CommandNote } from "@/lib/dictat
 const fourNames = (value: string): boolean => hasFourNameParts(value);
 
 type PatientOption = { id: number; name: string; rut?: string | null; birthDate?: string | null; phone?: string | null; email?: string | null };
-export type NewPatientFields = { name: string; rut: string; birthDate: string; phone: string; email: string };
+export type NewPatientFields = { name: string; rut: string; documentType?: DocumentType; birthDate: string; phone: string; email: string };
 
 
 /**
@@ -185,7 +187,7 @@ export function GlobalDictation({ patients, notes = [], onUsePatient, onCreatePa
   const validEmailValue = (value: string) => !value || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
   const validBirthDate = /^\d{4}-\d{2}-\d{2}$/.test(fields.birthDate);
   const canCreate = fourNames(fields.name) && validBirthDate
-    && (!fields.rut.trim() || validRut(fields.rut))
+    && (!fields.rut.trim() || isValidDocument(fields.rut, asDocumentType(fields.documentType)))
     && validPhoneValue(fields.phone.trim())
     && validEmailValue(fields.email.trim());
   const missingRequired = [
@@ -193,7 +195,7 @@ export function GlobalDictation({ patients, notes = [], onUsePatient, onCreatePa
     ...(!validBirthDate ? ["fecha de nacimiento"] : []),
   ];
   const missingOptional = [
-    ...(!fields.rut.trim() ? ["RUT"] : []),
+    ...(!fields.rut.trim() ? ["documento de identidad"] : []),
     ...(!fields.phone.trim() ? ["teléfono"] : []),
     ...(!fields.email.trim() ? ["correo"] : []),
   ];
@@ -306,9 +308,7 @@ export function GlobalDictation({ patients, notes = [], onUsePatient, onCreatePa
                 <label className="block space-y-1 font-medium">Fecha de nacimiento *
                   <Input type="date" aria-invalid={!validBirthDate} className={validBirthDate ? "text-base sm:text-sm" : "border-rose-400 text-base text-rose-900 ring-1 ring-rose-300 sm:text-sm"} value={fields.birthDate} onChange={(event) => setFields((current) => ({ ...current, birthDate: event.target.value }))} data-testid="global-dictation-new-birth" />
                 </label>
-                <label className="block space-y-1 font-medium">RUT
-                  <Input aria-invalid={Boolean(fields.rut.trim() && !validRut(fields.rut)) || !fields.rut.trim()} className={fields.rut.trim() && validRut(fields.rut) ? "text-base sm:text-sm" : "border-rose-300 text-base text-rose-900 sm:text-sm"} inputMode="text" value={fields.rut} onChange={(event) => setFields((current) => ({ ...current, rut: event.target.value }))} />
-                </label>
+                <PatientDocumentField value={fields.rut} docType={asDocumentType(fields.documentType)} testId="global-dictation-new-document" onChange={(value, type) => setFields((current) => ({ ...current, rut: value, documentType: type }))} />
                 <label className="block space-y-1 font-medium">Teléfono
                   <Input aria-invalid={!fields.phone.trim() || !validPhoneValue(fields.phone.trim())} className={fields.phone.trim() && validPhoneValue(fields.phone.trim()) ? "text-base sm:text-sm" : "border-rose-300 text-base text-rose-900 sm:text-sm"} inputMode="tel" value={fields.phone} onChange={(event) => setFields((current) => ({ ...current, phone: event.target.value }))} />
                 </label>
@@ -316,9 +316,9 @@ export function GlobalDictation({ patients, notes = [], onUsePatient, onCreatePa
                   <Input aria-invalid={!fields.email.trim() || !validEmailValue(fields.email.trim())} className={fields.email.trim() && validEmailValue(fields.email.trim()) ? "text-base sm:text-sm" : "border-rose-300 text-base text-rose-900 sm:text-sm"} inputMode="email" value={fields.email} onChange={(event) => setFields((current) => ({ ...current, email: event.target.value }))} />
                 </label>
               </div>
-              {(missingRequired.length > 0 || missingOptional.length > 0 || (fields.rut.trim() && !validRut(fields.rut)) || (fields.phone.trim() && !validPhoneValue(fields.phone.trim())) || (fields.email.trim() && !validEmailValue(fields.email.trim()))) && <p role="alert" className="rounded-md bg-rose-50 px-3 py-2 text-xs leading-5 text-rose-800">
+              {(missingRequired.length > 0 || missingOptional.length > 0 || (fields.rut.trim() && !isValidDocument(fields.rut, asDocumentType(fields.documentType))) || (fields.phone.trim() && !validPhoneValue(fields.phone.trim())) || (fields.email.trim() && !validEmailValue(fields.email.trim()))) && <p role="alert" className="rounded-md bg-rose-50 px-3 py-2 text-xs leading-5 text-rose-800">
                 Pendiente en rojo: {[...missingRequired, ...missingOptional.filter((field) => !fields[field === "RUT" ? "rut" : field === "teléfono" ? "phone" : "email"].trim())].join(", ")}
-                {(fields.rut.trim() && !validRut(fields.rut)) || (fields.phone.trim() && !validPhoneValue(fields.phone.trim())) || (fields.email.trim() && !validEmailValue(fields.email.trim())) ? " Hay un dato dictado con formato inválido; corrígelo antes de continuar." : ""}
+                {(fields.rut.trim() && !isValidDocument(fields.rut, asDocumentType(fields.documentType))) || (fields.phone.trim() && !validPhoneValue(fields.phone.trim())) || (fields.email.trim() && !validEmailValue(fields.email.trim())) ? " Hay un dato dictado con formato inválido; corrígelo antes de continuar." : ""}
                 {missingRequired.length > 0 ? " Completa nombre y fecha para crear la ficha; el dictado clínico no se pierde." : ""}
               </p>}
             </div>}

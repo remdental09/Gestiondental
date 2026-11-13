@@ -368,3 +368,8 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 - Al guardar, se agrega al endograma como caso «Previamente tratado» (`priorCase`), en una sola escritura (`setPriorEndos` en `app/page.tsx`). No es un procedimiento de hoy: no sugiere prestación ni pregunta «¿se hizo hoy?».
 - No cuenta como previa: endodoncia indicada o necesaria, hecha hoy, retratamiento, «sin endodoncia», «endodoncia previa a la corona».
 - Limitación: la IA aún no extrae este dato; solo las reglas. Pieza que ya tiene un caso previo: se reemplaza (no se duplica).
+
+## Documento de identidad extranjero en la inscripción (2026-11-13)
+- Al inscribir o editar un paciente (formulario, dictado global, asistente de voz y herramientas MCP) se elige el tipo de documento: «RUN / RUT chileno» (con dígito verificador, como siempre) o «Documento extranjero» (DNI, cédula, DPI, pasaporte…; de 4 a 20 letras o números, con al menos un número). Lógica en `lib/patient-document.ts`.
+- Se guarda en la misma columna `rut`: RUT sin puntos ni guion; documento extranjero en mayúsculas, sin tildes ni separadores. Un valor que no es un RUT válido se reconoce como extranjero. El duplicado se detecta por el mismo valor.
+- Pendiente: el reconocimiento de documentos extranjeros al identificar al paciente por dictado y la búsqueda por documento en «Hoy» siguen pensados para RUT.
