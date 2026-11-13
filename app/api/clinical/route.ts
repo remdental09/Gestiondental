@@ -25,6 +25,8 @@ import { addLink, revertLinks, LINK_KINDS, type LinkKind } from "@/app/evolution
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
+import { asDocumentType, isValidDocument, storedDocument } from "@/lib/patient-document";
+
 const now = () => new Date().toISOString();
 const cleanRut = (value: string) => value.toUpperCase().replace(/[^0-9K]/g, "");
 const validRut = (value: string) => {
@@ -281,16 +283,16 @@ export async function POST(request: Request) {
       if (parsed.some(e=>!saved.some(s=>s.id===e.eventId&&s.title===e.title&&s.startAt===e.startAt&&s.endAt===e.endAt&&s.status===e.status))) return error("No se pudo verificar la importación.",503);
       return Response.json({imported:true,count:parsed.length});
     }    if (action === "createPatient") {
-      const name = string(input.name, 180), birthDateInput = typeof input.birthDate === "string" ? input.birthDate.trim() : "", birthDate = string(birthDateInput, 10), rutRaw = string(input.rut, 20), phone = string(input.phone, 24), email = string(input.email, 254);
+      const name = string(input.name, 180), birthDateInput = typeof input.birthDate === "string" ? input.birthDate.trim() : "", birthDate = string(birthDateInput, 10), rutRaw = string(input.rut, 30), documentType = asDocumentType(input.documentType), phone = string(input.phone, 24), email = string(input.email, 254);
       if (!validPhone(phone) || !validEmail(email)) return error("Revisa el teléfono y el correo electrónico.");
       if (!hasFourNameParts(name)) return error(fullNameRequiredMessage());
-      if (birthDateInput.length > 10 || !birthDate || !validDate(birthDate) || birthDate > dateInChile() || Number(birthDate.slice(0, 4)) < Number(dateInChile().slice(0, 4)) - 125 || (rutRaw && !validRut(rutRaw))) return error("Revisa el nombre, fecha de nacimiento y RUT. La fecha de nacimiento es obligatoria.");
-      const rut = rutRaw ? cleanRut(rutRaw) : null;
-      if (rut && (await db.select({ id: patients.id }).from(patients).where(and(eq(patients.ownerId, ownerId), eq(patients.rut, rut)))).length) return error("Ya existe un paciente con ese RUT.", 409);
+      if (birthDateInput.length > 10 || !birthDate || !validDate(birthDate) || birthDate > dateInChile() || Number(birthDate.slice(0, 4)) < Number(dateInChile().slice(0, 4)) - 125 || (rutRaw && !isValidDocument(rutRaw, documentType))) return error("Revisa el nombre, fecha de nacimiento y documento de identidad. La fecha de nacimiento es obligatoria.");
+      const rut = rutRaw ? storedDocument(rutRaw, documentType) : null;
+      if (rut && (await db.select({ id: patients.id }).from(patients).where(and(eq(patients.ownerId, ownerId), eq(patients.rut, rut)))).length) return error("Ya existe un paciente con ese documento de identidad.", 409);
       const t = now();
       const [p] = await db.insert(patients).values({ ownerId, name, birthDate, rut, phone, email, reason: string(input.reason, 240) || "Evaluación", status: "Evaluación", allergies: "Sin registrar", history: "Sin registrar", createdAt: t, updatedAt: t }).returning();
       const address = await saveAddress(ownerId, p.id, input.address).catch(() => emptyAddress());
-      return Response.json({ patient: { ...p, rut: rutRaw || "", address } }, { status: 201 });
+      return Response.json({ patient: { ...p, rut: documentType === "extranjero" ? (rut ?? "") : rutRaw || "", address } }, { status: 201 });
     }
     if (action === "previewDriveRecords" || action === "importDriveRecords") {
       try {
@@ -340,12 +342,13 @@ export async function POST(request: Request) {
       if (!validPhone(phone) || !validEmail(email)) return error("Revisa el teléfono y el correo electrónico.");
       if (hasBirthDate && birthDateCandidate && (birthDateCandidate.length > 10 || !validDate(birthDate) || birthDate > dateInChile() || Number(birthDate.slice(0, 4)) < Number(dateInChile().slice(0, 4)) - 125)) return error("Revisa la fecha de nacimiento.");
       const hasRut = Object.prototype.hasOwnProperty.call(input, "rut");
-      const rutRaw = hasRut ? string(input.rut, 20).trim() : "";
-      if (hasRut && rutRaw && !validRut(rutRaw)) return error("Revisa el RUN / RUT y su dígito verificador.");
-      const rut = rutRaw ? cleanRut(rutRaw) : null;
+      const rutRaw = hasRut ? string(input.rut, 30).trim() : "";
+      const documentType = asDocumentType(input.documentType);
+      if (hasRut && rutRaw && !isValidDocument(rutRaw, documentType)) return error(documentType === "extranjero" ? "Revisa el documento de identidad: de 4 a 20 letras o números, con al menos un número." : "Revisa el RUN / RUT y su dígito verificador.");
+      const rut = rutRaw ? storedDocument(rutRaw, documentType) : null;
       if (rut) {
         const [duplicate] = await db.select({ id: patients.id }).from(patients).where(and(eq(patients.ownerId, ownerId), eq(patients.rut, rut), ne(patients.id, patientId))).limit(1);
-        if (duplicate) return error("Ya existe otro paciente con ese RUN / RUT.", 409);
+        if (duplicate) return error("Ya existe otro paciente con ese documento de identidad.", 409);
       }
       const hasAllergies = Object.prototype.hasOwnProperty.call(input, "allergies");
       const hasHistory = Object.prototype.hasOwnProperty.call(input, "history");

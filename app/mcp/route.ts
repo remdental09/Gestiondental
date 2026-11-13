@@ -20,6 +20,11 @@ type JsonRpcId = string | number | null;
 const now = () => new Date().toISOString();
 const string = (value: unknown, max: number) => typeof value === "string" ? value.trim().slice(0, max) : "";
 const cleanRut = (value: string) => value.toUpperCase().replace(/[^0-9K]/g, "");
+// Documento extranjero (DNI, cédula, DPI, pasaporte): misma regla que lib/patient-document.ts, copiada aquí porque las pruebas cargan este archivo sin alias.
+const cleanForeignDocument = (value: string) => value.normalize("NFD").replace(/\p{M}/gu, "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+const asDocumentType = (value: unknown) => (value === "extranjero" ? "extranjero" : "rut");
+const isValidDocument = (value: string, type: string) => type === "extranjero" ? (() => { const clean = cleanForeignDocument(value); return clean.length >= 4 && clean.length <= 20 && /\d/.test(clean); })() : validRut(value);
+const storedDocument = (value: string, type: string) => (type === "extranjero" ? cleanForeignDocument(value) : cleanRut(value));
 const validPhone = (value: string) => !value || (/^[+\d()\s.-]{7,24}$/.test(value) && value.replace(/\D/g, "").length >= 8);
 const validEmail = (value: string) => !value || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 const validRut = (value: string) => {
@@ -84,14 +89,14 @@ const tools = [
     name: "create_patient",
     title: "Crear ficha de paciente",
     description: "Crea una ficha en la base de Gestión Dental después de buscar primero en la app y Google Drive y solo tras la confirmación expresa del clínico. Al registrar pacientes nuevos, solicita el nombre y los dos apellidos (el segundo nombre es opcional); no inventes ni infieras nombres. Si Drive ya tiene una carpeta de esa persona, vincúlala en vez de crear otra. Si el nombre ya existe y no hay RUT, aclara si es otra persona antes de usar confirmDifferentPatient=true.",
-    inputSchema: { type: "object", properties: { name: { type: "string", description: "Nombre completo" }, birthDate: { type: "string", description: "Fecha de nacimiento AAAA-MM-DD" }, rut: { type: "string", description: "RUT chileno, si se conoce" }, phone: { type: "string", description: "Teléfono, si se conoce" }, email: { type: "string", description: "Correo electrónico, si se conoce" }, reason: { type: "string", description: "Motivo de consulta, si se conoce" }, driveFolderId: { type: "string", description: "ID de la carpeta de Google Drive, si existe" }, driveSearchChecked: { type: "boolean", description: "true solo después de buscar y resolver si existe una ficha coincidente en Google Drive" }, confirmed: { type: "boolean", description: "true solo después de que el clínico confirme guardar" }, confirmDifferentPatient: { type: "boolean", description: "true solo después de aclarar que es otra persona con el mismo nombre" } }, required: ["name", "birthDate", "driveSearchChecked", "confirmed"], additionalProperties: false },
+    inputSchema: { type: "object", properties: { name: { type: "string", description: "Nombre completo" }, birthDate: { type: "string", description: "Fecha de nacimiento AAAA-MM-DD" }, rut: { type: "string", description: "RUT chileno o número de documento de identidad extranjero (DNI, cédula, DPI, pasaporte), si se conoce" }, documentType: { type: "string", enum: ["rut", "extranjero"], description: "rut (por defecto) para RUN/RUT chileno; extranjero para el documento de otro país" }, phone: { type: "string", description: "Teléfono, si se conoce" }, email: { type: "string", description: "Correo electrónico, si se conoce" }, reason: { type: "string", description: "Motivo de consulta, si se conoce" }, driveFolderId: { type: "string", description: "ID de la carpeta de Google Drive, si existe" }, driveSearchChecked: { type: "boolean", description: "true solo después de buscar y resolver si existe una ficha coincidente en Google Drive" }, confirmed: { type: "boolean", description: "true solo después de que el clínico confirme guardar" }, confirmDifferentPatient: { type: "boolean", description: "true solo después de aclarar que es otra persona con el mismo nombre" } }, required: ["name", "birthDate", "driveSearchChecked", "confirmed"], additionalProperties: false },
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
   },
   {
     name: "update_patient_contact",
     title: "Actualizar contacto del paciente",
     description: "Actualiza únicamente campos confirmados de contacto. Envía el nombre dictado con todos los componentes que el clínico conozca y el ID verificado; una ficha antigua puede tener menos nombres. El servidor prioriza la coincidencia de más componentes y solicita RUT o fecha de nacimiento si hay empate. Los campos omitidos se conservan. Guarda solo después de la orden expresa del clínico y relee la ficha para verificar el cambio.",
-    inputSchema: { type: "object", properties: { patientId: { type: "integer", description: "ID de la ficha encontrada" }, fullName: { type: "string", description: "Nombre registrado o nombre dictado con todos los componentes conocidos; la ficha puede tener menos componentes" }, identityBirthDate: { type: "string", description: "Fecha de nacimiento para distinguir homónimos, si hace falta" }, identityRut: { type: "string", description: "RUT vigente para distinguir homónimos, si hace falta" }, rut: { type: "string", description: "RUN / RUT chileno que se desea guardar; omitir para conservarlo" }, phone: { type: "string", description: "Teléfono confirmado; omitir para conservarlo" }, email: { type: "string", description: "Correo confirmado; omitir para conservarlo" }, confirmed: { type: "boolean", description: "true solo después de la orden expresa del clínico" } }, required: ["patientId", "fullName", "confirmed"], additionalProperties: false },
+    inputSchema: { type: "object", properties: { patientId: { type: "integer", description: "ID de la ficha encontrada" }, fullName: { type: "string", description: "Nombre registrado o nombre dictado con todos los componentes conocidos; la ficha puede tener menos componentes" }, identityBirthDate: { type: "string", description: "Fecha de nacimiento para distinguir homónimos, si hace falta" }, identityRut: { type: "string", description: "RUT vigente para distinguir homónimos, si hace falta" }, rut: { type: "string", description: "RUN / RUT chileno o documento de identidad extranjero que se desea guardar; omitir para conservarlo" }, documentType: { type: "string", enum: ["rut", "extranjero"], description: "rut (por defecto) o extranjero" }, phone: { type: "string", description: "Teléfono confirmado; omitir para conservarlo" }, email: { type: "string", description: "Correo confirmado; omitir para conservarlo" }, confirmed: { type: "boolean", description: "true solo después de la orden expresa del clínico" } }, required: ["patientId", "fullName", "confirmed"], additionalProperties: false },
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
   },
   {
@@ -293,17 +298,17 @@ async function getPatientRecord(ownerId: string, patientIdInput: unknown) {
 async function createPatient(ownerId: string, args: JsonRecord) {
   if (args.confirmed !== true) return { created: false, needsConfirmation: true, message: "Confirma verbalmente con el clínico antes de crear la ficha." };
   if (args.driveSearchChecked !== true) return { created: false, needsDriveCheck: true, message: "Busca primero el nombre o RUT en Google Drive y confirma si hay una ficha existente para vincularla." };
-  const name = string(args.name, 180), birthDate = string(args.birthDate, 10), rutRaw = string(args.rut, 20), phone = string(args.phone, 24), email = string(args.email, 254), reason = string(args.reason, 240) || "Evaluación", driveFolderId = string(args.driveFolderId, 200);
-  const tooLongFields = [typeof args.name === "string" && args.name.trim().length > 180 ? "Nombre completo" : "", typeof args.birthDate === "string" && args.birthDate.trim().length > 10 ? "Fecha de nacimiento" : "", typeof args.rut === "string" && args.rut.trim().length > 20 ? "RUT" : "", typeof args.phone === "string" && args.phone.trim().length > 24 ? "Teléfono" : "", typeof args.email === "string" && args.email.trim().length > 254 ? "Correo electrónico" : "", typeof args.reason === "string" && args.reason.trim().length > 240 ? "Motivo de consulta" : "", typeof args.driveFolderId === "string" && args.driveFolderId.trim().length > 200 ? "Carpeta de Drive" : ""].filter(Boolean);
+  const name = string(args.name, 180), birthDate = string(args.birthDate, 10), rutRaw = string(args.rut, 30), documentType = asDocumentType(args.documentType), phone = string(args.phone, 24), email = string(args.email, 254), reason = string(args.reason, 240) || "Evaluación", driveFolderId = string(args.driveFolderId, 200);
+  const tooLongFields = [typeof args.name === "string" && args.name.trim().length > 180 ? "Nombre completo" : "", typeof args.birthDate === "string" && args.birthDate.trim().length > 10 ? "Fecha de nacimiento" : "", typeof args.rut === "string" && args.rut.trim().length > 30 ? "RUT o documento" : "", typeof args.phone === "string" && args.phone.trim().length > 24 ? "Teléfono" : "", typeof args.email === "string" && args.email.trim().length > 254 ? "Correo electrónico" : "", typeof args.reason === "string" && args.reason.trim().length > 240 ? "Motivo de consulta" : "", typeof args.driveFolderId === "string" && args.driveFolderId.trim().length > 200 ? "Carpeta de Drive" : ""].filter(Boolean);
   if (tooLongFields.length) return { created: false, invalidFields: tooLongFields, message: "Uno de los datos excede el largo permitido." };
   const missingFields = [!hasFourNameParts(name) ? "nombre y dos apellidos" : "", !birthDate ? "Fecha de nacimiento" : ""].filter(Boolean);
   if (missingFields.length) return { created: false, missingFields, nextQuestion: `Pregunta por ${missingFields[0].toLowerCase()}.` };
   if (!validDate(birthDate) || dateIsFuture(birthDate) || Number(birthDate.slice(0, 4)) < Number(dateInChile().slice(0, 4)) - 125) return { created: false, invalidFields: ["Fecha de nacimiento"], message: "Revisa la fecha antes de guardar." };
-  if (rutRaw && !validRut(rutRaw)) return { created: false, invalidFields: ["RUT"], message: "El RUT o dígito verificador no es válido." };
+  if (rutRaw && !isValidDocument(rutRaw, documentType)) return { created: false, invalidFields: ["RUT"], message: "El documento de identidad no es válido. Un RUT chileno debe tener dígito verificador; un documento extranjero, de 4 a 20 letras o números (usa documentType extranjero). El RUT o dígito verificador no es válido." };
   if (!validPhone(phone)) return { created: false, invalidFields: ["Teléfono"], message: "Revisa el teléfono antes de guardar." };
   if (!validEmail(email)) return { created: false, invalidFields: ["Correo electrónico"], message: "Revisa el correo electrónico antes de guardar." };
   if (driveFolderId && !driveIdPattern.test(driveFolderId)) return { created: false, invalidFields: ["Carpeta de Drive"], message: "El ID de carpeta no tiene un formato válido." };
-  const db = getDb(), rut = rutRaw ? cleanRut(rutRaw) : null;
+  const db = getDb(), rut = rutRaw ? storedDocument(rutRaw, documentType) : null;
   if (rut) {
     const [existing] = await db.select({ id: patients.id, name: patients.name, birthDate: patients.birthDate, rut: patients.rut }).from(patients).where(and(eq(patients.ownerId, ownerId), eq(patients.rut, rut))).limit(1);
     if (existing) return { created: false, duplicate: true, existingPatient: existing, message: "Ya existe una ficha con ese RUT. Ábrela y agrega la evolución si corresponde." };
@@ -325,14 +330,15 @@ async function updatePatientContact(ownerId: string, args: JsonRecord) {
   const hasEmail = Object.prototype.hasOwnProperty.call(args, "email");
   if (!Number.isSafeInteger(patientId) || patientId <= 0) return { saved: false, missingFields: ["Paciente"] };
   if (!hasRut && !hasPhone && !hasEmail) return { saved: false, missingFields: ["RUN / RUT, teléfono o correo electrónico"] };
-  if (hasRut && (typeof args.rut !== "string" || args.rut.trim().length > 20)) return { saved: false, invalidFields: ["RUN / RUT"] };
+  if (hasRut && (typeof args.rut !== "string" || args.rut.trim().length > 30)) return { saved: false, invalidFields: ["RUN / RUT"] };
   if (hasPhone && (typeof args.phone !== "string" || args.phone.trim().length > 24)) return { saved: false, invalidFields: ["Teléfono"] };
   if (hasEmail && (typeof args.email !== "string" || args.email.trim().length > 254)) return { saved: false, invalidFields: ["Correo electrónico"] };
-  const rutRaw = hasRut ? string(args.rut, 20) : undefined;
+  const rutRaw = hasRut ? string(args.rut, 30) : undefined;
+  const documentType = asDocumentType(args.documentType);
   const phone = hasPhone ? string(args.phone, 24) : undefined;
   const email = hasEmail ? string(args.email, 254) : undefined;
-  if (rutRaw && !validRut(rutRaw)) return { saved: false, invalidFields: ["RUN / RUT"], message: "Revisa el RUN / RUT y su dígito verificador." };
-  const rut = rutRaw ? cleanRut(rutRaw) : null;
+  if (rutRaw && !isValidDocument(rutRaw, documentType)) return { saved: false, invalidFields: ["RUN / RUT"], message: "Revisa el documento de identidad: RUT con dígito verificador o, con documentType extranjero, de 4 a 20 letras o números. Revisa el RUN / RUT y su dígito verificador." };
+  const rut = rutRaw ? storedDocument(rutRaw, documentType) : null;
   if (phone !== undefined && !validPhone(phone)) return { saved: false, invalidFields: ["Teléfono"], message: "Revisa el teléfono antes de guardar." };
   if (email !== undefined && !validEmail(email)) return { saved: false, invalidFields: ["Correo electrónico"], message: "Revisa el correo electrónico antes de guardar." };
 
