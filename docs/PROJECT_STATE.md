@@ -362,3 +362,9 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 - La 1.1 (y la 2.1, espejada) muestra un video de giro de 360° (`public/dientes/video/upper-incisivo-central-sano.mp4`, sin sonido y en bucle); el resto de las piezas sanas sigue con foto.
 - Limitación conocida: la ventana no recibe la endodoncia ni lo planificado; una pieza que consta «Sin hallazgos» pero con endodoncia en el endograma se ve como sana (ya pasaba con el texto «Sin hallazgos registrados»).
 - Pendiente: reemplazar las fotos «sano» (hoy con pulpa visible) por versiones opacas y generar las de cada patología, empezando por el incisivo central superior.
+
+## Dictado de endodoncia previa (2026-11-13)
+- «La 3.6 viene con endodoncia previa del 2018», «endodoncia antigua en la 1.1», «está endodonciada», «hecha hace 5 años» se reconocen (`lib/dictation/prior-endo.ts`, solo reglas) y se proponen en la revisión del dictado, sección «Endodoncias previas»: pieza y año aproximado editable, «Registrar / No registrar».
+- Al guardar, se agrega al endograma como caso «Previamente tratado» (`priorCase`), en una sola escritura (`setPriorEndos` en `app/page.tsx`). No es un procedimiento de hoy: no sugiere prestación ni pregunta «¿se hizo hoy?».
+- No cuenta como previa: endodoncia indicada o necesaria, hecha hoy, retratamiento, «sin endodoncia», «endodoncia previa a la corona».
+- Limitación: la IA aún no extrae este dato; solo las reglas. Pieza que ya tiene un caso previo: se reemplaza (no se duplica).
