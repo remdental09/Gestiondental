@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import { applyStatusToChart, isLesionStatus } from "@/lib/tooth-status";
+import { applyStatusToChart, isLesionStatus, pruneChartExtras } from "@/lib/tooth-status";
 import { formatFdi, type OdontogramData } from "@/app/clinical-data";
 import { appendToothHistory, toothHistorySnapshot } from "@/app/odontogram-history";
 import { getDb } from "@/db";
@@ -37,7 +37,8 @@ export async function persistMcpToothStatus(ownerId: string, patientId: number, 
   applyStatusToChart(data, tooth, status);
   const effective = isLesionStatus(status) && data.teeth[tooth] ? data.teeth[tooth] : status;
   if (effective === "Corona" && data.crowns?.[tooth]) data.crowns[tooth] = { ...data.crowns[tooth], foundation: "tooth" };
-  else if (!(effective === "Implante" && data.crowns?.[tooth]?.foundation === "implant")) delete data.crowns?.[tooth];
+  else if (!(effective === "Implante" && data.crowns?.[tooth]?.foundation === "implant") && !(effective === "Implante con pilar" && data.crowns?.[tooth])) delete data.crowns?.[tooth];
+  pruneChartExtras(data);
   const updatedAt = new Date().toISOString();
   appendToothHistory(data, tooth, "status", before, { recordedAt: updatedAt, source: "manual", title: status === "Sin hallazgos" ? "Estado registrado: sin hallazgos" : "Estado actualizado: " + status });
   const preserved: Record<string, unknown> = { ...source, ...data };
