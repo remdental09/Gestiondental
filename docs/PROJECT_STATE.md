@@ -351,3 +351,8 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 - Lógica pura en `lib/tooth-status.ts` (`applyToothStatus`, `removeToothLesion`, `applyStatusToChart`, `removeLesionFromChart`); la usan la API (`setToothStatus`, nueva acción `removeToothLesion`) y el MCP.
 - El historial (`ToothHistorySnapshot.extras`) y la línea de tiempo reproducen las lesiones adicionales. La ficha muestra chips «También en FDI x» con ×, y la celda un «+n».
 - Cambia el odontograma: requiere segunda revisión independiente antes de fusionar. Depende de #236 (rama basada en dictado-estados-nuevos).
+
+## Calendarios elegidos para la agenda clínica (2026-11-13)
+- Antes la sincronización con Google importaba el calendario principal y todos los «seleccionados» de la cuenta (familia, calendarios compartidos como el de la técnico), y se mezclaban en la agenda clínica y en el resumen semanal. Ahora solo se importan los calendarios marcados en «Google Calendar» (tabla `calendar_choices`); por defecto, solo el principal. Los eventos de los no elegidos se retiran de la agenda al sincronizar.
+- El correo de la técnico (resumen semanal) es solo destinatario: no es una fuente de agenda.
+- Pendiente: citas antiguas importadas por .ics bajo el id `lpaulr@gmail.com` pueden duplicar las de Google.

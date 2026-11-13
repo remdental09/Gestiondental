@@ -860,6 +860,7 @@ async function ensureCalendarTable() {
     "connected_at TEXT NOT NULL, last_sync_at TEXT, last_result TEXT, ok INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (owner_id, google_sub))"
   ).run();
   try { await database().prepare("ALTER TABLE google_calendar_connections ADD COLUMN can_write INTEGER NOT NULL DEFAULT 0").run(); } catch { /* la columna ya existe */ }
+  await database().prepare("CREATE TABLE IF NOT EXISTS calendar_choices (owner_id TEXT NOT NULL, google_sub TEXT NOT NULL, calendar_id TEXT NOT NULL, summary TEXT NOT NULL DEFAULT '', is_primary INTEGER NOT NULL DEFAULT 0, enabled INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (owner_id, google_sub, calendar_id))").run();
   await database().prepare("CREATE TABLE IF NOT EXISTS appointment_google_events (owner_id TEXT NOT NULL, appointment_id INTEGER NOT NULL, google_sub TEXT NOT NULL, calendar_id TEXT NOT NULL, event_id TEXT NOT NULL, PRIMARY KEY (owner_id, appointment_id))").run();
 }
 
@@ -879,9 +880,22 @@ export async function listCalendarConnections(ownerId: string) {
   return results.map(row => ({ id: row.google_sub, email: row.google_email, connectedAt: row.connected_at, lastSyncAt: row.last_sync_at, lastResult: row.last_result, ok: Boolean(row.ok), canWrite: Boolean(row.can_write) }));
 }
 
+export async function listCalendarChoices(ownerId: string) {
+  await ensureCalendarTable();
+  const { results } = await database().prepare("SELECT google_sub AS account, calendar_id AS id, summary, is_primary AS isPrimary, enabled FROM calendar_choices WHERE owner_id = ? ORDER BY is_primary DESC, summary").bind(ownerId).all<{ account: string; id: string; summary: string; isPrimary: number; enabled: number }>();
+  return results.map(item => ({ ...item, isPrimary: Boolean(item.isPrimary), enabled: Boolean(item.enabled) }));
+}
+
+export async function setCalendarChoice(ownerId: string, googleSub: string, calendarId: string, enabled: boolean) {
+  await ensureCalendarTable();
+  await database().prepare("UPDATE calendar_choices SET enabled = ? WHERE owner_id = ? AND google_sub = ? AND calendar_id = ?").bind(enabled ? 1 : 0, ownerId, googleSub, calendarId).run();
+  await syncGoogleCalendars(ownerId);
+}
+
 export async function removeCalendarConnection(ownerId: string, googleSub: string) {
   await ensureCalendarTable();
   await database().prepare("DELETE FROM google_calendar_connections WHERE owner_id = ? AND google_sub = ?").bind(ownerId, googleSub).run();
+  await database().prepare("DELETE FROM calendar_choices WHERE owner_id = ? AND google_sub = ?").bind(ownerId, googleSub).run();
   await database().prepare("UPDATE calendar_events SET status = 'cancelled', imported_at = ? WHERE owner_id = ? AND calendar_id LIKE ?").bind(now(), ownerId, "g:" + googleSub + ":%").run();
 }
 
@@ -906,7 +920,15 @@ export async function syncGoogleCalendars(ownerId?: string) {
       const token = await getAccessToken(user, row as unknown as DriveConnection, config.clientSecret);
       const list = await googleApi<{ items?: Array<{ id: string; summary?: string; selected?: boolean; primary?: boolean }> }>(token,
         "https://www.googleapis.com/calendar/v3/users/me/calendarList?minAccessRole=reader&fields=items(id,summary,selected,primary)");
-      const calendars = (list.items ?? []).filter(cal => cal.primary || cal.selected).slice(0, 5);
+      // Solo se importan los calendarios que la clínica eligió; por defecto, solo el principal de la cuenta.
+      // Los compartidos (p. ej. el de la técnico) o personales (familia) no entran a la agenda clínica a menos que se marquen.
+      const all = list.items ?? [];
+      for (const cal of all) await database().prepare("INSERT INTO calendar_choices (owner_id, google_sub, calendar_id, summary, is_primary, enabled) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(owner_id, google_sub, calendar_id) DO UPDATE SET summary = excluded.summary, is_primary = excluded.is_primary").bind(row.owner_id, row.google_sub, cal.id, (cal.summary ?? "").slice(0, 120), cal.primary ? 1 : 0, cal.primary ? 1 : 0).run();
+      const chosen = await database().prepare("SELECT calendar_id FROM calendar_choices WHERE owner_id = ? AND google_sub = ? AND enabled = 1").bind(row.owner_id, row.google_sub).all<{ calendar_id: string }>();
+      const enabledIds = new Set(chosen.results.map(item => item.calendar_id));
+      const calendars = all.filter(cal => enabledIds.has(cal.id)).slice(0, 5);
+      const keep = calendars.map(cal => "g:" + row.google_sub + ":" + cal.id);
+      await database().prepare(`UPDATE calendar_events SET status = 'cancelled', imported_at = ? WHERE owner_id = ? AND calendar_id LIKE ? AND status <> 'cancelled'${keep.length ? ` AND calendar_id NOT IN (${keep.map(() => "?").join(",")})` : ""}`).bind(now(), row.owner_id, "g:" + row.google_sub + ":%", ...keep).run();
       const win = syncWindow(new Date());
       const stamp = now();
       let count = 0;
