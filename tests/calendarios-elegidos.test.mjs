@@ -20,3 +20,12 @@ test("la API y la pantalla permiten elegir calendarios", () => {
   assert.match(ui, /data-testid="calendar-choices"/);
   assert.match(ui, /action: "setCalendar"/);
 });
+
+test("la app deja explícito el papel de cada correo", () => {
+  const digest = readFileSync(new URL("../components/agenda-digest-settings.tsx", import.meta.url), "utf8");
+  const mail = readFileSync(new URL("../components/appointment-mail-settings.tsx", import.meta.url), "utf8");
+  assert.match(ui, /data-testid="audience-agenda"/);
+  assert.match(ui, /el calendario de la técnico no se agrega aquí/);
+  assert.match(digest, /su propio calendario nunca se agrega al de la clínica/);
+  assert.match(mail, /distinto al correo con que entras a la app/);
+});

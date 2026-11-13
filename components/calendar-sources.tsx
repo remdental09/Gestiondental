@@ -39,9 +39,10 @@ export function CalendarSources({ onChanged }: { onChanged: () => void }) {
   };
 
   return <section className="mt-6 rounded-xl border border-[#e6e4ee] bg-white p-4" aria-label="Google Calendar conectado" data-testid="calendar-sources">
+    <p className="-mx-4 -mt-4 mb-4 bg-[#0f766e] px-4 py-2 text-sm font-bold uppercase tracking-wide text-white" data-testid="audience-agenda">Agenda de la clínica · calendario que lee la app</p>
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div><h4 className="font-semibold">Google Calendar</h4>
-        <p className="text-xs text-[#6b6a7c]">Conecta el calendario de cualquier cuenta de Gmail. La app lee tus citas (se actualiza cada hora) y escribe allí los controles que agendas en la ficha.</p></div>
+        <p className="text-xs text-[#6b6a7c]">Conecta el calendario donde agendas a tus pacientes; puede ser una cuenta de Gmail distinta a la que usas para entrar a la app. Esta cuenta es la única fuente de la agenda: el calendario de la técnico no se agrega aquí. La app lee tus citas (se actualiza cada hora) y escribe allí los controles que agendas en la ficha.</p></div>
       <div className="flex gap-2">
         {!!accounts?.length && <Button type="button" variant="outline" size="sm" disabled={!!busy} onClick={async () => { if (await call({ action: "sync" }, "sync")) setNotice("Agenda actualizada."); }}>
           {busy === "sync" ? <Loader2 className="mr-1 size-4 animate-spin" /> : <RefreshCw className="mr-1 size-4" />}Actualizar</Button>}

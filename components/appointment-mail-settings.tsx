@@ -39,7 +39,7 @@ export function AppointmentMailSettings() {
     <p className="-mx-4 -mt-4 mb-4 bg-[#473a6d] px-4 py-2 text-sm font-bold uppercase tracking-wide text-white" data-testid="audience-patients">Para tus pacientes · confirmación de citas</p>
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div><h4 className="font-semibold">Correo para confirmar citas</h4>
-        <p className="text-xs text-[#6b6a7c]">Elige desde qué correo de Google se avisa a tus pacientes (puede ser el de tu asistente). Una vez al día se envía un recordatorio por cada cita de mañana, con un botón para confirmar. No lleva datos clínicos.</p></div>
+        <p className="text-xs text-[#6b6a7c]">Elige desde qué correo de Google se avisa a tus pacientes; puede ser distinto al correo con que entras a la app y al del calendario (puede ser el de tu asistente). Una vez al día se envía un recordatorio por cada cita de mañana, con un botón para confirmar. No lleva datos clínicos.</p></div>
       <a href="/api/drive/connect?mail=1" className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#473a6d] px-4 text-sm font-semibold text-white hover:bg-[#644e92]" data-testid="mail-connect">
         <Mail className="size-4" />{sender?.connected ? "Cambiar correo" : "Elegir correo de envío"}</a>
     </div>
