@@ -44,6 +44,10 @@ test("normalize: «4%» equivale a «cuatro por ciento»", () => {
   assert.equal(wer("al cuatro por ciento", "al 4%"), 0);
 });
 
+test("normalize: «dos y medio» equivale a «2,5»", () => {
+  assert.equal(normalize("al dos y medio por ciento"), normalize("al 2,5%"));
+});
+
 test("wer: idéntico = 0; una sustitución en cuatro palabras = 0,25", () => {
   assert.equal(wer("pieza doce con caries", "Pieza 12 con caries."), 0);
   assert.equal(wer("pieza 12 con caries", "pieza 12 con carie"), 0.25);

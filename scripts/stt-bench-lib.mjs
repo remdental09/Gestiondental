@@ -37,7 +37,7 @@ export function spokenNumbersToDigits(text) {
   return out.join(" ");
 }
 
-export function normalize(text) { return spokenNumbersToDigits(baseNormalize(text)); }
+export function normalize(text) { return spokenNumbersToDigits(baseNormalize(text)).replace(/(\d+) y medio\b/g, "$1.5"); }
 
 export function tokens(text) { const n = normalize(text); return n ? n.split(" ") : []; }
 
