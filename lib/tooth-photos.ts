@@ -402,3 +402,27 @@ export function toothPhotoFor(state: ToothPhotoState): ToothPhoto | null {
   const transform = mirror && upper ? "scale(-1,-1)" : mirror ? "scaleX(-1)" : upper ? "scaleY(-1)" : undefined;
   return { src: `/dientes/${base}.webp`, kind, mirror, upper, transform, lesions: drawn ? cariesSpots(state.fdi, usesVariant ? drawnSurfaces : surfaces) : [] };
 }
+
+/**
+ * Videos de giro de 360° de piezas sanas, ya en posición anatómica (la superior va con la raíz arriba, no se invierte).
+ * Por ahora solo el incisivo central superior; el 2.1 usa el mismo video espejado. Si falta, la ventana usa la foto.
+ */
+export const TOOTH_VIDEOS: ReadonlySet<string> = new Set(["upper-incisivo-central-sano"]);
+export type ToothVideo = { src: string; poster: string; transform: string | undefined };
+export function toothVideoFor(fdi: number, status?: string): ToothVideo | null {
+  const quadrant = Math.floor(fdi / 10), index = fdi % 10;
+  if (status !== undefined && status !== "Sin hallazgos") return null;
+  if (quadrant < 1 || quadrant > 4 || index < 1 || index > 8) return null;
+  const name = `${quadrant <= 2 ? "upper" : "lower"}-${TYPES[index - 1]}-sano`;
+  if (!TOOTH_VIDEOS.has(name)) return null;
+  const mirror = quadrant === 2 || quadrant === 3;
+  return { src: `/dientes/video/${name}.mp4`, poster: `/dientes/video/${name}.jpg`, transform: mirror ? "scaleX(-1)" : undefined };
+}
+
+/**
+ * La ventana de la pieza muestra foto o video (en vez del modelo 3D) solo si la pieza consta «Sin hallazgos», no tiene
+ * hallazgos por superficie y no se abre desde el periodontograma. Corona, implante, ausente, lesiones y fracturas siguen en 3D.
+ */
+export function isHealthyWindow(status: string | undefined, surfaceFindings: number, hasPerio: boolean): boolean {
+  return status === "Sin hallazgos" && surfaceFindings === 0 && !hasPerio;
+}

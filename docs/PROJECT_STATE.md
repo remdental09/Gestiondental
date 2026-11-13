@@ -357,6 +357,12 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 - El correo de la técnico (resumen semanal) es solo destinatario: no es una fuente de agenda.
 - Pendiente: citas antiguas importadas por .ics bajo el id `lpaulr@gmail.com` pueden duplicar las de Google.
 
+## Ventana de la pieza sana con foto realista (2026-11-13)
+- La ventana que se abre al tocar una pieza sana («Sin hallazgos», sin periodontograma) muestra primero la foto realista de `public/dientes`, invertida si la pieza es superior (raíz arriba). El modelo 3D sigue a un clic («Ver modelo 3D»); con hallazgos o periodontograma se mantiene el 3D.
+- La 1.1 (y la 2.1, espejada) muestra un video de giro de 360° (`public/dientes/video/upper-incisivo-central-sano.mp4`, sin sonido y en bucle); el resto de las piezas sanas sigue con foto.
+- Limitación conocida: la ventana no recibe la endodoncia ni lo planificado; una pieza que consta «Sin hallazgos» pero con endodoncia en el endograma se ve como sana (ya pasaba con el texto «Sin hallazgos registrados»).
+- Pendiente: reemplazar las fotos «sano» (hoy con pulpa visible) por versiones opacas y generar las de cada patología, empezando por el incisivo central superior.
+
 ## Dictado de endodoncia previa (2026-11-13)
 - «La 3.6 viene con endodoncia previa del 2018», «endodoncia antigua en la 1.1», «está endodonciada», «hecha hace 5 años» se reconocen (`lib/dictation/prior-endo.ts`, solo reglas) y se proponen en la revisión del dictado, sección «Endodoncias previas»: pieza y año aproximado editable, «Registrar / No registrar».
 - Al guardar, se agrega al endograma como caso «Previamente tratado» (`priorCase`), en una sola escritura (`setPriorEndos` en `app/page.tsx`). No es un procedimiento de hoy: no sugiere prestación ni pregunta «¿se hizo hoy?».
