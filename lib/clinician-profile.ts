@@ -15,8 +15,19 @@ export const SPECIALTIES = [
   "Otra",
 ] as const;
 
+/** País de ejercicio: América y Europa (Chile primero). */
+export const COUNTRIES = [
+  "Chile",
+  "Argentina", "Bolivia", "Brasil", "Colombia", "Costa Rica", "Cuba", "Ecuador", "El Salvador", "Guatemala", "Haití", "Honduras", "México", "Nicaragua", "Panamá", "Paraguay", "Perú", "República Dominicana", "Uruguay", "Venezuela",
+  "Antigua y Barbuda", "Bahamas", "Barbados", "Belice", "Canadá", "Dominica", "Estados Unidos", "Granada", "Guyana", "Jamaica", "San Cristóbal y Nieves", "San Vicente y las Granadinas", "Santa Lucía", "Surinam", "Trinidad y Tobago", "Puerto Rico",
+  "Albania", "Alemania", "Andorra", "Armenia", "Austria", "Azerbaiyán", "Bélgica", "Bielorrusia", "Bosnia y Herzegovina", "Bulgaria", "Chipre", "Ciudad del Vaticano", "Croacia", "Dinamarca", "Eslovaquia", "Eslovenia", "España", "Estonia", "Finlandia", "Francia", "Georgia", "Grecia", "Hungría", "Irlanda", "Islandia", "Italia", "Kosovo", "Letonia", "Liechtenstein", "Lituania", "Luxemburgo", "Macedonia del Norte", "Malta", "Moldavia", "Mónaco", "Montenegro", "Noruega", "Países Bajos", "Polonia", "Portugal", "Reino Unido", "República Checa", "Rumania", "Rusia", "San Marino", "Serbia", "Suecia", "Suiza", "Ucrania",
+  "Otro país",
+] as const;
+export const DEFAULT_COUNTRY = "Chile";
+export const asCountry = (value: unknown): string => (typeof value === "string" && (COUNTRIES as readonly string[]).includes(value.trim()) ? value.trim() : DEFAULT_COUNTRY);
+
 export type ProfessionalDocumentType = "rut" | "extranjero";
-export type ClinicianProfile = { firstName: string; lastName: string; rut: string; specialty: string; /** Otros títulos o especialidades (texto libre, opcional). */ extraTitles?: string; /** Nombre de la clínica o consulta que se muestra arriba (opcional, hasta 60 caracteres). */ clinicName?: string };
+export type ClinicianProfile = { firstName: string; lastName: string; rut: string; specialty: string; /** Otros títulos o especialidades (texto libre, opcional). */ extraTitles?: string; /** Nombre de la clínica o consulta que se muestra arriba (opcional, hasta 60 caracteres). */ clinicName?: string; /** País de ejercicio (lista fija; por defecto Chile). */ country?: string };
 export type ProfileCheck = { ok: true; profile: ClinicianProfile } | { ok: false; error: string };
 
 const clean = (value: string) => value.toUpperCase().replace(/[^0-9K]/g, "");
@@ -62,7 +73,7 @@ export function checkProfile(input: unknown): ProfileCheck {
   if (!(SPECIALTIES as readonly string[]).includes(specialty)) return { ok: false, error: "Elige tu especialidad." };
   const extraTitles = tidy(raw.extraTitles).slice(0, 300);
   const clinicName = tidy(raw.clinicName).slice(0, 60);
-  return { ok: true, profile: { firstName, lastName, rut: formatDocument(rut, documentType), specialty, extraTitles, clinicName } };
+  return { ok: true, profile: { firstName, lastName, rut: formatDocument(rut, documentType), specialty, extraTitles, clinicName, country: asCountry(raw.country) } };
 }
 
 export const displayName = (profile: Pick<ClinicianProfile, "firstName" | "lastName">) => `Dr(a). ${profile.firstName} ${profile.lastName}`;

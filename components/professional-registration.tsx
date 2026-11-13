@@ -1,11 +1,11 @@
 "use client";
 import { useState } from "react";
 import { LogOut } from "lucide-react";
-import { SPECIALTIES, checkProfile, displayName, formatDocument, type ClinicianProfile, type ProfessionalDocumentType } from "@/lib/clinician-profile";
+import { COUNTRIES, SPECIALTIES, checkProfile, displayName, formatDocument, type ClinicianProfile, type ProfessionalDocumentType } from "@/lib/clinician-profile";
 
 /** Registro mínimo en el primer ingreso: nombre, apellido, RUT y especialidad. Bloquea la app hasta completarlo. */
 export function ProfessionalRegistration({ email, onSaved }: { email: string; onSaved: (profile: ClinicianProfile) => void }) {
-  const [form, setForm] = useState({ firstName: "", lastName: "", rut: "", specialty: "", documentType: "rut" as ProfessionalDocumentType });
+  const [form, setForm] = useState({ firstName: "", lastName: "", rut: "", specialty: "", country: "Chile", documentType: "rut" as ProfessionalDocumentType });
   const [error, setError] = useState(""), [saving, setSaving] = useState(false), [connectDrive, setConnectDrive] = useState(true), [connectCalendar, setConnectCalendar] = useState(true);
   const set = (key: keyof typeof form) => (value: string) => setForm((current) => ({ ...current, [key]: value }));
   const field = "mt-1 block min-h-11 w-full rounded-lg border border-[#d2d4df] bg-white px-3 text-base text-[#35343f] focus-visible:outline-2 focus-visible:outline-[#473a6d]";
@@ -42,6 +42,11 @@ export function ProfessionalRegistration({ email, onSaved }: { email: string; on
             <label className="text-sm font-medium text-[#35343f]">Nombre<input className={field} autoComplete="given-name" value={form.firstName} onChange={(e) => set("firstName")(e.target.value)} required /></label>
             <label className="text-sm font-medium text-[#35343f]">Apellido<input className={field} autoComplete="family-name" value={form.lastName} onChange={(e) => set("lastName")(e.target.value)} required /></label>
           </div>
+          <label className="text-sm font-medium text-[#35343f]">País
+            <select className={field} value={form.country} onChange={(e) => { const country = e.target.value, documentType: ProfessionalDocumentType = country === "Chile" ? "rut" : "extranjero"; setForm((c) => ({ ...c, country, documentType, rut: formatDocument(c.rut, documentType) })); }} data-testid="professional-country">
+              {COUNTRIES.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+          </label>
           <label className="text-sm font-medium text-[#35343f]">Tipo de documento
             <select className={field} value={form.documentType} onChange={(e) => setForm((c) => ({ ...c, documentType: e.target.value === "extranjero" ? "extranjero" : "rut", rut: formatDocument(c.rut, e.target.value === "extranjero" ? "extranjero" : "rut") }))} data-testid="professional-document-type">
               <option value="rut">RUT chileno</option>

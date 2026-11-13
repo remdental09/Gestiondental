@@ -1,13 +1,13 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
-import { SPECIALTIES, checkProfile, displayName, formatDocument, professionalDocumentTypeOf, type ClinicianProfile, type ProfessionalDocumentType } from "@/lib/clinician-profile";
+import { COUNTRIES, SPECIALTIES, checkProfile, displayName, formatDocument, professionalDocumentTypeOf, type ClinicianProfile, type ProfessionalDocumentType } from "@/lib/clinician-profile";
 
 const field = "mt-1 block min-h-11 w-full rounded-lg border border-[#d2d4df] bg-white px-3 text-base text-[#35343f] focus-visible:outline-2 focus-visible:outline-[#473a6d]";
 
 /** «Mi perfil»: el profesional corrige sus datos o suma un título. Queda ligado al correo con el que ingresó; el correo no se edita aquí. */
 export function ProfileDialog({ email, onClose, onSaved }: { email: string; onClose: () => void; onSaved: (profile: ClinicianProfile) => void }) {
-  const [form, setForm] = useState({ firstName: "", lastName: "", rut: "", specialty: "", extraTitles: "", clinicName: "", documentType: "rut" as ProfessionalDocumentType });
+  const [form, setForm] = useState({ firstName: "", lastName: "", rut: "", specialty: "", extraTitles: "", clinicName: "", country: "Chile", documentType: "rut" as ProfessionalDocumentType });
   const [original, setOriginal] = useState<typeof form | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(""), [saving, setSaving] = useState(false), [done, setDone] = useState("");
@@ -21,7 +21,7 @@ export function ProfileDialog({ email, onClose, onSaved }: { email: string; onCl
         const response = await fetch("/api/profile", { cache: "no-store" });
         const data = await response.json() as { profile?: ClinicianProfile | null; error?: string };
         if (!response.ok) throw new Error(data.error || "No se pudo leer tu perfil.");
-        const loaded = { firstName: data.profile?.firstName ?? "", lastName: data.profile?.lastName ?? "", rut: data.profile?.rut ?? "", specialty: data.profile?.specialty ?? "", extraTitles: data.profile?.extraTitles ?? "", clinicName: data.profile?.clinicName ?? "", documentType: professionalDocumentTypeOf(data.profile?.rut) };
+        const loaded = { firstName: data.profile?.firstName ?? "", lastName: data.profile?.lastName ?? "", rut: data.profile?.rut ?? "", specialty: data.profile?.specialty ?? "", extraTitles: data.profile?.extraTitles ?? "", clinicName: data.profile?.clinicName ?? "", country: data.profile?.country || "Chile", documentType: professionalDocumentTypeOf(data.profile?.rut) };
         if (active) { setForm(loaded); setOriginal(loaded); setLoading(false); setTimeout(() => firstRef.current?.focus(), 0); }
       } catch (e) { if (active) { setError(e instanceof Error ? e.message : "No se pudo leer tu perfil."); setLoading(false); } }
     })();
@@ -48,7 +48,7 @@ export function ProfileDialog({ email, onClose, onSaved }: { email: string; onCl
       const response = await fetch("/api/profile", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
       const data = await response.json().catch(() => ({})) as { error?: string; profile?: ClinicianProfile };
       if (!response.ok || !data.profile) { setError(data.error || "No se pudo guardar. Inténtalo de nuevo."); return; }
-      const saved = { firstName: data.profile.firstName, lastName: data.profile.lastName, rut: data.profile.rut, specialty: data.profile.specialty, extraTitles: data.profile.extraTitles ?? "", clinicName: data.profile.clinicName ?? "", documentType: professionalDocumentTypeOf(data.profile.rut) };
+      const saved = { firstName: data.profile.firstName, lastName: data.profile.lastName, rut: data.profile.rut, specialty: data.profile.specialty, extraTitles: data.profile.extraTitles ?? "", clinicName: data.profile.clinicName ?? "", country: data.profile.country || "Chile", documentType: professionalDocumentTypeOf(data.profile.rut) };
       setForm(saved); setOriginal(saved); setDone("Perfil actualizado.");
       onSaved(data.profile);
     } catch { setError("No se pudo conectar. Revisa tu conexión e inténtalo de nuevo."); }
@@ -71,6 +71,11 @@ export function ProfileDialog({ email, onClose, onSaved }: { email: string; onCl
             <label className="text-sm font-medium text-[#35343f]">Nombre<input ref={firstRef} className={field} autoComplete="given-name" value={form.firstName} onChange={e => set("firstName")(e.target.value)} /></label>
             <label className="text-sm font-medium text-[#35343f]">Apellido<input className={field} autoComplete="family-name" value={form.lastName} onChange={e => set("lastName")(e.target.value)} /></label>
           </div>
+          <label className="text-sm font-medium text-[#35343f]">País
+            <select className={field} value={form.country} onChange={(e) => { const country = e.target.value, documentType: ProfessionalDocumentType = country === "Chile" ? "rut" : "extranjero"; setForm((c) => ({ ...c, country, documentType, rut: formatDocument(c.rut, documentType) })); }} data-testid="professional-country">
+              {COUNTRIES.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+          </label>
           <label className="text-sm font-medium text-[#35343f]">Tipo de documento
             <select className={field} value={form.documentType} onChange={(e) => setForm((c) => ({ ...c, documentType: e.target.value === "extranjero" ? "extranjero" : "rut", rut: formatDocument(c.rut, e.target.value === "extranjero" ? "extranjero" : "rut") }))} data-testid="professional-document-type">
               <option value="rut">RUT chileno</option>
