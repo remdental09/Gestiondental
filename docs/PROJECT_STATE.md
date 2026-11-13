@@ -342,3 +342,6 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 
 ## Resumen previo a la cita (2026-11-13)
 - En «Tu día», la tarjeta del siguiente paciente muestra «Antes de atender»: alertas de la anamnesis (alergias, anticoagulantes, enfermedades de riesgo), datos sin registrar, antecedentes, última atención con días transcurridos, diagnósticos recientes, pendientes del plan (piezas FDI con punto) y saldo. Lógica pura en `lib/patient-brief.ts`; no usa IA ni deduce nada; lo no informado figura «sin registrar», nunca «niega». Pendiente: verificar en el sitio publicado tras el despliegue.
+
+## Dictado de lesiones apicales y fracturas (2026-11-13)
+- El dictado propone los 13 estados nuevos (periodontitis/absceso/granuloma/quiste/osteítis apicales, fisura y fracturas) cuando el profesional los dicta con su nombre; reglas en `lesionStatusFrom` (`lib/dictation/proposal.ts`). No los propone si están negados, descartados, sospechados, relatados por el paciente o ambiguos («absceso apical» sin agudo/crónico, «fractura» sin tipo). Conviven con lo observado en las caras. Limitaciones: un solo estado por pieza (gana el último dictado) y «endodoncia previa» sigue sin dictarse: vive en el endograma, no en el odontograma.
