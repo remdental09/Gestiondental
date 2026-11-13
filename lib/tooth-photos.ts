@@ -418,3 +418,11 @@ export function toothVideoFor(fdi: number, status?: string): ToothVideo | null {
   const mirror = quadrant === 2 || quadrant === 3;
   return { src: `/dientes/video/${name}.mp4`, poster: `/dientes/video/${name}.jpg`, transform: mirror ? "scaleX(-1)" : undefined };
 }
+
+/**
+ * La ventana de la pieza muestra foto o video (en vez del modelo 3D) solo si la pieza consta «Sin hallazgos», no tiene
+ * hallazgos por superficie y no se abre desde el periodontograma. Corona, implante, ausente, lesiones y fracturas siguen en 3D.
+ */
+export function isHealthyWindow(status: string | undefined, surfaceFindings: number, hasPerio: boolean): boolean {
+  return status === "Sin hallazgos" && surfaceFindings === 0 && !hasPerio;
+}
