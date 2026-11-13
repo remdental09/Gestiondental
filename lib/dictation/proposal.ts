@@ -4,6 +4,7 @@ import { applyAiReview, clinicalCoherence, parseReview, parseReviewExtras, REVIE
 import { isDeducedSuggestion, type Learned } from "./learning.ts";
 import { ACTS_PROMPT, ACTS_SCHEMA, addFacesFromActs, applyActsToOdontogram, parseActs, type ClinicalAct } from "./clinical-acts.ts";
 import { buildMinsalClinicalContext } from "./minsal-knowledge.ts";
+import { isPriorEndoSentence, priorEndoYear } from "./prior-endo.ts";
 import { buildEndoPerioContext } from "./endoperio-knowledge.ts";
 import { IDENTITY_NORMALIZATION_PROMPT, normalizeIdentityNumbers } from "./identity-numbers.ts";
 import { CLINICAL_WRITING_PROMPT, TOOTH_NUMBERING_PROMPT, procedureCovered, deduplicateProcedureSentences } from "./clinical-writing.ts";
@@ -223,6 +224,16 @@ export type PaymentChange = {
   budgetRef?: string;
 };
 
+/** La pieza ya viene con endodoncia hecha antes de esta atención: se propone para el endograma («Previamente tratado»). */
+export type PriorEndoChange = {
+  id: string;
+  tooth: number;
+  numberingLabel: string;
+  /** Año aproximado si se dijo («del 2018», «hace 5 años»); "" si no. */
+  year: string;
+  evidence: string;
+  origin: ItemOrigin;
+};
 /** Próxima cita dictada. day en YYYY-MM-DD y time en HH:MM, ambos en hora de Chile. */
 export type AppointmentChange = {
   id: string;
@@ -267,6 +278,8 @@ export type DictationProposal = {
   recession?: RecessionChange[];
   payments?: PaymentChange[];
   appointments?: AppointmentChange[];
+  /** Endodoncias que la pieza ya tenía (no son un procedimiento de hoy). */
+  priorEndo?: PriorEndoChange[];
   /** Tipo de evolución (control, obturación, higiene…): define el título y si se espera tocar el odontograma. */
   evolutionKind?: EvolutionKind;
   /** Nombre oído en el saludo («quiero evolucionar la ficha de …»), para compararlo con la ficha abierta. */
@@ -1368,7 +1381,7 @@ export function deducedDiagnoses(odontogram: OdontogramChange[], diagnoses: Diag
   const teeth: number[] = [];
   const add = (tooth: number) => { if (!teeth.includes(tooth)) teeth.push(tooth); };
   for (const change of odontogram) if (!change.advisory) add(change.tooth);
-  for (const text of all) if (ENDO_DONE.test(text) || RESTORATION_DONE.test(text)) for (const tooth of toothOf(text)) add(tooth);
+  for (const text of all) if ((ENDO_DONE.test(text) && !isPriorEndoSentence(text)) || RESTORATION_DONE.test(text)) for (const tooth of toothOf(text)) add(tooth);
   const adviseOnly = new Set(odontogram.filter((change) => change.advisory).map((change) => change.tooth));
 
   for (const tooth of teeth) {
@@ -1388,7 +1401,7 @@ export function deducedDiagnoses(odontogram: OdontogramChange[], diagnoses: Diag
       suggest(tooth, "DA0A.1", own.find((text) => /\bimplantes?\b/i.test(text)) ?? "");
       continue;
     }
-    if (own.some((text) => ENDO_DONE.test(text))) { ask(tooth, "endodoncia"); continue; }
+    if (own.some((text) => ENDO_DONE.test(text) && !isPriorEndoSentence(text))) { ask(tooth, "endodoncia"); continue; }
     const restored = odontogram.some((change) => change.tooth === tooth && change.kind === "surface" && change.finding?.condition === "restored" && !change.advisory);
     if (restored || own.some((text) => RESTORATION_DONE.test(text) && !/\b(?:corona|carilla|incrustaci)/i.test(text))) ask(tooth, "restauracion");
   }
@@ -1589,6 +1602,7 @@ export function structureTranscript(transcript: string, options: { today?: strin
   const appointments: AppointmentChange[] = [];
   const incomplete: OdontogramChange[] = [];
   const ficha: FichaChange[] = [];
+  const priorEndo: PriorEndoChange[] = [];
   const seen = new Set<string>();
   let counter = 0;
   const nextId = (prefix: string) => `${prefix}-${++counter}`;
@@ -1604,6 +1618,12 @@ export function structureTranscript(transcript: string, options: { today?: strin
   // «El diagnóstico está claro…» no es un diagnóstico perdido si en otra frase sí se dictó uno reconocido.
   const transcriptHasDiagnosis = allSentences.some((line) => isDiagnosisSentence(line));
   for (const [sentenceIndex, sentence] of allSentences.entries()) {
+    if (isPriorEndoSentence(sentence)) {
+      for (const found of toothMentions(sentence)) {
+        if (!found.ok || priorEndo.some((item) => item.tooth === found.tooth)) continue;
+        priorEndo.push({ id: nextId("epr"), tooth: found.tooth, numberingLabel: found.numberingLabel, year: priorEndoYear(sentence, today), evidence: clip(sentence, 300), origin: "reglas" });
+      }
+    }
     const field = fichaFrom(sentence);
     if (field && toothMentions(sentence).length === 0) {
       for (const part of fichaParts(sentence)) {
@@ -1953,7 +1973,7 @@ export function structureTranscript(transcript: string, options: { today?: strin
     payments,
     appointments,
   });
-  return { ...routed, evolution: composeEvolution(transcript, routed.odontogram, routed.clarifications, ficha) };
+  return { ...routed, ...(priorEndo.length ? { priorEndo } : {}), evolution: composeEvolution(transcript, routed.odontogram, routed.clarifications, ficha) };
 }
 
 // ---------------------------------------------------------------------------
@@ -3675,6 +3695,7 @@ export function mergeProposals(ai: AiExtraction, local: DictationProposal, trans
     ...(local.recession?.length ? { recession: local.recession } : {}),
     payments: [...(ai.payments ?? []), ...(local.payments ?? [])],
     appointments: [...(ai.appointments ?? []), ...(local.appointments ?? [])],
+    ...(local.priorEndo?.length ? { priorEndo: local.priorEndo } : {}),
   });
   const finalBudget = renumber(routed.budget, "pre");
   const finalPayments = renumber(routed.payments ?? [], "pag").map((item) => {

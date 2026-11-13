@@ -86,6 +86,7 @@ type Reload = {
 type ReviewTooth = OdontogramChange & { decision: "accepted" | "rejected"; toothText: string; incompleteCaries?: boolean };
 type ReviewFicha = FichaChange & { decision: "accepted" | "rejected" };
 type Decided = "accepted" | "rejected";
+type ReviewPriorEndo = { id: string; tooth: number; year: string; evidence: string; decision: Decided };
 type ReviewPerio = { id: string; toothText: string; site: PerioSite | ""; depthText: string; bleeding: boolean; suppuration: boolean; decision: Decided; evidence?: string; origin?: ItemOrigin; pending: boolean };
 type ReviewMobility = MobilityChange & { decision: Decided; toothText: string };
 type ReviewRecession = RecessionChange & { decision: Decided; toothText: string; mmText: string };
@@ -197,6 +198,7 @@ export function ClinicalDictation({
   patient,
   persist,
   onApplied,
+  onPriorEndo,
   budgetOptions = [],
   plannedItems = [],
   request = null,
@@ -214,6 +216,8 @@ export function ClinicalDictation({
   /** Prestaciones del plan con pieza, para enlazar la evolución con el tratamiento que avanza. */
   plannedItems?: (PlannedLink & { tooth: number })[];
   onApplied: (data: Reload) => void;
+  /** Guarda en el endograma las endodoncias previas confirmadas (caso «Previamente tratado»). Sin esto, la propuesta no se muestra. */
+  onPriorEndo?: (items: { tooth: number; year: string }[]) => Promise<void>;
   /** Abre el dictado desde otro lugar (p. ej. «Nueva evolución») con un texto ya escrito o dictado, y lo corrige con IA. */
   request?: { nonce: number; text: string; ignoreCommand?: boolean; incorporate?: boolean } | null;
   /** Evoluciones del paciente, para resolver órdenes dictadas («elimina el último dictado…»). */
@@ -262,6 +266,7 @@ export function ClinicalDictation({
   const [classItem, setClassItem] = useState<(PerioClassificationChange & { decision: Decided }) | null>(null);
   const [paymentItems, setPaymentItems] = useState<ReviewPayment[]>([]);
   const [appointmentItems, setAppointmentItems] = useState<ReviewAppointment[]>([]);
+  const [priorEndoItems, setPriorEndoItems] = useState<ReviewPriorEndo[]>([]);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [answering, setAnswering] = useState<string | null>(null);
   // Respuesta dictada: el micrófono se detiene solo (60 s como máximo, u 8 s de silencio después de hablar). Aplicar las respuestas es decisión del dentista.
@@ -324,6 +329,7 @@ export function ClinicalDictation({
     setRecessionItems([]);
     setPaymentItems([]);
     setAppointmentItems([]);
+    setPriorEndoItems([]);
     setDxItems([]);
     setDxSearch("");
     setAnsweredDxPrompts([]);
@@ -447,6 +453,7 @@ export function ClinicalDictation({
       ]);
       setBudgets(data.proposal.budget.map((item) => ({ ...item, decision: "accepted", amountText: item.amount > 0 ? String(item.amount) : "" })));
       setFichaItems((data.proposal.ficha ?? []).map((item) => ({ ...item, decision: patient ? "accepted" : "rejected" })));
+      setPriorEndoItems(onPriorEndo ? (data.proposal.priorEndo ?? []).map((item) => ({ id: item.id, tooth: item.tooth, year: item.year, evidence: item.evidence, decision: "accepted" as const })) : []);
       setNotRecorded([]);
       requestId.current = "";
       session.current = crypto.randomUUID();
@@ -680,12 +687,13 @@ export function ClinicalDictation({
     const diagnosis = diagnosisPlan(acceptedTeeth);
     const dxPlan = "error" in diagnosis ? null : diagnosis;
     if (!dxPlan) reviewWarnings.push((diagnosis as { error: string }).error + " Los datos estructurados de diagnóstico quedaron pendientes; la nota clínica se guarda.");
+    const acceptedPriorEndo = priorEndoItems.filter((item) => item.decision === "accepted" && /^(\d{4})?$/.test(item.year.trim()));
     const acceptedFicha = fichaItems.filter((item) => item.decision === "accepted");
     const fichaUpdate = patient ? planFichaUpdate(patient, acceptedFicha) : null;
     const saveEvolution = evolutionBody.trim().length > 0;
     const finalBody = saveEvolution ? withPrestacionesSection(finalizeEvolution(evolutionBody, acceptedTeeth, dxPlan?.items.length ? dxPlan.items : undefined), prestItems.filter((item) => item.decision === "accepted")) : "";
     const dxTags = saveEvolution ? dxPlan?.tags ?? [] : [];
-    if (!saveEvolution && !acceptedTeeth.length && !acceptedBudgets.length && !fichaUpdate && !acceptedPayments.length && !acceptedAppointments.length && !savePerio) {
+    if (!saveEvolution && !acceptedTeeth.length && !acceptedBudgets.length && !fichaUpdate && !acceptedPayments.length && !acceptedAppointments.length && !acceptedPriorEndo.length && !savePerio) {
       setFormError("No hay una evolución ni cambios estructurados listos para guardar. Revisa la nota o los campos opcionales.");
       return;
     }
@@ -779,6 +787,9 @@ export function ClinicalDictation({
       for (const item of acceptedAppointments) {
         const savedId = await once(item.key, async () => (await persist({ action: "addAppointment", patientId, day: item.day, time: item.time, reason: item.reason })).appointment?.id);
         savedAppointments.push({ day: item.day, time: item.time, reason: item.reason, savedId });
+      }
+      if (acceptedPriorEndo.length && onPriorEndo) {
+        await once(`endo-previa:${acceptedPriorEndo.map((item) => `${item.tooth}/${item.year.trim()}`).join(",")}`, async () => { await onPriorEndo(acceptedPriorEndo.map((item) => ({ tooth: item.tooth, year: item.year.trim() }))); return undefined; });
       }
       if (savePerio) {
         const key = `perio:${JSON.stringify(perioReadings)}:${JSON.stringify(perioMobility)}:${JSON.stringify(perioRecessions)}:${JSON.stringify(perioClassification)}`;
@@ -1206,6 +1217,21 @@ export function ClinicalDictation({
               <h3 className="font-semibold">Procedimientos realizados (según la IA)</h3>
               <p className="mt-1 text-xs text-[#615f73]">Van en la nota; revísalos ahí.</p>
               <ul className="mt-2 space-y-2">{(proposal.procedures ?? []).map((item) => <li key={item.id} className="rounded-lg bg-[#f1f0f5] p-3">{item.text}{!item.verified && <span className="ml-2 text-xs font-medium text-amber-800">Sin cita literal en el dictado</span>}<Evidence text={item.verified ? item.evidence : undefined} /></li>)}</ul>
+            </section>}
+            {priorEndoItems.length > 0 && <section className="space-y-3" data-testid="dictation-prior-endo">
+              <h3 className="font-semibold">Endodoncias previas</h3>
+              <p className="text-xs text-[#6b6a7c]">La pieza ya venía con tratamiento de conductos. Se registra en el endograma como «Previamente tratado»; no es un procedimiento de hoy ni se cobra.</p>
+              {priorEndoItems.map((item, index) => <article key={item.id} className={`rounded-xl border p-4 ${item.decision === "accepted" ? "border-emerald-200" : "border-[#e6e4ee] opacity-70"}`}>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm"><span className="text-[#6b6a7c]">Pieza </span><span className="font-medium">FDI {formatFdi(item.tooth)}</span></p>
+                  <div className="flex gap-2">
+                    <Button type="button" size="sm" variant={item.decision === "accepted" ? "default" : "outline"} onClick={() => setPriorEndoItems((current) => current.map((entry, i) => i === index ? { ...entry, decision: "accepted" } : entry))}>Registrar</Button>
+                    <Button type="button" size="sm" variant={item.decision === "rejected" ? "default" : "outline"} onClick={() => setPriorEndoItems((current) => current.map((entry, i) => i === index ? { ...entry, decision: "rejected" } : entry))}>No registrar</Button>
+                  </div>
+                </div>
+                {item.decision === "accepted" && <Input className="mt-2 max-w-[220px]" inputMode="numeric" maxLength={4} placeholder="Año aprox. (opcional)" aria-label={`Año de la endodoncia previa de ${formatFdi(item.tooth)}`} value={item.year} onChange={(event) => setPriorEndoItems((current) => current.map((entry, i) => i === index ? { ...entry, year: event.target.value.replace(/\D/g, "").slice(0, 4) } : entry))} />}
+                <Evidence text={item.evidence} />
+              </article>)}
             </section>}
             {fichaItems.length > 0 && <section className="space-y-3">
               <h3 className="font-semibold">Ficha del paciente</h3>
