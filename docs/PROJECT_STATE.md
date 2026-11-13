@@ -356,3 +356,7 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 - Antes la sincronización con Google importaba el calendario principal y todos los «seleccionados» de la cuenta (familia, calendarios compartidos como el de la técnico), y se mezclaban en la agenda clínica y en el resumen semanal. Ahora solo se importan los calendarios marcados en «Google Calendar» (tabla `calendar_choices`); por defecto, solo el principal. Los eventos de los no elegidos se retiran de la agenda al sincronizar.
 - El correo de la técnico (resumen semanal) es solo destinatario: no es una fuente de agenda.
 - Pendiente: citas antiguas importadas por .ics bajo el id `lpaulr@gmail.com` pueden duplicar las de Google.
+
+## Ventana de la pieza sana con foto realista (2026-11-13)
+- La ventana que se abre al tocar una pieza sana («Sin hallazgos», sin periodontograma) muestra primero la foto realista de `public/dientes`, invertida si la pieza es superior (raíz arriba). El modelo 3D sigue a un clic («Ver modelo 3D»); con hallazgos o periodontograma se mantiene el 3D.
+- Pendiente: reemplazar las fotos «sano» (hoy con pulpa visible) por versiones opacas y generar las de cada patología, empezando por el incisivo central superior.
