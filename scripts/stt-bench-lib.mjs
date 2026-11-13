@@ -12,6 +12,7 @@ export function baseNormalize(text) {
     .normalize("NFD").replace(/[̀-ͯ]/g, "")
     .replace(/\u0001/g, "ñ")
     .replace(/(\d),(\d)/g, "$1.$2")
+    .replace(/%/g, " por ciento ")
     .replace(/[^\p{L}\p{N}.\s]/gu, " ")
     .replace(/(^|\s)\.+|\.+(?=\s|$)/g, " ")
     .replace(/\s+/g, " ")
@@ -36,7 +37,7 @@ export function spokenNumbersToDigits(text) {
   return out.join(" ");
 }
 
-export function normalize(text) { return spokenNumbersToDigits(baseNormalize(text)); }
+export function normalize(text) { return spokenNumbersToDigits(baseNormalize(text)).replace(/(\d+) y medio\b/g, "$1.5"); }
 
 export function tokens(text) { const n = normalize(text); return n ? n.split(" ") : []; }
 
