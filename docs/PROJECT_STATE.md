@@ -345,3 +345,9 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 
 ## Dictado de lesiones apicales y fracturas (2026-11-13)
 - El dictado propone los 13 estados nuevos (periodontitis/absceso/granuloma/quiste/osteítis apicales, fisura y fracturas) cuando el profesional los dicta con su nombre; reglas en `lesionStatusFrom` (`lib/dictation/proposal.ts`). No los propone si están negados, descartados, sospechados, relatados por el paciente o ambiguos («absceso apical» sin agudo/crónico, «fractura» sin tipo). Conviven con lo observado en las caras. Limitaciones: un solo estado por pieza (gana el último dictado) y «endodoncia previa» sigue sin dictarse: vive en el endograma, no en el odontograma.
+
+## Varios estados por pieza (2026-11-13)
+- Una pieza puede tener su estado principal (`teeth`) más lesiones/fracturas adicionales en `OdontogramData.extras` (p. ej. Corona + Granuloma apical). Las lesiones se acumulan sin duplicarse; Ausente, Implante, Indicación de exodoncia y Sin hallazgos las limpian; una lesión no se agrega a una pieza ausente/implante.
+- Lógica pura en `lib/tooth-status.ts` (`applyToothStatus`, `removeToothLesion`, `applyStatusToChart`, `removeLesionFromChart`); la usan la API (`setToothStatus`, nueva acción `removeToothLesion`) y el MCP.
+- El historial (`ToothHistorySnapshot.extras`) y la línea de tiempo reproducen las lesiones adicionales. La ficha muestra chips «También en FDI x» con ×, y la celda un «+n».
+- Cambia el odontograma: requiere segunda revisión independiente antes de fusionar. Depende de #236 (rama basada en dictado-estados-nuevos).

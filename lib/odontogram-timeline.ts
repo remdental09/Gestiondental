@@ -22,6 +22,7 @@ export function snapshotOf(chart: OdontogramData, tooth: number): ToothHistorySn
     surfaces: clone(chart.surfaces[tooth] ?? {}),
     missingReason: chart.missingReason[tooth] ?? null,
     crown: clone(chart.crowns?.[tooth] ?? null),
+    ...(chart.extras?.[tooth]?.length ? { extras: [...chart.extras[tooth]] } : {}),
   };
 }
 
@@ -34,6 +35,7 @@ export function applyEffect(state: ToothHistorySnapshot, event: ToothHistoryEven
   if (before.status !== after.status) next.status = after.status;
   if (!same(before.missingReason, after.missingReason)) next.missingReason = after.missingReason;
   if (!same(before.crown, after.crown)) next.crown = clone(after.crown);
+  if (!same(before.extras ?? [], after.extras ?? [])) { if (after.extras?.length) next.extras = [...after.extras]; else delete next.extras; }
   for (const surface of SURFACES) {
     if (same(before.surfaces?.[surface], after.surfaces?.[surface])) continue;
     if (after.surfaces?.[surface]) next.surfaces = { ...next.surfaces, [surface]: clone(after.surfaces[surface]) };
@@ -46,6 +48,8 @@ function writeSnapshot(chart: OdontogramData, tooth: number, state: ToothHistory
   if (state.status && state.status !== "Sin hallazgos") chart.teeth[tooth] = state.status; else delete chart.teeth[tooth];
   if (Object.keys(state.surfaces ?? {}).length) chart.surfaces[tooth] = clone(state.surfaces); else delete chart.surfaces[tooth];
   if (state.missingReason) chart.missingReason[tooth] = state.missingReason; else delete chart.missingReason[tooth];
+  chart.extras = chart.extras ?? {};
+  if (state.extras?.length) chart.extras[tooth] = [...state.extras]; else delete chart.extras[tooth];
   chart.crowns = chart.crowns ?? {};
   if (state.crown) chart.crowns[tooth] = clone(state.crown); else delete chart.crowns[tooth];
 }

@@ -1,4 +1,5 @@
 import { and, eq } from "drizzle-orm";
+import { applyStatusToChart, isLesionStatus, pruneChartExtras } from "@/lib/tooth-status";
 import { formatFdi, type OdontogramData } from "@/app/clinical-data";
 import { appendToothHistory, toothHistorySnapshot } from "@/app/odontogram-history";
 import { getDb } from "@/db";
@@ -27,15 +28,17 @@ export async function persistMcpToothStatus(ownerId: string, patientId: number, 
     surfaces: { ...record(source.surfaces) } as OdontogramData["surfaces"],
     missingReason: { ...record(source.missingReason) } as OdontogramData["missingReason"],
     crowns: { ...record(source.crowns) } as NonNullable<OdontogramData["crowns"]>,
+    ...(source.extras != null ? { extras: { ...record(source.extras) } as NonNullable<OdontogramData["extras"]> } : {}),
     history: Array.isArray(source.history) ? [...source.history] as NonNullable<OdontogramData["history"]> : [],
   };
   const crown = data.crowns?.[tooth];
   if (crown != null && (typeof crown !== "object" || Array.isArray(crown))) return { saved: false, error: "El detalle de corona no se pudo leer; no se modificó." };
   const before = toothHistorySnapshot(data, tooth);
-  if (status === "Sin hallazgos") delete data.teeth[tooth];
-  else data.teeth[tooth] = status;
-  if (status === "Corona" && data.crowns?.[tooth]) data.crowns[tooth] = { ...data.crowns[tooth], foundation: "tooth" };
-  else if (!(status === "Implante" && data.crowns?.[tooth]?.foundation === "implant")) delete data.crowns?.[tooth];
+  applyStatusToChart(data, tooth, status);
+  const effective = isLesionStatus(status) && data.teeth[tooth] ? data.teeth[tooth] : status;
+  if (effective === "Corona" && data.crowns?.[tooth]) data.crowns[tooth] = { ...data.crowns[tooth], foundation: "tooth" };
+  else if (!(effective === "Implante" && data.crowns?.[tooth]?.foundation === "implant") && !(effective === "Implante con pilar" && data.crowns?.[tooth])) delete data.crowns?.[tooth];
+  pruneChartExtras(data);
   const updatedAt = new Date().toISOString();
   appendToothHistory(data, tooth, "status", before, { recordedAt: updatedAt, source: "manual", title: status === "Sin hallazgos" ? "Estado registrado: sin hallazgos" : "Estado actualizado: " + status });
   const preserved: Record<string, unknown> = { ...source, ...data };

@@ -289,6 +289,7 @@ export type ChartSnapshot = {
   surfaces: Record<number, Partial<Record<OdontogramSurface, ChartSurface>>>;
   missingReason?: Record<number, "caries" | "other" | "unknown">;
   crowns?: Record<number, { material: string; shade?: string | null; foundation?: "tooth" | "implant" }>;
+  extras?: Record<number, string[]>;
 };
 
 export type StructureInput = {
@@ -4368,7 +4369,7 @@ export function verifyDictationSave(input: {
   for (const tooth of toothIds) {
     const actual = statusOf(chart, tooth);
     const expected = acceptedStatus.get(tooth) ?? statusOf(input.before, tooth);
-    if (actual !== expected) errors.push(`FDI ${formatFdi(tooth)} quedó «${actual}» y se esperaba «${expected}».`);
+    if (actual !== expected && !(chart.extras?.[tooth] ?? []).includes(expected)) errors.push(`FDI ${formatFdi(tooth)} quedó «${actual}» y se esperaba «${expected}».`);
   }
   const checkedSurfaces = new Map<string, string>();
   for (const item of input.accepted) {

@@ -22,6 +22,7 @@ export async function syncInstalledImplants(ownerId: string, patientId: number, 
   const source: OdontogramData = {
     teeth: { ...(raw.teeth ?? {}) }, surfaces: { ...(raw.surfaces ?? {}) },
     missingReason: { ...(raw.missingReason ?? {}) }, crowns: { ...(raw.crowns ?? {}) },
+    ...(raw.extras && typeof raw.extras === "object" && !Array.isArray(raw.extras) ? { extras: { ...raw.extras } } : {}),
     history: Array.isArray(raw.history) ? raw.history : [],
   };
   const projected = projectEvolutionChart(source, implants, crown, chartIsNewer);

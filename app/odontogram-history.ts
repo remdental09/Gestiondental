@@ -11,6 +11,7 @@ export function toothHistorySnapshot(chart: OdontogramData, tooth: number): Toot
     surfaces,
     missingReason: chart.missingReason[tooth] ?? null,
     crown: crown ? { ...crown } : null,
+    ...(chart.extras?.[tooth]?.length ? { extras: [...chart.extras[tooth]] } : {}),
   };
 }
 
