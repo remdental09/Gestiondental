@@ -373,3 +373,7 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 - Al inscribir o editar un paciente (formulario, dictado global, asistente de voz y herramientas MCP) se elige el tipo de documento: «RUN / RUT chileno» (con dígito verificador, como siempre) o «Documento extranjero» (DNI, cédula, DPI, pasaporte…; de 4 a 20 letras o números, con al menos un número). Lógica en `lib/patient-document.ts`.
 - Se guarda en la misma columna `rut`: RUT sin puntos ni guion; documento extranjero en mayúsculas, sin tildes ni separadores. Un valor que no es un RUT válido se reconoce como extranjero. El duplicado se detecta por el mismo valor.
 - Pendiente: el reconocimiento de documentos extranjeros al identificar al paciente por dictado y la búsqueda por documento en «Hoy» siguen pensados para RUT.
+
+## Documento extranjero para el profesional (registro y perfil)
+- El registro del profesional y «Mi perfil» tienen selector «RUT chileno / Documento extranjero». El extranjero acepta 4–20 letras o números (con al menos un número), sin dígito verificador; se guarda limpio en la columna `rut` (sin migración). Al reabrir el perfil, un valor que no es RUT válido se muestra como extranjero.
+- Limitación: el panel del desarrollador sigue rotulando la columna como «RUT».
