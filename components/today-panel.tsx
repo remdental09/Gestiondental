@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CalendarClock, Check, MessageCircle, Search, Wallet } from "lucide-react";
+import { PatientBriefCard } from "@/components/patient-brief-card";
+import type { BriefBudget, BriefNote } from "@/lib/patient-brief";
 import { agendaForDay, confirmationMessage, type EventHints, nextDay, pendingBalances, quickSearch, todayAgenda, whatsappLink, type TodayBudget, type TodayEvent, type TodayPatient, type TodayPayment } from "@/lib/today-agenda";
 
 const money = (amount: number) => "$" + amount.toLocaleString("es-CL");
@@ -10,12 +12,15 @@ const longDate = () => new Intl.DateTimeFormat("es-CL", { weekday: "long", day: 
 const stateLabel = { pasada: "Atendida", ahora: "En curso", siguiente: "Siguiente", luego: "" } as const;
 
 /** Panel del día: lo que importa ahora (próximo paciente, citas, saldos) y un buscador que abre la ficha con 3 letras. */
-export function TodayPanel({ patients, events, budgets, payments, clinicName, onOpenPatient, onOpenAgenda }: {
-  patients: Array<TodayPatient>;
+export function TodayPanel({ patients, events, budgets, payments, clinicName, notes = [], plans = [], onOpenPatient, onOpenAgenda }: {
+  patients: Array<TodayPatient & { allergies?: string }>;
   events: Array<TodayEvent>;
   budgets: TodayBudget[];
   payments: TodayPayment[];
   clinicName?: string;
+  /** Evoluciones y planes de tratamiento, para el resumen previo a la cita. */
+  notes?: Array<BriefNote & { patientId: number }>;
+  plans?: Array<BriefBudget & { patientId: number }>;
   onOpenPatient: (id: number) => void;
   onOpenAgenda: () => void;
 }) {
@@ -76,6 +81,7 @@ export function TodayPanel({ patients, events, budgets, payments, clinicName, on
           {focus.patient
             ? <div className="mt-3 flex flex-wrap items-center gap-3"><button type="button" onClick={() => onOpenPatient(focus.patient!.id)} className="rounded-lg bg-[#473a6d] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#3a2f5a]" data-testid="today-open-ficha">Abrir ficha</button>{focus.state === "siguiente" && confirmRow(focus.event, focus.patient)}</div>
             : <p className="mt-2 text-xs text-[#6b6a7c]">No se reconoce una ficha para esta cita; búscala abajo.</p>}
+          {focus.patient && <PatientBriefCard key={focus.patient.id} patientId={focus.patient.id} legacyAllergies={(focus.patient as { allergies?: string }).allergies} notes={notes.filter(note => note.patientId === focus.patient!.id)} budgets={plans.filter(plan => plan.patientId === focus.patient!.id)} payments={payments.filter(payment => payment.patientId === focus.patient!.id)} />}
         </div>
         : <p className="mt-4 rounded-xl bg-[#f4f3f8] p-4 text-sm text-[#615f73]" data-testid="today-empty">{items.length > 0 ? "Ya no quedan citas por atender hoy." : "No hay citas en tu calendario para hoy."}</p>}
       {pending.length > 1 && <ul className="mt-4 divide-y divide-[#ebeaf1]">{pending.filter(item => item !== focus).map(item => <li key={item.event.id} className="flex flex-wrap items-center justify-between gap-3 py-2 text-sm">
