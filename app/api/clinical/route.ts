@@ -1,5 +1,5 @@
 import { and, desc, eq, ne } from "drizzle-orm";
-import { ALL_TOOTH_STATUSES } from "@/lib/tooth-status";
+import { ALL_TOOTH_STATUSES, applyStatusToChart, isLesionStatus, removeLesionFromChart } from "@/lib/tooth-status";
 import { isCariesDepth } from "@/lib/caries";
 import { env } from "cloudflare:workers";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
@@ -107,7 +107,15 @@ const normalizeOdontogram = (raw: unknown): OdontogramData => {
     if (!value || typeof value !== "object") continue;
     if (value.foundation !== "implant" && value.foundation !== "tooth") delete value.foundation;
   }
-  return { teeth, surfaces, missingReason, crowns, history };
+  const extras: NonNullable<OdontogramData["extras"]> = {};
+  if (source.extras && typeof source.extras === "object" && !Array.isArray(source.extras)) {
+    for (const [key, value] of Object.entries(source.extras)) {
+      if (!/^\d{2}$/.test(key) || !Array.isArray(value)) continue;
+      const list = value.filter((item): item is string => typeof item === "string" && ALL_TOOTH_STATUSES.includes(item));
+      if (list.length) extras[Number(key)] = [...new Set(list)];
+    }
+  }
+  return { teeth, surfaces, missingReason, crowns, extras, history };
 };
 const normalizePerio = (raw: unknown) => {
   const source = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string,unknown> : {};
@@ -738,14 +746,29 @@ export async function POST(request: Request) {
       if ("error" in historyMeta) return error(historyMeta.error);
       if (historyAlreadyRecorded(data, historyMeta)) return Response.json({ odontogram: data });
       const before = toothHistorySnapshot(data, tooth);
-      if (status === "Sin hallazgos") delete data.teeth[tooth];
-      else data.teeth[tooth] = status;
+      applyStatusToChart(data, tooth, status);
       // Coherencia: una pieza ausente o con implante no tiene caras de diente natural (quedan en el historial);
       // una pieza natural no conserva la causa de pérdida (salvo la indicación de exodoncia, que la usa para el COP-D).
       if (["Ausente", "Implante", "Implante con pilar"].includes(status)) delete data.surfaces[tooth];
       else if (status !== "Indicación de exodoncia") delete data.missingReason[tooth];
       if (status === "Corona" && data.crowns?.[tooth]) data.crowns[tooth] = { ...data.crowns[tooth], foundation: "tooth" };
       else if (!(status === "Implante" && data.crowns?.[tooth]?.foundation === "implant")) delete data.crowns?.[tooth];
+      const updatedAt = now();
+      appendToothHistory(data, tooth, "status", before, { recordedAt: updatedAt, ...historyMeta });
+      await db.insert(toothStatuses).values({ ownerId, patientId, data: JSON.stringify(data), updatedAt }).onConflictDoUpdate({ target: toothStatuses.patientId, set: { data: JSON.stringify(data), updatedAt } });
+      return Response.json({ odontogram: data });
+    }
+    if (action === "removeToothLesion") {
+      const tooth = Number(input.tooth), status = string(input.status, 48);
+      if (!Number.isSafeInteger(tooth) || !allowedTeeth.has(tooth) || !isLesionStatus(status)) return error("Estado dental inválido.");
+      const [old] = await db.select().from(toothStatuses).where(and(eq(toothStatuses.ownerId, ownerId), eq(toothStatuses.patientId, patientId)));
+      const data = normalizeOdontogram(old ? JSON.parse(old.data) : {});
+      if (data.teeth[tooth] !== status && !(data.extras?.[tooth] ?? []).includes(status)) return Response.json({ odontogram: data });
+      const historyMeta = await chartHistoryMetadata("Estado retirado: " + status);
+      if ("error" in historyMeta) return error(historyMeta.error);
+      if (historyAlreadyRecorded(data, historyMeta)) return Response.json({ odontogram: data });
+      const before = toothHistorySnapshot(data, tooth);
+      removeLesionFromChart(data, tooth, status);
       const updatedAt = now();
       appendToothHistory(data, tooth, "status", before, { recordedAt: updatedAt, ...historyMeta });
       await db.insert(toothStatuses).values({ ownerId, patientId, data: JSON.stringify(data), updatedAt }).onConflictDoUpdate({ target: toothStatuses.patientId, set: { data: JSON.stringify(data), updatedAt } });

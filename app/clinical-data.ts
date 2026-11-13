@@ -67,6 +67,8 @@ export type ToothHistorySnapshot = {
   surfaces: Partial<Record<OdontogramSurface, SurfaceFinding>>;
   missingReason: "caries" | "other" | "unknown" | null;
   crown: CrownDetails | null;
+  /** Lesiones/fracturas que conviven con el estado principal. Ausente si no hay. */
+  extras?: string[];
 };
 export type ToothHistoryEvent = {
   id: string;
@@ -89,6 +91,8 @@ export type OdontogramData = {
   surfaces: Record<number, Partial<Record<OdontogramSurface, SurfaceFinding>>>;
   missingReason: Record<number, "caries" | "other" | "unknown">;
   crowns?: Record<number, CrownDetails>;
+  /** Lesiones/fracturas adicionales por pieza, además del estado principal de `teeth`. */
+  extras?: Record<number, string[]>;
   /** Historial append-only de cambios del odontograma, cuando está disponible. */
   history?: ToothHistoryEvent[];
 };

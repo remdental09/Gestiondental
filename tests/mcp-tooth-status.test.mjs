@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
 import { appendToothHistory, toothHistorySnapshot } from '../app/odontogram-history.ts';
+import { applyStatusToChart } from '../lib/tooth-status.ts';
 
 const source = readFileSync(new URL('../app/mcp-tooth-status.ts', import.meta.url), 'utf8');
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
@@ -20,6 +21,7 @@ function setup(initial, failVerify = false, concurrent = false) {
     'drizzle-orm': { eq: (...args) => args, and: (...args) => args },
     '@/app/clinical-data': { formatFdi: tooth => `${Math.floor(tooth / 10)}.${tooth % 10}` },
     '@/app/odontogram-history': { appendToothHistory, toothHistorySnapshot },
+    '@/lib/tooth-status': { applyStatusToChart },
     '@/db': { getDb: () => db },
     '@/db/schema': { toothStatuses: { patientId: 'patientId', ownerId: 'ownerId', data: 'data' } },
   };
