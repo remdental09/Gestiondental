@@ -359,4 +359,5 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 
 ## Ventana de la pieza sana con foto realista (2026-11-13)
 - La ventana que se abre al tocar una pieza sana («Sin hallazgos», sin periodontograma) muestra primero la foto realista de `public/dientes`, invertida si la pieza es superior (raíz arriba). El modelo 3D sigue a un clic («Ver modelo 3D»); con hallazgos o periodontograma se mantiene el 3D.
+- La 1.1 (y la 2.1, espejada) muestra un video de giro de 360° (`public/dientes/video/upper-incisivo-central-sano.mp4`, sin sonido y en bucle); el resto de las piezas sanas sigue con foto.
 - Pendiente: reemplazar las fotos «sano» (hoy con pulpa visible) por versiones opacas y generar las de cada patología, empezando por el incisivo central superior.
