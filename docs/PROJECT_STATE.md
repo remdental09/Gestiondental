@@ -356,3 +356,9 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 - Antes la sincronización con Google importaba el calendario principal y todos los «seleccionados» de la cuenta (familia, calendarios compartidos como el de la técnico), y se mezclaban en la agenda clínica y en el resumen semanal. Ahora solo se importan los calendarios marcados en «Google Calendar» (tabla `calendar_choices`); por defecto, solo el principal. Los eventos de los no elegidos se retiran de la agenda al sincronizar.
 - El correo de la técnico (resumen semanal) es solo destinatario: no es una fuente de agenda.
 - Pendiente: citas antiguas importadas por .ics bajo el id `lpaulr@gmail.com` pueden duplicar las de Google.
+
+## Dictado de endodoncia previa (2026-11-13)
+- «La 3.6 viene con endodoncia previa del 2018», «endodoncia antigua en la 1.1», «está endodonciada», «hecha hace 5 años» se reconocen (`lib/dictation/prior-endo.ts`, solo reglas) y se proponen en la revisión del dictado, sección «Endodoncias previas»: pieza y año aproximado editable, «Registrar / No registrar».
+- Al guardar, se agrega al endograma como caso «Previamente tratado» (`priorCase`), en una sola escritura (`setPriorEndos` en `app/page.tsx`). No es un procedimiento de hoy: no sugiere prestación ni pregunta «¿se hizo hoy?».
+- No cuenta como previa: endodoncia indicada o necesaria, hecha hoy, retratamiento, «sin endodoncia», «endodoncia previa a la corona».
+- Limitación: la IA aún no extrae este dato; solo las reglas. Pieza que ya tiene un caso previo: se reemplaza (no se duplica).
