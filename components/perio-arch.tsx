@@ -189,9 +189,9 @@ function ArchRow({ jaw, face, geo, view, images, gumOpacity, selected, teeth, on
       return lv.sites.map((site, k) => {
         const y = view.gumY[Math.max(0, Math.min(view.gumY.length - 1, Math.round(xs[k])))] - 14;
         const tone = depthTone(site.depth);
-        return <span key={`${slot.tooth}-${k}`} aria-hidden="true" title={site.depth === null ? "Sin medir" : `${site.depth} mm${site.bleeding ? ", sangrado" : ""}${site.suppuration ? ", supuración" : ""}`}
-          className={`pointer-events-none absolute flex -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border bg-[#130f1e]/90 font-bold leading-none ${site.depth === null ? "size-2 border-slate-500/60" : `size-[18px] text-[10px] ${TONE_STYLE[tone]}`}`}
-          style={{ left: pctX(xs[k]), top: pctY(y) }}>{site.depth ?? ""}{site.bleeding && site.depth !== null && <i className="absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-[#ff4057]" />}</span>;
+        return <span key={`${slot.tooth}-${k}`} aria-hidden="true" title={!site.measured ? "Valor normal por defecto (sin medir)" : `${site.depth} mm${site.bleeding ? ", sangrado" : ""}${site.suppuration ? ", supuración" : ""}`}
+          className={`pointer-events-none absolute flex -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border bg-[#130f1e]/90 font-bold leading-none size-[18px] text-[10px] ${TONE_STYLE[tone]} ${site.measured ? "" : "opacity-55"}`}
+          style={{ left: pctX(xs[k]), top: pctY(y) }}>{site.depth ?? ""}{site.bleeding && <i className="absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-[#ff4057]" />}</span>;
       });
     })}
   </div>;
@@ -227,7 +227,7 @@ export function PerioArch({ teeth, toothStatuses, selected, onOpen }: { teeth: R
       </div>
     </div>
     <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-[#615f73]">
-      <span className="text-emerald-800">0–3 mm</span><span className="text-amber-900">4–5 mm</span><span className="text-rose-800">≥6 mm</span><span>punto rojo: sangrado · punto amarillo: supuración · punto gris: sin medir</span>
+      <span className="text-emerald-800">0–3 mm</span><span className="text-amber-900">4–5 mm</span><span className="text-rose-800">≥6 mm</span><span>punto rojo: sangrado · punto amarillo: supuración · números tenues: valor normal por defecto, sin medir</span>
       <span>La cresta ósea es una estimación (inserción + 2 mm); la altura real se confirma con radiografía. Pulsa una pieza para acercarla.</span>
     </div>
   </div>;

@@ -43,10 +43,11 @@ test('el orden de sitios es distal, central, mesial en cada cara', () => {
   assert.equal(toothLevels(16, data, 'lingual').sites[0].bleeding, true);
 });
 
-test('sin medir no se confunde con sano, y la cresta estimada nunca sube sobre el margen', () => {
+test('sin medir muestra valores normales marcados como no medidos, y la cresta estimada nunca sube sobre el margen', () => {
   const vacio = siteLevel(undefined);
   assert.equal(vacio.measured, false);
-  assert.equal(vacio.depth, null);
+  assert.equal(vacio.depth, 2);
+  assert.equal(vacio.gumMm, 0);
   const bolsa = siteLevel({ depth: 6, margin: 1, bleeding: true, suppuration: false });
   assert.equal(bolsa.measured, true);
   assert.equal(bolsa.gumMm, 1);
