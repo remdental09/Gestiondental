@@ -67,7 +67,7 @@ function drawJaw(canvas: HTMLCanvasElement, jaw: Jaw, face: ArchFace, geo: Geome
   // Hueso detrás de las raíces
   setT(ctx);
   trace(ctx, view.boneY, 0); ctx.lineTo(width, H + 4); ctx.lineTo(0, H + 4); ctx.closePath();
-  if (images.bone?.naturalWidth) { const pat = ctx.createPattern(images.bone, "repeat"); if (pat) { try { pat.setTransform(new DOMMatrix().scale(0.34)); } catch { /* sin transformación de patrón */ } ctx.fillStyle = "#7d6a58"; ctx.fill(); ctx.globalAlpha = 0.78; ctx.fillStyle = pat; ctx.fill(); ctx.globalAlpha = 1; } }
+  if (images.bone?.naturalWidth) { const pat = ctx.createPattern(images.bone, "repeat"); if (pat) { try { pat.setTransform(new DOMMatrix().scale(0.5)); } catch { /* sin transformación de patrón */ } ctx.fillStyle = "#b49f86"; ctx.fill(); ctx.globalAlpha = 0.9; ctx.fillStyle = pat; ctx.fill(); ctx.globalAlpha = 1; } }
   const shade = ctx.createLinearGradient(0, 0, 0, H);
   shade.addColorStop(0, "rgba(40,22,26,.18)"); shade.addColorStop(1, "rgba(13,10,22,.62)");
   ctx.fillStyle = shade; ctx.fill();

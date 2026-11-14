@@ -1,100 +1,100 @@
-/** Dimensiones y línea amelocementaria (UAC) de cada imagen recortada de public/perio. Generado a partir del banco de piezas. */
+/** Dimensiones y línea amelocementaria (UAC) de cada imagen recortada de public/perio. Generado a partir de las piezas opacas del banco. */
 export const PERIO_ARCH_IMAGES: Record<string, { w: number; h: number; cej: number; crownW: number }> = {
   "upper-incisivo-central": {
-    "w": 188,
-    "h": 479,
-    "cej": 207,
-    "crownW": 170
+    "w": 234,
+    "h": 620,
+    "cej": 237,
+    "crownW": 214
   },
   "upper-incisivo-lateral": {
-    "w": 160,
-    "h": 488,
-    "cej": 214,
-    "crownW": 143
+    "w": 192,
+    "h": 620,
+    "cej": 221,
+    "crownW": 175
   },
   "upper-canino": {
-    "w": 150,
-    "h": 484,
-    "cej": 184,
-    "crownW": 138
+    "w": 174,
+    "h": 620,
+    "cej": 212,
+    "crownW": 159
   },
   "upper-premolar-1": {
-    "w": 229,
-    "h": 506,
-    "cej": 178,
-    "crownW": 219
+    "w": 246,
+    "h": 620,
+    "cej": 252,
+    "crownW": 230
   },
   "upper-premolar-2": {
-    "w": 215,
-    "h": 469,
-    "cej": 185,
-    "crownW": 204
+    "w": 224,
+    "h": 620,
+    "cej": 220,
+    "crownW": 209
   },
   "upper-molar-1": {
-    "w": 311,
-    "h": 509,
-    "cej": 195,
-    "crownW": 292
+    "w": 312,
+    "h": 620,
+    "cej": 252,
+    "crownW": 298
   },
   "upper-molar-2": {
-    "w": 312,
-    "h": 511,
-    "cej": 188,
-    "crownW": 302
+    "w": 313,
+    "h": 620,
+    "cej": 231,
+    "crownW": 297
   },
   "upper-molar-3": {
-    "w": 247,
-    "h": 476,
-    "cej": 176,
-    "crownW": 235
+    "w": 354,
+    "h": 620,
+    "cej": 282,
+    "crownW": 334
   },
   "lower-incisivo-central": {
-    "w": 148,
-    "h": 475,
-    "cej": 196,
-    "crownW": 130
+    "w": 179,
+    "h": 620,
+    "cej": 213,
+    "crownW": 152
   },
   "lower-incisivo-lateral": {
-    "w": 155,
-    "h": 515,
-    "cej": 214,
-    "crownW": 136
+    "w": 188,
+    "h": 620,
+    "cej": 215,
+    "crownW": 170
   },
   "lower-canino": {
-    "w": 141,
-    "h": 519,
-    "cej": 189,
-    "crownW": 128
+    "w": 169,
+    "h": 620,
+    "cej": 213,
+    "crownW": 155
   },
   "lower-premolar-1": {
-    "w": 200,
-    "h": 513,
-    "cej": 197,
-    "crownW": 187
+    "w": 211,
+    "h": 620,
+    "cej": 211,
+    "crownW": 195
   },
   "lower-premolar-2": {
-    "w": 215,
-    "h": 502,
-    "cej": 186,
-    "crownW": 203
+    "w": 228,
+    "h": 620,
+    "cej": 237,
+    "crownW": 211
   },
   "lower-molar-1": {
-    "w": 289,
-    "h": 495,
-    "cej": 172,
-    "crownW": 279
+    "w": 314,
+    "h": 620,
+    "cej": 253,
+    "crownW": 299
   },
   "lower-molar-2": {
-    "w": 295,
-    "h": 490,
-    "cej": 190,
-    "crownW": 284
+    "w": 321,
+    "h": 620,
+    "cej": 247,
+    "crownW": 305
   },
   "lower-molar-3": {
-    "w": 222,
-    "h": 439,
-    "cej": 170,
-    "crownW": 205
+    "w": 330,
+    "h": 620,
+    "cej": 268,
+    "crownW": 314
   },
   "implante": {
     "w": 118,
