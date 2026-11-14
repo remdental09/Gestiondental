@@ -48,10 +48,11 @@ export function guidePrompt(state: GuideState, name = ""): string {
   const tooth = state.order[state.index];
   if (state.step === "await") return `Autoriza la pieza ${spokenTooth(tooth)}.`;
   if (state.step === "flags") return `Pieza ${spokenTooth(tooth)}: ¿sangrado o supuración?`;
+  // Cada frase va en su propia línea: la aplicación las dice por separado, con una pausa, para no mezclar sondaje y margen.
   const margin = state.pos % 2 === 1, site = siteName(tooth, state.pos);
-  if (margin) return `Margen gingival, ${site}.`;
-  if (state.pos === 0) return `${name ? `${name}, pieza` : "Pieza"} ${spokenTooth(tooth)}. ${site}, sondaje.`;
-  return `${site}, sondaje.`;
+  if (margin) return `Ahora, dime el margen gingival de ${site}.`;
+  if (state.pos === 0) return `Pieza ${spokenTooth(tooth)}${name ? `, ${name}` : ""}.\nDime el sondaje de ${site}.`;
+  return `Dime el sondaje de ${site}.`;
 }
 
 /**
@@ -67,13 +68,13 @@ export function guideStart(statuses: Record<number, string | undefined>, name = 
       return { state, say: `La pieza ${spokenTooth(from)} figura ausente o con implante en el odontograma, por eso no se sondea.` };
     }
     const state: GuideState = { order: [from], index: 0, step: "site", pos: 0, misses: 0, noisy: false, absent: [], paused: false, done: false, single: true };
-    return { state, say: `Pieza ${spokenTooth(from)} solamente. ${guidePrompt(state, name)}` };
+    return { state, say: `Pieza ${spokenTooth(from)} solamente.\n${guidePrompt(state, name)}` };
   }
   const order = all;
   const index = Math.max(0, from ? order.indexOf(from) : 0);
   const state: GuideState = { order, index, step: "await", pos: 0, misses: 0, noisy: false, absent: [], paused: false, done: order.length === 0 };
   if (state.done) return { state, say: "No hay piezas para sondear según el odontograma." };
-  return { state, say: `Comenzamos. Son ${order.length} piezas. ${guidePrompt(state, name)}` };
+  return { state, say: `Comenzamos. Son ${order.length} piezas.\n${guidePrompt(state, name)}` };
 }
 
 type FlagSites = Partial<Record<PerioDictationSite, { bleeding?: boolean; suppuration?: boolean }>>;
@@ -139,7 +140,7 @@ export function guideHear(current: GuideState, utterance: string, name = "", typ
     state.misses = 0; state.noisy = false;
     if (index >= state.order.length) { state.done = true; return { state, say: state.single ? `${lead}Pieza ${spokenTooth(tooth)} lista. Revisa la arcada y guarda el examen.` : `${lead}Examen completo. Revisa la arcada y guarda el examen.` }; }
     state.index = Math.max(0, index); state.step = "await"; state.pos = 0;
-    return { state, say: `${lead}${guidePrompt(state, name)}` };
+    return { state, say: `${lead}${lead ? "\n" : ""}${guidePrompt(state, name)}` };
   };
   /** No entendió: repite la pregunta; tras varios intentos seguidos avisa de ruido o varias voces y deja de escuchar. */
   const miss = (reason: string): GuideOutcome => {
@@ -148,7 +149,7 @@ export function guideHear(current: GuideState, utterance: string, name = "", typ
       state.noisy = true; state.paused = true;
       return { state, say: `Hay mucho ruido o varias voces y no puedo escucharte bien. Dejé de escuchar para no anotar datos equivocados. Pulsa «Reintentar escucha» o escribe el valor para completar la pieza ${spokenTooth(tooth)}.` };
     }
-    return { state, say: `${reason} ${guidePrompt(state, name)}` };
+    return { state, say: `${reason}\n${guidePrompt(state, name)}` };
   };
 
   if (has(text, /\b(terminar|termina|termino|finalizar|finaliza)\b/)) { state.done = true; return { state, say: "Examen terminado. Revisa la arcada y guarda el examen." }; }
@@ -207,9 +208,12 @@ export function guideHear(current: GuideState, utterance: string, name = "", typ
   if (flags.suppuration) reading.suppuration = true;
   const apply: PerioDictationTooth = { tooth, sites: { [key]: reading } };
   state.misses = 0;
-  const said = [spokenValues([first]), ...(!margin && second !== undefined ? [`margen ${spokenValues([second])}`] : []), ...(flags.bleeding ? ["sangra"] : []), ...(flags.suppuration ? ["supura"] : [])].join(", ");
+  // Confirmación: nombra qué se anotó y dónde; la siguiente pregunta va aparte, en otra línea.
+  const where = siteName(tooth, state.pos);
+  const extras = [...(flags.bleeding ? ["sangra"] : []), ...(flags.suppuration ? ["supura"] : [])].join(", ");
+  const said = `${margin ? "Margen gingival" : "Sondaje"} ${where}, ${spokenValues([first])}.${!margin && second !== undefined ? ` Margen gingival, ${spokenValues([second])}.` : ""}${extras ? ` ${extras[0].toUpperCase()}${extras.slice(1)}.` : ""}`;
   // Sondaje y margen juntos saltan el paso del margen.
   state.pos += !margin && second !== undefined ? 2 : 1;
   if (state.pos > LAST_POS) { state.step = "flags"; state.pos = 0; }
-  return { state, apply, say: `${said}. ${guidePrompt(state, name)}` };
+  return { state, apply, say: `${said}\n${guidePrompt(state, name)}` };
 }
