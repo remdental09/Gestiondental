@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { guideHear, guideOrder, guideStart, parseGuideFlags } from '../lib/dictation/perio-guide.ts';
+import { guideAuthorize, guideHear, guideOrder, guideStart, parseGuideFlags } from '../lib/dictation/perio-guide.ts';
 
+const begin = (statuses = {}, name = '') => { const start = guideStart(statuses, name).state; return guideAuthorize(start, start.order[start.index], name).state; };
 const run = (state, phrases, name = 'Luis') => phrases.reduce((acc, phrase) => { const out = guideHear(acc.state, phrase, name); return { state: out.state, outs: [...acc.outs, out] }; }, { state, outs: [] });
 
 test('guía periodontal: parte en 1.8 y salta ausentes e implantes del odontograma', () => {
@@ -9,12 +10,12 @@ test('guía periodontal: parte en 1.8 y salta ausentes e implantes del odontogra
   assert.deepEqual(guideOrder({ 18: 'Ausente', 17: 'Implante con pilar' }).slice(0, 2), [16, 15]);
   const start = guideStart({ 18: 'Ausente' }, 'Luis');
   assert.equal(start.state.order[0], 17);
-  assert.match(start.say, /Son 31 piezas\. Pieza uno siete\. Sondaje vestibular, de mesial a distal\./);
+  assert.match(start.say, /Son 31 piezas\. Autoriza la pieza uno siete\./);
   assert.deepEqual(guideOrder({}).slice(15, 18), [28, 38, 37]);
 });
 
 test('guía periodontal: una pieza completa, paso a paso y en orden', () => {
-  const { state, outs } = run(guideStart({}, 'Luis').state, ['tres dos cuatro', 'cinco, seis, cinco', 'cero uno uno', 'menos uno cero cero', 'sangrado mesial vestibular', 'siguiente']);
+  const { state, outs } = run(begin({}, 'Luis'), ['tres dos cuatro', 'cinco, seis, cinco', 'cero uno uno', 'menos uno cero cero', 'sangrado mesial vestibular', 'siguiente']);
   assert.deepEqual(outs[0].apply, { tooth: 18, sites: { MV: { depth: 3 }, V: { depth: 2 }, DV: { depth: 4 } } });
   assert.match(outs[0].say, /^3, 2, 4\. Sondaje palatino\.$/);
   assert.deepEqual(outs[1].apply.sites, { ML: { depth: 5 }, L: { depth: 6 }, DL: { depth: 5 } });
@@ -25,11 +26,12 @@ test('guía periodontal: una pieza completa, paso a paso y en orden', () => {
   assert.deepEqual(outs[4].apply.sites, { MV: { bleeding: true } });
   assert.equal(outs[4].state.step, 'flags');
   assert.equal(state.order[state.index], 17);
-  assert.match(outs[5].say, /^Pieza uno siete\. Sondaje vestibular/);
+  assert.equal(outs[5].say, 'Autoriza la pieza uno siete.');
+  assert.equal(state.step, 'await');
 });
 
 test('guía periodontal: junta los valores dictados con pausas y no acepta de más ni fuera de rango', () => {
-  const start = guideStart({}).state;
+  const start = begin();
   const partial = run(start, ['tres', 'dos', 'cuatro']);
   assert.equal(partial.outs[0].say, 'Faltan dos.');
   assert.equal(partial.outs[1].say, 'Falta uno.');
@@ -42,15 +44,15 @@ test('guía periodontal: junta los valores dictados con pausas y no acepta de m�
 });
 
 test('guía periodontal: ausente quita la pieza del recorrido y avisa para el odontograma', () => {
-  const out = guideHear(guideStart({}).state, 'ausente');
+  const out = guideHear(begin(), 'ausente');
   assert.equal(out.markedAbsent, 18);
   assert.deepEqual(out.state.absent, [18]);
   assert.equal(out.state.order[out.state.index], 17);
-  assert.match(out.say, /^Pieza uno ocho ausente\. Pieza uno siete\./);
+  assert.match(out.say, /^Pieza uno ocho ausente\. Autoriza la pieza uno siete\./);
 });
 
 test('guía periodontal: repetir, atrás, saltar, pausa y terminar', () => {
-  let s = run(guideStart({}).state, ['tres dos cuatro', 'cinco']).state;
+  let s = run(begin(), ['tres dos cuatro', 'cinco']).state;
   assert.deepEqual(s.buffer, [5]);
   s = guideHear(s, 'repetir').state; assert.deepEqual(s.buffer, []); assert.equal(s.step, 'depthL');
   s = guideHear(s, 'atrás').state; assert.equal(s.step, 'depthV');
@@ -67,7 +69,7 @@ test('guía periodontal: sangrado y supuración por cara y sitio; «nada» pasa 
   assert.deepEqual(parseGuideFlags('sangrado vestibular').sites, { MV: { bleeding: true }, V: { bleeding: true }, DV: { bleeding: true } });
   assert.deepEqual(parseGuideFlags('sangrado mesial y distal palatino, supuración distopalatino').sites, { ML: { bleeding: true }, DL: { bleeding: true, suppuration: true } });
   assert.ok('error' in parseGuideFlags('sangrado mesial'));
-  let s = run(guideStart({}).state, ['3 2 4', '3 2 4', '0 0 0', 'normal']).state;
+  let s = run(begin(), ['3 2 4', '3 2 4', '0 0 0', 'normal']).state;
   assert.equal(s.step, 'flags');
   const mixed = guideHear(s, 'sangrado vestibular, sin supuración');
   assert.deepEqual(mixed.apply.sites, { MV: { bleeding: true }, V: { bleeding: true }, DV: { bleeding: true } });
@@ -81,7 +83,28 @@ test('guía periodontal: al terminar la última pieza cierra el examen', () => {
   const statuses = Object.fromEntries([...Array(32).keys()].map(i => [[18, 17, 16, 15, 14, 13, 12, 11, 21, 22, 23, 24, 25, 26, 27, 28, 38, 37, 36, 35, 34, 33, 32, 31, 41, 42, 43, 44, 45, 46, 47][i], 'Ausente']).filter(([k]) => k));
   const start = guideStart(statuses);
   assert.deepEqual(start.state.order, [48]);
-  const end = run(start.state, ['2 2 2', '2 2 2', 'normal', 'normal', 'nada']);
+  const end = run(guideAuthorize(start.state, 48).state, ['2 2 2', '2 2 2', 'normal', 'normal', 'nada']);
   assert.equal(end.state.done, true);
   assert.match(end.outs[4].say, /Examen completo/);
+});
+
+test('guía periodontal: nada se registra hasta que el profesional autoriza la pieza', () => {
+  const start = guideStart({}, 'Luis');
+  assert.equal(start.state.step, 'await');
+  const early = guideHear(start.state, 'tres dos cuatro', 'Luis');
+  assert.equal(early.apply, undefined);
+  assert.equal(early.state.step, 'await');
+  assert.match(early.say, /Primero autoriza la pieza uno ocho/);
+  const ok = guideAuthorize(start.state, 18, 'Luis');
+  assert.equal(ok.state.step, 'depthV');
+  assert.match(ok.say, /^Pieza uno ocho\. Sondaje vestibular/);
+  // El profesional puede autorizar otra pieza distinta de la propuesta.
+  const other = guideAuthorize(start.state, 46, 'Luis');
+  assert.equal(other.state.order[other.state.index], 46);
+  // A mitad de una pieza, un clic en otra no la cambia.
+  const mid = guideAuthorize(ok.state, 17, 'Luis');
+  assert.equal(mid.state.order[mid.state.index], 18);
+  assert.equal(mid.state.step, 'depthV');
+  // Una pieza fuera del recorrido (ausente) no se puede autorizar.
+  assert.equal(guideAuthorize(guideStart({ 16: 'Ausente' }).state, 16).state.step, 'await');
 });

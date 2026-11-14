@@ -1,15 +1,17 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import { Mic, Pause, Play, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatFdi } from "@/app/clinical-data";
 import { pickLatinVoice } from "@/lib/dictation/speech";
-import { guideFace, guideHear, guideStart, innerFace, type GuideState, type GuideStep } from "@/lib/dictation/perio-guide";
+import { guideAuthorize, guideFace, guideHear, guideStart, innerFace, type GuideOutcome, type GuideState, type GuideStep } from "@/lib/dictation/perio-guide";
 import type { PerioDictationResult } from "@/lib/dictation/perio-dictation";
 
 type Recognizer = { lang: string; continuous: boolean; interimResults: boolean; start(): void; stop(): void; abort(): void; onresult: ((event: { resultIndex: number; results: ArrayLike<{ isFinal: boolean; 0: { transcript: string } }> }) => void) | null; onend: (() => void) | null; onerror: ((event: { error: string }) => void) | null };
 const recognizerClass = () => { const w = window as unknown as { SpeechRecognition?: new () => Recognizer; webkitSpeechRecognition?: new () => Recognizer }; return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null; };
+export type PerioGuideHandle = { /** Clic en una pieza de la arcada: devuelve true si la guía está activa y se hizo cargo. */ authorize(tooth: number): boolean; /** Hay un dictado guiado en curso. */ active(): boolean };
 const STEP_LABEL: Record<GuideStep, (tooth: number) => string> = {
+  await: () => "Esperando tu autorización",
   depthV: () => "Sondaje vestibular", depthL: tooth => `Sondaje ${innerFace(tooth)}`,
   marginV: () => "Margen gingival vestibular", marginL: tooth => `Margen gingival ${innerFace(tooth)}`, flags: () => "Sangrado y supuración",
 };
@@ -18,7 +20,8 @@ const STEP_LABEL: Record<GuideStep, (tooth: number) => string> = {
  * Dictado guiado del periodontograma: la aplicación anuncia la pieza y el paso en voz alta, escucha la respuesta
  * y avanza sola. Solo llena el examen en curso; no escribe en la evolución ni guarda.
  */
-export function PerioGuide({ statuses, clinicianName, startTooth, onApply, onFocus, onAbsent, onMarkAbsent }: {
+export function PerioGuide({ ref, statuses, clinicianName, startTooth, onApply, onFocus, onAbsent, onMarkAbsent }: {
+  ref?: Ref<PerioGuideHandle>;
   statuses: Record<number, string>; clinicianName?: string; startTooth?: number;
   onApply: (result: PerioDictationResult) => void;
   onFocus: (tooth: number, face: "vestibular" | "lingual") => void;
@@ -62,18 +65,27 @@ export function PerioGuide({ statuses, clinicianName, startTooth, onApply, onFoc
     setTimeout(finish, 1500 + text.length * 90);
   }, []);
 
-  const hear = useCallback((utterance: string) => {
-    const current = stateRef.current;
-    if (!current || current.done) return;
-    setHeard(utterance);
-    const out = guideHear(current, utterance, firstName);
+  const settle = useCallback((out: GuideOutcome) => {
     stateRef.current = out.state; setState(out.state);
     if (out.markedAbsent) onAbsent(out.markedAbsent);
     if (out.apply) onApply({ teeth: [out.apply], ignored: [] });
     if (!out.state.done) onFocus(out.state.order[out.state.index], guideFace(out.state.step));
     if (out.state.done) { active.current = false; try { recognizer.current?.abort(); } catch { /* nada que detener */ } setListening(false); }
     if (out.say) speak(out.say, listen); else listen();
-  }, [firstName, listen, onAbsent, onApply, onFocus, speak]);
+  }, [listen, onAbsent, onApply, onFocus, speak]);
+  const hear = useCallback((utterance: string) => {
+    const current = stateRef.current;
+    if (!current || current.done) return;
+    setHeard(utterance);
+    settle(guideHear(current, utterance, firstName));
+  }, [firstName, settle]);
+  const authorize = useCallback((tooth: number) => {
+    const current = stateRef.current;
+    if (!current || current.done) return false;
+    settle(guideAuthorize(current, tooth, firstName));
+    return true;
+  }, [firstName, settle]);
+  useImperativeHandle(ref, () => ({ authorize, active: () => Boolean(stateRef.current && !stateRef.current.done) }), [authorize]);
   const hearRef = useRef(hear);
   useEffect(() => { hearRef.current = hear; }, [hear]);
 
@@ -106,7 +118,7 @@ export function PerioGuide({ statuses, clinicianName, startTooth, onApply, onFoc
 
   if (!state) return <div className="mb-2 flex flex-wrap items-center gap-2">
     <Button type="button" onClick={start} className="bg-[#473a6d] hover:bg-[#3a2f5a]"><Mic className="size-4" /> Dictar periodontograma</Button>
-    <span className="text-xs text-[#615f73]">Guiado: la aplicación dice la pieza y el paso; tú respondes.</span>
+    <span className="text-xs text-[#615f73]">Guiado: autorizas cada pieza con un clic y la aplicación te va pidiendo las medidas.</span>
   </div>;
 
   const tooth = state.order[state.index];
@@ -126,7 +138,11 @@ export function PerioGuide({ statuses, clinicianName, startTooth, onApply, onFoc
         <p className="text-2xl font-bold leading-none text-[#2a2540]">Pieza {formatFdi(tooth)} <span className="text-xs font-medium text-[#615f73]">{state.index + 1} de {state.order.length}</span></p>
         <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${state.paused ? "bg-amber-100 text-amber-900" : listening ? "bg-emerald-100 text-emerald-900" : "bg-slate-100 text-slate-700"}`}>{state.paused ? "En pausa" : listening ? "Escuchando" : "Hablando…"}</span>
       </div>
-      <p className="text-sm font-semibold text-[#473a6d]">{STEP_LABEL[state.step](tooth)}{state.step !== "flags" && <span className="font-normal text-[#615f73]"> · mesial, central, distal{state.buffer.length ? ` · llevas ${state.buffer.join(", ")}` : ""}</span>}</p>
+      {state.step === "await" && <div className="rounded-md border border-amber-300 bg-amber-50 p-2">
+        <Button type="button" autoFocus onClick={() => authorize(tooth)} className="w-full bg-[#ef895f] text-base font-semibold text-[#2a2540] hover:bg-[#e67a4d]">Autorizar pieza {formatFdi(tooth)}</Button>
+        <p className="mt-1 text-[11px] leading-4 text-amber-950">La aplicación no anota nada hasta que autorices. Para dictar otra pieza, haz clic sobre ella en la arcada.</p>
+      </div>}
+      <p className="text-sm font-semibold text-[#473a6d]">{STEP_LABEL[state.step](tooth)}{state.step !== "flags" && state.step !== "await" && <span className="font-normal text-[#615f73]"> · mesial, central, distal{state.buffer.length ? ` · llevas ${state.buffer.join(", ")}` : ""}</span>}</p>
       {said && <p className="rounded-md bg-[#f7f6fa] p-2 text-xs text-[#3b3355]"><strong>Aplicación:</strong> {said}</p>}
       {heard && <p className="text-xs text-[#615f73]"><strong>Escuché:</strong> {heard}</p>}
       {error && <p role="alert" className="rounded-md bg-rose-50 p-2 text-xs text-rose-900">{error}</p>}

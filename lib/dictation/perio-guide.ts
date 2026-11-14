@@ -3,12 +3,14 @@
  * solo responde. Lógica pura (sin micrófono ni voz) para poder probarla: cada frase oída produce el estado
  * siguiente, lo que la aplicación dice y, si corresponde, las medidas a aplicar.
  *
- * Por pieza: sondaje vestibular → sondaje palatino/lingual → margen vestibular → margen palatino/lingual →
+ * Cada pieza se dicta solo después de que el profesional la autoriza a mano (clic en la arcada o en el botón):
+ * así ambos están de acuerdo en qué pieza se registra. Por pieza: sondaje vestibular → sondaje palatino/lingual → margen vestibular → margen palatino/lingual →
  * sangrado y supuración. Siempre tres valores de mesial a distal.
  */
 import { describePerioDictation, spokenPerioValues, type PerioDictationSite, type PerioDictationTooth } from "./perio-dictation.ts";
 
-export type GuideStep = "depthV" | "depthL" | "marginV" | "marginL" | "flags";
+/** «await»: la aplicación propone una pieza y espera que el profesional la autorice con un clic antes de escuchar medidas. */
+export type GuideStep = "await" | "depthV" | "depthL" | "marginV" | "marginL" | "flags";
 export type GuideState = { order: number[]; index: number; step: GuideStep; buffer: number[]; absent: number[]; paused: boolean; done: boolean };
 export type GuideOutcome = { state: GuideState; say: string; apply?: PerioDictationTooth; markedAbsent?: number };
 
@@ -34,6 +36,7 @@ export function guidePrompt(state: GuideState, name = ""): string {
   if (state.done) return "Examen terminado. Revisa la arcada y guarda el examen.";
   const tooth = state.order[state.index], inner = innerFace(tooth), who = name ? `, ${name},` : "";
   switch (state.step) {
+    case "await": return `Autoriza la pieza ${spokenTooth(tooth)}.`;
     case "depthV": return `Pieza ${spokenTooth(tooth)}. Sondaje vestibular, de mesial a distal.`;
     case "depthL": return `Sondaje ${inner}.`;
     case "marginV": return `Ahora${who} dime el margen gingival vestibular.`;
@@ -45,7 +48,7 @@ export function guidePrompt(state: GuideState, name = ""): string {
 export function guideStart(statuses: Record<number, string | undefined>, name = "", from?: number): GuideOutcome {
   const order = guideOrder(statuses);
   const index = Math.max(0, from ? order.indexOf(from) : 0);
-  const state: GuideState = { order, index, step: "depthV", buffer: [], absent: [], paused: false, done: order.length === 0 };
+  const state: GuideState = { order, index, step: "await", buffer: [], absent: [], paused: false, done: order.length === 0 };
   if (state.done) return { state, say: "No hay piezas para sondear según el odontograma." };
   return { state, say: `Comenzamos. Son ${order.length} piezas. ${guidePrompt(state, name)}` };
 }
@@ -86,6 +89,18 @@ export function parseGuideFlags(text: string): { sites: FlagSites } | { error: s
   return { sites };
 }
 
+/** El profesional autoriza a mano la pieza que va a dictar: la propuesta u otra que elija en la arcada. */
+export function guideAuthorize(current: GuideState, tooth: number, name = ""): GuideOutcome {
+  const state: GuideState = { ...current, buffer: [], absent: [...current.absent] };
+  if (state.done) return { state, say: "" };
+  const now = state.order[state.index];
+  if (state.step !== "await") return { state: current, say: tooth === now ? "" : `Estás en la pieza ${spokenTooth(now)}. Termínala o di «saltar» antes de cambiar.` };
+  const index = state.order.indexOf(tooth);
+  if (index < 0) return { state, say: `La pieza ${spokenTooth(tooth)} no está en el recorrido.` };
+  state.index = index; state.step = "depthV"; state.paused = false;
+  return { state, say: guidePrompt(state, name) };
+}
+
 export function guideHear(current: GuideState, utterance: string, name = ""): GuideOutcome {
   const text = fold(utterance).trim();
   const state: GuideState = { ...current, buffer: [...current.buffer], absent: [...current.absent] };
@@ -94,7 +109,7 @@ export function guideHear(current: GuideState, utterance: string, name = ""): Gu
   const goTooth = (index: number, lead = ""): GuideOutcome => {
     state.buffer = [];
     if (index >= state.order.length) { state.done = true; return { state, say: `${lead}Examen completo. Revisa la arcada y guarda el examen.` }; }
-    state.index = Math.max(0, index); state.step = "depthV";
+    state.index = Math.max(0, index); state.step = "await";
     return { state, say: `${lead}${guidePrompt(state, name)}` };
   };
 
@@ -117,6 +132,8 @@ export function guideHear(current: GuideState, utterance: string, name = ""): Gu
     return { ...out, markedAbsent: tooth };
   }
   if (has(text, /\b(saltar|salta|salto|omitir|omite|siguiente pieza)\b/)) return goTooth(state.index + 1);
+
+  if (state.step === "await") return { state, say: `Primero autoriza la pieza ${spokenTooth(tooth)} con un clic.` };
 
   if (state.step === "flags") {
     // «sangrado vestibular, sin supuración»: lo negado se descarta y lo demás se marca.
