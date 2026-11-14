@@ -87,7 +87,7 @@ function drawJaw(canvas: HTMLCanvasElement, jaw: Jaw, face: ArchFace, geo: Geome
   slots.forEach((slot, i) => {
     const lv = view.levels[i];
     if (lv.excluded === "absent") return;
-    const quadrant = Math.floor(slot.tooth / 10), mirror = (quadrant === 2 || quadrant === 3) !== (face === "lingual");
+    const quadrant = Math.floor(slot.tooth / 10), mirror = quadrant === 2 || quadrant === 3; // la cara lingual conserva posición y lado mesial
     let key = parts[i].key, dw = parts[i].dw, dh = parts[i].dh, top = OCC;
     if (lv.excluded === "implant") {
       const meta = PERIO_ARCH_IMAGES.implante, s = (5.5 * PX_PER_MM) / meta.w;
@@ -267,7 +267,7 @@ export function PerioArch({ teeth, toothStatuses, selected, onSelect, onOpen }: 
     </div>
     <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-[#615f73]">
       <span className="text-emerald-800">0–3 mm</span><span className="text-amber-900">4–5 mm</span><span className="text-rose-800">≥6 mm</span><span>punto rojo: sangrado · punto amarillo: supuración · números tenues: valor normal por defecto, sin medir</span>
-      <span>La cresta ósea es una estimación (inserción + 2 mm); la altura real se confirma con radiografía. Un clic selecciona la pieza; doble clic la abre en grande.</span>
+      <span>La cresta ósea es una estimación (nivel de inserción; 2 mm bajo la UAC si está sano); la altura real se confirma con radiografía. Un clic selecciona la pieza; doble clic la abre en grande.</span>
     </div>
   </div>;
 }

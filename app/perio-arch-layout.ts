@@ -25,7 +25,7 @@ export const FACE_SITES: Record<ArchFace, readonly [PerioSiteKey, PerioSiteKey, 
 /** Sin medida: la encía y el hueso se dibujan en una posición neutra que no se confunde con una lectura. */
 export const DEFAULT_DEPTH_MM = 2; // sulco sano mientras el clínico no mida
 export const DEFAULT_GUM_MM = 0; // margen en la UAC
-export const DEFAULT_BONE_MM = 2.5;
+export const NORMAL_BONE_MM = 2; // cresta ósea sana: unos 2 mm apical a la UAC
 /** Cresta y encía de un reborde sin diente, en mm bajo la línea amelocementaria típica. */
 export const RIDGE_GUM_MM = 1.5;
 export const RIDGE_BONE_MM = 4.5;
@@ -44,10 +44,11 @@ export function excludedKind(status: string | undefined): Excluded {
 
 export type ToothSlot = { tooth: number; cx: number; width: number; mesialSign: 1 | -1 };
 
-/** Reparte las 16 piezas de una arcada. La cara lingual es el espejo de la vestibular. */
+/** Reparte las 16 piezas de una arcada. La cara lingual/palatina conserva la posición de cada pieza: el clínico las busca en el mismo lugar. */
 export function archSlots(jaw: Jaw, face: ArchFace, pxPerMm = PX_PER_MM, pad = 36) {
   const order = jaw === "upper" ? UPPER_ORDER : LOWER_ORDER;
-  const seq = face === "lingual" ? [...order].reverse() : order;
+  void face;
+  const seq = order;
   const widths = seq.map(tooth => CROWN_MD_MM[jaw][(tooth % 10) - 1] * pxPerMm);
   const width = widths.reduce((sum, w) => sum + w, 0) + pad * 2;
   let x = pad;
@@ -64,7 +65,7 @@ export type SiteLevel = { measured: boolean; depth: number | null; gumMm: number
 /**
  * Posición del margen gingival y de la cresta ósea (mm respecto a la UAC, positivo hacia el ápice) en un sitio.
  * Con sondaje y sin margen se supone el margen en la UAC (inserción = sondaje). La cresta es una estimación:
- * nivel de inserción + 2 mm, y nunca queda por encima del margen.
+ * el nivel de inserción, con un mínimo de 2 mm bajo la UAC (hueso sano), y nunca queda por encima del margen.
  */
 export function siteLevel(reading: PerioReading | undefined): SiteLevel {
   const depth = reading?.depth ?? null;
@@ -73,7 +74,7 @@ export function siteLevel(reading: PerioReading | undefined): SiteLevel {
   // Sin medición se muestra un sitio sano (sondaje 2 mm, margen 0) con la misma matemática; `measured` indica si es dato real.
   const shownDepth = depth ?? DEFAULT_DEPTH_MM;
   const gumMm = margin ?? DEFAULT_GUM_MM;
-  const boneMm = Math.max(gumMm + 1.5, shownDepth + gumMm + 2);
+  const boneMm = Math.max(gumMm + 1.5, NORMAL_BONE_MM, shownDepth + gumMm);
   return { measured: depth !== null, depth: shownDepth, gumMm, boneMm, bleeding, suppuration };
 }
 

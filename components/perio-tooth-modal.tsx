@@ -60,7 +60,7 @@ export function PerioToothModal({ tooth, chile, status, data, exams, toothHistor
                 </div>;
               })}
             </div>
-            <p className="text-[11px] leading-4 text-[#615f73]">La cresta ósea es una estimación (inserción + 2 mm); la altura real se confirma con radiografía. Las medidas se editan en el panel de la pieza.</p>
+            <p className="text-[11px] leading-4 text-[#615f73]">La cresta ósea es una estimación (nivel de inserción; 2 mm bajo la UAC si está sano); la altura real se confirma con radiografía. Las medidas se editan en el panel de la pieza.</p>
           </div>
           <div className="min-w-0"><ToothTimeline tooth={tooth} history={toothHistory} exams={exams} mode="periodontograma" onDeleteReading={onDeleteReading} onEditReading={onEditReading} /></div>
         </div>
