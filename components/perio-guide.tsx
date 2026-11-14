@@ -9,7 +9,7 @@ import type { PerioDictationResult } from "@/lib/dictation/perio-dictation";
 
 type Recognizer = { lang: string; continuous: boolean; interimResults: boolean; start(): void; stop(): void; abort(): void; onresult: ((event: { resultIndex: number; results: ArrayLike<{ isFinal: boolean; 0: { transcript: string } }> }) => void) | null; onend: (() => void) | null; onerror: ((event: { error: string }) => void) | null };
 const recognizerClass = () => { const w = window as unknown as { SpeechRecognition?: new () => Recognizer; webkitSpeechRecognition?: new () => Recognizer }; return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null; };
-export type PerioGuideHandle = { /** Clic en una pieza de la arcada: devuelve true si la guía está activa y se hizo cargo. */ authorize(tooth: number): boolean; /** Hay un dictado guiado en curso. */ active(): boolean };
+export type PerioGuideHandle = { /** Empieza de inmediato el dictado de una sola pieza (desde la ventana de la pieza). */ startOnly(tooth: number): void; /** Clic en una pieza de la arcada: devuelve true si la guía está activa y se hizo cargo. */ authorize(tooth: number): boolean; /** Hay un dictado guiado en curso. */ active(): boolean };
 const stepLabel = (state: GuideState, tooth: number) => state.step === "await" ? "Esperando tu autorización" : state.step === "flags" ? "Sangrado y supuración" : `${siteName(tooth, state.pos)} · ${state.pos % 2 ? "margen gingival" : "sondaje"}`;
 
 /**
@@ -85,7 +85,8 @@ export function PerioGuide({ ref, statuses, clinicianName, selectedTooth, onAppl
     settle(guideAuthorize(current, tooth, firstName));
     return true;
   }, [firstName, settle]);
-  useImperativeHandle(ref, () => ({ authorize, active: () => Boolean(stateRef.current && !stateRef.current.done) }), [authorize]);
+  const startRef = useRef<(mode: "all" | "from" | "only", pick?: number) => void>(() => {});
+  useImperativeHandle(ref, () => ({ startOnly: tooth => { startRef.current("only", tooth); requestAnimationFrame(() => document.querySelector("[data-perio-guide]")?.scrollIntoView({ block: "center", behavior: "smooth" })); }, authorize, active: () => Boolean(stateRef.current && !stateRef.current.done) }), [authorize]);
   const hearRef = useRef(hear);
   useEffect(() => { hearRef.current = hear; }, [hear]);
 
@@ -97,7 +98,9 @@ export function PerioGuide({ ref, statuses, clinicianName, selectedTooth, onAppl
   }, []);
   useEffect(() => stopAll, [stopAll]);
 
-  const start = (mode: "all" | "from" | "only" = "all") => {
+  const start = (mode: "all" | "from" | "only" = "all", pick?: number) => {
+    stopAll();
+    const target = pick ?? selectedTooth;
     setError(""); setHeard(""); setSaved([]); muted.current = false;
     const Recognition = recognizerClass();
     if (Recognition) {
@@ -108,12 +111,13 @@ export function PerioGuide({ ref, statuses, clinicianName, selectedTooth, onAppl
       instance.onerror = event => { if (event.error === "not-allowed" || event.error === "service-not-allowed") { setError("El navegador no autorizó el micrófono. Puedes escribir las respuestas abajo."); active.current = false; } };
       recognizer.current = instance;
     } else setError("Este navegador no reconoce voz en vivo (funciona en Chrome). Puedes escribir las respuestas abajo o usar el dictado libre.");
-    const begin = guideStart(statuses, firstName, mode === "all" ? undefined : selectedTooth, mode === "only");
+    const begin = guideStart(statuses, firstName, mode === "all" ? undefined : target, mode === "only");
     stateRef.current = begin.state; setState(begin.state);
     active.current = !begin.state.done && Boolean(Recognition);
     if (!begin.state.done) onFocus(begin.state.order[begin.state.index], "vestibular");
     speak(begin.say, listen);
   };
+  useEffect(() => { startRef.current = start; });
   const close = () => { stopAll(); stateRef.current = null; setState(null); setSaid(""); setHeard(""); };
 
   const picked = selectedTooth ? formatFdi(selectedTooth) : "";
@@ -128,7 +132,7 @@ export function PerioGuide({ ref, statuses, clinicianName, selectedTooth, onAppl
 
   const tooth = state.order[state.index];
   const command = (word: string) => () => hear(word);
-  return <div className="mb-3 rounded-lg border-2 border-[#473a6d] bg-white p-3" aria-live="polite">
+  return <div data-perio-guide className="mb-3 rounded-lg border-2 border-[#473a6d] bg-white p-3" aria-live="polite">
     {state.done ? <div className="space-y-2">
       <p className="text-sm font-semibold text-[#2a2540]">Dictado guiado terminado</p>
       <p className="text-xs text-[#615f73]">Las medidas quedaron en el examen en curso. Revisa la arcada y pulsa «Guardar examen periodontal».</p>

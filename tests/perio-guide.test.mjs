@@ -173,3 +173,14 @@ test('guía periodontal: el recorrido completo puede partir de la pieza elegida'
   assert.equal(start.state.step, 'await');
   assert.equal(start.state.order.length, 32);
 });
+
+test('la ventana de la pieza ofrece dictar solo esa pieza y la guía lo expone', async () => {
+  const { readFileSync } = await import('node:fs');
+  const modal = readFileSync(new URL('../components/perio-tooth-modal.tsx', import.meta.url), 'utf8');
+  const guide = readFileSync(new URL('../components/perio-guide.tsx', import.meta.url), 'utf8');
+  const host = readFileSync(new URL('../components/periodontogram.tsx', import.meta.url), 'utf8');
+  assert.match(modal, /data-testid="perio-modal-dictate"/);
+  assert.match(modal, /Dictar periodontograma de esta pieza/);
+  assert.match(guide, /startOnly\(tooth: number\): void/);
+  assert.match(host, /onDictate=\{t=>\{setViewer\(null\);setTooth\(t\);guide\.current\?\.startOnly\(t\)\}\}/);
+});
