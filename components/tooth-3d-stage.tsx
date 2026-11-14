@@ -271,8 +271,13 @@ function mountTooth(THREE: ThreeModule, room: RoomEnvironmentModule, canvas: HTM
 
   const toothGroup = new THREE.Group();
   scene.add(toothGroup);
+  // Las piezas superiores se muestran invertidas, con la corona hacia el plano oclusal (abajo), como en boca.
+  const upper = [1, 2, 5, 6].includes(Math.floor(tooth / 10));
+  const flip = new THREE.Group();
+  if (upper) flip.rotation.z = Math.PI;
+  toothGroup.add(flip);
   const inner = new THREE.Group();
-  toothGroup.add(inner);
+  flip.add(inner);
   const geometries: InstanceType<ThreeModule["BufferGeometry"]>[] = [];
   const materials: InstanceType<ThreeModule["Material"]>[] = [];
   const textures: InstanceType<ThreeModule["Texture"]>[] = [];
@@ -561,7 +566,7 @@ function mountTooth(THREE: ThreeModule, room: RoomEnvironmentModule, canvas: HTM
     scene.add(shadow);
   }
 
-  toothGroup.rotation.x = view ? view.x : -0.3;
+  toothGroup.rotation.x = view ? view.x : upper ? 0.3 : -0.3;
   toothGroup.rotation.y = view ? view.y : 0;
   const pointers = new Map<number, { x: number; y: number }>();
   let dragging = false;
