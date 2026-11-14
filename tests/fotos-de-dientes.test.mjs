@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
-import { toothPhotoFor, toothPhotoKind, TOOTH_PHOTOS } from "../lib/tooth-photos.ts";
+import { toothPhotoFor, toothPhotoKind, TOOTH_PHOTOS, V3_PIECES } from "../lib/tooth-photos.ts";
 
 test("cada imagen listada existe en public/dientes", () => {
   const files = new Set(readdirSync(new URL("../public/dientes/", import.meta.url)).map((f) => f.replace(/\.webp$/, "")));
@@ -93,22 +93,38 @@ test("la posición de la caries aproximada (cara palatina oculta) sigue la cara 
 });
 
 test("caries, obturaciones y sellantes se arman por capas sobre una base por tipo de pieza", () => {
-  const p = toothPhotoFor({ fdi: 16, caries: true, restored: true, cariesSurfaces: [{ surface: "M", depth: "esmalte" }, { surface: "V", depth: "dentina_profunda" }], restorations: [{ surface: "O", material: "Amalgama" }, { surface: "D", stage: "provisional" }], sealedSurfaces: ["O"] });
-  assert.equal(p.src, "/dientes/v2/base/upper-molar-1.webp");
+  const p = toothPhotoFor({ fdi: 17, caries: true, restored: true, cariesSurfaces: [{ surface: "M", depth: "esmalte" }, { surface: "V", depth: "dentina_profunda" }], restorations: [{ surface: "O", material: "Amalgama" }, { surface: "D", stage: "provisional" }], sealedSurfaces: ["O"] });
+  assert.equal(p.src, "/dientes/v2/base/upper-molar-2.webp");
   assert.equal(p.transform, "scaleY(-1)");
   const by = Object.fromEntries(p.layers.map(l => [`${l.kind}-${l.surface}`, l]));
-  assert.equal(by["caries-incipiente-M"].src, "/dientes/v2/inc/upper-molar-1-M.webp");
-  assert.equal(by["caries-cavitada-V"].src, "/dientes/v2/cav/upper-molar-1-V.webp");
-  assert.equal(by["obturacion-O"].src, "/dientes/v2/forma/upper-molar-1-O.webp");
+  assert.equal(by["caries-incipiente-M"].src, "/dientes/v2/inc/upper-molar-2-M.webp");
+  assert.equal(by["caries-cavitada-V"].src, "/dientes/v2/cav/upper-molar-2-V.webp");
+  assert.equal(by["obturacion-O"].src, "/dientes/v2/forma/upper-molar-2-O.webp");
   assert.equal(by["obturacion-O"].material.name, "amalgama");
   assert.equal(by["obturacion-D"].material.name, "provisorio", "sin material, la etapa provisoria usa la textura provisoria");
-  assert.equal(by["sellante-O"].src, "/dientes/v2/sell/upper-molar-1-O.webp");
+  assert.equal(by["sellante-O"].src, "/dientes/v2/sell/upper-molar-2-O.webp");
   const resin = toothPhotoFor({ fdi: 36, restored: true, restoredSurfaces: ["D"] });
   assert.equal(resin.layers[0].material.name, "resina");
   assert.equal(resin.transform, "scaleX(-1)");
   assert.equal(toothPhotoFor({ fdi: 26, caries: true, cariesSurfaces: [{ surface: "M", depth: null }] }).transform, "scale(-1,-1)");
   // Los sellantes solo existen desde el primer premolar.
   assert.equal(toothPhotoFor({ fdi: 11, sealedSurfaces: ["O"] }).layers.length, 0);
+});
+
+test("molar 1 superior: juego v3 sobre la foto translúcida, con pulpitis si hay compromiso pulpar", async () => {
+  const { existsSync } = await import("node:fs");
+  assert.ok(V3_PIECES.has("upper-molar-1"));
+  const p = toothPhotoFor({ fdi: 16, caries: true, cariesSurfaces: [{ surface: "M", depth: "dentina_superficial" }], restorations: [{ surface: "O", material: "Resina compuesta" }], sealedSurfaces: ["O"] });
+  assert.equal(p.src, "/dientes/v3/base/upper-molar-1.webp");
+  assert.equal(p.layers.find(l => l.kind === "caries-cavitada").src, "/dientes/v3/cav/upper-molar-1-M.webp");
+  assert.equal(p.layers.find(l => l.kind === "obturacion").material.src, "/dientes/v2/mat/resina.webp", "las texturas de material se comparten");
+  const pulp = toothPhotoFor({ fdi: 16, caries: true, cariesSurfaces: [{ surface: "O", depth: "pulpar" }] });
+  assert.equal(pulp.src, "/dientes/v3/base/upper-molar-1-pulpitis.webp");
+  assert.equal(toothPhotoFor({ fdi: 16, caries: true, cariesSurfaces: [{ surface: "O", depth: "pulpar" }], face: "palatina" }).src, "/dientes/v3/base/upper-molar-1-palatina.webp");
+  assert.equal(toothPhotoFor({ fdi: 26, caries: true, cariesSurfaces: [{ surface: "O", depth: "pulpar" }] }).src, "/dientes/v3/base/upper-molar-1-pulpitis.webp", "el 2.6 es el mismo tipo de pieza, espejado");
+  assert.equal(toothPhotoFor({ fdi: 14, caries: true, cariesSurfaces: [{ surface: "O", depth: "pulpar" }] }).src, "/dientes/v2/base/upper-premolar-1.webp", "el resto sigue con v2 hasta recibir su juego");
+  for (const f of ["base/upper-molar-1", "base/upper-molar-1-palatina", "base/upper-molar-1-pulpitis", "sell/upper-molar-1-O"]) assert.ok(existsSync(`public/dientes/v3/${f}.webp`), f);
+  for (const set of ["inc", "cav", "forma"]) for (const sf of "OVMDP") assert.ok(existsSync(`public/dientes/v3/${set}/upper-molar-1-${sf}.webp`), `${set}-${sf}`);
 });
 
 test("la cara palatina usa su propia base y solo las lesiones palatinas", () => {
