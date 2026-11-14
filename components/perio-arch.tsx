@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { formatFdi, type PerioTooth } from "@/app/clinical-data";
 import { PERIO_ARCH_IMAGES } from "@/app/perio-arch-assets";
-import { archCurves, archSlots, CROWN_MD_MM, depthTone, PX_PER_MM, sampleCurve, siteXs, toothLevels, toothType, type ArchFace, type Jaw, type ToothLevels, type ToothSlot } from "@/app/perio-arch-layout";
+import { archCurves, archSlots, CROWN_MD_MM, depthTone, jawOf, PX_PER_MM, sampleCurve, siteXs, toothLevels, toothType, type ArchFace, type Jaw, type ToothLevels, type ToothSlot } from "@/app/perio-arch-layout";
 
 const OCC = 34;      // px entre el borde del lienzo y el borde incisal/oclusal
 const ROOT_PAD = 52; // px bajo la raíz más larga
@@ -47,6 +47,13 @@ function jawGeometry(jaw: Jaw, face: ArchFace) {
   return { slots, width, parts, H };
 }
 type Geometry = ReturnType<typeof jawGeometry>;
+const SOLO_PAD = 64; // px de encía y hueso a cada lado de la pieza aislada
+/** La misma pieza de la arcada, sola: mismas medidas y misma foto, con margen de hueso a los lados. */
+function toothGeometry(tooth: number, face: ArchFace): Geometry {
+  const full = jawGeometry(jawOf(tooth), face), i = full.slots.findIndex(slot => slot.tooth === tooth);
+  const slot = { ...full.slots[i], cx: SOLO_PAD + full.slots[i].width / 2 };
+  return { slots: [slot], width: slot.width + SOLO_PAD * 2, parts: [full.parts[i]], H: full.H };
+}
 type View = { levels: ToothLevels[]; gumY: Float32Array; boneY: Float32Array; curves: ReturnType<typeof archCurves> };
 
 function buildView(geo: Geometry, levels: ToothLevels[]): View {
@@ -54,9 +61,9 @@ function buildView(geo: Geometry, levels: ToothLevels[]): View {
   return { levels, curves, gumY: sampleCurve(curves.gum, 0, geo.width), boneY: sampleCurve(curves.bone, 0, geo.width) };
 }
 
-function drawJaw(canvas: HTMLCanvasElement, jaw: Jaw, face: ArchFace, geo: Geometry, view: View, images: Images, gumOpacity: number) {
+function drawJaw(canvas: HTMLCanvasElement, jaw: Jaw, face: ArchFace, geo: Geometry, view: View, images: Images, gumOpacity: number, res = 1) {
   const { slots, width, parts, H } = geo, flip = jaw === "upper";
-  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const dpr = Math.min(2, window.devicePixelRatio || 1) * res;
   canvas.width = Math.round(width * dpr); canvas.height = Math.round(H * dpr);
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
@@ -163,20 +170,27 @@ function drawJaw(canvas: HTMLCanvasElement, jaw: Jaw, face: ArchFace, geo: Geome
   ctx.globalCompositeOperation = "source-over";
 }
 
-function ArchRow({ jaw, face, geo, view, images, gumOpacity, selected, teeth, onOpen }: { jaw: Jaw; face: ArchFace; geo: Geometry; view: View; images: Images | null; gumOpacity: number; selected: number; teeth: Record<number, PerioTooth | undefined>; onOpen: (tooth: number, element: HTMLElement) => void }) {
+function ArchRow({ jaw, face, geo, view, images, gumOpacity, selected, teeth, onSelect, onOpen, res = 1 }: { jaw: Jaw; face: ArchFace; geo: Geometry; view: View; images: Images | null; gumOpacity: number; selected: number; teeth: Record<number, PerioTooth | undefined>; onSelect?: (tooth: number) => void; onOpen?: (tooth: number, element: HTMLElement) => void; res?: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
+  const lastClick = useRef<{ tooth: number; at: number } | null>(null);
+  const solo = !onOpen;
   const { slots, width, H } = geo, flip = jaw === "upper";
-  useEffect(() => { if (ref.current && images) drawJaw(ref.current, jaw, face, geo, view, images, gumOpacity); }, [jaw, face, geo, view, images, gumOpacity]);
+  useEffect(() => { if (ref.current && images) drawJaw(ref.current, jaw, face, geo, view, images, gumOpacity, res); }, [jaw, face, geo, view, images, gumOpacity, res]);
   const pctX = (x: number) => `${(x / width) * 100}%`;
   const pctY = (y: number) => `${((flip ? H - y : y) / H) * 100}%`;
   return <div className="relative" style={{ aspectRatio: `${width} / ${H}` }}>
     <canvas ref={ref} className="absolute inset-0 h-full w-full" aria-hidden="true" />
-    {slots.map((slot: ToothSlot, i) => {
+    {!solo && slots.map((slot: ToothSlot, i) => {
       const lv = view.levels[i], data = teeth[slot.tooth], isSel = selected === slot.tooth;
       const note = [data?.mobility && data.mobility !== "0" ? `M ${data.mobility}` : "", data?.furcation ? `F ${data.furcation}` : ""].filter(Boolean).join(" · ");
       const label = lv.excluded === "absent" ? "ausente" : lv.excluded === "implant" ? "implante" : null;
-      return <button key={slot.tooth} type="button" disabled={lv.excluded === "absent"} onClick={event => onOpen(slot.tooth, event.currentTarget)}
-        aria-label={`Pieza FDI ${formatFdi(slot.tooth)}${label ? `, ${label}` : "; seis sitios periodontales"}`} aria-pressed={isSel}
+      return <button key={slot.tooth} type="button" disabled={lv.excluded === "absent"} onClick={event => {
+          // Un clic selecciona; doble clic (o Enter sobre la pieza ya seleccionada) abre la pieza en grande.
+          const previous = lastClick.current, double = previous?.tooth === slot.tooth && event.timeStamp - previous.at < 420;
+          lastClick.current = double ? null : { tooth: slot.tooth, at: event.timeStamp };
+          if (double || (event.detail === 0 && isSel)) onOpen?.(slot.tooth, event.currentTarget); else onSelect?.(slot.tooth);
+        }}
+        aria-label={`Pieza FDI ${formatFdi(slot.tooth)}${label ? `, ${label}` : "; seis sitios periodontales"}. Doble clic para abrirla en grande`} aria-pressed={isSel}
         className={`absolute top-0 h-full rounded-md outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[#ef895f] ${isSel ? "bg-white/10 ring-1 ring-[#ef895f]/80" : "hover:bg-white/[.06]"}`}
         style={{ left: pctX(slot.cx - slot.width / 2), width: pctX(slot.width) }}>
         <span className={`pointer-events-none absolute inset-x-0 flex flex-col items-center text-[11px] font-semibold leading-tight text-white/85 ${flip ? "bottom-1" : "top-1"}`}>{formatFdi(slot.tooth)}{note && <span className="text-[9px] font-medium text-amber-300">{note}</span>}{label && <span className="text-[9px] font-medium text-white/50">{label}</span>}</span>
@@ -187,17 +201,49 @@ function ArchRow({ jaw, face, geo, view, images, gumOpacity, selected, teeth, on
       if (lv.excluded) return null;
       const xs = siteXs(slot);
       return lv.sites.map((site, k) => {
-        const y = view.gumY[Math.max(0, Math.min(view.gumY.length - 1, Math.round(xs[k])))] - 14;
+        const y = view.gumY[Math.max(0, Math.min(view.gumY.length - 1, Math.round(xs[k])))] - (solo ? 9 : 14);
         const tone = depthTone(site.depth);
         return <span key={`${slot.tooth}-${k}`} aria-hidden="true" title={!site.measured ? "Valor normal por defecto (sin medir)" : `${site.depth} mm${site.bleeding ? ", sangrado" : ""}${site.suppuration ? ", supuración" : ""}`}
-          className={`pointer-events-none absolute flex -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border bg-[#130f1e]/90 font-bold leading-none size-[18px] text-[10px] ${TONE_STYLE[tone]} ${site.measured ? "" : "opacity-55"}`}
+          className={`pointer-events-none absolute flex -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border bg-[#130f1e]/90 font-bold leading-none ${solo ? "size-7 text-sm" : "size-[18px] text-[10px]"} ${TONE_STYLE[tone]} ${site.measured ? "" : "opacity-55"}`}
           style={{ left: pctX(xs[k]), top: pctY(y) }}>{site.depth ?? ""}{site.bleeding && <i className="absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-[#ff4057]" />}</span>;
       });
     })}
   </div>;
 }
 
-export function PerioArch({ teeth, toothStatuses, selected, onOpen }: { teeth: Record<number, PerioTooth | undefined>; toothStatuses: Record<number, string>; selected: number; onOpen: (tooth: number, element: HTMLElement) => void }) {
+function FaceAndGum({ face, setFace, gumPct, setGumPct, label }: { face: ArchFace; setFace: (face: ArchFace) => void; gumPct: number; setGumPct: (value: number) => void; label: string }) {
+  return <div className="flex flex-wrap items-center justify-between gap-3">
+    <div role="group" aria-label={label} className="inline-flex rounded-full border border-[#dddbe6] bg-white p-1 text-sm">
+      {(["vestibular", "lingual"] as const).map(option => <button key={option} type="button" aria-pressed={face === option} onClick={() => setFace(option)} className={`rounded-full px-4 py-1.5 font-medium transition-colors ${face === option ? "bg-[#473a6d] text-white" : "text-[#57566a] hover:bg-[#efeef4]"}`}>{option === "vestibular" ? "Vestibular" : "Lingual / palatino"}</button>)}
+    </div>
+    <label className="flex items-center gap-2 text-xs text-[#57566a]">Encía translúcida
+      <input type="range" min={0} max={100} value={gumPct} onChange={event => setGumPct(Number(event.target.value))} aria-label="Opacidad de la encía" className="w-32 accent-[#473a6d]" />
+    </label>
+  </div>;
+}
+const STAGE = "rounded-2xl border border-[#2a2142] bg-[radial-gradient(60%_45%_at_85%_0%,rgba(239,137,95,.18),transparent_70%),radial-gradient(70%_55%_at_10%_8%,rgba(120,96,196,.26),transparent_70%),linear-gradient(#171127,#0d0a16)]";
+
+/** Una sola pieza, igual que en la arcada (misma foto, encía y hueso según las medidas), ampliada para el análisis unitario. */
+export function PerioToothScene({ tooth, data, status }: { tooth: number; data: PerioTooth | undefined; status?: string }) {
+  const [face, setFace] = useState<ArchFace>("vestibular");
+  const [gumPct, setGumPct] = useState(72);
+  const images = useArchImages();
+  const jaw = jawOf(tooth);
+  const geo = useMemo(() => toothGeometry(tooth, face), [tooth, face]);
+  const levels = [toothLevels(tooth, data, face, status)];
+  const signature = JSON.stringify(levels);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- la firma resume los niveles
+  const view = useMemo(() => buildView(geo, levels), [geo, signature]);
+  return <div className="space-y-3">
+    <FaceAndGum face={face} setFace={setFace} gumPct={gumPct} setGumPct={setGumPct} label="Cara de la pieza" />
+    <div className={`${STAGE} px-3 py-4`}>
+      <div className="mx-auto w-full max-w-[21rem]"><ArchRow jaw={jaw} face={face} geo={geo} view={view} images={images} gumOpacity={gumPct / 100} selected={tooth} teeth={{ [tooth]: data }} res={2.5} /></div>
+      <p className="mt-1 text-center text-[11px] font-semibold uppercase tracking-wider text-white/55">{jaw === "upper" ? "Maxilar" : "Mandíbula"} · {face === "vestibular" ? "vestibular" : jaw === "upper" ? "palatino" : "lingual"}</p>
+    </div>
+  </div>;
+}
+
+export function PerioArch({ teeth, toothStatuses, selected, onSelect, onOpen }: { teeth: Record<number, PerioTooth | undefined>; toothStatuses: Record<number, string>; selected: number; onSelect: (tooth: number) => void; onOpen: (tooth: number, element: HTMLElement) => void }) {
   const [face, setFace] = useState<ArchFace>("vestibular");
   const [gumPct, setGumPct] = useState(72);
   const images = useArchImages();
@@ -209,26 +255,19 @@ export function PerioArch({ teeth, toothStatuses, selected, onOpen }: { teeth: R
   const views = useMemo(() => ({ upper: buildView(geos.upper, upperLevels), lower: buildView(geos.lower, lowerLevels) }), [geos, signature]);
   const faceLabel = face === "vestibular" ? "Vestibular" : "Lingual / palatino";
   return <div className="space-y-3">
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      <div role="group" aria-label="Cara de la arcada" className="inline-flex rounded-full border border-[#dddbe6] bg-white p-1 text-sm">
-        {(["vestibular", "lingual"] as const).map(option => <button key={option} type="button" aria-pressed={face === option} onClick={() => setFace(option)} className={`rounded-full px-4 py-1.5 font-medium transition-colors ${face === option ? "bg-[#473a6d] text-white" : "text-[#57566a] hover:bg-[#efeef4]"}`}>{option === "vestibular" ? "Vestibular" : "Lingual / palatino"}</button>)}
-      </div>
-      <label className="flex items-center gap-2 text-xs text-[#57566a]">Encía translúcida
-        <input type="range" min={0} max={100} value={gumPct} onChange={event => setGumPct(Number(event.target.value))} aria-label="Opacidad de la encía" className="w-32 accent-[#473a6d]" />
-      </label>
-    </div>
-    <div className="overflow-x-auto rounded-2xl border border-[#2a2142] bg-[radial-gradient(60%_45%_at_85%_0%,rgba(239,137,95,.18),transparent_70%),radial-gradient(70%_55%_at_10%_8%,rgba(120,96,196,.26),transparent_70%),linear-gradient(#171127,#0d0a16)]">
+    <FaceAndGum face={face} setFace={setFace} gumPct={gumPct} setGumPct={setGumPct} label="Cara de la arcada" />
+    <div className={`overflow-x-auto ${STAGE}`}>
       <div className="min-w-[1100px] min-[1800px]:min-w-[780px] px-2 py-3 text-white">
         <p className="px-4 text-[11px] font-semibold uppercase tracking-wider text-white/55">Maxilar · {faceLabel}</p>
-        <ArchRow jaw="upper" face={face} geo={geos.upper} view={views.upper} images={images} gumOpacity={gumPct / 100} selected={selected} teeth={teeth} onOpen={onOpen} />
+        <ArchRow jaw="upper" face={face} geo={geos.upper} view={views.upper} images={images} gumOpacity={gumPct / 100} selected={selected} teeth={teeth} onSelect={onSelect} onOpen={onOpen} />
         <div className="mx-auto my-1 h-px w-[70%] bg-gradient-to-r from-transparent via-white/20 to-transparent" />
-        <ArchRow jaw="lower" face={face} geo={geos.lower} view={views.lower} images={images} gumOpacity={gumPct / 100} selected={selected} teeth={teeth} onOpen={onOpen} />
+        <ArchRow jaw="lower" face={face} geo={geos.lower} view={views.lower} images={images} gumOpacity={gumPct / 100} selected={selected} teeth={teeth} onSelect={onSelect} onOpen={onOpen} />
         <p className="px-4 text-[11px] font-semibold uppercase tracking-wider text-white/55">Mandíbula · {faceLabel}</p>
       </div>
     </div>
     <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-[#615f73]">
       <span className="text-emerald-800">0–3 mm</span><span className="text-amber-900">4–5 mm</span><span className="text-rose-800">≥6 mm</span><span>punto rojo: sangrado · punto amarillo: supuración · números tenues: valor normal por defecto, sin medir</span>
-      <span>La cresta ósea es una estimación (inserción + 2 mm); la altura real se confirma con radiografía. Pulsa una pieza para acercarla.</span>
+      <span>La cresta ósea es una estimación (inserción + 2 mm); la altura real se confirma con radiografía. Un clic selecciona la pieza; doble clic la abre en grande.</span>
     </div>
   </div>;
 }
