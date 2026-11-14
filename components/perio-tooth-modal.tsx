@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useLayoutEffect, useRef } from "react";
-import { X } from "lucide-react";
+import { Mic, X } from "lucide-react";
 import { formatFdi, type PerioExam, type PerioSiteKey, type PerioTooth, type ToothHistoryEvent } from "@/app/clinical-data";
 import { depthTone } from "@/app/perio-arch-layout";
 import { PerioToothScene } from "@/components/perio-arch";
@@ -10,9 +10,11 @@ const KIND = ["Incisivo central", "Incisivo lateral", "Canino", "Primer premolar
 const TONE = { none: "text-slate-500", ok: "text-emerald-700", warn: "text-amber-700", crit: "text-rose-700" } as const;
 
 /** Análisis unitario de una pieza del periodontograma: la misma imagen de la arcada, aislada y ampliada. Solo lectura. */
-export function PerioToothModal({ tooth, chile, status, data, exams, toothHistory, onClose, returnFocusTo, onDeleteReading, onEditReading }: {
+export function PerioToothModal({ tooth, chile, status, data, exams, toothHistory, onClose, returnFocusTo, onDeleteReading, onEditReading, onDictate }: {
   tooth: number; chile: number; status: string; data: PerioTooth | undefined; exams: PerioExam[]; toothHistory: ToothHistoryEvent[];
   onClose: () => void; returnFocusTo: HTMLElement | null;
+  /** Cierra la ventana y dicta el periodontograma solo de esta pieza. */
+  onDictate?: (tooth: number) => void;
   onDeleteReading?: (tooth: number, examId: number, day: string) => Promise<void>;
   onEditReading?: (tooth: number, examId: number, reading: PerioTooth, clinicalDate: string) => Promise<void>;
 }) {
@@ -41,6 +43,7 @@ export function PerioToothModal({ tooth, chile, status, data, exams, toothHistor
     <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="perio-tooth-title" className="fixed top-1/2 left-1/2 z-10 flex max-h-[92vh] w-[min(68rem,calc(100%-1.5rem))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-[#dddbe6] bg-white shadow-xl supports-[height:1dvh]:max-h-[92dvh]">
       <div className="flex items-start justify-between gap-3 border-b border-[#e6e4ee] px-4 py-3 sm:px-5">
         <div>
+          {onDictate && <button type="button" onClick={() => onDictate(tooth)} data-testid="perio-modal-dictate" className="mb-2 inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-[#473a6d] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#3a2f5a]"><Mic className="size-4" aria-hidden="true" />Dictar periodontograma de esta pieza</button>}
           <p id="perio-tooth-title" className="text-lg font-semibold text-[#2a2540]">FDI {formatFdi(tooth)} · Chile {chile}</p>
           <p className="mt-0.5 text-sm text-[#615f73]">{KIND[(tooth % 10) - 1]} · análisis periodontal de la pieza · solo lectura</p>
         </div>
