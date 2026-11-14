@@ -218,7 +218,7 @@ export function PerioArch({ teeth, toothStatuses, selected, onOpen }: { teeth: R
       </label>
     </div>
     <div className="overflow-x-auto rounded-2xl border border-[#2a2142] bg-[radial-gradient(60%_45%_at_85%_0%,rgba(239,137,95,.18),transparent_70%),radial-gradient(70%_55%_at_10%_8%,rgba(120,96,196,.26),transparent_70%),linear-gradient(#171127,#0d0a16)]">
-      <div className="min-w-[1100px] px-2 py-3 text-white">
+      <div className="min-w-[1100px] min-[1800px]:min-w-[780px] px-2 py-3 text-white">
         <p className="px-4 text-[11px] font-semibold uppercase tracking-wider text-white/55">Maxilar · {faceLabel}</p>
         <ArchRow jaw="upper" face={face} geo={geos.upper} view={views.upper} images={images} gumOpacity={gumPct / 100} selected={selected} teeth={teeth} onOpen={onOpen} />
         <div className="mx-auto my-1 h-px w-[70%] bg-gradient-to-r from-transparent via-white/20 to-transparent" />
