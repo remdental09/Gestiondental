@@ -64,6 +64,21 @@ function tokenize(text: string): Token[] {
   return joined;
 }
 
+/** Números dictados en una frase, con signo («menos uno» = -1). «324» de corrido cuenta como tres valores. */
+export function spokenPerioValues(text: string): number[] {
+  const tokens = tokenize(text), values: number[] = [];
+  let negative = false;
+  const numbers = tokens.filter(token => token.kind === "num");
+  for (const token of tokens) {
+    if (token.kind === "word") { if (token.word === "menos" || token.word === "negativo") negative = true; continue; }
+    if (token.pair) { values.push(Math.floor(token.pair / 10), token.pair % 10); continue; }
+    if (numbers.length === 1 && /^\d{3}$/.test(token.raw)) { values.push(...token.raw.split("").map(Number)); continue; }
+    values.push(negative || token.raw.startsWith("-") ? -Math.abs(token.value) : token.value);
+    negative = false;
+  }
+  return values;
+}
+
 export function parsePerioDictation(text: string): PerioDictationResult {
   const tokens = tokenize(text);
   const teeth: PerioDictationTooth[] = [];

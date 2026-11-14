@@ -41,8 +41,8 @@ export function PerioDictation({ chileOf, onApply }: { chileOf: (fdi: number) =>
     <div className="flex flex-wrap items-center gap-2">
       {phase === "recording"
         ? <Button type="button" onClick={stop} className="bg-rose-700 hover:bg-rose-800"><Square className="size-4" /> Detener y revisar</Button>
-        : <Button type="button" onClick={start} disabled={busy} className="bg-[#473a6d] hover:bg-[#3a2f5a]"><Mic className="size-4" /> {phase === "review" ? "Seguir dictando" : "Dictar periodontograma"}</Button>}
-      <span role="status" className="text-xs text-[#615f73]">{phase === "starting" ? "Preparando el micrófono…" : phase === "recording" ? "Grabando. Di pieza, cara y los tres números de mesial a distal." : phase === "transcribing" ? "Transcribiendo…" : phase === "idle" ? "Solo llena este examen; no escribe en la evolución." : ""}</span>
+        : <Button type="button" variant="outline" onClick={start} disabled={busy}><Mic className="size-4" /> {phase === "review" ? "Seguir dictando" : "Dictado libre"}</Button>}
+      <span role="status" className="text-xs text-[#615f73]">{phase === "starting" ? "Preparando el micrófono…" : phase === "recording" ? "Grabando. Di pieza, cara y los tres números de mesial a distal." : phase === "transcribing" ? "Transcribiendo…" : phase === "idle" ? "Sin guía: dictas pieza, cara y valores de corrido." : ""}</span>
       <button type="button" className="ml-auto text-xs font-medium text-[#473a6d] underline" aria-expanded={help} onClick={() => setHelp(value => !value)}>Cómo dictar</button>
     </div>
     {help && <div className="mt-2 space-y-1 rounded-md bg-[#f7f6fa] p-2 text-xs leading-5 text-[#3b3355]">

@@ -244,8 +244,11 @@ export function PerioToothScene({ tooth, data, status }: { tooth: number; data: 
   </div>;
 }
 
-export function PerioArch({ teeth, toothStatuses, selected, onSelect, onOpen }: { teeth: Record<number, PerioTooth | undefined>; toothStatuses: Record<number, string>; selected: number; onSelect: (tooth: number) => void; onOpen: (tooth: number, element: HTMLElement) => void }) {
+export function PerioArch({ teeth, toothStatuses, selected, onSelect, onOpen, requestedFace }: { requestedFace?: ArchFace; teeth: Record<number, PerioTooth | undefined>; toothStatuses: Record<number, string>; selected: number; onSelect: (tooth: number) => void; onOpen: (tooth: number, element: HTMLElement) => void }) {
   const [face, setFace] = useState<ArchFace>("vestibular");
+  // El dictado guiado pide la cara del paso en curso; el profesional puede cambiarla a mano después.
+  const [lastRequest, setLastRequest] = useState(requestedFace);
+  if (requestedFace !== lastRequest) { setLastRequest(requestedFace); if (requestedFace) setFace(requestedFace); }
   const [gumPct, setGumPct] = useState(72);
   const images = useArchImages();
   const geos = useMemo(() => ({ upper: jawGeometry("upper", face), lower: jawGeometry("lower", face) }), [face]);
