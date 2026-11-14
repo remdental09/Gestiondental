@@ -285,9 +285,15 @@ export const TOOTH_PHOTOS: ReadonlySet<string> = new Set([
 
 /** Superficie FDI con caries y su profundidad (null = sin profundidad registrada). */
 export type CariesSpotInput = { surface: "V" | "P" | "M" | "D" | "O"; depth: "esmalte" | "dentina_superficial" | "dentina_profunda" | "pulpar" | null };
-export type ToothPhotoState = { fdi: number; status?: string; implant?: boolean; implantPhase?: ImplantPhase; crown?: boolean; endo?: boolean; caries?: boolean; restored?: boolean; cariesSurfaces?: CariesSpotInput[]; restoredSurfaces?: CariesSpotInput["surface"][] };
+/** Obturación de una cara con el material y la etapa dictados (si constan). */
+export type RestorationInput = { surface: CariesSpotInput["surface"]; material?: string | null; stage?: "provisional" | "definitive" | null };
+/** Cara que se muestra: la vestibular (por defecto) o la palatina/lingual. */
+export type ToothFace = "vestibular" | "palatina";
+export type ToothPhotoState = { fdi: number; status?: string; implant?: boolean; implantPhase?: ImplantPhase; crown?: boolean; endo?: boolean; caries?: boolean; restored?: boolean; cariesSurfaces?: CariesSpotInput[]; restoredSurfaces?: CariesSpotInput["surface"][]; restorations?: RestorationInput[]; sealedSurfaces?: CariesSpotInput["surface"][]; face?: ToothFace };
+/** Capa transparente alineada con la foto base. Con `material`, `src` es una máscara y se rellena con la textura del material. */
+export type PhotoLayer = { src: string; surface: CariesSpotInput["surface"]; kind: "caries-incipiente" | "caries-cavitada" | "obturacion" | "sellante"; material?: { src: string; name: string } };
 /** upper: pieza superior, se muestra invertida (raíces arriba, corona hacia el plano oclusal). transform: CSS listo para la imagen. */
-export type ToothPhoto = { src: string; kind: ToothPhotoKind; mirror: boolean; upper: boolean; transform: string | undefined; lesions: CariesSpot[] };
+export type ToothPhoto = { src: string; kind: ToothPhotoKind; mirror: boolean; upper: boolean; transform: string | undefined; lesions: CariesSpot[]; layers?: PhotoLayer[]; face?: ToothFace; hasPalatal?: boolean };
 
 /** Lesión dibujada sobre la foto, en píxeles de la imagen tal como se ve (420×576, ya invertida/espejada). */
 export type CariesSpot = { surface: CariesSpotInput["surface"]; depth: CariesSpotInput["depth"]; x: number; y: number; rx: number; ry: number; back: boolean; labelX: number; labelY: number };
@@ -363,6 +369,49 @@ export function toothPhotoKind(state: Omit<ToothPhotoState, "fdi">): ToothPhotoK
   return "sano";
 }
 
+const MATERIAL_TEXTURE: Record<string, string> = { "Resina compuesta": "resina", "Vidrio ionómero": "ionomero", Amalgama: "amalgama", Cavit: "provisorio", IRM: "provisorio", Eugenato: "provisorio", Otro: "resina" };
+/** Textura de la obturación: el material dictado; sin él, resina (provisoria si así se registró). */
+export function materialTexture(material?: string | null, stage?: string | null): string {
+  if (material && MATERIAL_TEXTURE[material]) return MATERIAL_TEXTURE[material]!;
+  return stage === "provisional" ? "provisorio" : "resina";
+}
+
+/**
+ * Pieza armada por capas: una base fotográfica por tipo de pieza y, encima, una capa transparente por cada caries,
+ * obturación o sellante, ya alineada con la base. Cualquier combinación de caras se muestra sin una imagen por combinación.
+ */
+function layeredPhoto(state: ToothPhotoState, arch: "upper" | "lower", index: number, mirror: boolean, upper: boolean, transform: string | undefined): ToothPhoto | null {
+  const caries = state.cariesSurfaces ?? [];
+  const restorations: RestorationInput[] = state.restorations ?? (state.restoredSurfaces ?? []).map(surface => ({ surface }));
+  const sealed = state.sealedSurfaces ?? [];
+  if (!caries.length && !restorations.length && !sealed.length) return null;
+  const type = TYPES[index - 1]!;
+  const key = `${arch}-${type}`;
+  const face: ToothFace = state.face === "palatina" ? "palatina" : "vestibular";
+  const on = (surface: CariesSpotInput["surface"]) => (face === "palatina") === (surface === "P");
+  const root = "/dientes/v2";
+  const layers: PhotoLayer[] = [];
+  const seen = new Set<string>();
+  for (const r of restorations) {
+    if (!on(r.surface) || seen.has(`r${r.surface}`)) continue;
+    seen.add(`r${r.surface}`);
+    const name = materialTexture(r.material, r.stage);
+    layers.push({ src: `${root}/forma/${key}-${r.surface}.webp`, surface: r.surface, kind: "obturacion", material: { src: `${root}/mat/${name}.webp`, name } });
+  }
+  for (const c of caries) {
+    if (!on(c.surface) || seen.has(`c${c.surface}`)) continue;
+    seen.add(`c${c.surface}`);
+    const incipient = c.depth === "esmalte";
+    layers.push({ src: `${root}/${incipient ? "inc" : "cav"}/${key}-${c.surface}.webp`, surface: c.surface, kind: incipient ? "caries-incipiente" : "caries-cavitada" });
+  }
+  if (face === "vestibular" && sealed.includes("O") && index >= 4) layers.push({ src: `${root}/sell/${key}-O.webp`, surface: "O", kind: "sellante" });
+  const hasPalatal = [...caries.map(c => c.surface), ...restorations.map(r => r.surface)].includes("P");
+  // La caries palatina sin vista palatina activa se marca (aproximada) sobre la cara vestibular, en línea punteada.
+  const hidden = face === "vestibular" ? caries.filter(c => c.surface === "P") : [];
+  const kind: ToothPhotoKind = caries.length ? "caries" : restorations.length ? "restauracion" : "sano";
+  return { src: `${root}/base/${key}${face === "palatina" ? "-palatina" : ""}.webp`, kind, mirror, upper, transform, lesions: hidden.length ? cariesSpots(state.fdi, hidden) : [], layers, face, hasPalatal };
+}
+
 export function toothPhotoFor(state: ToothPhotoState): ToothPhoto | null {
   const quadrant = Math.floor(state.fdi / 10);
   const index = state.fdi % 10;
@@ -377,6 +426,12 @@ export function toothPhotoFor(state: ToothPhotoState): ToothPhoto | null {
     return { src: `/dientes/${base}.webp`, kind: "lesion", mirror, upper, transform, lesions: [] };
   }
   const kind = toothPhotoKind(state);
+  if (!state.implant && !state.crown && !state.endo) {
+    const mirror = quadrant === 2 || quadrant === 3, upper = quadrant <= 2;
+    const transform = mirror && upper ? "scale(-1,-1)" : mirror ? "scaleX(-1)" : upper ? "scaleY(-1)" : undefined;
+    const layered = layeredPhoto(state, upper ? "upper" : "lower", index, mirror, upper, transform);
+    if (layered) return layered;
+  }
   // Sin corona el implante no depende de la anatomía de la pieza: una imagen por diámetro (anterior, premolar/canino, molar).
   const name = kind === "implante-sumergido" || kind === "implante-pilar"
     ? `${kind}-${index <= 2 ? "angosto" : index <= 5 ? "regular" : "ancho"}`

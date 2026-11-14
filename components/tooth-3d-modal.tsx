@@ -6,7 +6,8 @@ import { CariesOverlay } from "@/components/caries-overlay";
 import { ToothTimeline } from "@/components/tooth-timeline";
 import { formatFdi, type CrownDetails, type OdontogramSurface, type PerioExam, type PerioSiteKey, type PerioTooth, type SurfaceFinding, type ToothHistoryEvent } from "@/app/clinical-data";
 import { cariesDetail } from "@/lib/caries";
-import { isHealthyWindow, toothPhotoFor, toothVideoFor, type CariesSpotInput } from "@/lib/tooth-photos";
+import { PhotoStack } from "@/components/photo-stack";
+import { isHealthyWindow, toothPhotoFor, toothVideoFor, type CariesSpotInput, type RestorationInput, type ToothFace } from "@/lib/tooth-photos";
 import { bitingFaceName, chileLabel, innerFaceName, toothKind, toothKindLabel } from "@/app/tooth-3d-map";
 
 const CONDITION_LABEL: Record<SurfaceFinding["condition"], string> = {
@@ -71,6 +72,7 @@ export function Tooth3DModal({
   const [reducedMotion, setReducedMotion] = useState(() => window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   const [grown, setGrown] = useState(reducedMotion);
   const [videoFailed, setVideoFailed] = useState(false);
+  const [face, setFace] = useState<ToothFace>("vestibular");
   const propCrownFoundation = crown?.foundation === "implant" ? "implant" : "tooth";
   const crownFoundationKey = `${tooth}|${propCrownFoundation}|${crown?.material ?? ""}|${crown?.shade ?? ""}|${crown?.source ?? ""}`;
   const [crownFoundationDraft, setCrownFoundationDraft] = useState<{ key: string; value: "tooth" | "implant" } | null>(null);
@@ -138,7 +140,9 @@ export function Tooth3DModal({
   const isImplant = status === "Implante" || status === "Implante con pilar";
   const cariesSurfaces: CariesSpotInput[] = (["O", "V", "P", "M", "D"] as OdontogramSurface[]).filter(surface => surfaces[surface]?.condition === "caries").map(surface => ({ surface, depth: (surfaces[surface]?.depth ?? null) as CariesSpotInput["depth"] }));
   const restoredSurfaces = (["O", "V", "P", "M", "D"] as OdontogramSurface[]).filter(surface => surfaces[surface]?.condition === "restored" || surfaces[surface]?.condition === "other_restoration");
-  const photo = toothPhotoFor({ fdi: tooth, status, implant: isImplant, implantPhase: status === "Implante con pilar" ? "pilar" : hasCrown ? "corona" : "sumergido", crown: hasCrown || status === "Corona", caries: cariesSurfaces.length > 0, restored: restoredSurfaces.length > 0, cariesSurfaces, restoredSurfaces });
+  const restorations: RestorationInput[] = restoredSurfaces.map(surface => ({ surface, material: surfaces[surface]?.restorationMaterial ?? null, stage: surfaces[surface]?.restorationStage ?? null }));
+  const sealedSurfaces = (["O", "V", "P", "M", "D"] as OdontogramSurface[]).filter(surface => surfaces[surface]?.condition === "sealant");
+  const photo = toothPhotoFor({ fdi: tooth, status, implant: isImplant, implantPhase: status === "Implante con pilar" ? "pilar" : hasCrown ? "corona" : "sumergido", crown: hasCrown || status === "Corona", caries: cariesSurfaces.length > 0, restored: restoredSurfaces.length > 0, cariesSurfaces, restoredSurfaces, restorations, sealedSurfaces, face });
   const healthyVideo = photo && isHealthyWindow(status, findings.length, Boolean(periodontalSites)) && !videoFailed ? toothVideoFor(tooth, status) : null;
   if (status && status !== "Sin hallazgos") findings.unshift((status === "Implante" || status === "Implante con pilar") && hasCrown ? "Implante con corona" : status === "Implante con pilar" ? "Implante con pilar (sin corona)" : status === "Corona" ? "Corona" : status === "Ausente" ? "Ausente / extraído" : status);
   const sortedToothHistory = [...toothHistory].filter(event => event.tooth === tooth).sort((a,b) => new Date(b.clinicalDate ? `${b.clinicalDate}T12:00:00` : b.recordedAt).getTime() - new Date(a.clinicalDate ? `${a.clinicalDate}T12:00:00` : a.recordedAt).getTime());
@@ -190,7 +194,8 @@ export function Tooth3DModal({
         </div> : findings.length > 0 ? <ul className="mb-3 flex flex-wrap gap-2">{findings.map((line) => <li key={line} className="rounded-full bg-[#f3f7f7] px-3 py-1 text-xs font-medium text-[#3b3355]">{line}</li>)}</ul> : <p className="mb-3 text-sm text-[#6b6a7c]">Sin hallazgos registrados en esta pieza.</p>}
         {photo ? <figure className="relative m-0 mx-auto w-[min(70vw,280px)] overflow-hidden rounded-xl bg-[#14161b]" data-testid="tooth-modal-photo" data-upper={!healthyVideo && photo.upper ? "true" : "false"}>
           {healthyVideo ? <video src={healthyVideo.src} poster={healthyVideo.poster} autoPlay={!reducedMotion} loop muted playsInline preload="auto" controls={reducedMotion} onError={() => setVideoFailed(true)} aria-label={`Video referencial de la pieza ${formatFdi(tooth)} girando 360 grados, sin hallazgos registrados`} data-testid="tooth-modal-video" className="block h-auto w-full" style={{ transform: healthyVideo.transform }} />
-            : <><img src={photo.src} alt={`Imagen referencial de la pieza ${formatFdi(tooth)}`} width={420} height={576} decoding="async" className="block h-auto w-full" style={{ transform: photo.transform }} /><CariesOverlay spots={photo.lesions} labels={false} cover /></>}
+            : <><PhotoStack photo={photo} intrinsic eager alt={`Imagen referencial de la pieza ${formatFdi(tooth)}${photo.face === "palatina" ? ", cara palatina o lingual" : ""}`} /><CariesOverlay spots={photo.lesions} labels={false} cover /></>}
+          {photo.hasPalatal && !healthyVideo && <button type="button" data-testid="tooth-modal-face" onClick={() => setFace(current => current === "palatina" ? "vestibular" : "palatina")} aria-pressed={face === "palatina"} className="absolute right-2 top-2 rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-[#3b3355] shadow hover:bg-white">{face === "palatina" ? "Ver cara vestibular" : `Ver cara ${Math.floor(tooth / 10) <= 2 ? "palatina" : "lingual"}`}</button>}
           <figcaption className="absolute inset-x-0 bottom-0 bg-black/60 px-2 py-1 text-center text-xs text-white/90">Imagen referencial, no es el paciente</figcaption>
         </figure> : status === "Ausente" ? <p className="rounded-lg bg-[#f2f5f5] px-3 py-6 text-center text-sm text-[#6b6a7c]">Pieza ausente.</p> : null}
         </div>
