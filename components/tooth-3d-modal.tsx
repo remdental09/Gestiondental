@@ -1,15 +1,13 @@
 "use client";
 
-import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { FullArch3DStage } from "@/components/full-arch-3d-stage";
-import { Eye, EyeOff, X } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { X } from "lucide-react";
+import { CariesOverlay } from "@/components/caries-overlay";
 import { ToothTimeline } from "@/components/tooth-timeline";
 import { formatFdi, type CrownDetails, type OdontogramSurface, type PerioExam, type PerioSiteKey, type PerioTooth, type SurfaceFinding, type ToothHistoryEvent } from "@/app/clinical-data";
 import { cariesDetail } from "@/lib/caries";
-import { isHealthyWindow, toothPhotoFor, toothVideoFor } from "@/lib/tooth-photos";
-import { bitingFaceName, chileLabel, innerFaceName, surfaceMarkColor, toothKind, toothKindLabel } from "@/app/tooth-3d-map";
-
-const Tooth3DStage = lazy(() => import("@/components/tooth-3d-stage").then((module) => ({ default: module.Tooth3DStage })));
+import { isHealthyWindow, toothPhotoFor, toothVideoFor, type CariesSpotInput } from "@/lib/tooth-photos";
+import { bitingFaceName, chileLabel, innerFaceName, toothKind, toothKindLabel } from "@/app/tooth-3d-map";
 
 const CONDITION_LABEL: Record<SurfaceFinding["condition"], string> = {
   not_examined: "Sin examinar",
@@ -72,10 +70,6 @@ export function Tooth3DModal({
   useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
   const [reducedMotion, setReducedMotion] = useState(() => window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   const [grown, setGrown] = useState(reducedMotion);
-  const [showPeriodontium, setShowPeriodontium] = useState(true);
-  const [periodontiumOpacity, setPeriodontiumOpacity] = useState(1);
-  const [fullArch, setFullArch] = useState(false);
-  const [show3d, setShow3d] = useState(false);
   const [videoFailed, setVideoFailed] = useState(false);
   const propCrownFoundation = crown?.foundation === "implant" ? "implant" : "tooth";
   const crownFoundationKey = `${tooth}|${propCrownFoundation}|${crown?.material ?? ""}|${crown?.shade ?? ""}|${crown?.source ?? ""}`;
@@ -96,7 +90,6 @@ export function Tooth3DModal({
       setSavingCrown(false);
     }
   };
-  const naturalTooth = status !== "Ausente" && status !== "Implante" && status !== "Implante con pilar";
   useLayoutEffect(() => {
     if (focusFrame.current !== null) cancelAnimationFrame(focusFrame.current);
     return () => {
@@ -141,10 +134,12 @@ export function Tooth3DModal({
       const detail = finding.condition === "caries" ? ` · ${cariesDetail(finding)}` : "";
       return `${face}: ${CONDITION_LABEL[finding.condition]}${detail}`;
     });
-  // Pieza sana (sin hallazgos ni lectura periodontal): foto realista, invertida si es superior; el modelo 3D queda a un clic.
-  const healthyPhoto = isHealthyWindow(status, findings.length, Boolean(periodontalSites)) ? toothPhotoFor({ fdi: tooth, status }) : null;
-  const healthyVideo = healthyPhoto && !videoFailed ? toothVideoFor(tooth, status) : null;
-  const showHealthyPhoto = Boolean(healthyPhoto) && !show3d;
+  // Foto realista de la pieza (invertida si es superior), con las lesiones de caries registradas; reemplaza al antiguo modelo 3D.
+  const isImplant = status === "Implante" || status === "Implante con pilar";
+  const cariesSurfaces: CariesSpotInput[] = (["O", "V", "P", "M", "D"] as OdontogramSurface[]).filter(surface => surfaces[surface]?.condition === "caries").map(surface => ({ surface, depth: (surfaces[surface]?.depth ?? null) as CariesSpotInput["depth"] }));
+  const restoredSurfaces = (["O", "V", "P", "M", "D"] as OdontogramSurface[]).filter(surface => surfaces[surface]?.condition === "restored" || surfaces[surface]?.condition === "other_restoration");
+  const photo = toothPhotoFor({ fdi: tooth, status, implant: isImplant, implantPhase: status === "Implante con pilar" ? "pilar" : hasCrown ? "corona" : "sumergido", crown: hasCrown || status === "Corona", caries: cariesSurfaces.length > 0, restored: restoredSurfaces.length > 0, cariesSurfaces, restoredSurfaces });
+  const healthyVideo = photo && isHealthyWindow(status, findings.length, Boolean(periodontalSites)) && !videoFailed ? toothVideoFor(tooth, status) : null;
   if (status && status !== "Sin hallazgos") findings.unshift((status === "Implante" || status === "Implante con pilar") && hasCrown ? "Implante con corona" : status === "Implante con pilar" ? "Implante con pilar (sin corona)" : status === "Corona" ? "Corona" : status === "Ausente" ? "Ausente / extraído" : status);
   const sortedToothHistory = [...toothHistory].filter(event => event.tooth === tooth).sort((a,b) => new Date(b.clinicalDate ? `${b.clinicalDate}T12:00:00` : b.recordedAt).getTime() - new Date(a.clinicalDate ? `${a.clinicalDate}T12:00:00` : a.recordedAt).getTime());
   const findingLabel = (finding?: SurfaceFinding) => {
@@ -171,7 +166,7 @@ export function Tooth3DModal({
     return `${event.title ?? state}${after?.crown?.material ? ` · ${after.crown.material}` : ""}`;
   };
   return <div className="fixed inset-0 z-50" role="presentation">
-    <button type="button" className="absolute inset-0 bg-[#10343a]/45" aria-label="Cerrar vista 3D" onClick={onClose} />
+    <button type="button" className="absolute inset-0 bg-[#10343a]/45" aria-label="Cerrar ventana de la pieza" onClick={onClose} />
     <div
       ref={dialogRef}
       role="dialog"
@@ -183,52 +178,26 @@ export function Tooth3DModal({
       <div className="flex items-start justify-between gap-3 border-b border-[#e4eeed] px-4 py-3 sm:px-5">
         <div>
           <p id="tooth-3d-title" className="text-lg font-semibold text-[#2a2540]">FDI {formatFdi(tooth)} · {chileLabel(tooth)}</p>
-          <p className="mt-0.5 text-sm text-[#5d7579]">{toothKindLabel(toothKind(tooth))} · {periodontalSites ? "seis sitios periodontales · solo lectura" : onSetCrownDetails ? "vista 3D · odontograma editable" : "solo lectura"}</p>
+          <p className="mt-0.5 text-sm text-[#5d7579]">{toothKindLabel(toothKind(tooth))} · {periodontalSites ? "seis sitios periodontales · solo lectura" : onSetCrownDetails ? "odontograma editable" : "solo lectura"}</p>
         </div>
         <button ref={closeRef} type="button" className="rounded-lg p-2 text-[#3b3355] hover:bg-[#e7f3f1]" onClick={onClose} aria-label="Cerrar"><X className="size-5" /></button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 sm:px-5">
         <div className={`grid grid-cols-1 gap-4 ${periodontalHistory !== undefined ? "lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]" : "lg:grid-cols-[minmax(0,1.1fr)_minmax(18rem,0.9fr)]"}`}>
         <div className="min-w-0">
-        {naturalTooth && <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#e2d7d0] bg-[#fffaf7] px-3 py-2">
-          <div className="text-xs leading-5 text-[#6b5550]">
-            <span className="font-semibold">Periodonto 3D</span>
-            <span className="ml-1">{showPeriodontium ? "Encía, hueso alveolar y ligamento periodontal translúcidos." : "Vista de la pieza sin capas periodontales."}</span>
-          </div>
-          <button type="button" aria-pressed={showPeriodontium} onClick={() => setShowPeriodontium((visible) => !visible)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-[#d5aaa7] bg-white px-3 py-1.5 text-xs font-semibold text-[#6e4144] hover:bg-[#fff0ee]">
-            {showPeriodontium ? <EyeOff className="size-4" aria-hidden="true" /> : <Eye className="size-4" aria-hidden="true" />}
-            {showPeriodontium ? "Ocultar periodonto" : "Mostrar periodonto"}
-          </button>
-          {showPeriodontium && <label className="flex w-full items-center gap-2 text-xs font-medium text-[#6b5550]">
-            <span className="shrink-0">Ver el diente por dentro</span>
-            <input type="range" min={10} max={100} step={5} value={Math.round(periodontiumOpacity * 100)} onChange={(event) => setPeriodontiumOpacity(Number(event.target.value) / 100)} className="h-2 min-w-0 flex-1 accent-[#b85c64]" aria-label="Opacidad del periodonto" />
-            <span className="w-9 shrink-0 text-right tabular-nums">{Math.round(periodontiumOpacity * 100)} %</span>
-          </label>}
-        </div>}
         {periodontalSites ? <div className="mb-3 grid grid-cols-3 gap-1.5 text-center text-xs sm:gap-2" aria-label="Seis sitios periodontales">
           {(["MV", "V", "DV", "ML", "L", "DL"] as PerioSiteKey[]).map(key => { const reading = periodontalSites[key]; const depth = reading?.depth; const measured = depth !== null && depth !== undefined; const color = !measured ? "#94a3b8" : depth >= 6 ? "#be123c" : depth >= 4 ? "#b45309" : "#047857"; return <div key={key} className="rounded-lg border border-[#e5e2ec] bg-white px-1 py-1.5"><span className="font-semibold">{key}</span><span className="ml-1 font-medium" style={{color}}>{measured ? `${depth} mm` : "sin medir"}</span>{reading?.bleeding && <span className="block text-red-700">Sangrado</span>}{reading?.suppuration && <span className="block text-violet-700">Supuración</span>}</div>; })}
         </div> : findings.length > 0 ? <ul className="mb-3 flex flex-wrap gap-2">{findings.map((line) => <li key={line} className="rounded-full bg-[#f3f7f7] px-3 py-1 text-xs font-medium text-[#3b3355]">{line}</li>)}</ul> : <p className="mb-3 text-sm text-[#6b6a7c]">Sin hallazgos registrados en esta pieza.</p>}
-        <div className="mb-2 flex gap-2" role="group" aria-label="Vista del odontograma 3D"><button type="button" onClick={() => setFullArch(false)} aria-pressed={!fullArch} className={`rounded-lg border px-3 py-1.5 text-sm ${!fullArch ? "border-[#473a6d] bg-[#efeef4] text-[#473a6d]" : "border-[#dfdbe8] bg-white text-[#57566a]"}`}>Pieza seleccionada</button><button type="button" onClick={() => setFullArch(true)} aria-pressed={fullArch} className={`rounded-lg border px-3 py-1.5 text-sm ${fullArch ? "border-[#473a6d] bg-[#efeef4] text-[#473a6d]" : "border-[#dfdbe8] bg-white text-[#57566a]"}`}>Todas las piezas en hueso</button></div>
-        {fullArch ? <FullArch3DStage reducedMotion={reducedMotion} /> : showHealthyPhoto && healthyPhoto ? <figure className="relative m-0 mx-auto w-[min(70vw,280px)] overflow-hidden rounded-xl bg-[#14161b]" data-testid="tooth-modal-photo" data-upper={!healthyVideo && healthyPhoto.upper ? "true" : "false"}>{healthyVideo ? <video src={healthyVideo.src} poster={healthyVideo.poster} autoPlay={!reducedMotion} loop muted playsInline preload="auto" controls={reducedMotion} onError={() => setVideoFailed(true)} aria-label={`Video referencial de la pieza ${formatFdi(tooth)} girando 360 grados, sin hallazgos registrados`} data-testid="tooth-modal-video" className="block h-auto w-full" style={{ transform: healthyVideo.transform }} /> : <img src={healthyPhoto.src} alt={`Imagen referencial de la pieza ${formatFdi(tooth)}: sin hallazgos registrados`} width={420} height={576} decoding="async" className="block h-auto w-full" style={{ transform: healthyPhoto.transform }} />}<figcaption className="absolute inset-x-0 bottom-0 bg-black/60 px-2 py-1 text-center text-xs text-white/90">Imagen referencial, no es el paciente</figcaption></figure> : <Suspense fallback={<p className="grid h-[min(42vh,360px)] min-h-56 place-items-center text-sm text-[#6b6a7c]" role="status">Preparando el diente…</p>}>
-          {placed && <Tooth3DStage tooth={tooth} status={status} surfaces={surfaces} hasCrown={hasCrown} reducedMotion={reducedMotion} periodontalSites={periodontalSites} showPeriodontium={showPeriodontium} periodontiumOpacity={periodontiumOpacity} />}
-        </Suspense>}
-        {healthyPhoto && !fullArch && <button type="button" onClick={() => setShow3d(v => !v)} className="mt-2 rounded-lg border border-[#dfdbe8] bg-white px-3 py-1.5 text-sm text-[#57566a]" data-testid="tooth-modal-toggle3d">{show3d ? "Ver foto realista" : "Ver modelo 3D"}</button>}
-        {!(showHealthyPhoto && !fullArch) && <p className="mt-2 text-xs leading-5 text-[#6b6a7c]">{reducedMotion ? "Arrastra para girar. Acerca con la rueda o con dos dedos. La rotación automática está desactivada." : "Las piezas giran juntas con la arcada. Arrastra para orientarlas y acerca con la rueda o con dos dedos."}</p>}
-        {!(showHealthyPhoto && !fullArch) && <ul className="mt-3 flex flex-wrap gap-2 text-xs text-[#57566a]" aria-label="Leyenda de colores">
-          {([
-            ["Lesión de caries", surfaceMarkColor("caries")],
-            ["Obturación", surfaceMarkColor("restored")],
-            ["Restauración provisoria", "#e6a14a"],
-            ["Sellante", surfaceMarkColor("sealant")],
-            ["Sin lesión visible", surfaceMarkColor("sound")],
-            ["Sin examinar", surfaceMarkColor("not_examined")],
-          ] as const).map(([label, color]) => <li key={label} className="inline-flex items-center gap-1.5 rounded-full border border-[#e5e2ec] bg-white px-2.5 py-1"><span className="size-2.5 rounded-full" style={{ background: color }} />{label}</li>)}
-        </ul>}
+        {photo ? <figure className="relative m-0 mx-auto w-[min(70vw,280px)] overflow-hidden rounded-xl bg-[#14161b]" data-testid="tooth-modal-photo" data-upper={!healthyVideo && photo.upper ? "true" : "false"}>
+          {healthyVideo ? <video src={healthyVideo.src} poster={healthyVideo.poster} autoPlay={!reducedMotion} loop muted playsInline preload="auto" controls={reducedMotion} onError={() => setVideoFailed(true)} aria-label={`Video referencial de la pieza ${formatFdi(tooth)} girando 360 grados, sin hallazgos registrados`} data-testid="tooth-modal-video" className="block h-auto w-full" style={{ transform: healthyVideo.transform }} />
+            : <><img src={photo.src} alt={`Imagen referencial de la pieza ${formatFdi(tooth)}`} width={420} height={576} decoding="async" className="block h-auto w-full" style={{ transform: photo.transform }} /><CariesOverlay spots={photo.lesions} labels={false} cover /></>}
+          <figcaption className="absolute inset-x-0 bottom-0 bg-black/60 px-2 py-1 text-center text-xs text-white/90">Imagen referencial, no es el paciente</figcaption>
+        </figure> : status === "Ausente" ? <p className="rounded-lg bg-[#f2f5f5] px-3 py-6 text-center text-sm text-[#6b6a7c]">Pieza ausente.</p> : null}
         </div>
         <aside className="min-w-0 space-y-4" aria-label={`Historia clínica de la pieza FDI ${formatFdi(tooth)}`}>
           <section className="rounded-xl border border-[#dbe8e7] bg-[#f7f6fa] p-3 sm:p-4">
             <h3 className="text-sm font-semibold text-[#2a2540]">Evolución de la pieza</h3>
-            <p className="mt-1 text-xs leading-5 text-[#6b6a7c]">Estado actual en 3D e hitos clínicos fechados registrados para esta pieza.</p>
+            <p className="mt-1 text-xs leading-5 text-[#6b6a7c]">Estado actual e hitos clínicos fechados registrados para esta pieza.</p>
             {periodontalHistory === undefined && onEditEvent ? <ToothTimeline tooth={tooth} history={toothHistory} exams={[]} mode="odontograma" editableIds={editableEventIds} onDeleteEvent={onDeleteEvent} onEditEvent={onEditEvent} /> : sortedToothHistory.length ? <ol className="relative mt-3 space-y-0 border-l border-[#b8d2cf] pl-4">
               {sortedToothHistory.map(event => <li key={event.id} className="relative pb-4 last:pb-0">
                 <span className="absolute -left-[1.31rem] top-1.5 size-2 rounded-full bg-[#473a6d]" aria-hidden="true" />
