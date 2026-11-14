@@ -14,15 +14,10 @@ test("solo la pieza «Sin hallazgos», sin hallazgos de superficie ni periodonto
   }
 });
 
-test("la ventana usa esa función y deja el modelo 3D a un clic", () => {
+test("la ventana usa la foto realista (con marcas de caries) y ya no tiene modelo 3D", () => {
   assert.match(modal, /isHealthyWindow\(status, findings\.length, Boolean\(periodontalSites\)\)/);
-  assert.match(modal, /data-testid="tooth-modal-toggle3d"/);
-  assert.match(modal, /Ver modelo 3D/);
-  assert.doesNotMatch(modal, /aria-pressed=\{show3d\}/);
-});
-
-test("con foto o video no se muestran las instrucciones ni la leyenda del 3D", () => {
-  assert.equal((modal.match(/!\(showHealthyPhoto && !fullArch\)/g) ?? []).length, 2);
+  assert.match(modal, /<CariesOverlay spots=\{photo\.lesions\}/);
+  assert.doesNotMatch(modal, /Tooth3DStage|FullArch3DStage|tooth-modal-toggle3d|Ver modelo 3D|Periodonto 3D|Todas las piezas en hueso/);
 });
 
 test("la pieza superior se muestra invertida y la inferior no", () => {

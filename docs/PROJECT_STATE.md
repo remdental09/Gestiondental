@@ -382,3 +382,6 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 
 ## País del profesional
 - Registro y «Mi perfil» piden el país (América y Europa, más «Otro país»; por defecto Chile). Elegir un país distinto de Chile cambia el documento a extranjero (se puede volver a cambiar). Se guarda en la columna nueva `country` (se crea sola, default Chile). Aún no se usa para nada más (zona horaria, idioma, etc.).
+
+## Retiro del 3D antiguo (2026-11-14)
+- Se eliminó la presentación 3D antigua del odontograma (modelo three.js, «Periodonto 3D», «Todas las piezas en hueso»), junto con `tooth-3d-stage`, `full-arch-3d-stage`, `tooth-anatomy`, `perio-3d-map` y la dependencia `three`. La ventana de la pieza (`components/tooth-3d-modal.tsx`) ahora muestra la foto realista de `public/dientes` (invertida si es superior) con las marcas de caries registradas, más la historia de la pieza y la corrección de soporte de corona. Las secciones anteriores que mencionan el 3D describen versiones retiradas.
