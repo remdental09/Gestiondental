@@ -23,7 +23,8 @@ export const FACE_SITES: Record<ArchFace, readonly [PerioSiteKey, PerioSiteKey, 
 };
 
 /** Sin medida: la encía y el hueso se dibujan en una posición neutra que no se confunde con una lectura. */
-export const DEFAULT_GUM_MM = -1;
+export const DEFAULT_DEPTH_MM = 2; // sulco sano mientras el clínico no mida
+export const DEFAULT_GUM_MM = 0; // margen en la UAC
 export const DEFAULT_BONE_MM = 2.5;
 /** Cresta y encía de un reborde sin diente, en mm bajo la línea amelocementaria típica. */
 export const RIDGE_GUM_MM = 1.5;
@@ -69,10 +70,11 @@ export function siteLevel(reading: PerioReading | undefined): SiteLevel {
   const depth = reading?.depth ?? null;
   const margin = reading?.margin ?? null;
   const bleeding = Boolean(reading?.bleeding), suppuration = Boolean(reading?.suppuration);
-  if (depth === null && margin === null) return { measured: false, depth: null, gumMm: DEFAULT_GUM_MM, boneMm: DEFAULT_BONE_MM, bleeding, suppuration };
-  const gumMm = margin ?? 0;
-  const boneMm = depth === null ? Math.max(DEFAULT_BONE_MM, gumMm + 1.5) : Math.max(gumMm + 1.5, depth + gumMm + 2);
-  return { measured: depth !== null, depth, gumMm, boneMm, bleeding, suppuration };
+  // Sin medición se muestra un sitio sano (sondaje 2 mm, margen 0) con la misma matemática; `measured` indica si es dato real.
+  const shownDepth = depth ?? DEFAULT_DEPTH_MM;
+  const gumMm = margin ?? DEFAULT_GUM_MM;
+  const boneMm = Math.max(gumMm + 1.5, shownDepth + gumMm + 2);
+  return { measured: depth !== null, depth: shownDepth, gumMm, boneMm, bleeding, suppuration };
 }
 
 export type ToothLevels = { tooth: number; excluded: Excluded; sites: [SiteLevel, SiteLevel, SiteLevel] };
