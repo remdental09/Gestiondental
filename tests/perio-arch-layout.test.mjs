@@ -50,7 +50,8 @@ test('sin medir muestra valores normales marcados como no medidos, y la cresta e
   const bolsa = siteLevel({ depth: 6, margin: 1, bleeding: true, suppuration: false });
   assert.equal(bolsa.measured, true);
   assert.equal(bolsa.gumMm, 1);
-  assert.equal(bolsa.boneMm, 9);
+  assert.equal(bolsa.boneMm, 7);
+  assert.equal(vacio.boneMm, 2); // hueso sano: 2 mm bajo la UAC
   const sano = siteLevel({ depth: 2, margin: -2, bleeding: false, suppuration: false });
   assert.ok(sano.boneMm >= sano.gumMm + 1.5);
   assert.equal(siteLevel({ depth: 4, margin: null, bleeding: false, suppuration: false }).gumMm, 0);

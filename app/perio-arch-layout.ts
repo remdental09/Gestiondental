@@ -25,7 +25,7 @@ export const FACE_SITES: Record<ArchFace, readonly [PerioSiteKey, PerioSiteKey, 
 /** Sin medida: la encía y el hueso se dibujan en una posición neutra que no se confunde con una lectura. */
 export const DEFAULT_DEPTH_MM = 2; // sulco sano mientras el clínico no mida
 export const DEFAULT_GUM_MM = 0; // margen en la UAC
-export const DEFAULT_BONE_MM = 2.5;
+export const NORMAL_BONE_MM = 2; // cresta ósea sana: unos 2 mm apical a la UAC
 /** Cresta y encía de un reborde sin diente, en mm bajo la línea amelocementaria típica. */
 export const RIDGE_GUM_MM = 1.5;
 export const RIDGE_BONE_MM = 4.5;
@@ -65,7 +65,7 @@ export type SiteLevel = { measured: boolean; depth: number | null; gumMm: number
 /**
  * Posición del margen gingival y de la cresta ósea (mm respecto a la UAC, positivo hacia el ápice) en un sitio.
  * Con sondaje y sin margen se supone el margen en la UAC (inserción = sondaje). La cresta es una estimación:
- * nivel de inserción + 2 mm, y nunca queda por encima del margen.
+ * el nivel de inserción, con un mínimo de 2 mm bajo la UAC (hueso sano), y nunca queda por encima del margen.
  */
 export function siteLevel(reading: PerioReading | undefined): SiteLevel {
   const depth = reading?.depth ?? null;
@@ -74,7 +74,7 @@ export function siteLevel(reading: PerioReading | undefined): SiteLevel {
   // Sin medición se muestra un sitio sano (sondaje 2 mm, margen 0) con la misma matemática; `measured` indica si es dato real.
   const shownDepth = depth ?? DEFAULT_DEPTH_MM;
   const gumMm = margin ?? DEFAULT_GUM_MM;
-  const boneMm = Math.max(gumMm + 1.5, shownDepth + gumMm + 2);
+  const boneMm = Math.max(gumMm + 1.5, NORMAL_BONE_MM, shownDepth + gumMm);
   return { measured: depth !== null, depth: shownDepth, gumMm, boneMm, bleeding, suppuration };
 }
 
