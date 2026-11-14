@@ -16,9 +16,9 @@ const stepLabel = (state: GuideState, tooth: number) => state.step === "await" ?
  * Dictado guiado del periodontograma: la aplicación anuncia la pieza y el paso en voz alta, escucha la respuesta
  * y avanza sola. Solo llena el examen en curso; no escribe en la evolución ni guarda.
  */
-export function PerioGuide({ ref, statuses, clinicianName, startTooth, onApply, onFocus, onAbsent, onMarkAbsent }: {
+export function PerioGuide({ ref, statuses, clinicianName, selectedTooth, onApply, onFocus, onAbsent, onMarkAbsent }: {
   ref?: Ref<PerioGuideHandle>;
-  statuses: Record<number, string>; clinicianName?: string; startTooth?: number;
+  statuses: Record<number, string>; clinicianName?: string; /** Pieza marcada en la arcada: se puede dictar solo ella o desde ella en adelante. */ selectedTooth?: number;
   onApply: (result: PerioDictationResult) => void;
   onFocus: (tooth: number, face: "vestibular" | "lingual") => void;
   onAbsent: (tooth: number) => void;
@@ -97,7 +97,7 @@ export function PerioGuide({ ref, statuses, clinicianName, startTooth, onApply, 
   }, []);
   useEffect(() => stopAll, [stopAll]);
 
-  const start = () => {
+  const start = (mode: "all" | "from" | "only" = "all") => {
     setError(""); setHeard(""); setSaved([]); muted.current = false;
     const Recognition = recognizerClass();
     if (Recognition) {
@@ -108,7 +108,7 @@ export function PerioGuide({ ref, statuses, clinicianName, startTooth, onApply, 
       instance.onerror = event => { if (event.error === "not-allowed" || event.error === "service-not-allowed") { setError("El navegador no autorizó el micrófono. Puedes escribir las respuestas abajo."); active.current = false; } };
       recognizer.current = instance;
     } else setError("Este navegador no reconoce voz en vivo (funciona en Chrome). Puedes escribir las respuestas abajo o usar el dictado libre.");
-    const begin = guideStart(statuses, firstName, startTooth);
+    const begin = guideStart(statuses, firstName, mode === "all" ? undefined : selectedTooth, mode === "only");
     stateRef.current = begin.state; setState(begin.state);
     active.current = !begin.state.done && Boolean(Recognition);
     if (!begin.state.done) onFocus(begin.state.order[begin.state.index], "vestibular");
@@ -116,9 +116,14 @@ export function PerioGuide({ ref, statuses, clinicianName, startTooth, onApply, 
   };
   const close = () => { stopAll(); stateRef.current = null; setState(null); setSaid(""); setHeard(""); };
 
-  if (!state) return <div className="mb-2 flex flex-wrap items-center gap-2">
-    <Button type="button" onClick={start} className="bg-[#473a6d] text-white hover:bg-[#3a2f5a]"><Mic className="size-4" /> Dictar periodontograma</Button>
-    <span className="text-xs text-[#615f73]">Guiado: autorizas cada pieza con un clic y la aplicación te pide cada sitio, de mesial a distal.</span>
+  const picked = selectedTooth ? formatFdi(selectedTooth) : "";
+  if (!state) return <div className="mb-2 space-y-1.5">
+    <div className="flex flex-wrap items-center gap-2">
+      {selectedTooth && <Button type="button" onClick={() => start("only")} className="bg-[#473a6d] text-white hover:bg-[#3a2f5a]" data-testid="perio-dictate-only"><Mic className="size-4" /> Dictar solo la pieza {picked}</Button>}
+      <Button type="button" variant={selectedTooth ? "outline" : "default"} onClick={() => start("all")} className={selectedTooth ? "" : "bg-[#473a6d] text-white hover:bg-[#3a2f5a]"} data-testid="perio-dictate-all"><Mic className="size-4" /> Dictar periodontograma completo</Button>
+      {selectedTooth && selectedTooth !== 18 && <Button type="button" variant="outline" onClick={() => start("from")} data-testid="perio-dictate-from">Desde la {picked} en adelante</Button>}
+    </div>
+    <p className="text-xs text-[#615f73]">Marca una pieza en la arcada para dictar solo esa. El completo parte en la 1.8. En todos los casos la aplicación te pide cada sitio, de mesial a distal.</p>
   </div>;
 
   const tooth = state.order[state.index];
