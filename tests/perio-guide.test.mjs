@@ -141,3 +141,35 @@ test('guía periodontal: nada se registra hasta que el profesional autoriza la p
   // Una pieza fuera del recorrido (ausente) no se puede autorizar.
   assert.equal(guideAuthorize(guideStart({ 16: 'Ausente' }).state, 16).state.step, 'await');
 });
+
+test('guía periodontal: dictar solo una pieza empieza de inmediato en ella y se cierra al terminarla', () => {
+  const start = guideStart({}, 'Luis', 11, true);
+  assert.equal(start.state.single, true);
+  assert.deepEqual(start.state.order, [11]);
+  assert.equal(start.state.step, 'site');
+  assert.match(start.say, /^Pieza uno uno solamente\. Luis, pieza uno uno\. mesial vestibular, sondaje\./);
+  const out = run(start.state, [...Array(12).fill('2'), 'nada']);
+  assert.deepEqual(out.outs[0].apply.sites, { MV: { depth: 2 } });
+  assert.equal(out.state.done, true);
+  assert.match(out.outs[12].say, /Pieza uno uno lista/);
+  // «atrás» en el primer sitio no salta a otra pieza.
+  const back = guideHear(start.state, 'atrás');
+  assert.equal(back.state.order[back.state.index], 11);
+  assert.equal(back.state.step, 'site');
+  // Otra pieza no se puede autorizar a mitad.
+  assert.equal(guideAuthorize(start.state, 21).state.order[0], 11);
+});
+
+test('guía periodontal: una pieza ausente o con implante no se dicta sola y lo avisa', () => {
+  const start = guideStart({ 21: 'Ausente' }, 'Luis', 21, true);
+  assert.equal(start.state.done, true);
+  assert.match(start.say, /ausente o con implante/);
+  assert.equal(guideStart({ 21: 'Implante' }, '', 21, true).state.done, true);
+});
+
+test('guía periodontal: el recorrido completo puede partir de la pieza elegida', () => {
+  const start = guideStart({}, 'Luis', 21);
+  assert.equal(start.state.order[start.state.index], 21);
+  assert.equal(start.state.step, 'await');
+  assert.equal(start.state.order.length, 32);
+});

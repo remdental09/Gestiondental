@@ -15,7 +15,7 @@ import { describePerioDictation, spokenPerioValues, type PerioDictationSite, typ
 /** «await»: la aplicación propone una pieza y espera que el profesional la autorice con un clic antes de escuchar medidas. «site»: sondaje o margen de un sitio (ver `pos`). */
 export type GuideStep = "await" | "site" | "flags";
 /** `pos` recorre los seis sitios de la pieza: pos = 2·sitio + (0 sondaje | 1 margen); sitios 0–2 vestibular y 3–5 palatino/lingual. `misses`: respuestas seguidas no entendidas. */
-export type GuideState = { order: number[]; index: number; step: GuideStep; pos: number; misses: number; noisy: boolean; absent: number[]; paused: boolean; done: boolean };
+export type GuideState = { order: number[]; index: number; step: GuideStep; pos: number; misses: number; noisy: boolean; absent: number[]; paused: boolean; done: boolean; /** Dictado de una sola pieza: al terminarla se cierra, sin pasar a las siguientes. */ single?: boolean };
 export type GuideOutcome = { state: GuideState; say: string; apply?: PerioDictationTooth; markedAbsent?: number };
 
 /** Intentos fallidos seguidos antes de avisar de ruido o varias voces. */
@@ -54,8 +54,22 @@ export function guidePrompt(state: GuideState, name = ""): string {
   return `${site}, sondaje.`;
 }
 
-export function guideStart(statuses: Record<number, string | undefined>, name = "", from?: number): GuideOutcome {
-  const order = guideOrder(statuses);
+/**
+ * Inicio del dictado. Sin `only`, recorre las piezas del odontograma desde `from` (por defecto la 1.8) y cada una se
+ * autoriza a mano. Con `only`, dicta SOLO esa pieza: elegirla y pulsar «Dictar solo la pieza» ya es la autorización,
+ * así que empieza de inmediato en el primer sitio y al terminar se cierra.
+ */
+export function guideStart(statuses: Record<number, string | undefined>, name = "", from?: number, only = false): GuideOutcome {
+  const all = guideOrder(statuses);
+  if (only && from) {
+    if (!all.includes(from)) {
+      const state: GuideState = { order: [], index: 0, step: "await", pos: 0, misses: 0, noisy: false, absent: [], paused: false, done: true, single: true };
+      return { state, say: `La pieza ${spokenTooth(from)} figura ausente o con implante en el odontograma, por eso no se sondea.` };
+    }
+    const state: GuideState = { order: [from], index: 0, step: "site", pos: 0, misses: 0, noisy: false, absent: [], paused: false, done: false, single: true };
+    return { state, say: `Pieza ${spokenTooth(from)} solamente. ${guidePrompt(state, name)}` };
+  }
+  const order = all;
   const index = Math.max(0, from ? order.indexOf(from) : 0);
   const state: GuideState = { order, index, step: "await", pos: 0, misses: 0, noisy: false, absent: [], paused: false, done: order.length === 0 };
   if (state.done) return { state, say: "No hay piezas para sondear según el odontograma." };
@@ -123,7 +137,7 @@ export function guideHear(current: GuideState, utterance: string, name = "", typ
   const tooth = state.order[state.index];
   const goTooth = (index: number, lead = ""): GuideOutcome => {
     state.misses = 0; state.noisy = false;
-    if (index >= state.order.length) { state.done = true; return { state, say: `${lead}Examen completo. Revisa la arcada y guarda el examen.` }; }
+    if (index >= state.order.length) { state.done = true; return { state, say: state.single ? `${lead}Pieza ${spokenTooth(tooth)} lista. Revisa la arcada y guarda el examen.` : `${lead}Examen completo. Revisa la arcada y guarda el examen.` }; }
     state.index = Math.max(0, index); state.step = "await"; state.pos = 0;
     return { state, say: `${lead}${guidePrompt(state, name)}` };
   };
@@ -149,6 +163,7 @@ export function guideHear(current: GuideState, utterance: string, name = "", typ
   if (has(text, /\b(atras|anterior|volver|vuelve)\b/)) {
     if (state.step === "flags") { state.step = "site"; state.pos = LAST_POS; return { state, say: guidePrompt(state, name) }; }
     if (state.step === "site" && state.pos > 0) { state.pos -= 1; return { state, say: guidePrompt(state, name) }; }
+    if (state.single) return { state, say: guidePrompt(state, name) };
     return goTooth(state.index - 1);
   }
   if (has(text, /\b(ausente|ausencia|falta|no esta|extraida|perdida)\b/)) {
