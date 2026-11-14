@@ -33,6 +33,15 @@ export const RIDGE_BONE_MM = 4.5;
 export const toothType = (tooth: number) => TOOTH_TYPES[(tooth % 10) - 1];
 export const jawOf = (tooth: number): Jaw => (Math.floor(tooth / 10) <= 2 ? "upper" : "lower");
 
+/**
+ * Imagen de una pieza según la cara. La toma lingual/palatina (`…-lingual`) se usa si existe; si falta, cae a la vestibular.
+ * Todas las imágenes se guardan con mesial a la derecha (posición de los cuadrantes 1 y 4); los cuadrantes 2 y 3 se espejan al dibujar.
+ */
+export function archImageKey(tooth: number, face: ArchFace, available: (key: string) => boolean): string {
+  const base = `${jawOf(tooth)}-${toothType(tooth)}`;
+  return face === "lingual" && available(`${base}-lingual`) ? `${base}-lingual` : base;
+}
+
 export type Excluded = "absent" | "implant" | null;
 /** Una pieza ausente o con implante no se sondea como diente: se muestra su reborde o su implante. */
 export function excludedKind(status: string | undefined): Excluded {

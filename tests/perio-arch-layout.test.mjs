@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { archCurves, archSlots, depthTone, excludedKind, FACE_SITES, jawOf, LOWER_ORDER, sampleCurve, siteLevel, siteXs, toothLevels, UPPER_ORDER } from '../app/perio-arch-layout.ts';
+import { archCurves, archSlots, depthTone, excludedKind, FACE_SITES, archImageKey, jawOf, LOWER_ORDER, sampleCurve, siteLevel, siteXs, toothLevels, UPPER_ORDER } from '../app/perio-arch-layout.ts';
 
 test('cada arcada reparte sus 16 piezas en orden FDI, de derecha a izquierda del paciente', () => {
   const upper = archSlots('upper', 'vestibular');
@@ -105,4 +105,12 @@ test('la curva muestreada pasa por los puntos y se mantiene plana en los extremo
 
 test('colores de sondaje: 0–3 verde, 4–5 ámbar, 6 o más rojo, sin medir gris', () => {
   assert.deepEqual([null, 0, 3, 4, 5, 6, 9].map(depthTone), ['none', 'ok', 'ok', 'warn', 'warn', 'crit', 'crit']);
+});
+
+test('la cara lingual/palatina usa su propia toma si existe y, si falta, la vestibular', () => {
+  const con = key => ['upper-molar-1-lingual'].includes(key);
+  assert.equal(archImageKey(16, 'vestibular', con), 'upper-molar-1');
+  assert.equal(archImageKey(16, 'lingual', con), 'upper-molar-1-lingual');
+  assert.equal(archImageKey(26, 'lingual', con), 'upper-molar-1-lingual');
+  assert.equal(archImageKey(46, 'lingual', con), 'lower-molar-1');
 });
