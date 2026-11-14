@@ -14,33 +14,65 @@ test('guía periodontal: parte en 1.8 y salta ausentes e implantes del odontogra
   assert.deepEqual(guideOrder({}).slice(15, 18), [28, 38, 37]);
 });
 
-test('guía periodontal: una pieza completa, paso a paso y en orden', () => {
-  const { state, outs } = run(begin({}, 'Luis'), ['tres dos cuatro', 'cinco, seis, cinco', 'cero uno uno', 'menos uno cero cero', 'sangrado mesial vestibular', 'siguiente']);
-  assert.deepEqual(outs[0].apply, { tooth: 18, sites: { MV: { depth: 3 }, V: { depth: 2 }, DV: { depth: 4 } } });
-  assert.match(outs[0].say, /^3, 2, 4\. Sondaje palatino\.$/);
-  assert.deepEqual(outs[1].apply.sites, { ML: { depth: 5 }, L: { depth: 6 }, DL: { depth: 5 } });
-  assert.match(outs[1].say, /Ahora, Luis, dime el margen gingival vestibular\./);
-  assert.deepEqual(outs[2].apply.sites, { MV: { margin: 0 }, V: { margin: 1 }, DV: { margin: 1 } });
-  assert.deepEqual(outs[3].apply.sites, { ML: { margin: -1 }, L: { margin: 0 }, DL: { margin: 0 } });
-  assert.match(outs[3].say, /Pieza uno ocho: ¿sangrado o supuración\?/);
-  assert.deepEqual(outs[4].apply.sites, { MV: { bleeding: true } });
-  assert.equal(outs[4].state.step, 'flags');
-  assert.equal(state.order[state.index], 17);
-  assert.equal(outs[5].say, 'Autoriza la pieza uno siete.');
-  assert.equal(state.step, 'await');
+// Seis sitios, cada uno con sondaje y margen.
+const SITES = ['3','0','2','0','4','0','5','0','6','0','5','0'];
+
+test('guía periodontal: una pieza completa, sitio por sitio y en orden', () => {
+  const phrases = ['tres', 'cero', 'dos', 'uno', 'cuatro', 'uno', 'cinco', 'menos uno', 'seis', 'cero', 'cinco', 'cero'];
+  const { state, outs } = run(begin({}, 'Luis'), phrases);
+  assert.deepEqual(outs[0].apply, { tooth: 18, sites: { MV: { depth: 3 } } });
+  assert.equal(outs[0].say, '3. Margen gingival, mesial vestibular.');
+  assert.deepEqual(outs[1].apply.sites, { MV: { margin: 0 } });
+  assert.equal(outs[1].say, '0. central vestibular, sondaje.');
+  assert.deepEqual(outs[2].apply.sites, { V: { depth: 2 } });
+  assert.deepEqual(outs[6].apply.sites, { ML: { depth: 5 } });
+  assert.match(outs[5].say, /distal vestibular|mesial palatino/);
+  assert.equal(outs[5].say, '1. mesial palatino, sondaje.');
+  assert.deepEqual(outs[7].apply.sites, { ML: { margin: -1 } });
+  assert.deepEqual(outs[10].apply.sites, { DL: { depth: 5 } });
+  assert.match(outs[11].say, /Pieza uno ocho: ¿sangrado o supuración\?/);
+  assert.equal(state.step, 'flags');
 });
 
-test('guía periodontal: junta los valores dictados con pausas y no acepta de más ni fuera de rango', () => {
+test('guía periodontal: sondaje y margen juntos, y sangrado dicho de pasada', () => {
   const start = begin();
-  const partial = run(start, ['tres', 'dos', 'cuatro']);
-  assert.equal(partial.outs[0].say, 'Faltan dos.');
-  assert.equal(partial.outs[1].say, 'Falta uno.');
-  assert.deepEqual(partial.outs[2].apply.sites, { MV: { depth: 3 }, V: { depth: 2 }, DV: { depth: 4 } });
-  const extra = guideHear(start, 'tres dos cuatro cinco');
-  assert.equal(extra.apply, undefined);
-  assert.equal(extra.state.step, 'depthV');
-  assert.equal(guideHear(start, 'tres dos cuarenta y uno').apply, undefined);
-  assert.deepEqual(guideHear(start, '324').apply.sites, { MV: { depth: 3 }, V: { depth: 2 }, DV: { depth: 4 } });
+  const both = guideHear(start, 'tres uno');
+  assert.deepEqual(both.apply.sites, { MV: { depth: 3, margin: 1 } });
+  assert.equal(both.state.pos, 2);
+  assert.equal(both.say, '3, margen 1. central vestibular, sondaje.');
+  const bleed = guideHear(start, 'cuatro sangra');
+  assert.deepEqual(bleed.apply.sites, { MV: { depth: 4, bleeding: true } });
+  assert.equal(bleed.state.pos, 1);
+  assert.equal(guideHear(start, 'cuatro sin sangrado').apply.sites.MV.bleeding, undefined);
+  assert.equal(guideHear(start, 'cuarenta y uno').apply, undefined);
+  assert.equal(guideHear(start, '3 2 4').apply, undefined);
+});
+
+test('guía periodontal: si no entiende repite y tras tres intentos avisa de ruido y deja de escuchar', () => {
+  const start = begin({}, 'Luis');
+  const first = guideHear(start, 'blablá ruido', 'Luis');
+  assert.equal(first.apply, undefined);
+  assert.match(first.say, /^No te entendí\. Luis, pieza uno ocho\. mesial vestibular, sondaje\./);
+  const second = guideHear(first.state, 'mmm', 'Luis');
+  assert.equal(second.state.misses, 2);
+  assert.equal(second.state.noisy, false);
+  const third = guideHear(second.state, 'eh', 'Luis');
+  assert.equal(third.state.noisy, true);
+  assert.equal(third.state.paused, true);
+  assert.match(third.say, /mucho ruido o varias voces/);
+  // Con la escucha detenida, la voz no anota nada.
+  assert.equal(guideHear(third.state, 'tres', 'Luis').apply, undefined);
+  // Lo escrito a mano reanuda y se registra.
+  const typed = guideHear(third.state, '3', 'Luis', true);
+  assert.deepEqual(typed.apply.sites, { MV: { depth: 3 } });
+  assert.equal(typed.state.noisy, false);
+  assert.equal(typed.state.paused, false);
+  // «Reintentar» sin escribir también reanuda.
+  const retry = guideHear(third.state, 'reintentar', 'Luis');
+  assert.equal(retry.state.noisy, false);
+  assert.equal(retry.state.misses, 0);
+  // Una respuesta buena reinicia el conteo.
+  assert.equal(guideHear(second.state, 'tres').state.misses, 0);
 });
 
 test('guía periodontal: ausente quita la pieza del recorrido y avisa para el odontograma', () => {
@@ -52,14 +84,15 @@ test('guía periodontal: ausente quita la pieza del recorrido y avisa para el od
 });
 
 test('guía periodontal: repetir, atrás, saltar, pausa y terminar', () => {
-  let s = run(begin(), ['tres dos cuatro', 'cinco']).state;
-  assert.deepEqual(s.buffer, [5]);
-  s = guideHear(s, 'repetir').state; assert.deepEqual(s.buffer, []); assert.equal(s.step, 'depthL');
-  s = guideHear(s, 'atrás').state; assert.equal(s.step, 'depthV');
+  let s = run(begin(), ['tres', 'cero']).state;
+  assert.equal(s.pos, 2);
+  assert.match(guideHear(s, 'repetir').say, /central vestibular, sondaje/);
+  s = guideHear(s, 'atrás').state; assert.equal(s.pos, 1);
+  s = guideHear(s, 'atrás').state; assert.equal(s.pos, 0);
   s = guideHear(s, 'saltar').state; assert.equal(s.order[s.index], 17);
   s = guideHear(s, 'atrás').state; assert.equal(s.order[s.index], 18);
   s = guideHear(s, 'pausa').state; assert.equal(s.paused, true);
-  assert.equal(guideHear(s, 'tres dos cuatro').apply, undefined);
+  assert.equal(guideHear(s, 'tres').apply, undefined);
   s = guideHear(s, 'continuar').state; assert.equal(s.paused, false);
   assert.equal(guideHear(s, 'terminar').state.done, true);
 });
@@ -69,7 +102,7 @@ test('guía periodontal: sangrado y supuración por cara y sitio; «nada» pasa 
   assert.deepEqual(parseGuideFlags('sangrado vestibular').sites, { MV: { bleeding: true }, V: { bleeding: true }, DV: { bleeding: true } });
   assert.deepEqual(parseGuideFlags('sangrado mesial y distal palatino, supuración distopalatino').sites, { ML: { bleeding: true }, DL: { bleeding: true, suppuration: true } });
   assert.ok('error' in parseGuideFlags('sangrado mesial'));
-  let s = run(begin(), ['3 2 4', '3 2 4', '0 0 0', 'normal']).state;
+  let s = run(begin(), SITES).state;
   assert.equal(s.step, 'flags');
   const mixed = guideHear(s, 'sangrado vestibular, sin supuración');
   assert.deepEqual(mixed.apply.sites, { MV: { bleeding: true }, V: { bleeding: true }, DV: { bleeding: true } });
@@ -83,9 +116,9 @@ test('guía periodontal: al terminar la última pieza cierra el examen', () => {
   const statuses = Object.fromEntries([...Array(32).keys()].map(i => [[18, 17, 16, 15, 14, 13, 12, 11, 21, 22, 23, 24, 25, 26, 27, 28, 38, 37, 36, 35, 34, 33, 32, 31, 41, 42, 43, 44, 45, 46, 47][i], 'Ausente']).filter(([k]) => k));
   const start = guideStart(statuses);
   assert.deepEqual(start.state.order, [48]);
-  const end = run(guideAuthorize(start.state, 48).state, ['2 2 2', '2 2 2', 'normal', 'normal', 'nada']);
+  const end = run(guideAuthorize(start.state, 48).state, [...Array(12).fill('2'), 'nada']);
   assert.equal(end.state.done, true);
-  assert.match(end.outs[4].say, /Examen completo/);
+  assert.match(end.outs[12].say, /Examen completo/);
 });
 
 test('guía periodontal: nada se registra hasta que el profesional autoriza la pieza', () => {
@@ -96,15 +129,15 @@ test('guía periodontal: nada se registra hasta que el profesional autoriza la p
   assert.equal(early.state.step, 'await');
   assert.match(early.say, /Primero autoriza la pieza uno ocho/);
   const ok = guideAuthorize(start.state, 18, 'Luis');
-  assert.equal(ok.state.step, 'depthV');
-  assert.match(ok.say, /^Pieza uno ocho\. Sondaje vestibular/);
+  assert.equal(ok.state.step, 'site');
+  assert.match(ok.say, /^Luis, pieza uno ocho\. mesial vestibular, sondaje/);
   // El profesional puede autorizar otra pieza distinta de la propuesta.
   const other = guideAuthorize(start.state, 46, 'Luis');
   assert.equal(other.state.order[other.state.index], 46);
   // A mitad de una pieza, un clic en otra no la cambia.
   const mid = guideAuthorize(ok.state, 17, 'Luis');
   assert.equal(mid.state.order[mid.state.index], 18);
-  assert.equal(mid.state.step, 'depthV');
+  assert.equal(mid.state.step, 'site');
   // Una pieza fuera del recorrido (ausente) no se puede autorizar.
   assert.equal(guideAuthorize(guideStart({ 16: 'Ausente' }).state, 16).state.step, 'await');
 });
