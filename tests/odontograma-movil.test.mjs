@@ -12,8 +12,9 @@ test("en el celular el odontograma se ve por cuadrante, sin scroll lateral", () 
   assert.match(src, /grid-cols-8/);
 });
 
-test("la cuadrícula del celular no muestra el esquema oclusal; se edita en la ficha de la pieza", () => {
-  assert.match(src, /\{!compact&&<div className="mt-0\.5"><OcclusalToothView/);
+test("la cuadrícula del celular muestra el esquema de caras en solo lectura; se edita en la ficha de la pieza", () => {
+  assert.match(src, /<OcclusalToothView compact=\{compact\}/);
+  assert.match(src, /compact\?"pointer-events-none aspect-square/);
   assert.match(src, /if\(compact\)\{setSelectedTooth\(tooth\);setSheetOpen\(true\)\}else openTooth3D/);
 });
 
