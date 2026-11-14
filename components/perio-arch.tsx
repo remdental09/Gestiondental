@@ -87,7 +87,7 @@ function drawJaw(canvas: HTMLCanvasElement, jaw: Jaw, face: ArchFace, geo: Geome
   slots.forEach((slot, i) => {
     const lv = view.levels[i];
     if (lv.excluded === "absent") return;
-    const quadrant = Math.floor(slot.tooth / 10), mirror = (quadrant === 2 || quadrant === 3) !== (face === "lingual");
+    const quadrant = Math.floor(slot.tooth / 10), mirror = quadrant === 2 || quadrant === 3; // la cara lingual conserva posición y lado mesial
     let key = parts[i].key, dw = parts[i].dw, dh = parts[i].dh, top = OCC;
     if (lv.excluded === "implant") {
       const meta = PERIO_ARCH_IMAGES.implante, s = (5.5 * PX_PER_MM) / meta.w;

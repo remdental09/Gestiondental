@@ -44,10 +44,11 @@ export function excludedKind(status: string | undefined): Excluded {
 
 export type ToothSlot = { tooth: number; cx: number; width: number; mesialSign: 1 | -1 };
 
-/** Reparte las 16 piezas de una arcada. La cara lingual es el espejo de la vestibular. */
+/** Reparte las 16 piezas de una arcada. La cara lingual/palatina conserva la posición de cada pieza: el clínico las busca en el mismo lugar. */
 export function archSlots(jaw: Jaw, face: ArchFace, pxPerMm = PX_PER_MM, pad = 36) {
   const order = jaw === "upper" ? UPPER_ORDER : LOWER_ORDER;
-  const seq = face === "lingual" ? [...order].reverse() : order;
+  void face;
+  const seq = order;
   const widths = seq.map(tooth => CROWN_MD_MM[jaw][(tooth % 10) - 1] * pxPerMm);
   const width = widths.reduce((sum, w) => sum + w, 0) + pad * 2;
   let x = pad;

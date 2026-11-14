@@ -11,13 +11,12 @@ test('cada arcada reparte sus 16 piezas en orden FDI, de derecha a izquierda del
   assert.ok(upper.slots.every((s, i) => i === 0 || s.cx > upper.slots[i - 1].cx));
 });
 
-test('la cara lingual es el espejo de la vestibular', () => {
+test('la cara lingual/palatina conserva la posición de cada pieza', () => {
   const v = archSlots('lower', 'vestibular');
   const l = archSlots('lower', 'lingual');
-  assert.deepEqual(l.slots.map(s => s.tooth), [...LOWER_ORDER].reverse());
-  assert.equal(v.width, l.width);
-  const v46 = v.slots.find(s => s.tooth === 46), l46 = l.slots.find(s => s.tooth === 46);
-  assert.ok(Math.abs(v46.cx + l46.cx - v.width) < 1e-9);
+  assert.deepEqual(l.slots.map(s => s.tooth), LOWER_ORDER);
+  assert.deepEqual(l.slots, v.slots);
+  assert.deepEqual(archSlots('upper', 'lingual').slots, archSlots('upper', 'vestibular').slots);
 });
 
 test('el lado mesial de cada sitio mira siempre a la línea media', () => {
