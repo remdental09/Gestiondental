@@ -2,12 +2,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { formatFdi, type PerioTooth } from "@/app/clinical-data";
 import { PERIO_ARCH_IMAGES } from "@/app/perio-arch-assets";
-import { archCurves, archSlots, CROWN_MD_MM, depthTone, jawOf, PX_PER_MM, sampleCurve, siteXs, toothLevels, toothType, type ArchFace, type Jaw, type ToothLevels, type ToothSlot } from "@/app/perio-arch-layout";
+import { archCurves, archImageKey, archSlots, CROWN_MD_MM, depthTone, jawOf, PX_PER_MM, sampleCurve, siteXs, toothLevels, type ArchFace, type Jaw, type ToothLevels, type ToothSlot } from "@/app/perio-arch-layout";
 
 const OCC = 34;      // px entre el borde del lienzo y el borde incisal/oclusal
 const ROOT_PAD = 52; // px bajo la raíz más larga
 const GUM_SCALE = 0.238, GUM_W = 1120, GUM_H = 350, GUM_BAND = 84;
-const IMAGE_FILES = ["gum", "bone", "implante", ...["upper", "lower"].flatMap(jaw => ["incisivo-central", "incisivo-lateral", "canino", "premolar-1", "premolar-2", "molar-1", "molar-2", "molar-3"].map(t => `${jaw}-${t}`))];
+// Las piezas salen del manifiesto: una toma lingual/palatina se carga sola en cuanto se agrega allí.
+const IMAGE_FILES = ["gum", "bone", ...Object.keys(PERIO_ARCH_IMAGES)];
 
 type Images = Record<string, HTMLImageElement>;
 const TONE_STYLE = {
@@ -38,7 +39,7 @@ function useArchImages(): Images | null {
 function jawGeometry(jaw: Jaw, face: ArchFace) {
   const { slots, width } = archSlots(jaw, face);
   const parts = slots.map(slot => {
-    const key = `${jaw}-${toothType(slot.tooth)}`;
+    const key = archImageKey(slot.tooth, face, name => name in PERIO_ARCH_IMAGES);
     const meta = PERIO_ARCH_IMAGES[key];
     const scale = (CROWN_MD_MM[jaw][(slot.tooth % 10) - 1] * PX_PER_MM) / meta.crownW;
     return { key, scale, dw: meta.w * scale, dh: meta.h * scale, cej: OCC + meta.cej * scale };

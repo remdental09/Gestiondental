@@ -101,5 +101,101 @@ export const PERIO_ARCH_IMAGES: Record<string, { w: number; h: number; cej: numb
     "h": 474,
     "cej": 142,
     "crownW": 64
+  },
+  "upper-incisivo-central-lingual": {
+    "w": 234,
+    "h": 620,
+    "cej": 198,
+    "crownW": 221
+  },
+  "upper-incisivo-lateral-lingual": {
+    "w": 195,
+    "h": 620,
+    "cej": 187,
+    "crownW": 184
+  },
+  "upper-canino-lingual": {
+    "w": 174,
+    "h": 620,
+    "cej": 174,
+    "crownW": 161
+  },
+  "upper-premolar-1-lingual": {
+    "w": 246,
+    "h": 620,
+    "cej": 253,
+    "crownW": 230
+  },
+  "upper-premolar-2-lingual": {
+    "w": 231,
+    "h": 620,
+    "cej": 217,
+    "crownW": 216
+  },
+  "upper-molar-1-lingual": {
+    "w": 318,
+    "h": 620,
+    "cej": 252,
+    "crownW": 304
+  },
+  "upper-molar-2-lingual": {
+    "w": 309,
+    "h": 620,
+    "cej": 239,
+    "crownW": 291
+  },
+  "upper-molar-3-lingual": {
+    "w": 356,
+    "h": 620,
+    "cej": 297,
+    "crownW": 334
+  },
+  "lower-incisivo-central-lingual": {
+    "w": 179,
+    "h": 620,
+    "cej": 187,
+    "crownW": 158
+  },
+  "lower-incisivo-lateral-lingual": {
+    "w": 189,
+    "h": 620,
+    "cej": 195,
+    "crownW": 171
+  },
+  "lower-canino-lingual": {
+    "w": 168,
+    "h": 620,
+    "cej": 185,
+    "crownW": 156
+  },
+  "lower-premolar-1-lingual": {
+    "w": 212,
+    "h": 620,
+    "cej": 222,
+    "crownW": 193
+  },
+  "lower-premolar-2-lingual": {
+    "w": 224,
+    "h": 620,
+    "cej": 239,
+    "crownW": 205
+  },
+  "lower-molar-1-lingual": {
+    "w": 317,
+    "h": 620,
+    "cej": 226,
+    "crownW": 301
+  },
+  "lower-molar-2-lingual": {
+    "w": 322,
+    "h": 620,
+    "cej": 229,
+    "crownW": 306
+  },
+  "lower-molar-3-lingual": {
+    "w": 331,
+    "h": 620,
+    "cej": 271,
+    "crownW": 315
   }
 };
