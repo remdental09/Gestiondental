@@ -83,3 +83,10 @@ test('dictado periodontal: numeración como en el resto de la aplicación (FDI c
   assert.deepEqual([dos.teeth[0].sites.MV.depth, dos.teeth[0].sites.V.depth, dos.teeth[0].sites.DV.depth], [5, 6, 7]);
   assert.equal(dos.teeth[1].sites.DL.depth, 8);
 });
+
+test('dictado periodontal: «margen gingival» es el margen, sin palabras sobrantes', () => {
+  const r = parsePerioDictation('Pieza 1.6 palatino, margen gingival 2, 1, 3');
+  assert.deepEqual(r.ignored, []);
+  const t = r.teeth[0];
+  assert.deepEqual([t.tooth, t.sites.ML.margin, t.sites.L.margin, t.sites.DL.margin], [16, 2, 1, 3]);
+});

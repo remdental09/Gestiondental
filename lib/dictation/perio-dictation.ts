@@ -25,7 +25,7 @@ const GRADE = ["0", "I", "II", "III"];
 const FACE_WORD: Record<string, "V" | "L"> = { vestibular: "V", vestibulares: "V", bucal: "V", palatino: "L", palatina: "L", palatinos: "L", palatal: "L", lingual: "L", linguales: "L" };
 const SITE_WORD: Record<string, 0 | 1 | 2> = { mesial: 0, mesiales: 0, central: 1, centro: 1, medio: 1, media: 1, distal: 2, distales: 2 };
 const COMPOUND = /^(mesio|disto|medio|centro)(vestibular|bucal|palatino|palatina|palatal|lingual)$/;
-const FILLER = new Set(["y", "de", "del", "en", "con", "la", "el", "los", "las", "a", "al", "mm", "milimetro", "milimetros", "grado", "clase", "tipo", "por", "cara", "sitio", "sitios", "tiene", "hay", "es", "son", "punto", "coma", "luego", "despues", "ahora", "numero", "se", "le", "lo"]);
+const FILLER = new Set(["y", "de", "del", "en", "con", "la", "el", "los", "las", "a", "al", "mm", "milimetro", "milimetros", "grado", "clase", "tipo", "por", "cara", "sitio", "sitios", "tiene", "hay", "es", "son", "punto", "coma", "luego", "despues", "ahora", "numero", "se", "le", "lo", "gingival", "gingivales", "periodontal", "encia", "nivel", "valor", "valores", "mide", "miden", "marca", "marcan", "presenta", "superficie"]);
 
 const fold = (value: string) => value.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 /** Numeración nacional chilena (1–32) a FDI: 1–8 = 1.8–1.1, 9–16 = 2.1–2.8, 17–24 = 4.8–4.1, 25–32 = 3.1–3.8. */
@@ -62,6 +62,21 @@ function tokenize(text: string): Token[] {
     joined.push(a);
   }
   return joined;
+}
+
+/** Números dictados en una frase, con signo («menos uno» = -1). «324» de corrido cuenta como tres valores. */
+export function spokenPerioValues(text: string): number[] {
+  const tokens = tokenize(text), values: number[] = [];
+  let negative = false;
+  const numbers = tokens.filter(token => token.kind === "num");
+  for (const token of tokens) {
+    if (token.kind === "word") { if (token.word === "menos" || token.word === "negativo") negative = true; continue; }
+    if (token.pair) { values.push(Math.floor(token.pair / 10), token.pair % 10); continue; }
+    if (numbers.length === 1 && /^\d{3}$/.test(token.raw)) { values.push(...token.raw.split("").map(Number)); continue; }
+    values.push(negative || token.raw.startsWith("-") ? -Math.abs(token.value) : token.value);
+    negative = false;
+  }
+  return values;
 }
 
 export function parsePerioDictation(text: string): PerioDictationResult {
