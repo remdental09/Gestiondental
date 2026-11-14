@@ -10,7 +10,7 @@ test('guía periodontal: parte en 1.8 y salta ausentes e implantes del odontogra
   assert.deepEqual(guideOrder({ 18: 'Ausente', 17: 'Implante con pilar' }).slice(0, 2), [16, 15]);
   const start = guideStart({ 18: 'Ausente' }, 'Luis');
   assert.equal(start.state.order[0], 17);
-  assert.match(start.say, /Son 31 piezas\. Autoriza la pieza uno siete\./);
+  assert.match(start.say, /Son 31 piezas\.\nAutoriza la pieza uno siete\./);
   assert.deepEqual(guideOrder({}).slice(15, 18), [28, 38, 37]);
 });
 
@@ -21,13 +21,12 @@ test('guía periodontal: una pieza completa, sitio por sitio y en orden', () => 
   const phrases = ['tres', 'cero', 'dos', 'uno', 'cuatro', 'uno', 'cinco', 'menos uno', 'seis', 'cero', 'cinco', 'cero'];
   const { state, outs } = run(begin({}, 'Luis'), phrases);
   assert.deepEqual(outs[0].apply, { tooth: 18, sites: { MV: { depth: 3 } } });
-  assert.equal(outs[0].say, '3. Margen gingival, mesial vestibular.');
+  assert.equal(outs[0].say, 'Sondaje mesial vestibular, 3.\nAhora, dime el margen gingival de mesial vestibular.');
   assert.deepEqual(outs[1].apply.sites, { MV: { margin: 0 } });
-  assert.equal(outs[1].say, '0. central vestibular, sondaje.');
+  assert.equal(outs[1].say, 'Margen gingival mesial vestibular, 0.\nDime el sondaje de central vestibular.');
   assert.deepEqual(outs[2].apply.sites, { V: { depth: 2 } });
   assert.deepEqual(outs[6].apply.sites, { ML: { depth: 5 } });
-  assert.match(outs[5].say, /distal vestibular|mesial palatino/);
-  assert.equal(outs[5].say, '1. mesial palatino, sondaje.');
+    assert.equal(outs[5].say, 'Margen gingival distal vestibular, 1.\nDime el sondaje de mesial palatino.');
   assert.deepEqual(outs[7].apply.sites, { ML: { margin: -1 } });
   assert.deepEqual(outs[10].apply.sites, { DL: { depth: 5 } });
   assert.match(outs[11].say, /Pieza uno ocho: ¿sangrado o supuración\?/);
@@ -39,7 +38,7 @@ test('guía periodontal: sondaje y margen juntos, y sangrado dicho de pasada', (
   const both = guideHear(start, 'tres uno');
   assert.deepEqual(both.apply.sites, { MV: { depth: 3, margin: 1 } });
   assert.equal(both.state.pos, 2);
-  assert.equal(both.say, '3, margen 1. central vestibular, sondaje.');
+  assert.equal(both.say, 'Sondaje mesial vestibular, 3. Margen gingival, 1.\nDime el sondaje de central vestibular.');
   const bleed = guideHear(start, 'cuatro sangra');
   assert.deepEqual(bleed.apply.sites, { MV: { depth: 4, bleeding: true } });
   assert.equal(bleed.state.pos, 1);
@@ -52,7 +51,7 @@ test('guía periodontal: si no entiende repite y tras tres intentos avisa de rui
   const start = begin({}, 'Luis');
   const first = guideHear(start, 'blablá ruido', 'Luis');
   assert.equal(first.apply, undefined);
-  assert.match(first.say, /^No te entendí\. Luis, pieza uno ocho\. mesial vestibular, sondaje\./);
+  assert.match(first.say, /^No te entendí\.\nPieza uno ocho, Luis\.\nDime el sondaje de mesial vestibular\./);
   const second = guideHear(first.state, 'mmm', 'Luis');
   assert.equal(second.state.misses, 2);
   assert.equal(second.state.noisy, false);
@@ -80,13 +79,13 @@ test('guía periodontal: ausente quita la pieza del recorrido y avisa para el od
   assert.equal(out.markedAbsent, 18);
   assert.deepEqual(out.state.absent, [18]);
   assert.equal(out.state.order[out.state.index], 17);
-  assert.match(out.say, /^Pieza uno ocho ausente\. Autoriza la pieza uno siete\./);
+  assert.match(out.say, /^Pieza uno ocho ausente\.\s*\nAutoriza la pieza uno siete\./);
 });
 
 test('guía periodontal: repetir, atrás, saltar, pausa y terminar', () => {
   let s = run(begin(), ['tres', 'cero']).state;
   assert.equal(s.pos, 2);
-  assert.match(guideHear(s, 'repetir').say, /central vestibular, sondaje/);
+  assert.match(guideHear(s, 'repetir').say, /Dime el sondaje de central vestibular/);
   s = guideHear(s, 'atrás').state; assert.equal(s.pos, 1);
   s = guideHear(s, 'atrás').state; assert.equal(s.pos, 0);
   s = guideHear(s, 'saltar').state; assert.equal(s.order[s.index], 17);
@@ -130,7 +129,7 @@ test('guía periodontal: nada se registra hasta que el profesional autoriza la p
   assert.match(early.say, /Primero autoriza la pieza uno ocho/);
   const ok = guideAuthorize(start.state, 18, 'Luis');
   assert.equal(ok.state.step, 'site');
-  assert.match(ok.say, /^Luis, pieza uno ocho\. mesial vestibular, sondaje/);
+  assert.match(ok.say, /^Pieza uno ocho, Luis\.\nDime el sondaje de mesial vestibular/);
   // El profesional puede autorizar otra pieza distinta de la propuesta.
   const other = guideAuthorize(start.state, 46, 'Luis');
   assert.equal(other.state.order[other.state.index], 46);
@@ -147,7 +146,7 @@ test('guía periodontal: dictar solo una pieza empieza de inmediato en ella y se
   assert.equal(start.state.single, true);
   assert.deepEqual(start.state.order, [11]);
   assert.equal(start.state.step, 'site');
-  assert.match(start.say, /^Pieza uno uno solamente\. Luis, pieza uno uno\. mesial vestibular, sondaje\./);
+  assert.match(start.say, /^Pieza uno uno solamente\.\nPieza uno uno, Luis\.\nDime el sondaje de mesial vestibular\./);
   const out = run(start.state, [...Array(12).fill('2'), 'nada']);
   assert.deepEqual(out.outs[0].apply.sites, { MV: { depth: 2 } });
   assert.equal(out.state.done, true);
@@ -183,4 +182,18 @@ test('la ventana de la pieza ofrece dictar solo esa pieza y la guía lo expone',
   assert.match(modal, /Dictar periodontograma de esta pieza/);
   assert.match(guide, /startOnly\(tooth: number\): void/);
   assert.match(host, /onDictate=\{t=>\{setViewer\(null\);setTooth\(t\);guide\.current\?\.startOnly\(t\)\}\}/);
+});
+
+test('guía periodontal: la confirmación y la siguiente pregunta van en frases separadas, sondaje aparte del margen', () => {
+  const depth = guideHear(begin({}, 'Luis'), 'tres', 'Luis');
+  const [confirm, ask, ...rest] = depth.say.split('\n');
+  assert.equal(rest.length, 0);
+  assert.equal(confirm, 'Sondaje mesial vestibular, 3.');
+  assert.equal(ask, 'Ahora, dime el margen gingival de mesial vestibular.');
+  assert.ok(!/margen/i.test(confirm), 'la confirmación del sondaje no menciona el margen');
+  const margin = guideHear(depth.state, 'uno', 'Luis');
+  const [confirm2, ask2] = margin.say.split('\n');
+  assert.equal(confirm2, 'Margen gingival mesial vestibular, 1.');
+  assert.ok(!/sondaje/i.test(confirm2));
+  assert.equal(ask2, 'Dime el sondaje de central vestibular.');
 });

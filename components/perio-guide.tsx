@@ -45,22 +45,32 @@ export function PerioGuide({ ref, statuses, clinicianName, selectedTooth, onAppl
   }, []);
   const speak = useCallback((text: string, then: () => void) => {
     setSaid(text);
-    if (!text || typeof window === "undefined" || !("speechSynthesis" in window)) { then(); return; }
+    const lines = text.split("\n").map(line => line.trim()).filter(Boolean);
+    if (!lines.length || typeof window === "undefined" || !("speechSynthesis" in window)) { then(); return; }
     speaking.current = true;
     try { recognizer.current?.abort(); } catch { /* sin sesión de escucha */ }
     setListening(false);
     const synth = window.speechSynthesis;
     synth.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
     const voice = pickLatinVoice(synth.getVoices());
-    if (voice) { utterance.voice = voice; utterance.lang = voice.lang; } else utterance.lang = "es-MX";
-    utterance.rate = 1.08;
-    let finished = false;
-    const finish = () => { if (finished) return; finished = true; speaking.current = false; then(); };
-    utterance.onend = finish; utterance.onerror = finish;
-    synth.speak(utterance);
-    // Si el navegador no avisa el fin de la voz, se retoma la escucha igual.
-    setTimeout(finish, 1500 + text.length * 90);
+    let finished = false, stopped = false;
+    const finish = () => { if (finished) return; finished = true; stopped = true; speaking.current = false; then(); };
+    // Cada frase se dice por separado, con una pausa: la confirmación del valor no se mezcla con la pregunta siguiente.
+    const sayLine = (index: number) => {
+      if (stopped) return;
+      if (index >= lines.length) { finish(); return; }
+      const utterance = new SpeechSynthesisUtterance(lines[index]);
+      if (voice) { utterance.voice = voice; utterance.lang = voice.lang; } else utterance.lang = "es-MX";
+      utterance.rate = 1.05;
+      let advanced = false;
+      const next = () => { if (advanced || stopped) return; advanced = true; setTimeout(() => sayLine(index + 1), index + 1 < lines.length ? 700 : 0); };
+      utterance.onend = next; utterance.onerror = next;
+      synth.speak(utterance);
+      // Si el navegador no avisa el fin de la voz, se sigue igual.
+      setTimeout(next, 1500 + lines[index].length * 90);
+    };
+    sayLine(0);
+    setTimeout(finish, lines.length * 800 + 2500 + text.length * 90 + 1500);
   }, []);
 
   const settle = useCallback((out: GuideOutcome) => {
@@ -157,7 +167,7 @@ export function PerioGuide({ ref, statuses, clinicianName, selectedTooth, onAppl
         <p className="mt-0.5">Dejé de escuchar para no anotar datos equivocados. Reintenta cuando el ambiente esté tranquilo, o escribe el valor abajo para completar la pieza {formatFdi(tooth)}.</p>
         <Button type="button" size="sm" className="mt-1.5 bg-[#473a6d] text-white hover:bg-[#3a2f5a]" onClick={command("reintentar")}><Mic className="size-3.5" /> Reintentar escucha</Button>
       </div>}
-      {said && <p className="rounded-md bg-[#f7f6fa] p-2 text-xs text-[#3b3355]"><strong>Aplicación:</strong> {said}</p>}
+      {said && <div className="space-y-1 rounded-md bg-[#f7f6fa] p-2 text-xs text-[#3b3355]">{said.split("\n").filter(Boolean).map((line, i, all) => <p key={i} className={i === all.length - 1 && all.length > 1 ? "font-semibold text-[#2a2540]" : ""}>{i === 0 && <strong>Aplicación: </strong>}{line}</p>)}</div>}
       {heard && <p className="text-xs text-[#615f73]"><strong>Escuché:</strong> {heard}</p>}
       {error && <p role="alert" className="rounded-md bg-rose-50 p-2 text-xs text-rose-900">{error}</p>}
       <form className="flex gap-1.5" onSubmit={event => { event.preventDefault(); if (typed.trim()) { hear(typed, true); setTyped(""); } }}>
