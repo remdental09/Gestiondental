@@ -389,21 +389,7 @@ export const V3_PIECES: ReadonlySet<string> = new Set([
   "lower-canino",
 ]);
 /** Capas que la imagen recibida no traía (lesión ausente en el PNG); se pedirán de nuevo. Formato: pieza/capa/cara. */
-export const V3_MISSING: ReadonlySet<string> = new Set([
-  "lower-molar-2/inc/D",
-  "lower-premolar-1/cav/D",
-  "lower-premolar-1/cav/M",
-  "lower-premolar-1/forma/M",
-  "lower-premolar-2/cav/D",
-  "lower-premolar-2/cav/M",
-  "lower-premolar-2/forma/O",
-  "lower-premolar-2/inc/P",
-  "lower-premolar-2/inc/V",
-  "upper-incisivo-central/inc/O",
-  "upper-incisivo-lateral/inc/O",
-  "upper-molar-2/inc/O",
-  "upper-molar-2/sell/O",
-]);
+export const V3_MISSING: ReadonlySet<string> = new Set<string>([]);
 const MATERIAL_TEXTURE: Record<string, string> = { "Resina compuesta": "resina", "Vidrio ionómero": "ionomero", Amalgama: "amalgama", Cavit: "provisorio", IRM: "provisorio", Eugenato: "provisorio", Otro: "resina" };
 /** Textura de la obturación: el material dictado; sin él, resina (provisoria si así se registró). */
 export function materialTexture(material?: string | null, stage?: string | null): string {
