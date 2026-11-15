@@ -390,8 +390,6 @@ export const V3_PIECES: ReadonlySet<string> = new Set([
 ]);
 /** Capas que la imagen recibida no traía (lesión ausente en el PNG); se pedirán de nuevo. Formato: pieza/capa/cara. */
 export const V3_MISSING: ReadonlySet<string> = new Set([
-  "lower-canino/inc/D",
-  "lower-incisivo-central/inc/O",
   "lower-molar-2/inc/D",
   "lower-premolar-1/cav/D",
   "lower-premolar-1/cav/M",
@@ -401,7 +399,6 @@ export const V3_MISSING: ReadonlySet<string> = new Set([
   "lower-premolar-2/forma/O",
   "lower-premolar-2/inc/P",
   "lower-premolar-2/inc/V",
-  "upper-canino/inc/M",
   "upper-incisivo-central/inc/O",
   "upper-incisivo-lateral/inc/O",
   "upper-molar-2/inc/O",
