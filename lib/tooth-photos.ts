@@ -369,6 +369,8 @@ export function toothPhotoKind(state: Omit<ToothPhotoState, "fdi">): ToothPhotoK
   return "sano";
 }
 
+/** Piezas con el juego de capas v3 (generadas sobre la foto translúcida con pulpa). Las demás usan el juego v2. */
+export const V3_PIECES: ReadonlySet<string> = new Set(["upper-molar-1", "lower-molar-1"]);
 const MATERIAL_TEXTURE: Record<string, string> = { "Resina compuesta": "resina", "Vidrio ionómero": "ionomero", Amalgama: "amalgama", Cavit: "provisorio", IRM: "provisorio", Eugenato: "provisorio", Otro: "resina" };
 /** Textura de la obturación: el material dictado; sin él, resina (provisoria si así se registró). */
 export function materialTexture(material?: string | null, stage?: string | null): string {
@@ -389,14 +391,16 @@ function layeredPhoto(state: ToothPhotoState, arch: "upper" | "lower", index: nu
   const key = `${arch}-${type}`;
   const face: ToothFace = state.face === "palatina" ? "palatina" : "vestibular";
   const on = (surface: CariesSpotInput["surface"]) => (face === "palatina") === (surface === "P");
-  const root = "/dientes/v2";
+  const v3 = V3_PIECES.has(key);
+  const root = v3 ? "/dientes/v3" : "/dientes/v2";
+  const matRoot = "/dientes/v2";
   const layers: PhotoLayer[] = [];
   const seen = new Set<string>();
   for (const r of restorations) {
     if (!on(r.surface) || seen.has(`r${r.surface}`)) continue;
     seen.add(`r${r.surface}`);
     const name = materialTexture(r.material, r.stage);
-    layers.push({ src: `${root}/forma/${key}-${r.surface}.webp`, surface: r.surface, kind: "obturacion", material: { src: `${root}/mat/${name}.webp`, name } });
+    layers.push({ src: `${root}/forma/${key}-${r.surface}.webp`, surface: r.surface, kind: "obturacion", material: { src: `${matRoot}/mat/${name}.webp`, name } });
   }
   for (const c of caries) {
     if (!on(c.surface) || seen.has(`c${c.surface}`)) continue;
@@ -409,7 +413,9 @@ function layeredPhoto(state: ToothPhotoState, arch: "upper" | "lower", index: nu
   // La caries palatina sin vista palatina activa se marca (aproximada) sobre la cara vestibular, en línea punteada.
   const hidden = face === "vestibular" ? caries.filter(c => c.surface === "P") : [];
   const kind: ToothPhotoKind = caries.length ? "caries" : restorations.length ? "restauracion" : "sano";
-  return { src: `${root}/base/${key}${face === "palatina" ? "-palatina" : ""}.webp`, kind, mirror, upper, transform, lesions: hidden.length ? cariesSpots(state.fdi, hidden) : [], layers, face, hasPalatal };
+  // Con compromiso pulpar la pieza se muestra con la pulpa inflamada (solo en las piezas con esa imagen).
+  const pulpitis = v3 && face === "vestibular" && caries.some(c => c.depth === "pulpar");
+  return { src: `${root}/base/${key}${face === "palatina" ? "-palatina" : pulpitis ? "-pulpitis" : ""}.webp`, kind, mirror, upper, transform, lesions: hidden.length ? cariesSpots(state.fdi, hidden) : [], layers, face, hasPalatal };
 }
 
 export function toothPhotoFor(state: ToothPhotoState): ToothPhoto | null {
