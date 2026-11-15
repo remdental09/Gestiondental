@@ -431,7 +431,8 @@ function layeredPhoto(state: ToothPhotoState, arch: "upper" | "lower", index: nu
     layers.push({ src: `${root}/${incipient ? "inc" : "cav"}/${key}-${c.surface}.webp`, surface: c.surface, kind: incipient ? "caries-incipiente" : "caries-cavitada" });
   }
   if (face === "vestibular" && sealed.includes("O") && index >= 4 && !(v3 && V3_MISSING.has(`${key}/sell/O`))) layers.push({ src: `${root}/sell/${key}-O.webp`, surface: "O", kind: "sellante" });
-  const hasPalatal = [...caries.map(c => c.surface), ...restorations.map(r => r.surface)].includes("P");
+  // Las piezas con capas v3 tienen vista palatina/lingual propia: se puede ver siempre, no solo si la cara P tiene una lesión.
+  const hasPalatal = v3 || [...caries.map(c => c.surface), ...restorations.map(r => r.surface)].includes("P");
   // La caries palatina sin vista palatina activa se marca (aproximada) sobre la cara vestibular, en línea punteada.
   const hidden = [...(face === "vestibular" ? caries.filter(c => c.surface === "P") : []), ...approx];
   const kind: ToothPhotoKind = caries.length ? "caries" : restorations.length ? "restauracion" : "sano";
