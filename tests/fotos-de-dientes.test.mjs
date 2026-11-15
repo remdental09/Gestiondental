@@ -127,6 +127,17 @@ test("molar 1 superior: juego v3 sobre la foto translúcida, con pulpitis si hay
   for (const set of ["inc", "cav", "forma"]) for (const sf of "OVMDP") assert.ok(existsSync(`public/dientes/v3/${set}/upper-molar-1-${sf}.webp`), `${set}-${sf}`);
 });
 
+test("molar 1 inferior: juego v3 completo, sin invertir y espejado en el cuadrante 3", async () => {
+  const { existsSync } = await import("node:fs");
+  assert.ok(V3_PIECES.has("lower-molar-1"));
+  const p46 = toothPhotoFor({ fdi: 46, caries: true, cariesSurfaces: [{ surface: "O", depth: "pulpar" }] });
+  assert.equal(p46.src, "/dientes/v3/base/lower-molar-1-pulpitis.webp");
+  assert.equal(p46.transform, undefined);
+  assert.equal(toothPhotoFor({ fdi: 36, restored: true, restoredSurfaces: ["D"] }).transform, "scaleX(-1)");
+  for (const f of ["base/lower-molar-1", "base/lower-molar-1-palatina", "base/lower-molar-1-pulpitis", "sell/lower-molar-1-O"]) assert.ok(existsSync(`public/dientes/v3/${f}.webp`), f);
+  for (const set of ["inc", "cav", "forma"]) for (const sf of "OVMDP") assert.ok(existsSync(`public/dientes/v3/${set}/lower-molar-1-${sf}.webp`), `${set}-${sf}`);
+});
+
 test("la cara palatina usa su propia base y solo las lesiones palatinas", () => {
   const state = { fdi: 14, caries: true, cariesSurfaces: [{ surface: "P", depth: "esmalte" }, { surface: "M", depth: "esmalte" }] };
   const vest = toothPhotoFor(state);
