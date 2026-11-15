@@ -553,7 +553,7 @@ export default function Home(){
   };
   const savePerio=async(exam:PerioExam)=>{
     const rows=Object.entries(exam.teeth).sort(([a],[b])=>Number(a)-Number(b)).map(([tooth,record])=>{
-      const sites=Object.entries(record.sites).filter(([,reading])=>reading&&(reading.depth!==null||reading.margin!==null||reading.bleeding||reading.suppuration)).map(([site,reading])=>`${site}: sondaje ${reading?.depth??"—"} mm, margen ${reading?.margin??"—"} mm${reading?.bleeding?", sangrado":""}${reading?.suppuration?", supuración":""}`);
+      const sites=Object.entries(record.sites).filter(([,reading])=>reading&&(reading.depth!==null||reading.margin!==null||reading.bleeding||reading.suppuration)).map(([site,reading])=>`${site}: ${[reading?.depth!=null?`sondaje ${reading.depth} mm`:"",reading?.margin!=null?`margen ${reading.margin} mm`:"",reading?.bleeding?"sangrado":"",reading?.suppuration?"supuración":""].filter(Boolean).join(", ")}`);
       const gingival=Object.entries(record.gingivalIndex??{}).map(([site,value])=>`${site} ${value}`);
       return `FDI ${formatFdi(Number(tooth))}: ${[...sites,gingival.length?`índice gingival ${gingival.join(", ")}`:"",record.mobility?`movilidad ${record.mobility}`:"",record.furcation?`furcación ${record.furcation}`:""].filter(Boolean).join("; ")||"sin mediciones"}.`;
     });
