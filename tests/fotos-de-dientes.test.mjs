@@ -28,8 +28,7 @@ test("el FDI elige arcada y tipo de pieza; el lado izquierdo va espejado", () =>
   assert.equal(toothPhotoFor({ fdi: 38 })?.src, "/dientes/lower-molar-3-sano.webp");
 });
 
-test("piezas temporales o FDI inválidos y fotos que faltan caen al esquema dibujado", () => {
-  assert.equal(toothPhotoFor({ fdi: 55 }), null);
+test("FDI inválidos caen al esquema dibujado", () => {
   assert.equal(toothPhotoFor({ fdi: 19 }), null);
   assert.equal(toothPhotoFor({ fdi: 0 }), null);
 });
@@ -170,4 +169,17 @@ test("existen las 64 fotos de caries y obturación por cara", () => {
     const n = `${arch}-${t}-${k}-${v}`;
     assert.ok(TOOTH_PHOTOS.has(n), n);
   }
+});
+
+test("dentición temporal: base por tipo, capas del molar inferior e imagen de lesión", () => {
+  const p = toothPhotoFor({ fdi: 75, status: "Sin hallazgos" });
+  assert.equal(p.src, "/dientes/v3/base/temp-lower-molar-2.webp");
+  const m = toothPhotoFor({ fdi: 74, status: "Sin hallazgos", caries: true, cariesSurfaces: [{ surface: "M", depth: "dentina_superficial" }], sealedSurfaces: ["O"] });
+  assert.equal(m.src, "/dientes/v3/base/temp-lower-molar-1.webp");
+  assert.equal(m.mirror, true);
+  assert.deepEqual(m.layers.map(l => l.src), ["/dientes/v3/cav/temp-lower-molar-1-M.webp", "/dientes/v3/sell/temp-lower-molar-1-O.webp"]);
+  const l = toothPhotoFor({ fdi: 84, status: "Absceso apical agudo" });
+  assert.equal(l.src, "/dientes/temp-lower-molar-1-absceso-apical-agudo.webp");
+  assert.equal(toothPhotoFor({ fdi: 55, status: "Sin hallazgos" }).upper, true);
+  assert.equal(toothPhotoFor({ fdi: 56, status: "Sin hallazgos" }), null);
 });

@@ -441,9 +441,72 @@ function layeredPhoto(state: ToothPhotoState, arch: "upper" | "lower", index: nu
   return { src: `${root}/base/${key}${face === "palatina" ? "-palatina" : pulpitis ? "-pulpitis" : ""}.webp`, kind, mirror, upper, transform, lesions: hidden.length ? cariesSpots(state.fdi, hidden) : [], layers, face, hasPalatal };
 }
 
+
+/**
+ * Dentición temporal (5.1–8.5): 10 tipos de pieza (arcada × incisivo central, lateral, canino, molar 1, molar 2).
+ * Todas tienen foto base; las capas por cara y las imágenes de lesión existen por ahora para el primer molar inferior
+ * (temp-lower-molar-1). En las demás, la lesión por cara se marca con el óvalo aproximado sobre la foto.
+ */
+const TEMP_TYPES = ["incisivo-central", "incisivo-lateral", "canino", "molar-1", "molar-2"] as const;
+const TEMP_LAYERED: ReadonlySet<string> = new Set(["temp-lower-molar-1"]);
+const TEMP_IMAGES: ReadonlySet<string> = new Set([
+  "sano", "corona", "endodoncia", "periodontitis-apical", "absceso-apical-agudo", "absceso-apical-cronico", "granuloma-apical",
+  "quiste-radicular", "osteitis-condensante", "fisura-coronaria", "fractura-coronaria-esmalte", "fractura-coronaria-pulpa",
+  "fractura-corono-radicular", "fractura-radicular-horizontal", "fractura-radicular-vertical",
+].map(n => `temp-lower-molar-1-${n}`));
+const TEMP_LESION_ALIAS: Record<string, string> = { "fractura-coronaria-dentina": "fractura-coronaria-esmalte" };
+
+function temporalPhoto(state: ToothPhotoState): ToothPhoto | null {
+  const quadrant = Math.floor(state.fdi / 10), index = state.fdi % 10;
+  if (quadrant < 5 || quadrant > 8 || index < 1 || index > 5) return null;
+  const arch = quadrant <= 6 ? "upper" : "lower", type = TEMP_TYPES[index - 1]!, key = `temp-${arch}-${type}`;
+  const mirror = quadrant === 6 || quadrant === 7, upper = quadrant <= 6;
+  const transform = mirror && upper ? "scale(-1,-1)" : mirror ? "scaleX(-1)" : upper ? "scaleY(-1)" : undefined;
+  // Para ubicar los óvalos se usa la pieza permanente equivalente (misma posición y tamaño de corona).
+  const equivalent = (quadrant - 4) * 10 + (index <= 3 ? index : index + 2);
+  const whole = (suffix: string): ToothPhoto | null => TEMP_IMAGES.has(`${key}-${suffix}`)
+    ? { src: `/dientes/${key}-${suffix}.webp`, kind: suffix === "sano" ? "sano" : suffix === "corona" ? "corona" : suffix === "endodoncia" ? "endodoncia" : "lesion", mirror, upper, transform, lesions: [] }
+    : null;
+  const lesion = !state.crown && state.status ? LESION_PHOTO[state.status] : undefined;
+  if (lesion) { const hit = whole(TEMP_LESION_ALIAS[lesion] ?? lesion); if (hit) return hit; }
+  if (state.crown || state.status === "Corona") { const hit = whole("corona"); if (hit) return hit; }
+  if (state.endo) { const hit = whole("endodoncia"); if (hit) return hit; }
+  const caries = state.cariesSurfaces ?? [];
+  const restorations: RestorationInput[] = state.restorations ?? (state.restoredSurfaces ?? []).map(surface => ({ surface }));
+  const sealed = state.sealedSurfaces ?? [];
+  const base = `/dientes/v3/base/${key}.webp`;
+  const kind: ToothPhotoKind = caries.length ? "caries" : restorations.length ? "restauracion" : "sano";
+  if (!TEMP_LAYERED.has(key)) {
+    // Sin capas propias: foto base y lesiones aproximadas (vestibular según la cara registrada).
+    return { src: base, kind, mirror, upper, transform, lesions: caries.length ? cariesSpots(equivalent, caries) : [], layers: [], face: "vestibular", hasPalatal: false };
+  }
+  const layers: PhotoLayer[] = [];
+  const seen = new Set<string>();
+  for (const r of restorations) {
+    if (r.surface === "P" || seen.has(`r${r.surface}`)) continue;
+    seen.add(`r${r.surface}`);
+    const name = materialTexture(r.material, r.stage);
+    layers.push({ src: `/dientes/v3/forma/${key}-${r.surface}.webp`, surface: r.surface, kind: "obturacion", material: { src: `/dientes/v2/mat/${name}.webp`, name } });
+  }
+  const approx: CariesSpotInput[] = [];
+  for (const c of caries) {
+    if (seen.has(`c${c.surface}`)) continue;
+    seen.add(`c${c.surface}`);
+    if (c.surface === "P") { approx.push(c); continue; }
+    const incipient = c.depth === "esmalte";
+    // Solo existen capas de esmalte en oclusal y de dentina en M, D y V; el resto se marca aproximado.
+    if (incipient && c.surface !== "O") { approx.push(c); continue; }
+    if (!incipient && c.surface === "O") { approx.push(c); continue; }
+    layers.push({ src: `/dientes/v3/${incipient ? "inc" : "cav"}/${key}-${c.surface}.webp`, surface: c.surface, kind: incipient ? "caries-incipiente" : "caries-cavitada" });
+  }
+  if (sealed.includes("O")) layers.push({ src: `/dientes/v3/sell/${key}-O.webp`, surface: "O", kind: "sellante" });
+  return { src: base, kind, mirror, upper, transform, lesions: approx.length ? cariesSpots(equivalent, approx) : [], layers, face: "vestibular", hasPalatal: false };
+}
+
 export function toothPhotoFor(state: ToothPhotoState): ToothPhoto | null {
   const quadrant = Math.floor(state.fdi / 10);
   const index = state.fdi % 10;
+  if (quadrant >= 5 && quadrant <= 8) return temporalPhoto(state);
   if (quadrant < 1 || quadrant > 4 || index < 1 || index > 8) return null;
   const lesion = !state.implant && !state.crown && state.status ? LESION_PHOTO[state.status] : undefined;
   if (lesion) {
