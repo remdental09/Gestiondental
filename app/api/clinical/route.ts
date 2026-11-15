@@ -18,7 +18,7 @@ import { appointments, budgets, calendarEvents, clinicalImages, evolutionDiagnos
 import { budgetTotals, decodeBudgetData, encodeBudgetData, normalizeBudgetItems, validIsoDate } from "@/lib/budget-plans";
 import { sanitizeDiagnosisTags } from "@/lib/evolution-diagnoses";
 import type { OdontogramData, OdontogramSurface, SurfaceFinding } from "@/app/clinical-data";
-import { appendToothHistory, toothHistorySnapshot } from "@/app/odontogram-history";
+import { appendToothHistory, mergeRecentSurfaceEvent, toothHistorySnapshot } from "@/app/odontogram-history";
 import { revertEvolution } from "@/lib/odontogram-timeline";
 import { addLink, revertLinks, LINK_KINDS, type LinkKind } from "@/app/evolution-links-db";
 
@@ -877,7 +877,9 @@ export async function POST(request: Request) {
       const before = toothHistorySnapshot(data, tooth);
       data.surfaces[tooth] = { ...(data.surfaces[tooth]??{}), [surface as OdontogramSurface]: normalized };
       const updatedAt = now();
+      const historyBefore = data.history?.length ?? 0;
       appendToothHistory(data, tooth, "surface", before, { recordedAt: updatedAt, ...historyMeta, surface: surface as OdontogramSurface });
+      if ((data.history?.length ?? 0) > historyBefore) mergeRecentSurfaceEvent(data, tooth, surface as OdontogramSurface);
       await db.insert(toothStatuses).values({ ownerId, patientId, data: JSON.stringify(data), updatedAt }).onConflictDoUpdate({ target: toothStatuses.patientId, set: { data: JSON.stringify(data), updatedAt } });
       return Response.json({ odontogram: data });
     }
