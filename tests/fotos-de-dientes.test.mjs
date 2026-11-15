@@ -153,8 +153,8 @@ test("la cara palatina usa su propia base y solo las lesiones palatinas", () => 
   assert.deepEqual(vest.layers.map(l => l.surface), ["M"]);
   assert.equal(vest.lesions.length, 1, "la palatina se insinúa en línea punteada mientras se ve la cara vestibular");
   const pal = toothPhotoFor({ ...state, face: "palatina" });
-  assert.equal(pal.src, "/dientes/v2/base/upper-premolar-1-palatina.webp");
-  assert.deepEqual(pal.layers.map(l => l.src), ["/dientes/v2/inc/upper-premolar-1-P.webp"]);
+  assert.equal(pal.src, "/dientes/v2/base/upper-premolar-2-palatina.webp");
+  assert.deepEqual(pal.layers.map(l => l.src), ["/dientes/v2/inc/upper-premolar-2-P.webp"]);
   assert.equal(pal.lesions.length, 0);
 });
 
