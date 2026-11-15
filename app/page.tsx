@@ -547,7 +547,7 @@ export default function Home(){
     setToothStatuses(previous=>({...previous,[selectedId]:data.odontogram}));
   };
   const updateSurface=async(tooth:number,surface:OdontogramSurface,finding:SurfaceFinding)=>{
-    if(!await reviewChange({patientId:selectedId,heading:"Hallazgo por superficie",details:[`Pieza FDI ${formatFdi(tooth)}, cara ${surface}: ${finding.condition}${finding.condition==="caries"?` · ${cariesDetail(finding)}`:""}.`]}))throw new Error("Cambio cancelado; no se guardó.");
+    if(!await reviewChange({patientId:selectedId,heading:"Hallazgo por superficie",details:[`Pieza FDI ${formatFdi(tooth)}, cara ${surface}: ${({not_examined:"sin examinar",sound:"sin lesión visible",caries:"caries",restored:"obturación",sealant:"sellante",other_restoration:"otra restauración"} as Record<string,string>)[finding.condition]??finding.condition}${finding.condition==="restored"&&finding.restorationMaterial?` · ${finding.restorationMaterial}`:""}${finding.condition==="caries"?` · ${cariesDetail(finding)}`:""}.`]}))throw new Error("Cambio cancelado; no se guardó.");
     const data=await persist({action:"setToothSurface",patientId:selectedId,tooth,surface,finding});
     setToothStatuses(previous=>({...previous,[selectedId]:data.odontogram}));
   };
