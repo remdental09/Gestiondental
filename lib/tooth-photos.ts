@@ -370,7 +370,7 @@ export function toothPhotoKind(state: Omit<ToothPhotoState, "fdi">): ToothPhotoK
 }
 
 /** Piezas con el juego de capas v3 (generadas sobre la foto translúcida con pulpa). Las demás usan el juego v2. */
-export const V3_PIECES: ReadonlySet<string> = new Set(["upper-molar-1", "lower-molar-1"]);
+export const V3_PIECES: ReadonlySet<string> = new Set(["upper-molar-1", "lower-molar-1", "upper-premolar-1"]);
 const MATERIAL_TEXTURE: Record<string, string> = { "Resina compuesta": "resina", "Vidrio ionómero": "ionomero", Amalgama: "amalgama", Cavit: "provisorio", IRM: "provisorio", Eugenato: "provisorio", Otro: "resina" };
 /** Textura de la obturación: el material dictado; sin él, resina (provisoria si así se registró). */
 export function materialTexture(material?: string | null, stage?: string | null): string {

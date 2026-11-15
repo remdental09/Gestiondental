@@ -122,7 +122,7 @@ test("molar 1 superior: juego v3 sobre la foto translúcida, con pulpitis si hay
   assert.equal(pulp.src, "/dientes/v3/base/upper-molar-1-pulpitis.webp");
   assert.equal(toothPhotoFor({ fdi: 16, caries: true, cariesSurfaces: [{ surface: "O", depth: "pulpar" }], face: "palatina" }).src, "/dientes/v3/base/upper-molar-1-palatina.webp");
   assert.equal(toothPhotoFor({ fdi: 26, caries: true, cariesSurfaces: [{ surface: "O", depth: "pulpar" }] }).src, "/dientes/v3/base/upper-molar-1-pulpitis.webp", "el 2.6 es el mismo tipo de pieza, espejado");
-  assert.equal(toothPhotoFor({ fdi: 14, caries: true, cariesSurfaces: [{ surface: "O", depth: "pulpar" }] }).src, "/dientes/v2/base/upper-premolar-1.webp", "el resto sigue con v2 hasta recibir su juego");
+  assert.equal(toothPhotoFor({ fdi: 15, caries: true, cariesSurfaces: [{ surface: "O", depth: "pulpar" }] }).src, "/dientes/v2/base/upper-premolar-2.webp", "el resto sigue con v2 hasta recibir su juego");
   for (const f of ["base/upper-molar-1", "base/upper-molar-1-palatina", "base/upper-molar-1-pulpitis", "sell/upper-molar-1-O"]) assert.ok(existsSync(`public/dientes/v3/${f}.webp`), f);
   for (const set of ["inc", "cav", "forma"]) for (const sf of "OVMDP") assert.ok(existsSync(`public/dientes/v3/${set}/upper-molar-1-${sf}.webp`), `${set}-${sf}`);
 });
@@ -138,8 +138,16 @@ test("molar 1 inferior: juego v3 completo, sin invertir y espejado en el cuadran
   for (const set of ["inc", "cav", "forma"]) for (const sf of "OVMDP") assert.ok(existsSync(`public/dientes/v3/${set}/lower-molar-1-${sf}.webp`), `${set}-${sf}`);
 });
 
+test("premolar 1 superior: juego v3 completo", async () => {
+  const { existsSync } = await import("node:fs");
+  assert.ok(V3_PIECES.has("upper-premolar-1"));
+  assert.equal(toothPhotoFor({ fdi: 24, caries: true, cariesSurfaces: [{ surface: "O", depth: "pulpar" }] }).src, "/dientes/v3/base/upper-premolar-1-pulpitis.webp");
+  for (const f of ["base/upper-premolar-1", "base/upper-premolar-1-palatina", "base/upper-premolar-1-pulpitis", "sell/upper-premolar-1-O"]) assert.ok(existsSync(`public/dientes/v3/${f}.webp`), f);
+  for (const set of ["inc", "cav", "forma"]) for (const sf of "OVMDP") assert.ok(existsSync(`public/dientes/v3/${set}/upper-premolar-1-${sf}.webp`), `${set}-${sf}`);
+});
+
 test("la cara palatina usa su propia base y solo las lesiones palatinas", () => {
-  const state = { fdi: 14, caries: true, cariesSurfaces: [{ surface: "P", depth: "esmalte" }, { surface: "M", depth: "esmalte" }] };
+  const state = { fdi: 15, caries: true, cariesSurfaces: [{ surface: "P", depth: "esmalte" }, { surface: "M", depth: "esmalte" }] };
   const vest = toothPhotoFor(state);
   assert.equal(vest.hasPalatal, true);
   assert.deepEqual(vest.layers.map(l => l.surface), ["M"]);
