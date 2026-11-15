@@ -129,9 +129,10 @@ test("molar 1 superior: juego v3 sobre la foto translúcida, con pulpitis si hay
 
 
 
-test("las 16 piezas tienen su juego v3 completo (salvo las capas pendientes de regenerar)", async () => {
+test("las 16 piezas tienen su juego v3 completo sin capas pendientes", async () => {
   const { existsSync } = await import("node:fs");
   assert.equal(V3_PIECES.size, 16);
+  assert.equal(V3_MISSING.size, 0, "no quedan capas pendientes de regenerar");
   for (const k of V3_PIECES) {
     for (const f of [`base/${k}`, `base/${k}-palatina`, `base/${k}-pulpitis`]) assert.ok(existsSync(`public/dientes/v3/${f}.webp`), f);
     for (const set of ["inc", "cav", "forma"]) for (const sf of "OVMDP") assert.ok(V3_MISSING.has(`${k}/${set}/${sf}`) || existsSync(`public/dientes/v3/${set}/${k}-${sf}.webp`), `${set}/${k}-${sf}`);
@@ -140,12 +141,6 @@ test("las 16 piezas tienen su juego v3 completo (salvo las capas pendientes de r
   for (const e of V3_MISSING) { const [k, set, sf] = e.split("/"); assert.ok(!existsSync(`public/dientes/v3/${set}/${k}-${sf}.webp`), `${e} figura como pendiente pero el archivo existe`); }
 });
 
-test("una capa pendiente de regenerar no rompe la pieza: la caries se insinúa aproximada", () => {
-  const p = toothPhotoFor({ fdi: 34, caries: true, cariesSurfaces: [{ surface: "M", depth: "dentina_profunda" }], restorations: [{ surface: "M" }, { surface: "O" }] });
-  assert.ok(V3_MISSING.has("lower-premolar-1/cav/M") && V3_MISSING.has("lower-premolar-1/forma/M"));
-  assert.deepEqual(p.layers.map(l => `${l.kind}-${l.surface}`), ["obturacion-O"]);
-  assert.equal(p.lesions.length, 1);
-});
 
 test("la cara palatina usa su propia base y solo las lesiones palatinas", () => {
   const state = { fdi: 14, caries: true, cariesSurfaces: [{ surface: "P", depth: "esmalte" }, { surface: "M", depth: "esmalte" }] };
