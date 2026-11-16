@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Download, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { budgetItemTotal, budgetPhases, budgetTotals } from "@/lib/budget-plans";
@@ -28,9 +29,52 @@ export function BudgetPrintDialog({
   clinicName?: string;
 }) {
   const [mode, setMode] = useState<PrintMode>("detailed");
+  const [busy, setBusy] = useState<"" | "pdf" | "preview" | "send">("");
+  const [target, setTarget] = useState<{ to: string; from: string } | null>(null);
+  const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   useEffect(() => {
-    if (open) setMode("detailed");
+    if (open) { setMode("detailed"); setTarget(null); setNotice(null); setBusy(""); }
   }, [open, budget?.id]);
+  // Al cambiar el formato se pide confirmar de nuevo el envío.
+  useEffect(() => { setTarget(null); }, [mode]);
+
+  /** PDF real (no la impresión del navegador): siempre completo y paginado. */
+  const downloadPdf = async () => {
+    if (!budget) return;
+    setBusy("pdf"); setNotice(null);
+    try {
+      const { buildBudgetPdf, budgetPdfFileName } = await import("@/lib/budget-pdf");
+      const bytes = await buildBudgetPdf({ budget, patientName, professionalName, clinicName, mode });
+      const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: "application/pdf" }));
+      const link = document.createElement("a");
+      link.href = url; link.download = budgetPdfFileName(budget); document.body.appendChild(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      setNotice({ kind: "ok", text: "PDF generado. Revisa tus descargas." });
+    } catch { setNotice({ kind: "error", text: "No se pudo generar el PDF. Intenta de nuevo." }); }
+    finally { setBusy(""); }
+  };
+  const prepareSend = async () => {
+    if (!budget) return;
+    setBusy("preview"); setNotice(null);
+    try {
+      const response = await fetch(`/api/presupuesto/enviar?budgetId=${budget.id}`);
+      const result = await response.json().catch(() => ({})) as { preview?: { to: string; from: string }; error?: string };
+      if (!response.ok || !result.preview) setNotice({ kind: "error", text: result.error ?? "No se pudo preparar el correo." });
+      else setTarget({ to: result.preview.to, from: result.preview.from });
+    } catch { setNotice({ kind: "error", text: "Sin conexión. Intenta de nuevo." }); }
+    finally { setBusy(""); }
+  };
+  const sendNow = async () => {
+    if (!budget) return;
+    setBusy("send"); setNotice(null);
+    try {
+      const response = await fetch("/api/presupuesto/enviar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ budgetId: budget.id, mode }) });
+      const result = await response.json().catch(() => ({})) as { to?: string; error?: string };
+      if (!response.ok) setNotice({ kind: "error", text: result.error ?? "No se pudo enviar el correo." });
+      else { setNotice({ kind: "ok", text: `PDF enviado a ${result.to}.` }); setTarget(null); }
+    } catch { setNotice({ kind: "error", text: "Sin conexión. No se envió; intenta de nuevo." }); }
+    finally { setBusy(""); }
+  };
   if (!budget) return null;
   const totals = budgetTotals(budget.items);
 
@@ -39,7 +83,7 @@ export function BudgetPrintDialog({
       <div data-budget-print-controls>
         <DialogHeader>
           <DialogTitle>Previsualizar presupuesto</DialogTitle>
-          <DialogDescription>Elige qué información verá el paciente. Para guardar un PDF, selecciona «Guardar como PDF» en el cuadro de impresión.</DialogDescription>
+          <DialogDescription>Elige qué información verá el paciente. Puedes descargar el PDF o enviarlo ahora al correo registrado del paciente.</DialogDescription>
         </DialogHeader>
         <div className="mt-5 grid gap-2 sm:grid-cols-3" role="radiogroup" aria-label="Formato del presupuesto">
           {modes.map(option => <button
@@ -92,10 +136,23 @@ export function BudgetPrintDialog({
         </footer>
       </article>
 
-      <DialogFooter data-budget-print-controls className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
-        <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cerrar</Button>
-        <Button type="button" className="bg-[#473a6d] hover:bg-[#3a2f5a]" onClick={() => window.print()}>Imprimir / Guardar como PDF</Button>
-      </DialogFooter>
+      <div data-budget-print-controls className="space-y-3">
+        {target && <div role="alertdialog" aria-label="Confirmar envío" className="rounded-xl border border-[#b8b1d6] bg-[#f7f6fa] p-3 text-sm">
+          <p>Se enviará el PDF a <strong>{target.to}</strong> desde <strong>{target.from}</strong>.</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button type="button" size="sm" className="bg-[#473a6d] hover:bg-[#3a2f5a]" disabled={busy !== ""} onClick={() => void sendNow()}>{busy === "send" ? "Enviando…" : "Enviar ahora"}</Button>
+            <Button type="button" size="sm" variant="outline" disabled={busy === "send"} onClick={() => setTarget(null)}>Cancelar</Button>
+          </div>
+        </div>}
+        {notice && <p role={notice.kind === "error" ? "alert" : "status"} className={"rounded-lg p-3 text-sm " + (notice.kind === "error" ? "bg-amber-50 text-amber-950" : "bg-emerald-50 text-emerald-900")}>{notice.text}</p>}
+        <DialogFooter className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cerrar</Button>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Button type="button" variant="outline" disabled={busy !== ""} onClick={() => void prepareSend()}><Mail className="mr-2 size-4"/>{busy === "preview" ? "Preparando…" : "Enviar al correo del paciente"}</Button>
+            <Button type="button" className="bg-[#473a6d] hover:bg-[#3a2f5a]" disabled={busy !== ""} onClick={() => void downloadPdf()}><Download className="mr-2 size-4"/>{busy === "pdf" ? "Generando…" : "Descargar PDF"}</Button>
+          </div>
+        </DialogFooter>
+      </div>
     </DialogContent>
   </Dialog>;
 }

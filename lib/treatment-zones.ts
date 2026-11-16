@@ -96,3 +96,11 @@ export function suggestedZoneKind(unit: PriceUnit | null): ZoneGroup | null {
   if (unit === "sextante") return "sextante";
   return null;
 }
+
+/** Lo que se muestra en «Piezas (FDI)» cuando hay zona: la zona y su rango FDI, no cada pieza. */
+export function zoneSummary(value: unknown): string {
+  const zone = parseZone(value);
+  if (!zone) return "";
+  const { option, dentition } = zone;
+  return `${option.label}${dentition === "temp" ? " (temporal)" : ""}${option.key === "boca" ? "" : ` · FDI ${option.range}`}`;
+}
