@@ -289,9 +289,12 @@ export type CariesSpotInput = { surface: "V" | "P" | "M" | "D" | "O"; depth: "es
 export type RestorationInput = { surface: CariesSpotInput["surface"]; material?: string | null; stage?: "provisional" | "definitive" | null };
 /** Cara que se muestra: la vestibular (por defecto) o la palatina/lingual. */
 export type ToothFace = "vestibular" | "palatina";
-export type ToothPhotoState = { fdi: number; status?: string; implant?: boolean; implantPhase?: ImplantPhase; crown?: boolean; endo?: boolean; caries?: boolean; restored?: boolean; cariesSurfaces?: CariesSpotInput[]; restoredSurfaces?: CariesSpotInput["surface"][]; restorations?: RestorationInput[]; sealedSurfaces?: CariesSpotInput["surface"][]; face?: ToothFace };
+export type TreatmentLayerKind = "perno" | "onlay" | "ortodoncia";
+/** Capas de tratamiento ya generadas (alineadas con la base v3 vestibular). Se amplía pieza por pieza. */
+export const TREATMENT_LAYERS: Record<string, readonly TreatmentLayerKind[]> = { "upper-molar-1": ["perno", "onlay", "ortodoncia"] };
+export type ToothPhotoState = { fdi: number; status?: string; implant?: boolean; implantPhase?: ImplantPhase; crown?: boolean; endo?: boolean; caries?: boolean; restored?: boolean; cariesSurfaces?: CariesSpotInput[]; restoredSurfaces?: CariesSpotInput["surface"][]; restorations?: RestorationInput[]; sealedSurfaces?: CariesSpotInput["surface"][]; face?: ToothFace; /** Tratamientos ya puestos o en curso que se dibujan sobre la pieza (perno, onlay, ortodoncia). */ placed?: TreatmentLayerKind[] };
 /** Capa transparente alineada con la foto base. Con `material`, `src` es una máscara y se rellena con la textura del material. */
-export type PhotoLayer = { src: string; surface: CariesSpotInput["surface"]; kind: "caries-incipiente" | "caries-cavitada" | "obturacion" | "sellante"; material?: { src: string; name: string } };
+export type PhotoLayer = { src: string; surface: CariesSpotInput["surface"]; kind: "caries-incipiente" | "caries-cavitada" | "obturacion" | "sellante" | TreatmentLayerKind; material?: { src: string; name: string } };
 /** upper: pieza superior, se muestra invertida (raíces arriba, corona hacia el plano oclusal). transform: CSS listo para la imagen. */
 export type ToothPhoto = { src: string; kind: ToothPhotoKind; mirror: boolean; upper: boolean; transform: string | undefined; lesions: CariesSpot[]; layers?: PhotoLayer[]; face?: ToothFace; hasPalatal?: boolean };
 
@@ -405,9 +408,11 @@ function layeredPhoto(state: ToothPhotoState, arch: "upper" | "lower", index: nu
   const caries = state.cariesSurfaces ?? [];
   const restorations: RestorationInput[] = state.restorations ?? (state.restoredSurfaces ?? []).map(surface => ({ surface }));
   const sealed = state.sealedSurfaces ?? [];
-  if (!caries.length && !restorations.length && !sealed.length) return null;
   const type = TYPES[index - 1]!;
   const key = `${arch}-${type}`;
+  const available = TREATMENT_LAYERS[key] ?? [];
+  const placed = (state.placed ?? []).filter(kind => available.includes(kind));
+  if (!caries.length && !restorations.length && !sealed.length && !placed.length) return null;
   const face: ToothFace = state.face === "palatina" ? "palatina" : "vestibular";
   const on = (surface: CariesSpotInput["surface"]) => (face === "palatina") === (surface === "P");
   const v3 = V3_PIECES.has(key);
@@ -431,6 +436,7 @@ function layeredPhoto(state: ToothPhotoState, arch: "upper" | "lower", index: nu
     layers.push({ src: `${root}/${incipient ? "inc" : "cav"}/${key}-${c.surface}.webp`, surface: c.surface, kind: incipient ? "caries-incipiente" : "caries-cavitada" });
   }
   if (face === "vestibular" && sealed.includes("O") && index >= 4 && !(v3 && V3_MISSING.has(`${key}/sell/O`))) layers.push({ src: `${root}/sell/${key}-O.webp`, surface: "O", kind: "sellante" });
+  if (face === "vestibular") for (const kind of ["perno", "onlay", "ortodoncia"] as const) if (placed.includes(kind)) layers.push({ src: `/dientes/v3/trat/${key}-${kind}.webp`, surface: "V", kind });
   // Las piezas con capas v3 tienen vista palatina/lingual propia: se puede ver siempre, no solo si la cara P tiene una lesión.
   const hasPalatal = v3 || [...caries.map(c => c.surface), ...restorations.map(r => r.surface)].includes("P");
   // La caries palatina sin vista palatina activa se marca (aproximada) sobre la cara vestibular, en línea punteada.

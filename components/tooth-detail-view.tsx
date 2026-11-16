@@ -1,5 +1,5 @@
 "use client";
-import { MARK_LABEL, type ToothMark, type ToothMarkKind } from "@/lib/tooth-treatments";
+import { MARK_LABEL, placedLayers, type ToothMark, type ToothMarkKind } from "@/lib/tooth-treatments";
 import { toothPhotoFor, type CariesSpotInput, type ImplantPhase, type RestorationInput } from "@/lib/tooth-photos";
 import { PhotoStack } from "@/components/photo-stack";
 import { CariesOverlay, cariesSpotText } from "@/components/caries-overlay";
@@ -18,7 +18,7 @@ export function ToothDetailView({ toothLabel, marks, crown = false, absent = fal
   const soft = (kind: ToothMarkKind) => (mark(kind)?.status === "realizado" ? 1 : 0.55);
   const endo = mark("endodoncia"), perno = mark("perno"), carilla = mark("carilla"), onlay = mark("onlay"), protesis = mark("protesis"), orto = mark("ortodoncia");
   const endoShown = Boolean(endo && endo.status !== "planificado") || endoDone;
-  const photo = fdi ? toothPhotoFor({ fdi, status, implant, implantPhase, crown, endo: endoShown, caries, restored, cariesSurfaces, restoredSurfaces, restorations, sealedSurfaces }) : null;
+  const photo = fdi ? toothPhotoFor({ fdi, status, implant, implantPhase, crown, endo: endoShown, caries, restored, cariesSurfaces, restoredSurfaces, restorations, sealedSurfaces, placed: placedLayers(marks) }) : null;
   const plannedEndo = Boolean(endo && endo.status === "planificado" && !endoDone && !crown && !implant);
   return <div className="mt-4 rounded-xl border border-[#dddbe6] bg-white p-4" data-testid="tooth-detail-view">
     <p className="text-sm font-semibold text-[#3b3355]">Vista ampliada · FDI {toothLabel}</p>
