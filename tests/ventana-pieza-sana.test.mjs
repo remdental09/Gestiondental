@@ -53,3 +53,15 @@ test("si el video falla, la ventana cae a la foto, sin sonido y en bucle", () =>
   assert.match(modal, /loop muted playsInline/);
   assert.match(modal, /<figcaption/);
 });
+
+test("la ventana de la pieza muestra todas sus lesiones y deja elegir qué imagen ver", () => {
+  const odontogram = readFileSync(new URL("../components/odontogram.tsx", import.meta.url), "utf8");
+  assert.match(odontogram, /extras=\{data\.extras\?\.\[selected\]\?\?\[\]\}/);
+  assert.match(odontogram, /endoDone=\{endo\[selected\]==="obturado"\}/);
+  assert.match(modal, /data-testid="tooth-modal-views"/);
+  assert.match(modal, /Caras: caries y obturaciones/);
+  // Cada lesión tiene su imagen aunque la pieza tenga corona (la vista de la lesión no la tapa la corona).
+  for (const status of ["Granuloma apical", "Fractura radicular vertical", "Fractura coronaria de esmalte"]) {
+    assert.ok(toothPhotoFor({ fdi: 36, status, crown: false, implant: false }), status);
+  }
+});

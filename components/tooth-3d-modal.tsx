@@ -7,6 +7,7 @@ import { ToothTimeline } from "@/components/tooth-timeline";
 import { formatFdi, type CrownDetails, type OdontogramSurface, type PerioExam, type PerioSiteKey, type PerioTooth, type SurfaceFinding, type ToothHistoryEvent } from "@/app/clinical-data";
 import { cariesDetail } from "@/lib/caries";
 import { PhotoStack } from "@/components/photo-stack";
+import { isLesionStatus } from "@/lib/tooth-status";
 import { isHealthyWindow, toothPhotoFor, toothVideoFor, type CariesSpotInput, type RestorationInput, type ToothFace } from "@/lib/tooth-photos";
 import { bitingFaceName, chileLabel, innerFaceName, toothKind, toothKindLabel } from "@/app/tooth-3d-map";
 
@@ -45,6 +46,8 @@ export function Tooth3DModal({
   onEditEvent,
   onDeleteReading,
   onEditReading,
+  extras = [],
+  endoDone = false,
 }: {
   tooth: number;
   status: string;
@@ -63,6 +66,9 @@ export function Tooth3DModal({
   onEditEvent?: (tooth: number, eventId: string, fields: { title: string; detail: string; clinicalDate: string }) => Promise<void>;
   onDeleteReading?: (tooth: number, examId: number, day: string) => Promise<void>;
   onEditReading?: (tooth: number, examId: number, reading: PerioTooth, clinicalDate: string) => Promise<void>;
+  /** Lesiones y fracturas que conviven con el estado principal. */
+  extras?: string[];
+  endoDone?: boolean;
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -73,6 +79,7 @@ export function Tooth3DModal({
   const [grown, setGrown] = useState(reducedMotion);
   const [videoFailed, setVideoFailed] = useState(false);
   const [face, setFace] = useState<ToothFace>("vestibular");
+  const [view, setView] = useState<{ tooth: number; key: string } | null>(null);
   const propCrownFoundation = crown?.foundation === "implant" ? "implant" : "tooth";
   const crownFoundationKey = `${tooth}|${propCrownFoundation}|${crown?.material ?? ""}|${crown?.shade ?? ""}|${crown?.source ?? ""}`;
   const [crownFoundationDraft, setCrownFoundationDraft] = useState<{ key: string; value: "tooth" | "implant" } | null>(null);
@@ -142,8 +149,24 @@ export function Tooth3DModal({
   const restoredSurfaces = (["O", "V", "P", "M", "D"] as OdontogramSurface[]).filter(surface => surfaces[surface]?.condition === "restored" || surfaces[surface]?.condition === "other_restoration");
   const restorations: RestorationInput[] = restoredSurfaces.map(surface => ({ surface, material: surfaces[surface]?.restorationMaterial ?? null, stage: surfaces[surface]?.restorationStage ?? null }));
   const sealedSurfaces = (["O", "V", "P", "M", "D"] as OdontogramSurface[]).filter(surface => surfaces[surface]?.condition === "sealant");
-  const photo = toothPhotoFor({ fdi: tooth, status, implant: isImplant, implantPhase: status === "Implante con pilar" ? "pilar" : hasCrown ? "corona" : "sumergido", crown: hasCrown || status === "Corona", caries: cariesSurfaces.length > 0, restored: restoredSurfaces.length > 0, cariesSurfaces, restoredSurfaces, restorations, sealedSurfaces, face });
+  // Una imagen por situación: la pieza puede tener varias (corona + granuloma, caries + fractura). Se elige cuál ver.
+  const lesionViews = [...(isLesionStatus(status) ? [status] : []), ...extras.filter(item => item !== status && isLesionStatus(item))];
+  const baseStatus = isLesionStatus(status) ? "Sin hallazgos" : status;
+  const surfaceCount = cariesSurfaces.length + restoredSurfaces.length + sealedSurfaces.length;
+  const baseLabel = baseStatus === "Corona" ? "Corona" : baseStatus === "Sin hallazgos" ? (surfaceCount ? "Caras: caries y obturaciones" : "Pieza sin la lesión") : baseStatus;
+  const views = [
+    ...lesionViews.map(key => ({ key, label: key })),
+    ...(!isImplant && (surfaceCount > 0 || baseStatus !== "Sin hallazgos") ? [{ key: "base", label: baseLabel }] : []),
+    ...(endoDone && (hasCrown || baseStatus === "Corona") ? [{ key: "endo", label: "Endodoncia" }] : []),
+  ];
+  const defaultView = lesionViews[0] ?? "base";
+  const current = view?.tooth === tooth && views.some(item => item.key === view.key) ? view.key : defaultView;
+  const photo = current !== "base" && current !== "endo"
+    ? toothPhotoFor({ fdi: tooth, status: current, crown: false, implant: false, face })
+    : toothPhotoFor({ fdi: tooth, status: baseStatus, implant: isImplant, implantPhase: status === "Implante con pilar" ? "pilar" : hasCrown ? "corona" : "sumergido", crown: current === "endo" ? false : hasCrown || status === "Corona", endo: endoDone, caries: cariesSurfaces.length > 0, restored: restoredSurfaces.length > 0, cariesSurfaces, restoredSurfaces, restorations, sealedSurfaces, face });
   const healthyVideo = photo && isHealthyWindow(status, findings.length, Boolean(periodontalSites)) && !videoFailed ? toothVideoFor(tooth, status) : null;
+  for (const item of [...extras].reverse()) if (item !== status && !findings.includes(item)) findings.unshift(item);
+  if (endoDone) findings.push("Endodoncia");
   if (status && status !== "Sin hallazgos") findings.unshift((status === "Implante" || status === "Implante con pilar") && hasCrown ? "Implante con corona" : status === "Implante con pilar" ? "Implante con pilar (sin corona)" : status === "Corona" ? "Corona" : status === "Ausente" ? "Ausente / extraído" : status);
   const sortedToothHistory = [...toothHistory].filter(event => event.tooth === tooth).sort((a,b) => new Date(b.clinicalDate ? `${b.clinicalDate}T12:00:00` : b.recordedAt).getTime() - new Date(a.clinicalDate ? `${a.clinicalDate}T12:00:00` : a.recordedAt).getTime());
   const findingLabel = (finding?: SurfaceFinding) => {
@@ -192,6 +215,9 @@ export function Tooth3DModal({
         {periodontalSites ? <div className="mb-3 grid grid-cols-3 gap-1.5 text-center text-xs sm:gap-2" aria-label="Seis sitios periodontales">
           {(["MV", "V", "DV", "ML", "L", "DL"] as PerioSiteKey[]).map(key => { const reading = periodontalSites[key]; const depth = reading?.depth; const measured = depth !== null && depth !== undefined; const color = !measured ? "#94a3b8" : depth >= 6 ? "#be123c" : depth >= 4 ? "#b45309" : "#047857"; return <div key={key} className="rounded-lg border border-[#e5e2ec] bg-white px-1 py-1.5"><span className="font-semibold">{key}</span><span className="ml-1 font-medium" style={{color}}>{measured ? `${depth} mm` : "sin medir"}</span>{reading?.bleeding && <span className="block text-red-700">Sangrado</span>}{reading?.suppuration && <span className="block text-violet-700">Supuración</span>}</div>; })}
         </div> : findings.length > 0 ? <ul className="mb-3 flex flex-wrap gap-2">{findings.map((line) => <li key={line} className="rounded-full bg-[#f3f7f7] px-3 py-1 text-xs font-medium text-[#3b3355]">{line}</li>)}</ul> : <p className="mb-3 text-sm text-[#6b6a7c]">Sin hallazgos registrados en esta pieza.</p>}
+        {views.length > 1 && !periodontalSites && <div className="mb-2 flex flex-wrap justify-center gap-1.5" role="group" aria-label="Qué situación ver en la imagen" data-testid="tooth-modal-views">
+          {views.map(item => <button key={item.key} type="button" aria-pressed={current === item.key} onClick={() => setView({ tooth, key: item.key })} className={`rounded-full border px-3 py-1 text-xs font-semibold ${current === item.key ? "border-[#473a6d] bg-[#473a6d] text-white" : "border-[#d8d4e4] bg-white text-[#3b3355] hover:bg-[#f3f1f8]"}`}>{item.label}</button>)}
+        </div>}
         {photo ? <figure className="relative m-0 mx-auto w-[min(70vw,280px)] overflow-hidden rounded-xl bg-[#14161b]" data-testid="tooth-modal-photo" data-upper={!healthyVideo && photo.upper ? "true" : "false"}>
           {healthyVideo ? <video src={healthyVideo.src} poster={healthyVideo.poster} autoPlay={!reducedMotion} loop muted playsInline preload="auto" controls={reducedMotion} onError={() => setVideoFailed(true)} aria-label={`Video referencial de la pieza ${formatFdi(tooth)} girando 360 grados, sin hallazgos registrados`} data-testid="tooth-modal-video" className="block h-auto w-full" style={{ transform: healthyVideo.transform }} />
             : <><PhotoStack photo={photo} intrinsic eager alt={`Imagen referencial de la pieza ${formatFdi(tooth)}${photo.face === "palatina" ? ", cara palatina o lingual" : ""}`} /><CariesOverlay spots={photo.lesions} labels={false} cover /></>}
