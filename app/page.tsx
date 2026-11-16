@@ -12,6 +12,7 @@ import { procedureSessions } from "@/lib/tooth-evolution-milestones";
 import { chileTodayIso } from "@/lib/dictation/voice-command";
 import { OdontogramDateBar } from "@/components/odontogram-date-bar";
 import { chartAt, chartDates } from "@/lib/odontogram-timeline";
+import { BUILD_TIME, buildStamp } from "@/lib/build-info";
 import { AnamnesisButton } from "@/components/anamnesis-dialog";
 import { emptyAddress, formatAddress, type PatientAddress } from "@/lib/patient-address";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -781,6 +782,7 @@ export default function Home(){
             <span className="min-w-0 truncate text-sm font-semibold text-[#35343f]">{section}</span>
           </div>
           <div className="flex shrink-0 items-center gap-3">
+            {(()=>{const stamp=buildStamp(BUILD_TIME);return stamp&&<span className="hidden text-right text-[11px] leading-tight text-[#6b6a7c] md:block" data-testid="app-updated" title="Última actualización de la aplicación (hora de Chile)"><span className="block font-semibold uppercase tracking-wide">Actualizada</span>{stamp.day} · {stamp.time}</span>})()}
             <span className="hidden rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800 sm:inline">Ficha privada</span>
             {viewerEmail&&<button type="button" onClick={()=>setProfileOpen(true)} className="flex min-h-10 min-w-0 items-center gap-2 rounded-lg border border-[#dddbe6] bg-[#f7f6fa] px-3 text-sm font-semibold text-[#473a6d] hover:border-[#9d93c4] hover:bg-[#e6e4ee]" title={viewerName?`${viewerName} · ${viewerEmail} — editar mi perfil`:`${viewerEmail} — editar mi perfil`} aria-label="Mi perfil: editar mis datos" data-testid="open-profile"><UserRound className="size-4 shrink-0"/><span className="hidden max-w-[16rem] truncate sm:inline">{viewerName||viewerEmail}</span><span className="sm:hidden">Mi perfil</span></button>}
             {isDeveloper&&<a href="/desarrollador" className="flex min-h-10 items-center gap-2 rounded-lg border border-[#c9c2e3] bg-[#efedf7] px-3 text-sm font-semibold text-[#473a6d] hover:border-[#9d93c4] hover:bg-[#e6e4ee]" aria-label="Panel del desarrollador: dentistas registrados"><LayoutDashboard className="size-4"/><span className="hidden md:inline">Desarrollador</span></a>}
