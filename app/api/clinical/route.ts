@@ -385,6 +385,25 @@ export async function POST(request: Request) {
       }
       return Response.json({ note: { id: n.id, patientId, date: displayDate(clinicalDate), clinicalDate, recordedAt: t, title, body, backupStatus: n.backupStatus }, chart }, { status: 201 });
     }
+    if (action === "updateEvolution") {
+      // El dentista corrige a mano lo que el dictado o la IA entendió mal. Queda el texto anterior en un historial de ediciones.
+      const evolutionId = Number(input.evolutionId);
+      if (!Number.isSafeInteger(evolutionId) || evolutionId <= 0) return error("Evolución inválida.");
+      const title = string(input.title, 180) || "Evolución clínica", body = string(input.body, 30000);
+      if (!body) return error("La evolución no puede quedar vacía.");
+      const [note] = await db.select().from(evolutions).where(and(eq(evolutions.id, evolutionId), eq(evolutions.patientId, patientId), eq(evolutions.ownerId, ownerId))).limit(1);
+      if (!note) return error("Evolución no encontrada en esta ficha.", 404);
+      if (note.status === "anulada") return error("Una evolución anulada no se puede editar.", 409);
+      if (note.title === title && note.body === body) return Response.json({ note: { id: note.id, patientId, title, body }, unchanged: true });
+      const viewer = await getChatGPTUser();
+      const t = now();
+      const raw = (env as unknown as { DB?: { prepare(sql: string): { bind(...v: unknown[]): { run(): Promise<unknown> }; run(): Promise<unknown> } } }).DB;
+      if (!raw) return error("La base de datos no está disponible.", 500);
+      await raw.prepare("CREATE TABLE IF NOT EXISTS evolution_edits (id INTEGER PRIMARY KEY AUTOINCREMENT, owner_id TEXT NOT NULL, patient_id INTEGER NOT NULL, evolution_id INTEGER NOT NULL, previous_title TEXT NOT NULL, previous_body TEXT NOT NULL, edited_by TEXT NOT NULL, edited_at TEXT NOT NULL)").run();
+      await raw.prepare("INSERT INTO evolution_edits (owner_id, patient_id, evolution_id, previous_title, previous_body, edited_by, edited_at) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(ownerId, patientId, evolutionId, note.title, note.body, viewer?.email || ownerId, t).run();
+      await db.update(evolutions).set({ title, body }).where(and(eq(evolutions.id, evolutionId), eq(evolutions.ownerId, ownerId), eq(evolutions.status, "vigente")));
+      return Response.json({ note: { id: evolutionId, patientId, title, body }, editedAt: t });
+    }
     if (action === "annulEvolution") {
       // Ley 20.584: no se borra. Se marca anulada con motivo, fecha y autor; opcionalmente se guarda la que la reemplaza.
       const evolutionId = Number(input.evolutionId);
