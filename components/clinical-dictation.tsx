@@ -436,7 +436,7 @@ export function ClinicalDictation({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           transcript: text,
-          chart: Object.entries(odontogram.teeth).map(([tooth, status]) => ({ tooth: Number(tooth), status, ...(odontogram.crowns?.[Number(tooth)]?.foundation ? { foundation: odontogram.crowns[Number(tooth)]!.foundation } : {}) })),
+          chart: Object.entries(odontogram.teeth).map(([tooth, status]) => ({ tooth: Number(tooth), status, ...(odontogram.crowns?.[Number(tooth)]?.foundation ? { foundation: odontogram.crowns[Number(tooth)]!.foundation } : {}), ...(odontogram.extras?.[Number(tooth)]?.length ? { extras: odontogram.extras[Number(tooth)] } : {}) })),
         }),
       });
       const data = await response.json() as StructureOutcome & { error?: string };
@@ -1146,6 +1146,7 @@ export function ClinicalDictation({
                     <Decision value={item.decision} onChange={(decision) => setTeeth((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, decision } : entry))} />
                   </div>
                   {item.kind === "surface" ? <p className="mt-3"><span className="text-[#6b6a7c]">Cara {item.surface ? surfaceLabel[item.surface] : "sin registrar"}: </span><ChangeHighlight current={findingText(item.surface ? odontogram.surfaces[item.tooth]?.[item.surface] : undefined)} next={findingText(item.finding)} /></p>
+                    : item.effect ? <p className="mt-3" data-testid="lesion-effect"><span className="text-[#6b6a7c]">Estado general: </span><span className="font-semibold">{nextStatus}</span><span className="mt-1 block rounded-md bg-sky-50 px-2 py-1 text-xs text-sky-950">{item.effect}</span></p>
                     : <p className="mt-3"><span className="text-[#6b6a7c]">Estado general: </span><ChangeHighlight current={currentStatus} next={nextStatus} /></p>}
                   {item.material && <p className="mt-2"><span className="text-[#6b6a7c]">Material: </span><ChangeHighlight current={odontogram.crowns?.[item.tooth]?.material || "Sin registrar"} next={`${item.material}${item.shade ? ` · color ${item.shade}` : ""}`} /></p>}
                   {item.decision === "accepted" && <div className="mt-3 grid gap-2 sm:grid-cols-2">

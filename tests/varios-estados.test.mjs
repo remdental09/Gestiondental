@@ -68,3 +68,27 @@ test("proyectar un implante no pierde las lesiones de otras piezas", () => {
   const out = projectEvolutionChart(chart, [46], null, false);
   assert.deepEqual(out.data.extras, { 16: ["Granuloma apical"] });
 });
+
+import { lesionEffect } from "../lib/tooth-status.ts";
+
+test("las etapas apicales se reemplazan entre sí y conviven con fracturas y corona", () => {
+  let s = applyToothStatus(empty, "Periodontitis apical");
+  s = applyToothStatus(s, "Fractura radicular vertical");
+  s = applyToothStatus(s, "Absceso apical agudo");
+  assert.deepEqual(allToothStatuses(s), ["Absceso apical agudo", "Fractura radicular vertical"]);
+  s = applyToothStatus(applyToothStatus({ primary: "Corona", extras: [] }, "Granuloma apical"), "Quiste radicular");
+  assert.deepEqual(s, { primary: "Corona", extras: ["Quiste radicular"] });
+  assert.deepEqual(lesionEffect(s, "Osteítis condensante"), { kind: "reemplaza", replaced: "Quiste radicular" });
+  assert.deepEqual(lesionEffect(s, "Fisura coronaria"), { kind: "suma" });
+  assert.deepEqual(lesionEffect(s, "Quiste radicular"), { kind: "igual" });
+});
+
+test("una ficha con varias etapas apicales acumuladas queda con la más reciente", () => {
+  const chart = { teeth: { 46: "Periodontitis apical" }, extras: { 46: ["Absceso apical agudo", "Fractura radicular vertical", "Quiste radicular", "Osteítis condensante"] } };
+  pruneChartExtras(chart);
+  assert.equal(chart.teeth[46], "Osteítis condensante");
+  assert.deepEqual(chart.extras[46], ["Fractura radicular vertical"]);
+  const corona = { teeth: { 36: "Corona" }, extras: { 36: ["Granuloma apical", "Quiste radicular"] } };
+  pruneChartExtras(corona);
+  assert.deepEqual(corona.extras[36], ["Quiste radicular"]);
+});

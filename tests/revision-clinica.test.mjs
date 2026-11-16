@@ -56,3 +56,14 @@ test("caso Lorna: trepanación + corona + «adyacente al implante de la 19» no 
   const implant45 = p.odontogram.filter((i) => i.tooth === 45 && (i.status === "Implante" || i.foundation === "implant") && !i.advisory);
   assert.equal(implant45.length, 0);
 });
+
+test("una lesión dictada no pide confirmación: se suma o reemplaza la etapa apical anterior", () => {
+  const evol = clinicalCoherence([item(46, { status: "Absceso apical agudo" })], [{ tooth: 46, status: "Periodontitis apical" }], () => ["Pieza 4.6: absceso apical agudo."]).odontogram[0];
+  assert.equal(evol.advisory, undefined);
+  assert.match(evol.effect, /periodontitis apical → absceso apical agudo/);
+  const suma = clinicalCoherence([item(36, { status: "Fractura radicular vertical" })], [{ tooth: 36, status: "Corona", extras: ["Granuloma apical"] }], () => ["Pieza 3.6: fractura radicular vertical."]).odontogram[0];
+  assert.equal(suma.advisory, undefined);
+  assert.match(suma.effect, /Se suma a lo registrado \(corona, granuloma apical\)/);
+  const implante = clinicalCoherence([item(36, { status: "Granuloma apical" })], [{ tooth: 36, status: "Implante" }], () => ["Pieza 3.6: granuloma apical."]).odontogram[0];
+  assert.equal(implante.coherence, "incoherente");
+});
