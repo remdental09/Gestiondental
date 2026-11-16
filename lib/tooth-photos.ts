@@ -523,7 +523,9 @@ export function toothPhotoFor(state: ToothPhotoState): ToothPhoto | null {
     if (!TOOTH_PHOTOS.has(base)) return null;
     const mirror = quadrant === 2 || quadrant === 3, upper = quadrant <= 2;
     const transform = mirror && upper ? "scale(-1,-1)" : mirror ? "scaleX(-1)" : upper ? "scaleY(-1)" : undefined;
-    return { src: `/dientes/${base}.webp`, kind: "lesion", mirror, upper, transform, lesions: [] };
+    // La foto de la lesión es una imagen entera (no tiene capas alineadas): la caries se marca aproximada con el óvalo.
+    const caries = state.cariesSurfaces ?? [];
+    return { src: `/dientes/${base}.webp`, kind: "lesion", mirror, upper, transform, lesions: caries.length ? cariesSpots(state.fdi, caries) : [] };
   }
   const kind = toothPhotoKind(state);
   if (!state.implant && !state.crown && !state.endo) {
