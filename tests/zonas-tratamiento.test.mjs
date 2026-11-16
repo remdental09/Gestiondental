@@ -63,3 +63,11 @@ test('unidad de cobro deducida del nombre del arancel', () => {
   assert.equal(priceUnitFromName('Obturación de resina — 2 caras'), 'cara');
   assert.equal(priceUnitFromName('Exodoncia simple'), null);
 });
+
+test('con zona se muestra la zona y su rango FDI, no las 32 piezas', async () => {
+  const { zoneSummary } = await import('../lib/treatment-zones.ts');
+  assert.equal(zoneSummary('perm:boca'), 'Boca completa');
+  assert.equal(zoneSummary('perm:cuad-1'), 'Cuadrante 1 · FDI 1.1–1.8');
+  assert.equal(zoneSummary('temp:arc-inf'), 'Arcada inferior (temporal) · FDI 8.1–7.5');
+  assert.equal(zoneSummary('nada'), '');
+});

@@ -53,19 +53,17 @@ const wrap76 = (value: string) => value.replace(/(.{76})/g, "$1\r\n");
 const base64Url = (text: string) => b64(text).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 const encodedWord = (text: string) => `=?UTF-8?B?${b64(header(text))}?=`;
 
-/** Mensaje RFC 822 (texto + HTML) listo para la API de Gmail (`raw`, base64url). */
-export function buildRawMessage(input: { from: string; fromName?: string; to: string; replyTo?: string; subject: string; text: string; html: string }): string {
+export type MailAttachment = { filename: string; contentType: string; /** Contenido en base64 estándar. */ base64: string };
+
+/** Mensaje RFC 822 (texto + HTML, con adjuntos opcionales) listo para la API de Gmail (`raw`, base64url). */
+export function buildRawMessage(input: { from: string; fromName?: string; to: string; replyTo?: string; subject: string; text: string; html: string; attachments?: MailAttachment[] }): string {
   if (!isValidEmail(input.from) || !isValidEmail(input.to)) throw new Error("Dirección de correo inválida.");
-  const boundary = "gd_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+  const stamp = Math.random().toString(36).slice(2) + Date.now().toString(36);
+  const boundary = "gd_" + stamp;
+  const mixed = "gm_" + stamp;
+  const attachments = input.attachments ?? [];
   const fromName = header(input.fromName ?? "");
-  const lines = [
-    `From: ${fromName ? `${encodedWord(fromName)} ` : ""}<${input.from.trim()}>`,
-    `To: <${input.to.trim()}>`,
-    ...(input.replyTo && isValidEmail(input.replyTo) ? [`Reply-To: <${input.replyTo.trim()}>`] : []),
-    `Subject: ${encodedWord(input.subject)}`,
-    "MIME-Version: 1.0",
-    `Content-Type: multipart/alternative; boundary="${boundary}"`,
-    "",
+  const alternative = [
     `--${boundary}`,
     'Content-Type: text/plain; charset="UTF-8"',
     "Content-Transfer-Encoding: base64",
@@ -77,6 +75,21 @@ export function buildRawMessage(input: { from: string; fromName?: string; to: st
     "",
     wrap76(b64(input.html)),
     `--${boundary}--`,
+  ];
+  const lines = [
+    `From: ${fromName ? `${encodedWord(fromName)} ` : ""}<${input.from.trim()}>`,
+    `To: <${input.to.trim()}>`,
+    ...(input.replyTo && isValidEmail(input.replyTo) ? [`Reply-To: <${input.replyTo.trim()}>`] : []),
+    `Subject: ${encodedWord(input.subject)}`,
+    "MIME-Version: 1.0",
+    ...(attachments.length
+      ? [`Content-Type: multipart/mixed; boundary="${mixed}"`, "", `--${mixed}`, `Content-Type: multipart/alternative; boundary="${boundary}"`, "", ...alternative,
+        ...attachments.flatMap(file => {
+          const name = header(file.filename).replace(/["\\]/g, "");
+          return [`--${mixed}`, `Content-Type: ${file.contentType}; name="${encodedWord(name)}"`, `Content-Disposition: attachment; filename="${encodedWord(name)}"`, "Content-Transfer-Encoding: base64", "", wrap76(file.base64)];
+        }),
+        `--${mixed}--`]
+      : [`Content-Type: multipart/alternative; boundary="${boundary}"`, "", ...alternative]),
     "",
   ];
   return base64Url(lines.join("\r\n"));
@@ -102,4 +115,32 @@ export function selectReminders<E extends TodayEvent, P extends TodayPatient>(in
 export function isSendWindow(now: Date, sendHour: number): boolean {
   const hour = Number(new Intl.DateTimeFormat("en-GB", { hour: "2-digit", hour12: false, timeZone: "America/Santiago" }).format(now)) % 24;
   return hour >= sendHour && hour < 20;
+}
+
+export type BudgetEmailInput = { patientName: string; clinicName?: string; professionalName?: string; title: string; isAlternative?: boolean; message?: string };
+/** Correo que acompaña al PDF del presupuesto: breve, sin datos clínicos en el cuerpo (el detalle va en el adjunto). */
+export function budgetEmail(input: BudgetEmailInput): { subject: string; text: string; html: string } {
+  const first = header(input.patientName).split(/\s+/)[0] ?? "";
+  const clinic = header(input.clinicName ?? "");
+  const what = input.isAlternative ? "alternativa de tratamiento" : "plan de tratamiento";
+  const who = header(input.professionalName ?? "");
+  const note = cleanMessage(input.message);
+  const subject = `Su ${what}${clinic ? ` · ${clinic}` : ""}`;
+  const text = [
+    `Estimado(a) ${first}:`,
+    "",
+    `Adjuntamos en PDF su ${what}${clinic ? ` de ${clinic}` : ""}.`,
+    "Si tiene dudas, responda a este correo o consulte en su próxima cita.",
+    ...(note ? ["", note] : []),
+    "",
+    who ? `Saludos cordiales,\n${who}` : "Saludos cordiales.",
+  ].join("\n");
+  const html = `<!doctype html><html lang="es"><body style="margin:0;background:#f3f1f7;font-family:Arial,Helvetica,sans-serif;color:#35343f">
+<div style="max-width:520px;margin:0 auto;padding:24px"><div style="background:#fff;border-radius:12px;padding:28px;border:1px solid #e6e4ee">
+<p style="margin:0 0 12px;font-size:16px">Estimado(a) ${esc(first)}:</p>
+<p style="margin:0 0 16px;font-size:16px;line-height:1.5">Adjuntamos en PDF su <strong>${esc(what)}</strong>${clinic ? ` de ${esc(clinic)}` : ""}.</p>
+<p style="margin:0 0 20px;font-size:14px;line-height:1.5">Si tiene dudas, responda a este correo o consulte en su próxima cita.</p>
+${note ? `<p style="margin:0 0 20px;font-size:14px;line-height:1.5">${esc(note).replace(/\n/g, "<br>")}</p>\n` : ""}<p style="margin:0;font-size:14px;color:#6b6a7c">${who ? `Saludos cordiales,<br>${esc(who)}` : "Saludos cordiales."}</p>
+</div></div></body></html>`;
+  return { subject, text, html };
 }
