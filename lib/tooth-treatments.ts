@@ -197,3 +197,8 @@ export function toothMarks(all: Record<number, ToothTreatment[]>): Record<number
   }
   return out;
 }
+
+/** Marcas que ya están en boca (no las planificadas) y tienen capa dibujable sobre la foto. */
+export function placedLayers(marks: ToothMark[]): Array<"perno" | "onlay" | "ortodoncia"> {
+  return marks.filter((m): m is ToothMark & { kind: "perno" | "onlay" | "ortodoncia" } => (m.kind === "perno" || m.kind === "onlay" || m.kind === "ortodoncia") && m.status !== "planificado").map((m) => m.kind);
+}
