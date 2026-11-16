@@ -173,7 +173,8 @@ export function buildImport(tables: Partial<Record<CsvKind, Row[]>>, numbering: 
     const bundle = ensurePatient(row.DNI ?? "", name);
     const p = bundle.patient;
     p.birthDate = /^\d{4}-\d{2}-\d{2}$/.test(row["Fecha de Nacimiento"] ?? "") ? row["Fecha de Nacimiento"] : parseDmy(row["Fecha de Nacimiento"] ?? "") ?? "";
-    p.phone = (row["Teléfono 1"] ?? "").replace(/[^\d+]/g, "").replace(/^\+-/, "+").slice(0, 24);
+    // La otra plataforma deja el celular casi siempre en «Teléfono 2»: se usa el 1 y, si está vacío, el 2.
+    p.phone = ((row["Teléfono 1"] ?? "").trim() || (row["Teléfono 2"] ?? "").trim()).replace(/[^\d+]/g, "").replace(/^\+-/, "+").slice(0, 24);
     p.email = (row.Email ?? "").trim().toLowerCase();
     p.street = (row["Dirección"] ?? "").trim(); p.commune = (row.Ciudad ?? "").trim(); p.sex = row.Sexo ?? "";
     if (!(row.DNI ?? "").trim()) patientsWithoutDocument++; else if (!p.document) invalidDocuments++;

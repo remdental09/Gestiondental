@@ -13,8 +13,8 @@ export const IMPORT_REASON = "Importado desde otra plataforma";
 export const MAX_BUNDLES_PER_CALL = 6;
 export const MAX_ROWS_PER_CALL = 400;
 
-export type ImportCounts = { patientsCreated: number; patientsExisting: number; plansCreated: number; plansSkipped: number; notesCreated: number; notesSkipped: number; notesFixed: number; paymentsCreated: number; paymentsSkipped: number; failed: number; discarded: number };
-export const emptyCounts = (): ImportCounts => ({ patientsCreated: 0, patientsExisting: 0, plansCreated: 0, plansSkipped: 0, notesCreated: 0, notesSkipped: 0, notesFixed: 0, paymentsCreated: 0, paymentsSkipped: 0, failed: 0, discarded: 0 });
+export type ImportCounts = { patientsCreated: number; patientsExisting: number; patientsCompleted: number; plansCreated: number; plansSkipped: number; notesCreated: number; notesSkipped: number; notesFixed: number; paymentsCreated: number; paymentsSkipped: number; failed: number; discarded: number };
+export const emptyCounts = (): ImportCounts => ({ patientsCreated: 0, patientsExisting: 0, patientsCompleted: 0, plansCreated: 0, plansSkipped: 0, notesCreated: 0, notesSkipped: 0, notesFixed: 0, paymentsCreated: 0, paymentsSkipped: 0, failed: 0, discarded: 0 });
 
 const BATCH = 40;
 const text = (value: unknown, max: number) => (typeof value === "string" ? value.trim().slice(0, max) : "");
@@ -52,18 +52,26 @@ async function importBundle(db: ReturnType<typeof getDb>, ownerId: string, bundl
 
   // 1. Paciente: por documento; sin documento, solo una ficha importada antes con el mismo nombre.
   let patientId: number | null = null;
+  let known: { id: number; phone: string; email: string; birthDate: string } | null = null;
   if (document) {
-    const found = await db.select({ id: patients.id }).from(patients).where(and(eq(patients.ownerId, ownerId), eq(patients.rut, document))).limit(1);
-    patientId = found[0]?.id ?? null;
+    const found = await db.select({ id: patients.id, phone: patients.phone, email: patients.email, birthDate: patients.birthDate }).from(patients).where(and(eq(patients.ownerId, ownerId), eq(patients.rut, document))).limit(1);
+    patientId = found[0]?.id ?? null; known = found[0] ?? null;
   } else {
-    const candidates = await db.select({ id: patients.id, name: patients.name }).from(patients).where(and(eq(patients.ownerId, ownerId), eq(patients.reason, IMPORT_REASON)));
-    patientId = candidates.find(row => patientKey("", row.name) === key)?.id ?? null;
+    const candidates = await db.select({ id: patients.id, name: patients.name, phone: patients.phone, email: patients.email, birthDate: patients.birthDate }).from(patients).where(and(eq(patients.ownerId, ownerId), eq(patients.reason, IMPORT_REASON)));
+    known = candidates.find(row => patientKey("", row.name) === key) ?? null; patientId = known?.id ?? null;
   }
   if (document && !isValidChileanRut(document) && !/^[A-Z0-9]{4,20}$/.test(document)) { counts.failed += 1; return; }
-  if (patientId) counts.patientsExisting += 1;
-  else {
-    const birthDate = isoDay(source.birthDate), today = now.slice(0, 10);
-    const phone = text(source.phone, 24), email = text(source.email, 254);
+  const birthDate = isoDay(source.birthDate), today = now.slice(0, 10);
+  const phone = text(source.phone, 24), email = text(source.email, 254);
+  if (patientId) {
+    counts.patientsExisting += 1;
+    // Una ficha que ya existe solo se completa: se llenan los datos de contacto que estén vacíos, nunca se pisa lo escrito.
+    const fill: Partial<typeof patients.$inferInsert> = {};
+    if (known && !known.phone && validPhone(phone)) fill.phone = phone;
+    if (known && !known.email && validEmail(email)) fill.email = email;
+    if (known && !known.birthDate && birthDate && birthDate <= today) fill.birthDate = birthDate;
+    if (Object.keys(fill).length) { await db.update(patients).set({ ...fill, updatedAt: now }).where(and(eq(patients.id, patientId), eq(patients.ownerId, ownerId))); counts.patientsCompleted += 1; }
+  } else {
     const [created] = await db.insert(patients).values({
       ownerId, name, birthDate: birthDate && birthDate <= today ? birthDate : "", rut: document ? (isValidChileanRut(document) ? cleanRutValue(document) : document) : null,
       phone: validPhone(phone) ? phone : "", email: validEmail(email) ? email : "", reason: IMPORT_REASON, status: "Evaluación",
