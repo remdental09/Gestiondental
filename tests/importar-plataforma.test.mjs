@@ -181,3 +181,15 @@ test('reimportar corrige solo las evoluciones que quedaron con formato crudo', (
   assert.match(src, /notesFixed/);
   assert.match(src, /\^\\s\*\[\{\[\]\|/, 'solo si el cuerpo guardado empieza con { o [ o trae «\\n» escritos');
 });
+
+test('el teléfono sale de «Teléfono 1» o, si está vacío, de «Teléfono 2»', () => {
+  const r = buildImport({ pacientes: csv('Nombre,Apellido,DNI,Teléfono 1,Teléfono 2', 'Ana,Uno,11.111.111-1,,+56 9 1111 2222', 'Luis,Dos,,+56 9 3333 4444,+56 9 5555 6666', 'Eva,Tres,,,') }, null);
+  assert.deepEqual(r.bundles.map(b => b.patient.phone), ['+56911112222', '+56933334444', '']);
+});
+
+test('reimportar completa los datos de contacto vacíos de una ficha existente sin pisar lo escrito', () => {
+  const src = readFileSync(new URL('../app/platform-import.ts', import.meta.url), 'utf8');
+  assert.match(src, /patientsCompleted/);
+  assert.match(src, /!known\.phone && validPhone\(phone\)/);
+  assert.match(src, /!known\.email && validEmail\(email\)/);
+});

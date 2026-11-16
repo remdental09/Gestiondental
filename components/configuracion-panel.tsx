@@ -179,7 +179,7 @@ export function ConfiguracionPanel() {
           <div className="space-y-1 rounded-lg bg-[#eef7f1] p-3 text-sm text-[#1f5133]" role="status" data-testid="importar-resultado">
             <p className="flex items-center gap-1 font-semibold"><CheckCircle2 className="size-4" aria-hidden />Importación terminada</p>
             <ul className="list-disc pl-5">
-              <li>Fichas nuevas: {report.totals.patientsCreated ?? 0} · ya existían: {report.totals.patientsExisting ?? 0}</li>
+              <li>Fichas nuevas: {report.totals.patientsCreated ?? 0} · ya existían: {report.totals.patientsExisting ?? 0}{report.totals.patientsCompleted ? ` · ${report.totals.patientsCompleted} completadas con teléfono, correo o fecha de nacimiento que les faltaban` : ""}</li>
               <li>Planes: {report.totals.plansCreated ?? 0} nuevos · {report.totals.plansSkipped ?? 0} ya estaban</li>
               <li>Evoluciones: {report.totals.notesCreated ?? 0} nuevas · {report.totals.notesSkipped ?? 0} ya estaban{report.totals.notesFixed ? ` · ${report.totals.notesFixed} corregidas (texto legible)` : ""}</li>
               <li>Pagos: {report.totals.paymentsCreated ?? 0} nuevos · {report.totals.paymentsSkipped ?? 0} ya estaban</li>
