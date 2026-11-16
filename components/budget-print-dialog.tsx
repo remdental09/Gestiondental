@@ -38,19 +38,19 @@ export function BudgetPrintDialog({
   // Al cambiar el formato se pide confirmar de nuevo el envío.
   useEffect(() => { setTarget(null); }, [mode]);
 
-  /** PDF real (no la impresión del navegador): siempre completo y paginado. */
+  /** PDF real (no la impresión del navegador): el mismo archivo que se envía por correo. */
   const downloadPdf = async () => {
     if (!budget) return;
     setBusy("pdf"); setNotice(null);
     try {
-      const { buildBudgetPdf, budgetPdfFileName } = await import("@/lib/budget-pdf");
-      const bytes = await buildBudgetPdf({ budget, patientName, professionalName, clinicName, mode });
-      const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: "application/pdf" }));
+      const response = await fetch(`/api/presupuesto/pdf?budgetId=${budget.id}&mode=${mode}`);
+      if (!response.ok) { const result = await response.json().catch(() => ({})) as { error?: string }; throw new Error(result.error ?? "No se pudo generar el PDF."); }
+      const url = URL.createObjectURL(await response.blob());
       const link = document.createElement("a");
-      link.href = url; link.download = budgetPdfFileName(budget); document.body.appendChild(link); link.click(); link.remove();
+      link.href = url; link.download = `${budget.isAlternative ? "Alternativa-de-tratamiento" : "Presupuesto-de-tratamiento"}-${budget.id}.pdf`; document.body.appendChild(link); link.click(); link.remove();
       setTimeout(() => URL.revokeObjectURL(url), 60_000);
       setNotice({ kind: "ok", text: "PDF generado. Revisa tus descargas." });
-    } catch { setNotice({ kind: "error", text: "No se pudo generar el PDF. Intenta de nuevo." }); }
+    } catch (error) { setNotice({ kind: "error", text: error instanceof Error ? error.message : "No se pudo generar el PDF. Intenta de nuevo." }); }
     finally { setBusy(""); }
   };
   const prepareSend = async () => {
@@ -107,7 +107,7 @@ export function BudgetPrintDialog({
           <p className="mt-1 text-sm text-[#615f73]">{budget.title}</p>
           <div className="mt-4 grid gap-1 text-sm sm:grid-cols-2">
             <p><span className="text-[#6b6a7c]">Paciente:</span> <strong>{patientName}</strong></p>
-            <p><span className="text-[#6b6a7c]">Fecha:</span> {budget.date}</p>
+            <p><span className="text-[#6b6a7c]">Fecha:</span> {budget.date} · <span className="text-[#6b6a7c]">N°</span> {budget.id}</p>
           </div>
         </header>
 
@@ -132,7 +132,7 @@ export function BudgetPrintDialog({
         </div>}
 
         <footer className="mt-8 border-t border-[#dddbe6] pt-3 text-xs text-[#6b6a7c]">
-          Presupuesto informativo sujeto a evaluación y confirmación del profesional tratante.
+          Presupuesto informativo sujeto a evaluación y confirmación del profesional tratante. El PDF incluye además la hora de emisión, las condiciones y los espacios de firma.
         </footer>
       </article>
 
