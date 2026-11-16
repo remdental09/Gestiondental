@@ -650,6 +650,35 @@
         ],
         "patientWarning": false
       }
+    },
+    {
+      "id": "c90-sim-daysi-16",
+      "text": "Pieza 1.6: caries de esmalte en oclusal punto aparte. Caries de dentina superficial en mesial, distal y vestibular punto aparte. Sellante en palatino punto aparte. Fisura coronaria y fractura de esmalte.",
+      "expect": {
+        "odontogram": [
+          "16 O caries:esmalte",
+          "16 M caries:dentina_superficial",
+          "16 D caries:dentina_superficial",
+          "16 V caries:dentina_superficial",
+          "16 P sealant",
+          "16 Fractura coronaria de esmalte",
+          "16 Fisura coronaria"
+        ],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c91-sim-daysi-varias-piezas",
+      "text": "Pieza 3.6: fractura corono-radicular, fractura radicular horizontal y fractura radicular vertical. Pieza 4.6: absceso apical crónico con fístula.",
+      "expect": {
+        "odontogram": [
+          "36 Fractura corono-radicular",
+          "36 Fractura radicular horizontal",
+          "36 Fractura radicular vertical",
+          "46 Absceso apical crónico (fístula)"
+        ],
+        "patientWarning": false
+      }
     }
   ]
 }
