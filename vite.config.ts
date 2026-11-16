@@ -52,6 +52,8 @@ export default defineConfig(async () => {
   const { cloudflare } = await import("@cloudflare/vite-plugin");
 
   return {
+    // Momento de compilación (= de publicación): se muestra arriba a la derecha como «Actualizada».
+    define: { __BUILD_TIME__: JSON.stringify(new Date().toISOString()) },
     server: {
       ...(managedLinux ? { host: "0.0.0.0", allowedHosts: ["terminal.local"] } : {}),
       ...(isCodexSeatbeltSandbox ? { watch: { useFsEvents: false, usePolling: true } } : {}),
