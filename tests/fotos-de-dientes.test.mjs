@@ -183,3 +183,20 @@ test("dentición temporal: base por tipo, capas del molar inferior e imagen de l
   assert.equal(toothPhotoFor({ fdi: 55, status: "Sin hallazgos" }).upper, true);
   assert.equal(toothPhotoFor({ fdi: 56, status: "Sin hallazgos" }), null);
 });
+
+test("dentición temporal: las 10 piezas tienen capas por cara e imágenes de lesión en disco", async () => {
+  const { existsSync } = await import("node:fs");
+  const fdis = [51, 52, 53, 54, 55, 81, 82, 83, 84, 85];
+  for (const fdi of fdis) {
+    const ph = toothPhotoFor({ fdi, status: "Sin hallazgos", caries: true, cariesSurfaces: [{ surface: "M", depth: "dentina_superficial" }, { surface: fdi % 10 >= 4 ? "O" : "V", depth: "esmalte" }], restorations: [{ surface: "D", material: "resina" }] });
+    assert.ok(ph.layers.length >= 3, `capas de ${fdi}`);
+    for (const l of ph.layers) assert.ok(existsSync(`public${l.src}`), l.src);
+    assert.ok(existsSync(`public${ph.src}`), ph.src);
+    for (const st of ["Absceso apical agudo", "Quiste radicular", "Corona"]) {
+      const w = toothPhotoFor({ fdi, status: st });
+      assert.ok(existsSync(`public${w.src}`), w.src);
+    }
+  }
+  const anterior = toothPhotoFor({ fdi: 53, status: "Sin hallazgos", sealedSurfaces: ["O"] });
+  assert.deepEqual(anterior.layers, []);
+});
