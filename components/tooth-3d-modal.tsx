@@ -7,6 +7,7 @@ import { ToothTimeline } from "@/components/tooth-timeline";
 import { formatFdi, type CrownDetails, type OdontogramSurface, type PerioExam, type PerioSiteKey, type PerioTooth, type SurfaceFinding, type ToothHistoryEvent } from "@/app/clinical-data";
 import { cariesDetail } from "@/lib/caries";
 import { PhotoStack } from "@/components/photo-stack";
+import { FaceLetters } from "@/components/face-letters";
 import { isLesionStatus } from "@/lib/tooth-status";
 import { isHealthyWindow, toothPhotoFor, toothVideoFor, type CariesSpotInput, type RestorationInput, type ToothFace } from "@/lib/tooth-photos";
 import { bitingFaceName, chileLabel, innerFaceName, toothKind, toothKindLabel } from "@/app/tooth-3d-map";
@@ -220,7 +221,7 @@ export function Tooth3DModal({
         </div>}
         {photo ? <figure className="relative m-0 mx-auto w-[min(70vw,280px)] overflow-hidden rounded-xl bg-[#14161b]" data-testid="tooth-modal-photo" data-upper={!healthyVideo && photo.upper ? "true" : "false"}>
           {healthyVideo ? <video src={healthyVideo.src} poster={healthyVideo.poster} autoPlay={!reducedMotion} loop muted playsInline preload="auto" controls={reducedMotion} onError={() => setVideoFailed(true)} aria-label={`Video referencial de la pieza ${formatFdi(tooth)} girando 360 grados, sin hallazgos registrados`} data-testid="tooth-modal-video" className="block h-auto w-full" style={{ transform: healthyVideo.transform }} />
-            : <><PhotoStack photo={photo} intrinsic eager alt={`Imagen referencial de la pieza ${formatFdi(tooth)}${photo.face === "palatina" ? ", cara palatina o lingual" : ""}`} /><CariesOverlay spots={photo.lesions} labels={false} cover /></>}
+            : <><PhotoStack photo={photo} intrinsic eager alt={`Imagen referencial de la pieza ${formatFdi(tooth)}${photo.face === "palatina" ? ", cara palatina o lingual" : ""}`} /><CariesOverlay spots={photo.lesions} labels={false} cover /><FaceLetters tooth={tooth} face={photo.face} /></>}
           {photo.hasPalatal && !healthyVideo && <button type="button" data-testid="tooth-modal-face" onClick={() => setFace(current => current === "palatina" ? "vestibular" : "palatina")} aria-pressed={face === "palatina"} className="absolute right-2 top-2 rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-[#3b3355] shadow hover:bg-white">{face === "palatina" ? "Ver cara vestibular" : `Ver cara ${Math.floor(tooth / 10) <= 2 ? "palatina" : "lingual"}`}</button>}
           <figcaption className="absolute inset-x-0 bottom-0 bg-black/60 px-2 py-1 text-center text-xs text-white/90">Imagen referencial, no es el paciente</figcaption>
         </figure> : status === "Ausente" ? <p className="rounded-lg bg-[#f2f5f5] px-3 py-6 text-center text-sm text-[#6b6a7c]">Pieza ausente.</p> : null}
