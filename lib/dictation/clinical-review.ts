@@ -144,6 +144,19 @@ export function applyAiReview(odontogram: OdontogramChange[], observations: AiOb
 export type PrestacionObservation = { code: string; tooth: number | null; motivo: string };
 
 /** Objeciones del revisor a prestaciones propuestas (solo códigos que estén en la propuesta) y a la nota. */
+/** Numeración chilena de una pieza permanente FDI (1.8 → 1 … 2.8 → 16, 3.8 → 17 … 4.8 → 32). */
+export const chileNumber = (tooth: number) => { const q = Math.floor(tooth / 10), p = tooth % 10; return q === 1 ? 9 - p : q === 2 ? 8 + p : q === 3 ? 24 + p : 25 - p; };
+
+/**
+ * El revisor de IA a veces confunde la numeración chilena con la universal y objeta una equivalencia correcta
+ * («FDI 2.6 (Chile 14) es incorrecta»). La tabla es determinista: si todas las equivalencias citadas son correctas, se descarta.
+ */
+export function wrongNumberingClaim(motivo: string): boolean {
+  if (!/incorrect|err[oó]ne|no\s+corresponde|equivoc/i.test(motivo)) return false;
+  const pairs = [...motivo.matchAll(/(?<!\d)([1-4])\.([1-8])\s*\(\s*Chile\s+(\d{1,2})\s*\)/gi)];
+  return pairs.length > 0 && pairs.every((match) => chileNumber(Number(match[1]) * 10 + Number(match[2])) === Number(match[3]));
+}
+
 export function parseReviewExtras(raw: unknown, codes: string[]): { prestaciones: PrestacionObservation[]; nota: string[] } {
   let json: unknown = raw;
   if (typeof raw === "string") { try { json = JSON.parse(raw); } catch { return { prestaciones: [], nota: [] }; } }
@@ -158,7 +171,7 @@ export function parseReviewExtras(raw: unknown, codes: string[]): { prestaciones
   });
   const nota = (Array.isArray(rec.nota) ? rec.nota : []).slice(0, 6).flatMap((entry) => {
     const motivo = text(entry && typeof entry === "object" ? (entry as Record<string, unknown>).motivo : entry);
-    return motivo.length >= 8 ? [motivo] : [];
+    return motivo.length >= 8 && !wrongNumberingClaim(motivo) ? [motivo] : [];
   });
   return { prestaciones, nota };
 }

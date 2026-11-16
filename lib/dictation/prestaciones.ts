@@ -218,7 +218,23 @@ export function suggestPrestaciones(odontogram: OdontogramChange[], procedureLin
   const final = actInactivated.size && out.some((item) => item.code === "5010029" && item.tooth !== null && actInactivated.has(item.tooth))
     ? out.filter((item) => !(item.code === "5010029" && item.tooth === null))
     : out;
-  return final.map((item, index) => ({ ...item, id: `pr-${index + 1}` }));
+  return final.map((item, index) => ({ ...withoutPerformedEvidence(item, dictated), id: `pr-${index + 1}` }));
+}
+
+/** Verbos o marcas de que el acto se hizo en esta sesión (no un hallazgo existente). */
+const PERFORMED_TODAY = /(?<![a-z])(?:se\s+(?:le\s+)?(?:realiza|realizo|obtura|obturo|restaura|restauro|coloca|coloco|aplica|aplico|sella|sello|hace|hizo|efectua|efectuo|trata|trato|instala|instalo)|realizad[oa]s?|colocad[oa]s?|aplicad[oa]s?|hoy|en\s+esta\s+sesion)(?![a-z])/;
+const FINDING_ONLY_CODES = new Set([...AMALGAM_CODES, ...IONOMER_CODES, ...COMPOSITE_CODES, "5005012"]);
+
+/**
+ * «Obturación de resina en oclusal» o «sellante en palatino» sin verbo puede ser algo que la pieza ya tenía:
+ * la prestación se propone desmarcada, con el motivo, hasta que el profesional confirme que se hizo hoy.
+ */
+function withoutPerformedEvidence(item: PrestacionItem, dictated: string): PrestacionItem {
+  if (!dictated.trim() || item.advisory || !FINDING_ONLY_CODES.has(item.code)) return item;
+  const keyword = item.code === "5005012" ? /sellant/ : /obtura|restaura|resina|composite|amalgama|ionomero/;
+  const said = fold(dictated).split(/(?<=[.!?;])\s+|\n+/).filter((sentence) => keyword.test(sentence));
+  if (!said.length || said.some((sentence) => PERFORMED_TODAY.test(sentence))) return item;
+  return { ...item, advisory: "El dictado no dice que se haya hecho hoy (puede ser algo que la pieza ya tenía). Márcala solo si se realizó en esta sesión." };
 }
 
 /** Líneas de la sección «Procedimientos realizados» de una nota. */

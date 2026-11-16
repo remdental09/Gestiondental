@@ -461,7 +461,8 @@ function sentences(text: string): string[] {
     .split(/\n+|(?<=[.!?;])\s+/)
     .flatMap((part) => part.split(PROCEDURE_JOIN))
     .map((part) => part.trim())
-    .filter(Boolean)
+    // «oclusal punto aparte.» deja un «.» suelto: no es una frase y cortaría la herencia de la pieza.
+    .filter((part) => /[\p{L}\d]/u.test(part))
     .flatMap((part) => splitAtCues(part));
 }
 
@@ -937,6 +938,22 @@ export function lesionStatusFrom(sentence: string): ToothStatus | null {
     return status;
   }
   return null;
+}
+
+/** Todas las lesiones o fracturas de una frase («fisura coronaria y fractura de esmalte»), en el orden dictado. */
+export function lesionStatusesFrom(sentence: string): ToothStatus[] {
+  if (isPatient(sentence)) return [];
+  const found: Array<[number, ToothStatus]> = [];
+  for (const [status, pattern] of LESION_SPOKEN) {
+    const match = pattern.exec(sentence);
+    if (!match) continue;
+    const before = sentence.slice(Math.max(0, match.index - 70), match.index);
+    if (LESION_NOT_CONFIRMED.test(before) || isNegatedFinding(before + match[0])) continue;
+    // Un patrón amplio («fractura») no cuenta si otro más específico ya cubre el mismo tramo.
+    if (found.some(([at]) => Math.abs(at - match.index) < 4)) continue;
+    found.push([match.index, status]);
+  }
+  return found.sort((a, b) => a[0] - b[0]).map(([, status]) => status);
 }
 
 function statusFrom(sentence: string): ToothStatus | null {
@@ -1828,7 +1845,9 @@ export function structureTranscript(transcript: string, options: { today?: strin
       // Solo se hereda si el entorno apunta a una única pieza válida; si no, se pregunta.
       // En una charla clínica lo que se hace sigue a lo que se acaba de nombrar: se usa la frase anterior
       // más cercana que nombre pieza (hasta tres atrás) y, solo si no hay ninguna, la siguiente.
-      const previous = allSentences.slice(Math.max(0, sentenceIndex - 3), sentenceIndex).reverse().map((other) => toothMentions(other)).find((found) => found.length > 0);
+      // «Pieza 1.6: caries oclusal. Caries de dentina en M y D. Obturación de resina en oclusal. Sellante…»: todo es de la 1.6
+      // hasta que se nombre otra pieza (se mira hasta seis frases atrás).
+      const previous = allSentences.slice(Math.max(0, sentenceIndex - 6), sentenceIndex).reverse().map((other) => toothMentions(other)).find((found) => found.length > 0);
       const following = allSentences.slice(sentenceIndex + 1, sentenceIndex + 3).flatMap((other) => toothMentions(other));
       const near = previous ?? following;
       const distinct = new Map(near.filter((m) => m.ok).map((m) => [m.tooth, m]));
@@ -1870,6 +1889,10 @@ export function structureTranscript(transcript: string, options: { today?: strin
               ...(status === "Corona" ? { foundation: "tooth" as const, material: materialFrom(sentence), shade: shadeFrom(sentence) } : {}),
               ...((status === "Ausente" || status === "Indicación de exodoncia") && missingReasonFrom(sentence) ? { missingReason: missingReasonFrom(sentence) } : {}),
             }];
+        // «Fisura coronaria y fractura de esmalte»: cada lesión dictada en la frase es un cambio propio.
+        if (status && isLesionStatus(status)) {
+          for (const other of lesionStatusesFrom(sentence)) if (other !== status) items.push({ ...base, id: nextId("odo"), kind: "status", status: other });
+        }
         for (const item of items) {
           const key = dedupeKey(item);
           if (!seen.has(key)) {
