@@ -19,6 +19,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { viewerInitials } from "@/app/access-owners";
 import { ProfessionalRegistration } from "@/components/professional-registration";
 import { ProfileDialog } from "@/components/profile-dialog";
+import { ClinicDialog } from "@/components/clinic-dialog";
 import { displayName as clinicianDisplayName } from "@/lib/clinician-profile";
 import { Activity, ArrowLeft, CalendarDays, ChevronLeft, ChevronRight, ClipboardList, Download, Home as HomeIcon, FilePlus2, LayoutDashboard, LogOut, Menu, Mail, Mic, Pencil, Plus, Search, Stethoscope, Trash2, Receipt, Settings, UserRound, Users, Wallet, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -141,7 +142,7 @@ export default function Home(){
   const [apptNote,setApptNote]=useState("");
   const [patients,setPatients]=useState(initialPatients),[notes,setNotes]=useState(initialNotes),[budgets,setBudgets]=useState(initialBudgets),[payments,setPayments]=useState<Payment[]>([]),[appointments,setAppointments]=useState(initialAppointments),[calendarEvents,setCalendarEvents]=useState(initialCalendarEvents);
   const [calendarSnapshotAt,setCalendarSnapshotAt]=useState<string|null>(null),[calendarSyncedAt,setCalendarSyncedAt]=useState<string|null>(null);
-  const [viewerName,setViewerName]=useState(""),[viewerEmail,setViewerEmail]=useState(""),[clinicName,setClinicName]=useState(""),[needsRegistration,setNeedsRegistration]=useState(false),[isDeveloper,setIsDeveloper]=useState(false),[profileOpen,setProfileOpen]=useState(false);
+  const [viewerName,setViewerName]=useState(""),[viewerEmail,setViewerEmail]=useState(""),[clinicName,setClinicName]=useState(""),[needsRegistration,setNeedsRegistration]=useState(false),[isDeveloper,setIsDeveloper]=useState(false),[clinicOpen,setClinicOpen]=useState(false),[clinicLogo,setClinicLogo]=useState(""),[profileOpen,setProfileOpen]=useState(false);
   const [periodontalExams,setPeriodontalExams]=useState<Record<number,PerioExam[]>>({}),[clinicalImages,setClinicalImages]=useState<ClinicalImage[]>([]);
   const [weekStart,setWeekStart]=useState(()=>mondayOfAgendaWeek(santiagoDateISO(new Date())));
   const weekEnd=shiftAgendaWeek(weekStart,1);
@@ -152,6 +153,7 @@ export default function Home(){
 
   const [selectedId,setSelectedId]=useState(0),[section,setSection]=useState("Inicio"),[modal,setModal]=useState<Modal>(null),[search,setSearch]=useState(""),[mobileNav,setMobileNav]=useState(false);
   useEffect(()=>{setApptNote("")},[selectedId]);
+  useEffect(()=>{if(!viewerEmail||needsRegistration)return;let live=true;fetch("/api/clinica",{cache:"no-store"}).then(r=>r.ok?r.json() as Promise<{clinic?:{logo?:string}}>:null).then(d=>{if(live&&d?.clinic?.logo)setClinicLogo(d.clinic.logo)}).catch(()=>undefined);return()=>{live=false}},[viewerEmail,needsRegistration]);
   const [navigationHistory,setNavigationHistory]=useState<Array<{section:string;patientId:number;tab:string}>>([]);
   const modalRef=useRef<Modal>(null);
   useEffect(()=>{modalRef.current=modal},[modal]);
@@ -766,11 +768,12 @@ export default function Home(){
     void register();
     return ()=>{lifecycle.abort()};
   },[resetModal,savePatientDraft]);
-  const sidebarContent=<><div className="flex h-[76px] items-center gap-3 border-b border-white/10 px-6"><button type="button" onClick={goHome} className="flex size-10 items-center justify-center rounded-xl bg-[#ef895f] text-lg font-bold" aria-label="Ir a Inicio">{viewerInitials(viewerName)}</button><span className="leading-tight">{viewerEmail?<button type="button" onClick={()=>setProfileOpen(true)} title="Cambiar el nombre de la clínica" data-testid="clinic-name" className="block max-w-[11rem] truncate text-left text-sm font-bold hover:underline">{clinicName||"Gestión Dental"}</button>:<strong className="block text-sm">{clinicName||"Gestión Dental"}</strong>}<small className="block text-[#c3bbd3]">{viewerName||"\u00a0"}</small>{viewerEmail&&viewerEmail!==viewerName&&<small className="block max-w-[11rem] truncate text-[11px] text-[#c3bbd3]" title={viewerEmail}>{viewerEmail}</small>}</span><button className="ml-auto lg:hidden" aria-label="Cerrar menú" onClick={()=>setMobileNav(false)}><X className="size-5"/></button></div><nav className="flex-1 space-y-1 px-3 py-7" aria-label="Principal">{nav.map(({name,icon:Icon})=><button key={name} type="button" aria-current={section===name?"page":undefined} onClick={()=>openSection(name)} className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-sm font-medium transition ${section===name?"fx-nav-active text-white":"text-[#cec8dc] hover:bg-white/10 hover:text-white"}`}><Icon className="size-[19px]"/>{name}</button>)}</nav></>;
+  const sidebarContent=<><div className="flex h-[76px] items-center gap-3 border-b border-white/10 px-6"><button type="button" onClick={goHome} className="flex size-10 items-center justify-center overflow-hidden rounded-xl bg-[#ef895f] text-lg font-bold" aria-label="Ir a Inicio">{clinicLogo?<img src={clinicLogo} alt="" className="size-full object-cover"/>:viewerInitials(viewerName)}</button><span className="leading-tight">{viewerEmail?<button type="button" onClick={()=>setClinicOpen(true)} title="Perfil de la clínica" data-testid="clinic-name" className="block max-w-[11rem] truncate text-left text-sm font-bold hover:underline">{clinicName||"Gestión Dental"}</button>:<strong className="block text-sm">{clinicName||"Gestión Dental"}</strong>}{viewerEmail&&viewerName?<button type="button" onClick={()=>setProfileOpen(true)} title="Mi perfil" className="block max-w-[11rem] truncate text-left text-xs text-[#c3bbd3] hover:underline">{viewerName}</button>:<small className="block text-[#c3bbd3]">{viewerName||"\u00a0"}</small>}{viewerEmail&&viewerEmail!==viewerName&&<small className="block max-w-[11rem] truncate text-[11px] text-[#c3bbd3]" title={viewerEmail}>{viewerEmail}</small>}</span><button className="ml-auto lg:hidden" aria-label="Cerrar menú" onClick={()=>setMobileNav(false)}><X className="size-5"/></button></div><nav className="flex-1 space-y-1 px-3 py-7" aria-label="Principal">{nav.map(({name,icon:Icon})=><button key={name} type="button" aria-current={section===name?"page":undefined} onClick={()=>openSection(name)} className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-sm font-medium transition ${section===name?"fx-nav-active text-white":"text-[#cec8dc] hover:bg-white/10 hover:text-white"}`}><Icon className="size-[19px]"/>{name}</button>)}</nav></>;
   return <div className="min-h-screen bg-[#f1f0f5] text-[#35343f]">
     <div className="fixed inset-y-0 left-0 z-30 hidden w-[248px] flex-col bg-gradient-to-b from-[#2a2540] via-[#473a6d] to-[#6d4f8f] text-white lg:flex">{sidebarContent}</div>
     {mobileNav&&<div className="fixed inset-0 z-40 bg-black/40 lg:hidden" onClick={()=>setMobileNav(false)}><div className="flex h-full w-[260px] flex-col bg-[#473a6d] text-white" onClick={e=>e.stopPropagation()}>{sidebarContent}</div></div>}
     <div className="lg:pl-[248px]">
+      {clinicOpen&&!needsRegistration&&<ClinicDialog onClose={()=>setClinicOpen(false)} onSaved={clinic=>{setClinicName(clinic.clinicName);setClinicLogo(clinic.logo)}}/>}
       {profileOpen&&!needsRegistration&&<ProfileDialog email={viewerEmail} onClose={()=>setProfileOpen(false)} onSaved={profile=>{setViewerName(clinicianDisplayName(profile));setClinicName(profile.clinicName||"")}}/>}
       {needsRegistration&&<ProfessionalRegistration email={viewerEmail} onSaved={profile=>{setViewerName(clinicianDisplayName(profile));setNeedsRegistration(false);}}/>}
       <header ref={headerRef} className="fx-glass sticky top-0 z-20 border-b border-[#dddbe6]/70">
