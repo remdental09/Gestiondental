@@ -2,7 +2,7 @@ import { env } from "cloudflare:workers";
 import type { CustomPrestacion, NewItem } from "@/lib/custom-prestaciones";
 
 type Statement = { bind(...values: unknown[]): Statement; run(): Promise<unknown>; first<T>(): Promise<T | null>; all<T>(): Promise<{ results: T[] }> };
-type Db = { prepare(sql: string): Statement };
+type Db = { prepare(sql: string): Statement; batch(statements: Statement[]): Promise<unknown> };
 const database = () => (env as unknown as { DB?: Db }).DB;
 
 async function ready(): Promise<Db> {
@@ -34,6 +34,26 @@ export async function createCustom(ownerId: string, specialty: string, items: Ne
     room -= 1; created += 1;
   }
   return { created, skipped };
+}
+
+/** Crea de una vez (en lotes) las que no existan; las repetidas o las que no caben se cuentan como omitidas. */
+export async function createCustomMany(ownerId: string, items: Array<{ specialty: string; name: string; price: number | null }>, max: number, alreadyDiscarded = 0): Promise<{ created: number; skipped: number }> {
+  const db = await ready();
+  const existing = await listCustom(ownerId);
+  const names = new Set(existing.map(item => `${item.specialty}|${item.name.toLowerCase()}`));
+  let room = max - existing.length;
+  const fresh: typeof items = [];
+  let skipped = alreadyDiscarded;
+  for (const item of items) {
+    const key = `${item.specialty}|${item.name.toLowerCase()}`;
+    if (names.has(key) || room <= 0) { skipped += 1; continue; }
+    names.add(key); room -= 1; fresh.push(item);
+  }
+  const at = new Date().toISOString();
+  for (let index = 0; index < fresh.length; index += 40) {
+    await db.batch(fresh.slice(index, index + 40).map(item => db.prepare("INSERT INTO custom_prestaciones (owner_id, specialty, name, price, created_at) VALUES (?, ?, ?, ?, ?)").bind(ownerId, item.specialty, item.name, item.price, at)));
+  }
+  return { created: fresh.length, skipped };
 }
 
 export async function updateCustom(ownerId: string, id: number, patch: { name?: string; price?: number | null }): Promise<boolean> {
