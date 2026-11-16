@@ -13,8 +13,8 @@ export const IMPORT_REASON = "Importado desde otra plataforma";
 export const MAX_BUNDLES_PER_CALL = 6;
 export const MAX_ROWS_PER_CALL = 400;
 
-export type ImportCounts = { patientsCreated: number; patientsExisting: number; plansCreated: number; plansSkipped: number; notesCreated: number; notesSkipped: number; paymentsCreated: number; paymentsSkipped: number; failed: number; discarded: number };
-export const emptyCounts = (): ImportCounts => ({ patientsCreated: 0, patientsExisting: 0, plansCreated: 0, plansSkipped: 0, notesCreated: 0, notesSkipped: 0, paymentsCreated: 0, paymentsSkipped: 0, failed: 0, discarded: 0 });
+export type ImportCounts = { patientsCreated: number; patientsExisting: number; plansCreated: number; plansSkipped: number; notesCreated: number; notesSkipped: number; notesFixed: number; paymentsCreated: number; paymentsSkipped: number; failed: number; discarded: number };
+export const emptyCounts = (): ImportCounts => ({ patientsCreated: 0, patientsExisting: 0, plansCreated: 0, plansSkipped: 0, notesCreated: 0, notesSkipped: 0, notesFixed: 0, paymentsCreated: 0, paymentsSkipped: 0, failed: 0, discarded: 0 });
 
 const BATCH = 40;
 const text = (value: unknown, max: number) => (typeof value === "string" ? value.trim().slice(0, max) : "");
@@ -98,12 +98,18 @@ async function importBundle(db: ReturnType<typeof getDb>, ownerId: string, bundl
   const notes = (Array.isArray(bundle.notes) ? bundle.notes : []).filter(note => text(note?.text, 20000) && isoDay(note.date) && /^imp:ev:[0-9a-z]+$/.test(String(note.requestId)));
   counts.discarded += (Array.isArray(bundle.notes) ? bundle.notes.length : 0) - notes.length;
   if (notes.length) {
-    const have = new Set((await db.select({ requestId: evolutions.requestId }).from(evolutions).where(and(eq(evolutions.ownerId, ownerId), eq(evolutions.patientId, patientId)))).map(row => row.requestId));
-    const fresh = notes.filter(note => !have.has(note.requestId));
-    counts.notesSkipped += notes.length - fresh.length;
+    const existing = new Map((await db.select({ id: evolutions.id, requestId: evolutions.requestId, body: evolutions.body }).from(evolutions).where(and(eq(evolutions.ownerId, ownerId), eq(evolutions.patientId, patientId)))).map(row => [row.requestId, row]));
+    const bodyOf = (note: (typeof notes)[number]) => importedNoteBody({ ...note, text: text(note.text, 20000), professional: text(note.professional, 120), zoneText: text(note.zoneText, 200) });
+    const fresh = notes.filter(note => !existing.has(note.requestId));
+    // Evoluciones importadas antes con el texto crudo del editor ({"type":"doc"…}, «\n» escritos): se reemplazan por el texto legible.
+    // Solo si siguen con ese formato crudo, para no pisar lo que el profesional haya corregido a mano.
+    const fixes = notes.filter(note => { const row = existing.get(note.requestId); return row && /^\s*[{[]|\\n/.test(row.body) && row.body !== bodyOf(note); });
+    counts.notesSkipped += notes.length - fresh.length - fixes.length;
+    await inBatches(db, fixes.map(note => db.update(evolutions).set({ body: bodyOf(note) }).where(and(eq(evolutions.id, existing.get(note.requestId)!.id), eq(evolutions.ownerId, ownerId)))));
+    counts.notesFixed += fixes.length;
     await inBatches(db, fresh.map(note => db.insert(evolutions).values({
       ownerId, patientId: patientId!, clinicalDate: note.date, recordedAt: atNoon(isoDay(note.recordedOn), now), title: "Evolución importada",
-      body: importedNoteBody({ ...note, text: text(note.text, 20000), professional: text(note.professional, 120), zoneText: text(note.zoneText, 200) }), requestId: note.requestId,
+      body: bodyOf(note), requestId: note.requestId,
     }).onConflictDoNothing()));
     counts.notesCreated += fresh.length;
   }

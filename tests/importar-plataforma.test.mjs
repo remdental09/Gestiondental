@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseCsv, toRecords, detectKind, parseMoney, parseDmy, importedDocument, parseZone, needsNumbering, commonZoneNumber, buildImport, chunkBundles, importedNoteBody } from '../lib/platform-import.ts';
+import { parseCsv, toRecords, detectKind, parseMoney, parseDmy, importedDocument, parseZone, needsNumbering, commonZoneNumber, buildImport, chunkBundles, importedNoteBody, plainNoteText } from '../lib/platform-import.ts';
 import { universalToFdi, chileToFdi } from '../lib/dictation/proposal.ts';
 import { readZip } from '../lib/zip-reader.ts';
 import { normalizeBudgetItems } from '../lib/budget-plans.ts';
@@ -153,4 +153,31 @@ test('panel y navegación: Configuración aparece bajo Aranceles y la API está 
   const route = readFileSync(new URL('../app/api/importar-plataforma/route.ts', import.meta.url), 'utf8');
   assert.match(route, /getChatGPTUser/);
   assert.match(route, /Origen no permitido/);
+});
+
+test('evolución importada sin códigos: editor ProseMirror, Quill y «\\n» escritos quedan como texto legible', () => {
+  const pm = JSON.stringify({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'resina 12 distal. falta' }] }, { type: 'paragraph', content: [{ type: 'text', text: 'flúor' }, { type: 'hardBreak' }, { type: 'text', text: 'control' }] }] });
+  assert.equal(plainNoteText(pm), 'resina 12 distal. falta\nflúor\ncontrol');
+  const quill = JSON.stringify({ ops: [{ insert: 'Sin dolor\nUsa ' }, { insert: 'enjuague' }, { insert: '\n', attributes: { list: 'bullet' } }] });
+  assert.equal(plainNoteText(quill), 'Sin dolor\n• Usa enjuague');
+  assert.equal(plainNoteText('primera\\nsegunda'), 'primera\nsegunda');
+  assert.equal(plainNoteText('**Control** de la zona   ______'), 'Control de la zona');
+  assert.equal(plainNoteText('Resina 19, falta 18.'), 'Resina 19, falta 18.');
+  assert.equal(plainNoteText('{texto que no es json'), '{texto que no es json');
+});
+
+test('importar: el texto se limpia pero el identificador de la evolución sigue siendo el del texto original', () => {
+  const raw = JSON.stringify({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Control sin novedades' }] }] });
+  const tabla = text => ({ pacientes: csv('Nombre,Apellido,DNI', 'Ana,Prueba,11.111.111-1'), evoluciones: [{ 'Fecha Evolución': '20/02/2024', 'Fecha de Creación': '20/02/2024', 'DNI Paciente': '11.111.111-1', 'Nombre Paciente': 'Ana Prueba', Profesional: '', Zona: '', 'Evolución': text }] });
+  const note = buildImport(tabla(raw), null).bundles[0].notes[0];
+  assert.equal(note.text, 'Control sin novedades');
+  assert.match(note.requestId, /^imp:ev:/);
+  // mismo id que tenía antes de limpiar (se calculaba con el texto crudo)
+  assert.equal(note.requestId, buildImport(tabla(raw), null).bundles[0].notes[0].requestId);
+});
+
+test('reimportar corrige solo las evoluciones que quedaron con formato crudo', () => {
+  const src = readFileSync(new URL('../app/platform-import.ts', import.meta.url), 'utf8');
+  assert.match(src, /notesFixed/);
+  assert.match(src, /\^\\s\*\[\{\[\]\|/, 'solo si el cuerpo guardado empieza con { o [ o trae «\\n» escritos');
 });

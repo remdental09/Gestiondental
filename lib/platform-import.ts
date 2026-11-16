@@ -229,13 +229,13 @@ export function buildImport(tables: Partial<Record<CsvKind, Row[]>>, numbering: 
   const seen = new Map<string, number>();
   let notesWithoutDate = 0;
   for (const row of tables.evoluciones ?? []) {
-    const text = (row["Evolución"] ?? "").trim();
+    const rawText = (row["Evolución"] ?? "").trim(), text = plainNoteText(rawText);
     if (!text) continue;
     const date = parseDmy(row["Fecha Evolución"] ?? "") ?? parseDmy(row["Fecha de Creación"] ?? "");
     if (!date) { notesWithoutDate++; continue; }
     const bundle = ensurePatient(row["DNI Paciente"] ?? "", row["Nombre Paciente"] ?? "");
     const zone = parseZone(row.Zona ?? "", numbering);
-    const base = `${bundle.patient.key}|${date}|${text}`;
+    const base = `${bundle.patient.key}|${date}|${rawText}`; // el id se calcula con el texto original: no cambia aunque mejore la limpieza
     const n = (seen.get(base) ?? 0) + 1; seen.set(base, n);
     bundle.notes.push({ date, recordedOn: parseDmy(row["Fecha de Creación"] ?? "") ?? date, professional: (row.Profesional ?? "").trim(), zoneText: zone.text, text, requestId: `imp:ev:${stableId(base + "|" + n)}` });
   }
@@ -287,6 +287,58 @@ export function buildImport(tables: Partial<Record<CsvKind, Row[]>>, numbering: 
     bundles: list, tariffs, warnings,
     totals: { pacientes: list.length, planes: sum(b => b.plans.length), tratamientos: sum(b => b.plans.reduce((n, p) => n + p.items.length, 0)), evoluciones: sum(b => b.notes.length), pagos: sum(b => b.payments.length), aranceles: tariffs.length },
   };
+}
+
+type Json = unknown;
+const asArray = (value: Json): Json[] => (Array.isArray(value) ? value : []);
+const asRecord = (value: Json): Record<string, Json> => (value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, Json>) : {});
+
+/** Editor de texto enriquecido tipo ProseMirror/TipTap ({"type":"doc",…}) → texto con saltos de línea. */
+function proseMirrorText(node: Json): string {
+  const n = asRecord(node), type = String(n.type ?? "");
+  if (type === "text") return String(n.text ?? "");
+  if (type === "hardBreak") return "\n";
+  const children = asArray(n.content);
+  if (type === "listItem") return "• " + children.map(proseMirrorText).join("\n").replace(/\n/g, "\n  ");
+  const inner = children.map(proseMirrorText);
+  return type === "doc" || type === "bulletList" || type === "orderedList" ? inner.join("\n") : inner.join("");
+}
+
+/** Editor tipo Quill ({"ops":[{"insert":"texto\n"}]}) → texto; las viñetas de lista quedan como «• ». */
+function deltaText(ops: Json[]): string {
+  const lines: string[] = [];
+  let line = "";
+  for (const raw of ops) {
+    const op = asRecord(raw), insert = typeof op.insert === "string" ? op.insert : "", attrs = asRecord(op.attributes);
+    const parts = insert.split("\n");
+    parts.forEach((part, index) => {
+      line += part;
+      if (index < parts.length - 1) { lines.push((attrs.list === "bullet" || attrs.list === "ordered" ? "• " : "") + line); line = ""; }
+    });
+  }
+  if (line) lines.push(line);
+  return lines.join("\n");
+}
+
+/**
+ * Texto legible de una evolución exportada: la otra plataforma la guarda a veces como JSON del editor
+ * (con llaves, comillas y «\n» escritos). Se deja solo el texto del clínico, con sus saltos de línea y sin símbolos de formato.
+ */
+export function plainNoteText(raw: string): string {
+  let text = raw.trim();
+  if (/^[{[]/.test(text)) {
+    try {
+      const data = JSON.parse(text) as Json;
+      const record = asRecord(data);
+      if (record.type === "doc") text = proseMirrorText(data);
+      else if (Array.isArray(record.ops)) text = deltaText(record.ops);
+      else if (Array.isArray(data) && data.every(item => typeof item === "string")) text = (data as string[]).join("\n");
+    } catch { /* no era JSON: se deja el texto tal cual */ }
+  }
+  return text
+    .replace(/\r\n?/g, "\n").replace(/\\n/g, "\n")
+    .replace(/_{4,}/g, "").replace(/\*\*([^*\n]+)\*\*/g, "$1").replace(/__([^_\n]+)__/g, "$1").replace(/^#{1,6}\s+/gm, "")
+    .replace(/[ \t\u00a0]+\n/g, "\n").replace(/[ \t\u00a0]{2,}/g, " ").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 /** Texto de la evolución importada: el original íntegro más una línea de procedencia. */

@@ -121,6 +121,7 @@ function AnamnesisDialog({ patientId, patientName, initial, onClose, onSaved }: 
   const [transcript, setTranscript] = useState("");
   const [status, setStatus] = useState<"idle" | "starting" | "recording" | "transcribing" | "error">("idle");
   const [organizing, setOrganizing] = useState(false);
+  const [fromNotes, setFromNotes] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(""), [notice, setNotice] = useState("");
   const engine = useRef(createAudioTranscription());
@@ -144,6 +145,18 @@ function AnamnesisDialog({ patientId, patientName, initial, onClose, onSaved }: 
     } catch (cause) { setError(cause instanceof Error ? cause.message : "No se pudo ordenar el dictado."); }
     finally { setOrganizing(false); }
   }, [transcript]);
+  const buildFromNotes = async () => {
+    setError(""); setNotice(""); setFromNotes(true);
+    try {
+      const r = await fetch("/api/anamnesis", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ patientId, fromEvolutions: true }) });
+      const data = await r.json().catch(() => ({})) as { anamnesis?: Anamnesis; used?: number; total?: number; error?: string };
+      if (!r.ok || !data.anamnesis) throw new Error(data.error || "No se pudo armar la anamnesis.");
+      const patch = data.anamnesis;
+      setForm(f => mergeAnamnesis(f, patch));
+      setNotice(`Propuesta armada con ${data.used} de ${data.total} evoluciones. Lo que no aparece en ellas quedó vacío: revísala, complétala y pulsa Guardar.`);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "No se pudo armar la anamnesis."); }
+    finally { setFromNotes(false); }
+  };
   const save = async () => {
     setError(""); setNotice(""); setSaving(true);
     try { const a = await req("/api/anamnesis", { method: "PUT", body: JSON.stringify({ patientId, anamnesis: form }) }); if (a) { onSaved(a); setNotice("Anamnesis guardada."); } }
@@ -157,6 +170,13 @@ function AnamnesisDialog({ patientId, patientName, initial, onClose, onSaved }: 
     <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-3xl" data-testid="anamnesis-dialog">
       <DialogHeader><DialogTitle className="flex items-center gap-2 text-[#b81f2f]"><HeartPulse className="size-5" />Anamnesis médico-odontológica</DialogTitle>
         <DialogDescription>Paciente: <strong>{patientName}</strong>{form.updatedAt ? ` · última actualización ${new Date(form.updatedAt).toLocaleDateString("es-CL")}` : " · aún sin registrar"}</DialogDescription></DialogHeader>
+
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#f0b7bd] bg-[#fff5f6] p-3">
+        <p className="min-w-0 flex-1 text-xs text-[#615f73]"><span className="block text-sm font-semibold text-[#b81f2f]">Armar desde las evoluciones</span>Lee las evoluciones de este paciente y propone solo los antecedentes que están escritos. No guarda: tú revisas.</p>
+        <Button type="button" variant="outline" onClick={() => void buildFromNotes()} disabled={fromNotes || organizing || saving} data-testid="anamnesis-from-notes">
+          {fromNotes ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Sparkles className="mr-2 size-4" />}{fromNotes ? "Leyendo evoluciones…" : "Armar desde evoluciones"}
+        </Button>
+      </div>
 
       <div className="space-y-2 rounded-xl border border-[#f0b7bd] bg-[#fff5f6] p-3">
         <p className="text-sm font-semibold text-[#b81f2f]">Dictar anamnesis</p>
