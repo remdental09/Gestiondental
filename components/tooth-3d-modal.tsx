@@ -162,7 +162,7 @@ export function Tooth3DModal({
   const defaultView = lesionViews[0] ?? "base";
   const current = view?.tooth === tooth && views.some(item => item.key === view.key) ? view.key : defaultView;
   const photo = current !== "base" && current !== "endo"
-    ? toothPhotoFor({ fdi: tooth, status: current, crown: false, implant: false, face })
+    ? toothPhotoFor({ fdi: tooth, status: current, crown: false, implant: false, face, cariesSurfaces })
     : toothPhotoFor({ fdi: tooth, status: baseStatus, implant: isImplant, implantPhase: status === "Implante con pilar" ? "pilar" : hasCrown ? "corona" : "sumergido", crown: current === "endo" ? false : hasCrown || status === "Corona", endo: endoDone, caries: cariesSurfaces.length > 0, restored: restoredSurfaces.length > 0, cariesSurfaces, restoredSurfaces, restorations, sealedSurfaces, face });
   const healthyVideo = photo && isHealthyWindow(status, findings.length, Boolean(periodontalSites)) && !videoFailed ? toothVideoFor(tooth, status) : null;
   for (const item of [...extras].reverse()) if (item !== status && !findings.includes(item)) findings.unshift(item);

@@ -31,3 +31,11 @@ test("el implante manda sobre el estado y un estado sin imagen no cambia nada", 
   assert.equal(toothPhotoFor({ fdi: 16, status: "Quiste radicular", implant: true })?.kind, "implante-sumergido");
   assert.equal(toothPhotoFor({ fdi: 16, status: "Sin hallazgos" })?.kind, "sano");
 });
+
+test("la imagen de lesión también marca la caries de la pieza (aproximada), sin perder la lesión", () => {
+  const photo = toothPhotoFor({ fdi: 36, status: "Granuloma apical", cariesSurfaces: [{ surface: "O", depth: "dentina_profunda" }, { surface: "M", depth: "esmalte" }] });
+  assert.equal(photo?.kind, "lesion");
+  assert.match(photo?.src ?? "", /granuloma-apical/);
+  assert.deepEqual(photo?.lesions.map((s) => s.surface).sort(), ["M", "O"]);
+  assert.equal(toothPhotoFor({ fdi: 36, status: "Granuloma apical" })?.lesions.length, 0);
+});
