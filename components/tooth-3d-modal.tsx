@@ -165,6 +165,7 @@ export function Tooth3DModal({
   const photo = current !== "base" && current !== "endo"
     ? toothPhotoFor({ fdi: tooth, status: current, crown: false, implant: false, face, cariesSurfaces })
     : toothPhotoFor({ fdi: tooth, status: baseStatus, implant: isImplant, implantPhase: status === "Implante con pilar" ? "pilar" : hasCrown ? "corona" : "sumergido", crown: current === "endo" ? false : hasCrown || status === "Corona", endo: endoDone, caries: cariesSurfaces.length > 0, restored: restoredSurfaces.length > 0, cariesSurfaces, restoredSurfaces, restorations, sealedSurfaces, face });
+  const absentGhost = status === "Ausente" ? toothPhotoFor({ fdi: tooth, status: "Sin hallazgos" }) : null;
   const healthyVideo = photo && isHealthyWindow(status, findings.length, Boolean(periodontalSites)) && !videoFailed ? toothVideoFor(tooth, status) : null;
   for (const item of [...extras].reverse()) if (item !== status && !findings.includes(item)) findings.unshift(item);
   if (endoDone) findings.push("Endodoncia");
@@ -224,7 +225,9 @@ export function Tooth3DModal({
             : <><PhotoStack photo={photo} intrinsic eager alt={`Imagen referencial de la pieza ${formatFdi(tooth)}${photo.face === "palatina" ? ", cara palatina o lingual" : ""}`} /><CariesOverlay spots={photo.lesions} labels={false} cover /><FaceLetters tooth={tooth} face={photo.face} /></>}
           {photo.hasPalatal && !healthyVideo && <button type="button" data-testid="tooth-modal-face" onClick={() => setFace(current => current === "palatina" ? "vestibular" : "palatina")} aria-pressed={face === "palatina"} className="absolute right-2 top-2 rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-[#3b3355] shadow hover:bg-white">{face === "palatina" ? "Ver cara vestibular" : `Ver cara ${Math.floor(tooth / 10) <= 2 ? "palatina" : "lingual"}`}</button>}
           <figcaption className="absolute inset-x-0 bottom-0 bg-black/60 px-2 py-1 text-center text-xs text-white/90">Imagen referencial, no es el paciente</figcaption>
-        </figure> : status === "Ausente" ? <p className="rounded-lg bg-[#f2f5f5] px-3 py-6 text-center text-sm text-[#6b6a7c]">Pieza ausente.</p> : null}
+        </figure> : status === "Ausente" ? (absentGhost
+          ? <figure className="relative m-0 mx-auto w-[min(70vw,280px)] overflow-hidden rounded-xl bg-[#14161b]" data-testid="tooth-modal-absent"><span className="block opacity-25 grayscale"><PhotoStack photo={absentGhost} intrinsic eager alt={`Pieza ${formatFdi(tooth)} ausente (silueta referencial)`} /></span><FaceLetters tooth={tooth} /><span className="absolute inset-x-0 top-1/2 -translate-y-1/2 text-center text-sm font-semibold uppercase tracking-wide text-white">Pieza ausente</span><figcaption className="absolute inset-x-0 bottom-0 bg-black/60 px-2 py-1 text-center text-xs text-white/90">Silueta referencial, no es el paciente</figcaption></figure>
+          : <p className="rounded-lg bg-[#f2f5f5] px-3 py-6 text-center text-sm text-[#6b6a7c]">Pieza ausente.</p>) : null}
         </div>
         <aside className="min-w-0 space-y-4" aria-label={`Historia clínica de la pieza FDI ${formatFdi(tooth)}`}>
           <section className="rounded-xl border border-[#dbe8e7] bg-[#f7f6fa] p-3 sm:p-4">
