@@ -3914,6 +3914,9 @@ export function numberingDoubts(text: string, chart: StructureInput["chart"] = [
 /** Pieza principal de la evolución para el título: la primera del odontograma o la primera dictada. */
 function mainToothLabel(text: string, odontogram: OdontogramChange[]): string | null {
   const first = odontogram[0];
+  // Varias piezas en la misma atención: el título las nombra todas («FDI 2.6, 3.6, 4.6»), no solo la primera.
+  const teeth = [...new Set(odontogram.filter((item) => !item.advisory).map((item) => item.tooth))];
+  if (teeth.length > 1) return `FDI ${teeth.slice(0, 6).map(formatFdi).join(", ")}${teeth.length > 6 ? "…" : ""}`;
   if (first) return first.numberingLabel || `FDI ${formatFdi(first.tooth)}`;
   const mention = toothMentions(text).find((item): item is Extract<Mention, { ok: true }> => item.ok);
   return mention ? mention.numberingLabel : null;

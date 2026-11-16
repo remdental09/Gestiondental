@@ -331,7 +331,7 @@
         ],
         "diagnoses": [
           "36 DA09.70 (sugerido)",
-          "46 DA09.61 (sugerido)"
+          "46 DA09.61"
         ],
         "patientWarning": false
       }
