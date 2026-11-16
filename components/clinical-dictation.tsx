@@ -233,6 +233,8 @@ export function ClinicalDictation({
   const session = useRef("");
   // Avisos ya dichos en voz alta en este dictado: no se repiten al volver a procesar tras tus correcciones.
   const spokenBefore = useRef(new Set<string>());
+  // Tras guardar, el próximo dictado parte en blanco (no arrastra el texto ni la propuesta ya guardada).
+  const savedSinceOpen = useRef(false);
   // Lo que propuso el sistema, para registrar después qué corrigió el profesional.
   const originalProposal = useRef<{ text: string; proposal: StructureOutcome["proposal"] } | null>(null);
   // Lo ya guardado en este dictado no se repite si hay que reintentar tras un error.
@@ -352,6 +354,14 @@ export function ClinicalDictation({
     setInterim("");
     setTranscribing(false);
     setAudioRetry(null);
+    if (savedSinceOpen.current) {
+      savedSinceOpen.current = false;
+      setTranscript("");
+      setEvolutionTitle("");
+      setEvolutionBody("");
+      setAttentionDate("");
+      resetReview();
+    }
     setOpen(false);
   };
 
@@ -830,6 +840,7 @@ export function ClinicalDictation({
       }
       if (reviewWarnings.length) check = { ...check, messages: [...check.messages, `${saveEvolution ? "La evolución" : "La ficha"} quedó guardada; algunos campos opcionales siguen pendientes de revisión.`] };
       onApplied(finalRead);
+      savedSinceOpen.current = true;
       setResult(check);
       void logFeedback();
       setNotRecorded([
@@ -852,6 +863,7 @@ export function ClinicalDictation({
       try { recovered = await reload(); onApplied(recovered); } catch { /* la ficha visible puede seguir en el estado anterior */ }
       const noteRecovered = !!savedNote && !!recovered?.notes.some((note) => note.patientId === patientId && (savedNote?.id ? note.id === savedNote.id : note.title === savedNote?.title) && note.body === savedNote?.body);
       if (noteRecovered) {
+        savedSinceOpen.current = true;
         setResult({ ok: false, messages: ["La evolución clínica se guardó y se releyó; algunos datos opcionales no se completaron.", errorMessage] });
         setNotRecorded([...reviewWarnings, "Hay campos estructurados pendientes. Revisa la ficha antes de volver a guardar."]);
         setFormError("");

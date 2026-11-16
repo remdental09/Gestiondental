@@ -96,8 +96,9 @@ const RULES: Rule[] = [
   { re: /\babsceso\s+(?:periapical|apical)\s+con\s+(?:afectacion|compromiso)\s+facial\b|\babsceso\s+(?:periapical|apical)\s+con\s+aumento\s+de\s+volumen\s+facial\b/, code: "DA09.60" },
   { re: /\babsceso\s+(?:periapical|apical)\s+con\s+(?:fistula|tracto\s+sinuoso)\b/, code: "DA09.61" },
   { re: /\babsceso\s+(?:periapical|apical)\s+sin\s+fistula\b/, code: "DA09.62" },
-  { re: /\babsceso\s+(?:apical\s+cronico|cronico\s+apical)\b/, code: "DA09.61", aae: true },
-  { re: /\babsceso\s+(?:apical\s+agudo|agudo\s+apical)\b/, code: "DA09.62", aae: true },
+  // AAE con equivalencia inequívoca (crónico = con tracto sinuoso, agudo = sin él): se proponen aceptados, como el estado del odontograma.
+  { re: /\babsceso\s+(?:apical\s+cronico|cronico\s+apical)\b/, code: "DA09.61" },
+  { re: /\babsceso\s+(?:apical\s+agudo|agudo\s+apical)\b/, code: "DA09.62" },
   { re: /\babsceso\s+(?:periapical|apical|dentoalveolar)\b/, code: "DA09.6Z" },
   // El orden de los calificativos varía al dictar: «apical crónica» y «crónica apical» son lo mismo.
   { re: /\bperiodontitis\s+(?:(?:apical|periapical)\s+aguda|aguda\s+(?:apical|periapical))\b/, code: "DA09.70" },

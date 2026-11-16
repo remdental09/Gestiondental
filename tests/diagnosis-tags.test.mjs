@@ -31,7 +31,7 @@ test('sin especificar usa los residuales DA09.6Z / DA09.7Z', () => {
 });
 
 test('términos AAE quedan como equivalencias sugeridas, no directas', () => {
-  const cases = { 'pulpitis irreversible sintomática': 'DA09.0', 'periodontitis apical sintomática': 'DA09.70', 'periodontitis apical asintomática': 'DA09.71', 'absceso apical agudo': 'DA09.62', 'absceso apical crónico': 'DA09.61' };
+  const cases = { 'pulpitis irreversible sintomática': 'DA09.0', 'periodontitis apical sintomática': 'DA09.70', 'periodontitis apical asintomática': 'DA09.71' };
   for (const [term, code] of Object.entries(cases)) {
     const [match] = diagnosisMatches(`pieza 2.6 ${term}`);
     assert.equal(match.code, code, term);
@@ -39,6 +39,12 @@ test('términos AAE quedan como equivalencias sugeridas, no directas', () => {
     assert.equal(match.suggested?.term, term);
   }
   assert.equal(diagnosisMatches('periodontitis apical aguda')[0].suggested, undefined);
+  // Absceso agudo (sin tracto sinuoso) y crónico (con él) tienen equivalencia inequívoca: se proponen aceptados.
+  for (const [term, code] of Object.entries({ 'absceso apical agudo': 'DA09.62', 'absceso apical crónico': 'DA09.61' })) {
+    const [match] = diagnosisMatches(`pieza 4.6 ${term}`);
+    assert.equal(match.code, code, term);
+    assert.equal(match.suggested, undefined, term);
+  }
 });
 
 test('erosión o abrasión de mucosa no se codifican como desgaste dentario', () => {
