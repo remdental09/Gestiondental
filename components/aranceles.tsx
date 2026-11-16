@@ -8,6 +8,7 @@ import { PRESTACIONES, PRESTACION_GROUPS, prestacionLabel } from "@/lib/prestaci
 import { suggestedRange } from "@/lib/prestaciones-referencia";
 import { CreatePrestacionDialog } from "@/components/create-prestacion-dialog";
 import { PRESTACION_SPECIALTIES, SPECIALTY_CATALOG_GROUP, specialtyLabel, type CustomPrestacion } from "@/lib/custom-prestaciones";
+import { PRICE_UNIT_LABEL, priceUnitFromName } from "@/lib/treatment-zones";
 
 const money = (amount: number) => "$" + amount.toLocaleString("es-CL");
 const fold = (value: string) => value.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
@@ -254,7 +255,7 @@ export function ArancelesPanel({ patient }: { patient?: ArancelPatient }) {
                 <span className="hidden font-mono text-xs text-[#6b6a7c] sm:block">{item.code}</span>
                 {renamingCode === item.code
                   ? <Input autoFocus maxLength={120} value={codeDraft} onChange={event => setCodeDraft(event.target.value)} onBlur={() => commitCatalogName(item.code, item.label)} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setRenamingCode(null); }} aria-label="Nombre de la prestación" className="order-1 h-9 sm:order-none" data-testid={`arancel-name-input-${item.code}`}/>
-                  : <span className={`order-1 sm:order-none ${prices[item.code] !== undefined ? "font-medium text-[#35343f]" : "text-[#4f4e62]"}`}>{names[item.code] ?? item.label}{names[item.code] && <span className="ml-2 text-[11px] font-normal text-[#9a96b5]" title={`Nombre original: ${item.label}`}>(editada)</span>}</span>}
+                  : <span className={`order-1 sm:order-none ${prices[item.code] !== undefined ? "font-medium text-[#35343f]" : "text-[#4f4e62]"}`}>{names[item.code] ?? item.label}{(() => { const unit = priceUnitFromName(item.label); return unit ? <span className="ml-2 rounded bg-[#efeef4] px-1.5 py-0.5 text-[11px] font-semibold text-[#473a6d]" data-testid={`unit-${item.code}`}>{PRICE_UNIT_LABEL[unit]}</span> : null; })()}{names[item.code] && <span className="ml-2 text-[11px] font-normal text-[#9a96b5]" title={`Nombre original: ${item.label}`}>(editada)</span>}</span>}
                 {range ? <span className="order-3 col-span-2 text-xs text-[#9a96b5] sm:order-none sm:col-span-1 sm:text-right" title={`Sugerencia orientativa: 60%–110% del valor referencial 2026 del arancel (${money(range.reference)}). No es un precio oficial.`} data-testid={`arancel-range-${item.code}`}>{money(range.low)} – {money(range.high)}</span> : <span className="order-3 hidden sm:block"/>}
                 <span className="order-2 flex items-center gap-1 sm:order-none">
                   <span className="text-[#6b6a7c]">$</span>
