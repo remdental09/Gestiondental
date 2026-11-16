@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildBudgetPdf, pdfSafe, itemZoneText } from '../lib/budget-pdf.ts';
+import { buildBudgetPdf, pdfSafe, itemZoneText, issuedParts } from '../lib/budget-pdf.ts';
 import { PDFDocument } from 'pdf-lib';
 import { buildRawMessage, budgetEmail } from '../lib/appointment-mail.ts';
 
@@ -56,4 +56,19 @@ test('el texto del correo del presupuesto no lleva datos clínicos ni valores', 
   assert.match(mail.subject, /plan de tratamiento/);
   assert.doesNotMatch(mail.text + mail.html, /implante|\$/i);
   assert.match(mail.text, /Estimado\(a\) María/);
+});
+
+test('la hora de emisión sale en hora de Chile (verano y invierno)', () => {
+  assert.deepEqual(issuedParts(new Date('2026-11-16T17:07:00Z')), { day: '16/11/2026', time: '14:07' });
+  assert.deepEqual(issuedParts(new Date('2026-07-01T17:07:00Z')), { day: '01/07/2026', time: '13:07' });
+  assert.deepEqual(issuedParts(new Date('2026-11-16T03:05:00Z')), { day: '16/11/2026', time: '00:05' });
+});
+
+test('el PDF profesional con todos los datos y varias fases se genera en los tres formatos', async () => {
+  const items = Array.from({ length: 3 }, (_, i) => ({ label: `Tratamiento ${i}`, amount: 50000, phase: i < 2 ? 'Fase 1' : 'Fase 2', ...(i === 0 ? { zone: 'perm:boca' } : { teeth: [11 + i] }), discountPercent: i === 1 ? 10 : 0 }));
+  for (const mode of ['detailed', 'total', 'no-prices']) {
+    const bytes = await buildBudgetPdf({ ...base, mode, issuedAt: new Date('2026-11-16T17:07:00Z'), patientDocument: '12.345.678-9', professionalSpecialty: 'Implantología', professionalDocument: '11.222.333-4', contactEmail: 'a@b.cl', budget: { id: 783, title: 'Plan 1', date: '16 nov 2026', items } });
+    assert.equal(await pageCount(bytes), 1, mode);
+    assert.equal((await PDFDocument.load(bytes)).getTitle(), 'Presupuesto de tratamiento N° 783');
+  }
 });
