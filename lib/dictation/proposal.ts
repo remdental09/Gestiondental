@@ -149,6 +149,8 @@ export type OdontogramChange = {
   advisory?: string;
   /** Resultado del modelo clínico: «incoherente» (no tiene sentido clínico) o «reemplaza» (cambia lo ya registrado). */
   coherence?: "incoherente" | "reemplaza";
+  /** Efecto informativo sobre lo registrado (la lesión se suma o reemplaza la etapa apical anterior); no bloquea. */
+  effect?: string;
   /** Caries dictada y restaurada en la misma sesión: la superficie queda restaurada y la caries sigue como diagnóstico. */
   treatedCaries?: SurfaceFinding;
 };
@@ -307,7 +309,7 @@ export type ChartSnapshot = {
 
 export type StructureInput = {
   transcript: string;
-  chart: { tooth: number; status: string; foundation?: "tooth" | "implant" }[];
+  chart: { tooth: number; status: string; foundation?: "tooth" | "implant"; extras?: string[] }[];
 };
 
 export type ClinicalModel = {
@@ -3413,6 +3415,9 @@ function sameFinding(a: OdontogramChange, b: OdontogramChange): boolean {
 function collides(a: OdontogramChange, b: OdontogramChange): boolean {
   if (a.tooth !== b.tooth) return false;
   if (a.kind === "surface" && b.kind === "surface") return a.surface === b.surface;
+  // Las lesiones y fracturas conviven con otros estados (y la etapa apical nueva reemplaza a la anterior al guardar):
+  // dictar varias en la misma pieza no es una contradicción.
+  if (a.kind === "status" && b.kind === "status" && (isLesionStatus(a.status ?? "") || isLesionStatus(b.status ?? ""))) return false;
   return a.kind !== "surface" && b.kind !== "surface" && a.kind === b.kind;
 }
 
@@ -3737,7 +3742,8 @@ export function sanitizeChart(value: unknown): StructureInput["chart"] {
     const status = typeof record.status === "string" ? record.status : "";
     if (!isValidFdi(tooth) || !TOOTH_STATUSES.includes(status as ToothStatus)) continue;
     const foundation = record.foundation === "implant" || record.foundation === "tooth" ? record.foundation : undefined;
-    chart.push({ tooth, status, ...(foundation ? { foundation } : {}) });
+    const extras = Array.isArray(record.extras) ? record.extras.filter((x): x is string => typeof x === "string" && TOOTH_STATUSES.includes(x as ToothStatus)).slice(0, 8) : [];
+    chart.push({ tooth, status, ...(foundation ? { foundation } : {}), ...(extras.length ? { extras } : {}) });
   }
   return chart;
 }

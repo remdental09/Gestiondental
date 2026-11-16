@@ -18,6 +18,8 @@ export const FRACTURE_STATUSES = [
 ] as const;
 export const BASE_STATUSES = ["Sin hallazgos", "Implante", "Implante con pilar", "Corona", "Ausente", "Indicación de exodoncia", "Resto radicular con endodoncia"] as const;
 export const ALL_TOOTH_STATUSES: readonly string[] = [...BASE_STATUSES, ...APICAL_STATUSES, ...FRACTURE_STATUSES];
+/** Las lesiones periapicales son etapas de un mismo proceso: la nueva reemplaza a la anterior (que queda en el historial). */
+export const isApicalStatus = (status: string) => (APICAL_STATUSES as readonly string[]).includes(status);
 export const isLesionStatus = (status: string) => (APICAL_STATUSES as readonly string[]).includes(status) || (FRACTURE_STATUSES as readonly string[]).includes(status);
 
 /** Estado de una pieza: el estado principal más las lesiones/fracturas que conviven con él. */
@@ -34,9 +36,20 @@ export function applyToothStatus(state: ToothStatusState, status: string): Tooth
     return { primary: status, extras: kept };
   }
   if (state.primary && CLEARS_LESIONS.has(state.primary) && state.primary !== "Sin hallazgos") return { ...state, extras: [...state.extras] };
-  if (!state.primary) return { primary: status, extras: [...state.extras] };
-  if (state.primary === status || state.extras.includes(status)) return { ...state, extras: [...state.extras] };
-  return { ...state, extras: [...state.extras, status] };
+  const primary = state.primary === "Sin hallazgos" ? undefined : state.primary;
+  if (primary === status || state.extras.includes(status)) return { ...state, extras: [...state.extras] };
+  // Periodontitis → absceso → granuloma → quiste → osteítis: el proceso apical evoluciona, no se suma.
+  const extras = isApicalStatus(status) ? state.extras.filter((item) => !isApicalStatus(item)) : [...state.extras];
+  if (!primary || (isApicalStatus(status) && isApicalStatus(primary))) return { primary: status, extras };
+  return { primary, extras: [...extras, status] };
+}
+
+/** Qué hace una lesión nueva sobre la pieza: se suma, reemplaza la etapa apical anterior o ya estaba. */
+export function lesionEffect(state: ToothStatusState, status: string): { kind: "suma" | "igual" } | { kind: "reemplaza"; replaced: string } {
+  const all = allToothStatuses(state);
+  if (all.includes(status)) return { kind: "igual" };
+  const previous = isApicalStatus(status) ? all.find(isApicalStatus) : undefined;
+  return previous ? { kind: "reemplaza", replaced: previous } : { kind: "suma" };
 }
 
 /** Quita una lesión concreta; si era la principal, la siguiente pasa a ser la principal. */
@@ -74,7 +87,11 @@ export function pruneChartExtras(chart: { teeth: Record<number, string>; extras?
   for (const key of Object.keys(chart.extras)) {
     const tooth = Number(key), primary = chart.teeth[tooth];
     const blocked = primary !== undefined && CLEARS_LESIONS.has(primary) && primary !== "Sin hallazgos";
-    const list = blocked ? [] : [...new Set((chart.extras[tooth] ?? []).filter((item) => isLesionStatus(item) && item !== primary))];
+    let list = blocked ? [] : [...new Set((chart.extras[tooth] ?? []).filter((item) => isLesionStatus(item) && item !== primary))];
+    // Solo una etapa apical vigente: la más reciente (al final de la lista); las anteriores quedan en el historial.
+    const apical = list.filter(isApicalStatus);
+    if (primary && isApicalStatus(primary) && apical.length) { chart.teeth[tooth] = apical[apical.length - 1]!; list = list.filter((item) => !isApicalStatus(item)); }
+    else if (apical.length > 1) list = list.filter((item) => !isApicalStatus(item) || item === apical[apical.length - 1]);
     if (list.length) chart.extras[tooth] = list; else delete chart.extras[tooth];
   }
 }

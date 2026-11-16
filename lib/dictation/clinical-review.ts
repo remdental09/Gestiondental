@@ -1,6 +1,7 @@
 import type { OdontogramChange } from "./proposal.ts";
 import type { ClinicalAct } from "./clinical-acts.ts";
 import { checkSurface, checkTransition, eventsFrom, type ProposedState, type ToothEvents } from "./tooth-model.ts";
+import { isLesionStatus, lesionEffect } from "../tooth-status.ts";
 
 /**
  * Revisión de sentido clínico. El extractor lee «qué dijo»; esta capa pregunta «¿tiene sentido para un dentista?».
@@ -9,7 +10,7 @@ import { checkSurface, checkTransition, eventsFrom, type ProposedState, type Too
 const fdi = (tooth: number) => `${Math.floor(tooth / 10)}.${tooth % 10}`;
 const fold = (text: string) => text.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
-export type ChartRow = { tooth: number; status: string; foundation?: "tooth" | "implant" };
+export type ChartRow = { tooth: number; status: string; foundation?: "tooth" | "implant"; extras?: string[] };
 
 const describe = (state: ProposedState | undefined) => !state ? "sin registro"
   : state.status === "Corona" ? `corona ${state.foundation === "implant" ? "sobre implante" : "sobre diente natural"}` : state.status.toLowerCase();
@@ -60,6 +61,15 @@ export function clinicalCoherence(
     if (!verdict.ok) {
       notes.push(`FDI ${fdi(item.tooth)}: ${verdict.reason}`);
       return { ...item, coherence: "incoherente", advisory: `Incoherencia clínica · FDI ${fdi(item.tooth)}: ${verdict.reason} Acéptalo solo si de verdad corresponde.` };
+    }
+    if (isLesionStatus(next.status)) {
+      // Una lesión dictada no pide confirmación: se suma a lo registrado o, si es otra etapa del proceso apical,
+      // reemplaza a la anterior (que queda en el historial de la pieza).
+      const effect = lesionEffect({ primary: before?.status, extras: before?.extras ?? [] }, next.status);
+      if (effect.kind === "reemplaza") return { ...item, effect: `Evoluciona: ${effect.replaced.toLowerCase()} → ${next.status.toLowerCase()}. La etapa anterior queda en el historial.` };
+      const registered = [before?.status, ...(before?.extras ?? [])].filter((s): s is string => Boolean(s) && s !== "Sin hallazgos");
+      if (effect.kind === "suma" && registered.length) return { ...item, effect: `Se suma a lo registrado (${registered.join(", ").toLowerCase()}).` };
+      return item;
     }
     if (verdict.replaces && !verdict.supported) {
       const change = `${describe(before)} → ${describe(next)}`;
