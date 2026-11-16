@@ -181,7 +181,7 @@ export function ConfiguracionPanel() {
             <ul className="list-disc pl-5">
               <li>Fichas nuevas: {report.totals.patientsCreated ?? 0} · ya existían: {report.totals.patientsExisting ?? 0}</li>
               <li>Planes: {report.totals.plansCreated ?? 0} nuevos · {report.totals.plansSkipped ?? 0} ya estaban</li>
-              <li>Evoluciones: {report.totals.notesCreated ?? 0} nuevas · {report.totals.notesSkipped ?? 0} ya estaban</li>
+              <li>Evoluciones: {report.totals.notesCreated ?? 0} nuevas · {report.totals.notesSkipped ?? 0} ya estaban{report.totals.notesFixed ? ` · ${report.totals.notesFixed} corregidas (texto legible)` : ""}</li>
               <li>Pagos: {report.totals.paymentsCreated ?? 0} nuevos · {report.totals.paymentsSkipped ?? 0} ya estaban</li>
               {report.totals.tariffsCreated !== undefined && <li>Aranceles propios: {report.totals.tariffsCreated} nuevos · {report.totals.tariffsSkipped ?? 0} omitidos (repetidos o sin cupo)</li>}
             </ul>

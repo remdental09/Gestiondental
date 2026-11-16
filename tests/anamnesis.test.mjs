@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { anamnesisSummary, normalizeAnamnesis, emptyAnamnesis, mergeAnamnesis, anamnesisAlerts, hasAnamnesis } from "../lib/anamnesis.ts";
-import { structureAnamnesis } from "../lib/dictation/openai-anamnesis.ts";
+import { structureAnamnesis, notesSource, anamnesisFromNotes } from "../lib/dictation/openai-anamnesis.ts";
 
 test("normaliza: descarta ids inválidos y recorta", () => {
   const a = normalizeAnamnesis({ conditions: ["diabetes", "diabetes", "inventada"], anticoagulants: "quizas", pregnancy: "x", allergies: "x".repeat(5000), bruxism: "si" });
@@ -64,4 +64,41 @@ test("en pantallas táctiles un toque despliega el resumen y ofrece editar", () 
   assert.match(comp, /anam-funnel/);
   assert.match(comp, /prefers-reduced-motion/);
   assert.match(comp, /data-testid="anamnesis-edit"/);
+});
+
+test("armar desde evoluciones: orden cronológico, sin la línea de importación y con prompt de solo lo explícito", async () => {
+  const notes = [
+    { date: "2026-09-12", body: "Resina 19.\n\n— Importada desde la plataforma anterior · profesional: X · zona: Boca completa." },
+    { date: "2026-08-21", body: "Paciente refiere alergia a penicilina." },
+  ];
+  const { text, used } = notesSource(notes);
+  assert.equal(used, 2);
+  assert.equal(text, "[21/08/2026] Paciente refiere alergia a penicilina.\n[12/09/2026] Resina 19.");
+  let sent;
+  const fetcher = async (_url, init) => { sent = JSON.parse(init.body); return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ allergies: "Penicilina (21/08/2026)" }) } }] })); };
+  const r = await anamnesisFromNotes(notes, "k", { fetcher });
+  assert.equal(r.anamnesis.allergies, "Penicilina (21/08/2026)");
+  assert.deepEqual([r.used, r.total], [2, 2]);
+  assert.match(sent.messages[0].content, /historial de evoluciones/);
+  assert.match(sent.messages[0].content, /un tratamiento realizado NO es un antecedente/);
+  assert.equal(sent.messages[1].content, text);
+  await assert.rejects(() => anamnesisFromNotes([{ date: "2026-01-01", body: "  " }], "k", { fetcher }), /no tiene evoluciones/);
+});
+
+test("armar desde evoluciones: si no caben se omiten las del medio, no las primeras ni las últimas", () => {
+  const notes = Array.from({ length: 10 }, (_, i) => ({ date: `2026-01-${String(i + 1).padStart(2, "0")}`, body: `nota ${i + 1} ` + "x".repeat(90) }));
+  const { text, used } = notesSource(notes, 500);
+  assert.ok(used < 10 && used >= 3);
+  assert.match(text, /\[01\/01\/2026\]/);
+  assert.match(text, /\[10\/01\/2026\]/);
+  assert.doesNotMatch(text, /\[05\/01\/2026\]/);
+});
+
+test("la ruta propone y no guarda; el botón está en el formulario de la anamnesis", () => {
+  const api = readFileSync(new URL("../app/api/anamnesis/route.ts", import.meta.url), "utf8");
+  const comp = readFileSync(new URL("../components/anamnesis-dialog.tsx", import.meta.url), "utf8");
+  assert.match(api, /fromEvolutions === true/);
+  assert.match(api, /eq\(evolutions\.status, "vigente"\)/);
+  assert.doesNotMatch(api.slice(api.indexOf("fromEvolutions")), /saveAnamnesis/);
+  assert.match(comp, /anamnesis-from-notes/);
 });

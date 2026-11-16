@@ -12,7 +12,16 @@ pregnancy ("no" | "embarazada" | "lactancia" | "no-aplica" | ""), smoking, alcoh
 lastDentalVisit, dentalHistory (trauma, ortodoncia, cirugías orales, sensibilidad, molestias), observations (lo demás relevante).
 Un "niega X" para una enfermedad listada NO la agrega a conditions.`;
 
-export async function structureAnamnesis(source: string, apiKey: string, options: { model?: string; fetcher?: typeof fetch } = {}): Promise<Anamnesis> {
+/** Para armar la anamnesis desde el historial de evoluciones: solo lo escrito de forma explícita; los tratamientos no son antecedentes. */
+const NOTES_PROMPT = PROMPT.replace(
+  /^Eres asistente[^\n]*\nCorrige[^\n]*\n/,
+  `Eres asistente de un dentista chileno. Recibirás el historial de evoluciones clínicas de un paciente (cada línea empieza con su fecha). Arma la anamnesis médico-odontológica con SOLO los antecedentes que alguna evolución dice de forma explícita (alergias, medicamentos, enfermedades, cirugías, hábitos, bruxismo, embarazo, reacciones a anestesia, antecedentes dentales como trauma u ortodoncia previa).
+Las evoluciones describen principalmente tratamientos y controles: un tratamiento realizado NO es un antecedente ni un diagnóstico; no infieras enfermedades, no conviertas lo que dijo el paciente en un diagnóstico y no completes datos faltantes. Si algo no aparece, déjalo vacío ("").
+Si un dato figura solo en una evolución, agrégale la fecha entre paréntesis, por ejemplo "Alergia a penicilina (12/09/2026)". Si hay datos contradictorios, anota ambos con sus fechas. Usa un lenguaje claro y breve para el clínico.
+`,
+);
+
+export async function structureAnamnesis(source: string, apiKey: string, options: { model?: string; fetcher?: typeof fetch; fromNotes?: boolean } = {}): Promise<Anamnesis> {
   const fetcher = options.fetcher ?? fetch;
   const model = options.model || OPENAI_CORRECTION_MODEL;
   const response = await fetcher("https://api.openai.com/v1/chat/completions", {
@@ -23,7 +32,7 @@ export async function structureAnamnesis(source: string, apiKey: string, options
       model,
       ...(isReasoningModel(model) ? { max_completion_tokens: 8000, reasoning_effort: "low" } : { temperature: 0, max_tokens: 3000 }),
       response_format: { type: "json_object" },
-      messages: [{ role: "system", content: PROMPT }, { role: "user", content: source }],
+      messages: [{ role: "system", content: options.fromNotes ? NOTES_PROMPT : PROMPT }, { role: "user", content: source }],
     }),
   });
   if (!response.ok) throw new Error(`OpenAI respondió HTTP ${response.status}.`);
@@ -33,4 +42,31 @@ export async function structureAnamnesis(source: string, apiKey: string, options
   let parsed: unknown;
   try { parsed = JSON.parse(content); } catch { throw new Error("La respuesta de OpenAI no tenía el formato esperado."); }
   return normalizeAnamnesis(parsed);
+}
+
+export type NoteForAnamnesis = { date: string; body: string };
+const stripImportFooter = (body: string) => body.replace(/\n*— Importada desde la plataforma anterior[^\n]*$/, "").trim();
+const ddmmyyyy = (day: string) => (/^\d{4}-\d{2}-\d{2}$/.test(day) ? `${day.slice(8)}/${day.slice(5, 7)}/${day.slice(0, 4)}` : day);
+
+/** Texto para la IA: evoluciones en orden cronológico, «[dd/mm/aaaa] texto». Si no caben, se omiten las del medio (se conservan las primeras y las más recientes). */
+export function notesSource(notes: NoteForAnamnesis[], maxChars = 24_000): { text: string; used: number } {
+  const lines = notes.filter(note => note.body.trim()).sort((a, b) => a.date.localeCompare(b.date))
+    .map(note => `[${ddmmyyyy(note.date)}] ${stripImportFooter(note.body).replace(/\s*\n\s*/g, " · ")}`.slice(0, 2_000));
+  let head = 0, tail = lines.length;
+  const size = () => lines.slice(0, head).concat(lines.slice(tail)).reduce((total, line) => total + line.length + 1, 0);
+  while (size() < maxChars && head < tail) {
+    // Se agregan alternando: primero una de las más antiguas, luego una de las más recientes.
+    const before = head, beforeTail = tail;
+    if (head <= lines.length - tail) head++; else tail--;
+    if (size() > maxChars) { head = before; tail = beforeTail; break; }
+  }
+  const kept = lines.slice(0, head).concat(lines.slice(tail));
+  return { text: kept.join("\n"), used: kept.length };
+}
+
+/** Anamnesis propuesta desde las evoluciones de un paciente. No se guarda: el clínico la revisa. */
+export async function anamnesisFromNotes(notes: NoteForAnamnesis[], apiKey: string, options: { model?: string; fetcher?: typeof fetch } = {}): Promise<{ anamnesis: Anamnesis; used: number; total: number }> {
+  const { text, used } = notesSource(notes);
+  if (!used) throw new Error("Este paciente no tiene evoluciones con texto.");
+  return { anamnesis: await structureAnamnesis(text, apiKey, { ...options, fromNotes: true }), used, total: notes.filter(note => note.body.trim()).length };
 }

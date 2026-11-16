@@ -2,9 +2,9 @@ import { and, eq } from "drizzle-orm";
 import { env } from "cloudflare:workers";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { getDb } from "@/db";
-import { patients } from "@/db/schema";
+import { evolutions, patients } from "@/db/schema";
 import { loadAnamnesis, saveAnamnesis } from "@/app/anamnesis-db";
-import { structureAnamnesis } from "@/lib/dictation/openai-anamnesis";
+import { anamnesisFromNotes, structureAnamnesis } from "@/lib/dictation/openai-anamnesis";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -43,7 +43,18 @@ export async function POST(request: Request) {
   const user = await getChatGPTUser();
   if (!user?.userId) return json({ error: "Inicia sesión." }, 401);
   if (request.headers.get("origin") !== new URL(request.url).origin) return json({ error: "Origen no permitido." }, 403);
-  const body = await request.json().catch(() => null) as { transcript?: unknown } | null;
+  const body = await request.json().catch(() => null) as { transcript?: unknown; patientId?: unknown; fromEvolutions?: unknown } | null;
+  if (body?.fromEvolutions === true) {
+    const patientId = await ownedPatient(user.userId, body.patientId);
+    if (!patientId) return json({ error: "Paciente no encontrado." }, 404);
+    const apiKey = env.OPENAI_API_KEY?.trim();
+    if (!apiKey) return json({ error: "Falta configurar OPENAI_API_KEY para armar la anamnesis." }, 503);
+    const notes = await getDb().select({ date: evolutions.clinicalDate, body: evolutions.body }).from(evolutions)
+      .where(and(eq(evolutions.ownerId, user.userId), eq(evolutions.patientId, patientId), eq(evolutions.status, "vigente")));
+    if (!notes.length) return json({ error: "Este paciente no tiene evoluciones registradas." }, 400);
+    try { const result = await anamnesisFromNotes(notes, apiKey, { model: env.OPENAI_TEXT_MODEL }); return json(result); }
+    catch (cause) { return json({ error: cause instanceof Error && /sin evoluciones|no tiene evoluciones/.test(cause.message) ? cause.message : "La IA no respondió. Reintenta o completa el formulario a mano." }, 502); }
+  }
   const transcript = typeof body?.transcript === "string" ? body.transcript.trim() : "";
   if (transcript.length < 3) return json({ error: "Dicta o escribe la anamnesis primero." }, 400);
   if (transcript.length > 8_000) return json({ error: "El texto supera 8.000 caracteres." }, 400);
