@@ -138,12 +138,32 @@ export function parseReview(raw: unknown, odontogram: OdontogramChange[]): AiObs
   return out;
 }
 
-export function applyAiReview(odontogram: OdontogramChange[], observations: AiObservation[]): { odontogram: OdontogramChange[]; notes: string[] } {
+/**
+ * Objeción a una lesión porque «falta» otra lesión que ya está en la ficha o en la propuesta: es una falsa alarma
+ * (las lesiones conviven y cada una es su propio cambio).
+ */
+export function lesionAlreadyCovered(item: OdontogramChange, motivo: string, chart: ChartRow[], odontogram: OdontogramChange[]): boolean {
+  if (item.kind !== "status" || !item.status || !isLesionStatus(item.status)) return false;
+  const row = chart.find((entry) => entry.tooth === item.tooth);
+  const known = new Set([row?.status, ...(row?.extras ?? []), ...odontogram.filter((other) => other.tooth === item.tooth && other.kind === "status").map((other) => other.status)].filter((x): x is string => Boolean(x)));
+  const said = fold(motivo);
+  const named = LESION_WORDS.filter(([, re]) => re.test(said)).map(([status]) => status);
+  return named.length > 0 && named.every((status) => status === item.status || known.has(status));
+}
+const LESION_WORDS: Array<[string, RegExp]> = [
+  ["Fisura coronaria", /fisura/], ["Fractura coronaria de esmalte", /fractura\s+(?:coronaria\s+)?de\s+esmalte/],
+  ["Fractura corono-radicular", /corono[-\s]?radicular/], ["Fractura radicular horizontal", /radicular\s+horizontal/],
+  ["Fractura radicular vertical", /radicular\s+vertical/], ["Periodontitis apical", /periodontitis\s+(?:apical|periapical)/],
+  ["Granuloma apical", /granuloma/], ["Quiste radicular", /quiste/], ["Osteítis condensante", /osteitis/],
+];
+
+export function applyAiReview(odontogram: OdontogramChange[], observations: AiObservation[], chart: ChartRow[] = []): { odontogram: OdontogramChange[]; notes: string[] } {
   const notes: string[] = [];
   const byId = new Map(observations.map((o) => [o.match, o] as const));
   const out = odontogram.map((item): OdontogramChange => {
     const obs = byId.get(item.id);
     if (!obs || item.coherence === "incoherente") return item;
+    if (lesionAlreadyCovered(item, obs.motivo, chart, odontogram)) return item;
     notes.push(`FDI ${fdi(item.tooth)}: ${obs.motivo}`);
     return { ...item, coherence: "incoherente", advisory: `Revisión clínica (IA) · FDI ${fdi(item.tooth)}: ${obs.motivo} Márcalo solo si de verdad corresponde.` };
   });

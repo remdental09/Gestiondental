@@ -411,7 +411,7 @@ function spokenPunctuation(text: string): string {
   return text
     // «1 punto 6» o «uno punto seis» es una pieza FDI, no un punto seguido.
     .replace(/(?<![\p{L}\d])([1-8]|uno|dos|tres|cuatro|cinco|seis|siete|ocho)\s+punto\s+([1-8]|uno|dos|tres|cuatro|cinco|seis|siete|ocho)(?![\p{L}\d])/giu, (_, left: string, right: string) => `${digit(left)}.${digit(right)}`)
-    .replace(/\s+punto\s+(?:y\s+)?(?:aparte|seguido|final)(?!\p{L})/giu, ". ")
+    .replace(/\s+punto\s+(?:y\s+)?(?:aparte|seguido|final)(?!\p{L})\s*\.?/giu, ". ")
     .replace(/(?<!\d|(?<!\p{L})(?:uno|dos|tres|cuatro|cinco|seis|siete|ocho))\s+punto(?!\p{L})(?!\s+(?:de|del|\d|uno|dos|tres|cuatro|cinco|seis|siete|ocho)(?!\p{L}))/giu, ".")
     .replace(/\s+coma(?=\s)/giu, ",");
 }
@@ -3958,6 +3958,7 @@ function mainToothLabel(text: string, odontogram: OdontogramChange[]): string | 
  */
 export function applyEvolutionPolicy(proposal: DictationProposal, chart: StructureInput["chart"], text: string): DictationProposal {
   const current = new Map(chart.map((item) => [item.tooth, item.status] as const));
+  const extrasOf = new Map(chart.map((item) => [item.tooth, item.extras ?? []] as const));
   const isImplant = (status: string | undefined) => status === "Implante" || status === "Implante con pilar";
   const notes: string[] = [];
   const mentioned = [...new Set(toothMentions(text).flatMap((item) => (item.ok ? [item.tooth] : [])))];
@@ -3978,7 +3979,8 @@ export function applyEvolutionPolicy(proposal: DictationProposal, chart: Structu
   const odontogram: OdontogramChange[] = [];
   for (const item of proposal.odontogram) {
     if (pilarTeeth.includes(item.tooth) && item.kind === "status" && item.status === "Implante") continue;
-    if (item.kind === "status" && item.status && current.get(item.tooth) === item.status) {
+    // También si la lesión ya figura entre las que conviven en la pieza (corona + granuloma, varias fracturas).
+    if (item.kind === "status" && item.status && (current.get(item.tooth) === item.status || (extrasOf.get(item.tooth) ?? []).includes(item.status))) {
       notes.push(`FDI ${formatFdi(item.tooth)} ya figura como ${item.status.toLowerCase()} en el odontograma: no se vuelve a marcar.`);
       continue;
     }
@@ -4096,7 +4098,7 @@ async function secondOpinion(model: ClinicalModel, proposal: DictationProposal, 
     const observations = parseReview(raw, proposal.odontogram);
     const extras = parseReviewExtras(raw, (proposal.prestaciones ?? []).map((item) => item.code));
     if (!observations.length && !extras.prestaciones.length && !extras.nota.length) return proposal;
-    const applied = observations.length ? applyAiReview(proposal.odontogram, observations) : { odontogram: proposal.odontogram, notes: [] };
+    const applied = observations.length ? applyAiReview(proposal.odontogram, observations, chart) : { odontogram: proposal.odontogram, notes: [] };
     const prestaciones = (proposal.prestaciones ?? []).map((item) => {
       // Si el revisor nombra la pieza, solo se objeta el código de esa pieza; si no, el código en todas.
       const hit = extras.prestaciones.find((obs) => obs.code === item.code && (obs.tooth === null || obs.tooth === item.tooth));

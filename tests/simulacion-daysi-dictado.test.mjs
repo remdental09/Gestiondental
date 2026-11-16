@@ -34,3 +34,24 @@ test("obturación o sellante sin verbo de hoy se proponen desmarcados; con «se 
   const hecha = suggestPrestaciones(odo, ["Se realiza obturación de resina en oclusal de la pieza 1.6."], [], "Pieza 1.6: se realiza obturación de resina en oclusal.");
   assert.ok(hecha.length >= 1 && hecha.every((item) => !item.advisory));
 });
+
+import { applyAiReview, lesionAlreadyCovered } from "../lib/dictation/clinical-review.ts";
+
+test("una lesión que ya figura entre las que conviven en la pieza no se vuelve a proponer", async () => {
+  const p = await rules("Pieza 3.6: fractura radicular vertical.", [{ tooth: 36, status: "Fractura corono-radicular", extras: ["Fractura radicular horizontal", "Fractura radicular vertical"] }]);
+  assert.equal(p.odontogram.filter((item) => item.tooth === 36 && item.kind === "status").length, 0);
+});
+
+test("el revisor no objeta una lesión porque «falta» otra que ya está en la ficha", () => {
+  const fisura = { id: "f", tooth: 16, kind: "status", status: "Fisura coronaria", numbering: "fdi", numberingLabel: "", sourceText: "" };
+  const chart = [{ tooth: 16, status: "Fractura coronaria de esmalte" }];
+  const motivo = "El dictado además consigna fractura de esmalte; el estado propuesto no la incorpora y el odontograma actual ya registra fractura coronaria de esmalte.";
+  assert.equal(lesionAlreadyCovered(fisura, motivo, chart, [fisura]), true);
+  assert.equal(applyAiReview([fisura], [{ tooth: 16, match: "f", motivo }], chart).odontogram[0].advisory, undefined);
+  assert.equal(lesionAlreadyCovered(fisura, "El dictado dice quiste radicular, no fisura.", chart, [fisura]), false);
+});
+
+test("«punto aparte.» no deja dos puntos en la cita", async () => {
+  const p = await rules("Pieza 1.6: sellante en palatino punto aparte. Caries de esmalte en oclusal.");
+  assert.ok(p.odontogram.every((item) => !/\.\.$/.test(item.evidence ?? "")));
+});
