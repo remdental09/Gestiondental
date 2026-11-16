@@ -79,7 +79,7 @@ export function BudgetPrintDialog({
   const totals = budgetTotals(budget.items);
 
   return <Dialog open={open} onOpenChange={onOpenChange}>
-    <DialogContent data-budget-print-dialog className="max-h-[92vh] max-w-3xl overflow-y-auto">
+    <DialogContent data-budget-print-dialog className="max-h-[92vh] w-[calc(100vw-2rem)] max-w-5xl overflow-x-hidden overflow-y-auto sm:max-w-5xl">
       <div data-budget-print-controls>
         <DialogHeader>
           <DialogTitle>Previsualizar presupuesto</DialogTitle>
@@ -132,7 +132,7 @@ export function BudgetPrintDialog({
         </div>}
 
         <footer className="mt-8 border-t border-[#dddbe6] pt-3 text-xs text-[#6b6a7c]">
-          Presupuesto informativo sujeto a evaluación y confirmación del profesional tratante. El PDF incluye además la hora de emisión, las condiciones y los espacios de firma.
+          Presupuesto informativo sujeto a evaluación y confirmación del profesional tratante. El PDF incluye además la hora de emisión, las condiciones y la firma del profesional.
         </footer>
       </article>
 
