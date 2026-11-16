@@ -27,6 +27,9 @@ export function GoogleDriveBackup() {
   const [syncError, setSyncError] = useState(false);
   const [message, setMessage] = useState("");
   const running = useRef(false);
+  // Si la ficha cambió mientras se copiaba (p. ej. varios guardados seguidos del dictado), se reintenta sola.
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retries = useRef(0);
 
   const syncQueue = useCallback(async () => {
     if (running.current) return false;
@@ -81,8 +84,17 @@ export function GoogleDriveBackup() {
         setMessage("Respaldo actualizado en Google Drive.");
       } else {
         setSyncError(true);
-        setMessage("La ficha quedó guardada en Gestión Dental; el respaldo en Drive quedó pendiente.");
+        setMessage("La ficha quedó guardada en Gestión Dental; el respaldo en Drive quedó pendiente. Se reintentará en unos segundos.");
+        if (retryTimer.current) clearTimeout(retryTimer.current);
+        if (retries.current < 3) {
+          retries.current += 1;
+          retryTimer.current = setTimeout(() => {
+            retryTimer.current = null;
+            void syncQueue().then((ok) => { if (ok) retries.current = 0; });
+          }, 8000 * retries.current);
+        }
       }
+      if (result?.saved) retries.current = 0;
     };
     window.addEventListener("gestion-dental:drive-backup", onBackup);
     void (async () => {
@@ -118,6 +130,7 @@ export function GoogleDriveBackup() {
     })();
     return () => {
       active = false;
+      if (retryTimer.current) clearTimeout(retryTimer.current);
       window.removeEventListener("gestion-dental:drive-backup", onBackup);
     };
   }, [syncQueue]);
