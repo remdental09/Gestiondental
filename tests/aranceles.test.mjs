@@ -18,8 +18,8 @@ test("normalizePriceMap conserva solo códigos de 7 dígitos con precio válido"
   assert.deepEqual(normalizePriceMap(null), {});
 });
 
-test("el catálogo agrupa las 789 prestaciones en 17 grupos, todas con grupo conocido", () => {
-  assert.equal(PRESTACIONES.length, 789);
+test("el catálogo agrupa las 789 prestaciones oficiales (más el complemento propio) en 17 grupos, todas con grupo conocido", () => {
+  assert.equal(PRESTACIONES.filter(item => !item.code.startsWith("9")).length, 789);
   const names = new Set(PRESTACION_GROUPS.map(group => group.name));
   assert.equal(names.size, 17);
   assert.ok(PRESTACIONES.every(item => names.has(item.group)));
@@ -30,7 +30,7 @@ import { REFERENCE_PRICES, suggestedRange } from "../lib/prestaciones-referencia
 test("cada prestación del catálogo tiene referencia (salvo una) y ningún código sobra", () => {
   const codes = new Set(PRESTACIONES.map(item => item.code));
   assert.ok(Object.keys(REFERENCE_PRICES).every(code => codes.has(code)));
-  assert.equal(PRESTACIONES.filter(item => !REFERENCE_PRICES[item.code]).map(item => item.code).join(), "5104086");
+  assert.equal(PRESTACIONES.filter(item => !item.code.startsWith("9") && !REFERENCE_PRICES[item.code]).map(item => item.code).join(), "5104086");
 });
 
 test("suggestedRange: 60%–110% redondeado, low < reference < high; null sin referencia", () => {

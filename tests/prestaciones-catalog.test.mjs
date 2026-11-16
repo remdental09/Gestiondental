@@ -3,9 +3,10 @@ import assert from "node:assert/strict";
 import { PRESTACIONES, PRESTACION_GROUPS, searchPrestaciones, prestacionLabel } from "../lib/prestaciones-catalog.ts";
 
 test("el catálogo trae las 789 prestaciones en 17 grupos, con códigos únicos y sin precios", () => {
-  assert.equal(PRESTACIONES.length, 789);
+  const official = PRESTACIONES.filter((item) => !item.code.startsWith("9"));
+  assert.equal(official.length, 789);
   assert.equal(PRESTACION_GROUPS.length, 17);
-  assert.equal(new Set(PRESTACIONES.map((item) => item.code)).size, 789);
+  assert.equal(new Set(PRESTACIONES.map((item) => item.code)).size, PRESTACIONES.length);
   assert.ok(PRESTACIONES.every((item) => /^\d{7}$/.test(item.code) && item.name && item.group));
   assert.ok(!PRESTACIONES.some((item) => /\$/.test(item.name)));
 });
@@ -44,4 +45,16 @@ test("el presupuesto conserva el código del catálogo y descarta valores invál
 test("el dictado ya no propone presupuestos (alcance clínico)", async () => {
   const proposal = (await proposeFromTranscript({ transcript: "Presupuesto de exodoncia simple de la pieza 3.8 por cuarenta mil pesos.", chart: [] }, null, () => {}, { today: "2026-11-06" })).proposal;
   assert.deepEqual(proposal.budget, []);
+});
+
+test("complemento de implantología: códigos propios únicos, grupos del arancel y sin contradicciones de nombre", async () => {
+  const { PRESTACIONES, prestacionLabel, prestacionByCode } = await import("../lib/prestaciones-catalog.ts");
+  const extra = PRESTACIONES.filter((item) => item.code.startsWith("9"));
+  assert.ok(extra.length >= 100);
+  assert.ok(extra.every((item) => /^9\d{6}$/.test(item.code)));
+  assert.ok(extra.some((item) => /SENO/.test(item.name)) && extra.some((item) => /PERIIMPLANTITIS/.test(item.name)) && extra.some((item) => /ALL-ON/.test(item.name)));
+  assert.ok(extra.every((item) => !/NO INCLUYE IMPLANTE/.test(item.name)));
+  assert.equal(prestacionByCode("9110001") === undefined, false);
+  // la cirugía oficial ya no dice «endo óseo … no incluye implante»
+  assert.equal(prestacionLabel(prestacionByCode("5011001").name), "Instalación de implante endoóseo (implante cobrado aparte)");
 });

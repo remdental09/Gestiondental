@@ -4,6 +4,8 @@
  * Son códigos de un arancel de isapre: sirven para buscar y ordenar prestaciones, no son códigos Fonasa ni
  * valores de esta consulta. Los precios los define el profesional en cada presupuesto.
  */
+import { complementCodes } from "./prestaciones-complemento.ts";
+
 export type PrestacionGroup = { code: string; name: string };
 export type Prestacion = { code: string; name: string; group: string };
 
@@ -820,7 +822,7 @@ const ROWS: Array<[string, string, number]> = [
   ["5107042", "REPOSICION DE ARCO DE ACERO FRACTURADO", 16],
 ];
 
-export const PRESTACIONES: Prestacion[] = ROWS.map(([code, name, group]) => ({ code, name, group: PRESTACION_GROUPS[group].name }));
+export const PRESTACIONES: Prestacion[] = [...ROWS, ...complementCodes()].map(([code, name, group]) => ({ code, name, group: PRESTACION_GROUPS[group].name }));
 
 const KEEP_UPPER = new Set(["MTA", "TTM", "FFAA", "ATM", "CAD", "CAM", "LED", "RX", "TC", "TAC", "ICDAS", "PPF", "PPR", "OPG", "II", "III", "IV"]);
 
@@ -836,10 +838,25 @@ const ACCENTED: Record<string, string> = {
   odontopediatria: "odontopediatría", radiologia: "radiología", oncologia: "oncología", periodoncia: "periodoncia", disfuncion: "disfunción", confeccion: "confección", aparatologia: "aparatología", oseo: "óseo", osea: "ósea", dentaria: "dentaria", terapeutico: "terapéutico", terapeutica: "terapéutica", articulacion: "articulación",
 };
 
+const COMPLEMENT_ACCENTS: Record<string, string> = {
+  implantologia: "implantología", oseo: "óseo", osea: "ósea", oseos: "óseos", oseas: "óseas", estetico: "estético", estetica: "estética", protesico: "protésico", protesicos: "protésicos",
+  quirurgico: "quirúrgico", quirurgica: "quirúrgica", anestesico: "anestésico", diametro: "diámetro", sintetico: "sintético", alogenico: "alogénico", xenogenico: "xenogénico", autologo: "autólogo",
+  cigomaticos: "cigomáticos", pterigoideos: "pterigoideos", medicos: "médicos", medicamentos: "medicamentos", maxilofacial: "maxilofacial", atrofico: "atrófico", ilíaca: "ilíaca",
+  tridimensional: "tridimensional", dimension: "dimensión", periimplantaria: "periimplantaria", extraoral: "extraoral", fotografico: "fotográfico", radiografica: "radiográfica",
+  diagnostico: "diagnóstico", clinica: "clínica", tecnica: "técnica", oclusal: "oclusal", mandibula: "mandíbula", maxilar: "maxilar", hospitalario: "hospitalario", ceramica: "cerámica",
+  acrilico: "acrílico", patologico: "patológico", queratinizada: "queratinizada", dehiscencias: "dehiscencias", periodontitis: "periodontitis", infeccion: "infección",
+  espiculas: "espículas", raices: "raíces", pilar: "pilar", correccion: "corrección", fijacion: "fijación", laminas: "láminas", sinusales: "sinusales", complicaciones: "complicaciones",
+  alveolo: "alvéolo", extraccion: "extracción", postextraccion: "postextracción", exodoncia: "exodoncia", atraumatica: "atraumática", aumento: "aumento", reconstruccion: "reconstrucción",
+  inflamacion: "inflamación", supuracion: "supuración", explantacion: "explantación", osteointegracion: "osteointegración", cicatrizacion: "cicatrización", evaluacion: "evaluación",
+  interconsulta: "interconsulta", sedacion: "sedación", regularizacion: "regularización", expansion: "expansión", planificacion: "planificación", elevacion: "elevación", perdida: "pérdida",
+  aflojamiento: "aflojamiento", fractura: "fractura", pabellon: "pabellón", ajuste: "ajuste", conversion: "conversión", remocion: "remoción", mantencion: "mantención",
+};
+
 export function prestacionLabel(name: string): string {
-  const text = name.toLowerCase().replace(/\b[\p{L}]+\b/gu, (word) => {
+  // «Instalación de implante endo óseo (no incluye implante)» se leía como una contradicción: es la cirugía, con el implante cobrado aparte.
+  const text = name.toLowerCase().replace(/\bendo oseo\b/g, "endoóseo").replace(/\(no incluye implante\)/g, "(implante cobrado aparte)").replace(/\b[\p{L}]+\b/gu, (word) => {
     if (KEEP_UPPER.has(word.toUpperCase())) return word.toUpperCase();
-    if (ACCENTED[word]) return ACCENTED[word];
+    if (ACCENTED[word] ?? COMPLEMENT_ACCENTS[word]) return (ACCENTED[word] ?? COMPLEMENT_ACCENTS[word])!;
     return word.replace(/(\p{L}{3,})(cion|sion)(es)?$/u, (_all, stem: string, end: string, plural?: string) => `${stem}${end === "cion" ? "ción" : "sión"}${plural ? "es" : ""}`.replace("ciónes", "ciones").replace("siónes", "siones"));
   });
   return text.charAt(0).toUpperCase() + text.slice(1);
