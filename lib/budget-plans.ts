@@ -1,3 +1,5 @@
+import { parseZone, zoneTeeth } from "./treatment-zones.ts";
+
 export type BudgetItem = {
   label: string;
   amount: number;
@@ -7,6 +9,8 @@ export type BudgetItem = {
   code?: string;
   /** Piezas FDI a las que corresponde la prestación (11–48 permanentes, 51–85 temporales). */
   teeth?: number[];
+  /** Zona de aplicación cuando no es una pieza suelta: «perm:cuad-1», «temp:boca», «perm:sext-3» (ver treatment-zones). Las piezas que cubre van en `teeth`. */
+  zone?: string;
   /** Fecha (AAAA-MM-DD) en que se realizó; ausente mientras está pendiente. */
   doneOn?: string;
 };
@@ -71,9 +75,10 @@ export function normalizeBudgetItems(value: unknown): BudgetItem[] | null {
     subtotal += amount;
     if (!Number.isSafeInteger(subtotal) || subtotal > 1_000_000_000) return null;
     const code = typeof item.code === "string" && /^\d{7}$/.test(item.code.trim()) ? item.code.trim() : "";
-    const teeth = normalizeTeeth(item.teeth);
+    const zone = typeof item.zone === "string" && parseZone(item.zone) ? item.zone : "";
+    const teeth = normalizeTeeth(zone ? zoneTeeth(zone) : item.teeth);
     const doneOn = typeof item.doneOn === "string" && validIsoDate(item.doneOn) ? item.doneOn : "";
-    items.push({ label, amount, ...(phase ? { phase } : {}), ...(discountPercent ? { discountPercent } : {}), ...(code ? { code } : {}), ...(teeth.length ? { teeth } : {}), ...(doneOn ? { doneOn } : {}) });
+    items.push({ label, amount, ...(phase ? { phase } : {}), ...(discountPercent ? { discountPercent } : {}), ...(code ? { code } : {}), ...(teeth.length ? { teeth } : {}), ...(zone ? { zone } : {}), ...(doneOn ? { doneOn } : {}) });
   }
   return items;
 }

@@ -6,11 +6,16 @@ export type PrestacionSpecialty = { key: string; label: string; dimensions: Vari
 
 const dim = (id: string, label: string, options: string[]): VariantDimension => ({ id, label, options });
 
+/** En qué se cobra la prestación: no siempre es una pieza; puede ser una cara, un sextante, un cuadrante, una arcada o la boca completa. */
+const APLICACION = dim("aplicacion", "Se cobra", ["Por pieza", "Por cara", "Por sextante", "Por cuadrante", "Por arcada", "Boca completa"]);
+const withAplicacion = (specs: PrestacionSpecialty[]): PrestacionSpecialty[] =>
+  specs.map(spec => spec.dimensions.some(item => item.id === "aplicacion") ? spec : { ...spec, dimensions: [...spec.dimensions, APLICACION] });
+
 /**
  * Especialidades y, para cada una, las formas habituales en que una misma prestación cambia de precio
  * (caras, conductos, material, arcada, pieza…). Son sugerencias: el profesional elige las que usa.
  */
-export const PRESTACION_SPECIALTIES: PrestacionSpecialty[] = [
+export const PRESTACION_SPECIALTIES: PrestacionSpecialty[] = withAplicacion([
   { key: "operatoria", label: "Operatoria / restauradora", dimensions: [
     dim("caras", "Caras comprometidas", ["1 cara", "2 caras", "3 caras", "4 caras", "5 caras / reconstrucción"]),
     dim("material", "Material", ["Resina compuesta", "Amalgama", "Ionómero de vidrio", "Compómero"]),
@@ -87,7 +92,7 @@ export const PRESTACION_SPECIALTIES: PrestacionSpecialty[] = [
   { key: "general", label: "Consulta y otros", dimensions: [
     dim("consulta", "Tipo de consulta", ["Evaluación inicial", "Control", "Urgencia", "Teleconsulta", "Segunda opinión"]),
   ] },
-];
+]);
 
 /** Grupo del catálogo donde también se muestra la prestación propia de cada especialidad (null: sin grupo equivalente, se muestra en uno aparte). */
 export const SPECIALTY_CATALOG_GROUP: Record<string, string | null> = {
