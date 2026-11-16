@@ -52,3 +52,11 @@ test("capas de tratamiento: perno, onlay y ortodoncia se dibujan sobre el molar 
   const m = (kind, status) => ({ kind, status, label: kind });
   assert.deepEqual(placedLayers([m("perno", "realizado"), m("onlay", "planificado"), m("carilla", "realizado"), m("ortodoncia", "en curso")]), ["perno", "ortodoncia"]);
 });
+
+test("letras de caras: M y D cambian de lado según cuadrante y vista; O va del lado de la corona", async () => {
+  const { surfaceScreenSide } = await import("../app/odontogram-surface.ts");
+  assert.equal(surfaceScreenSide(15, "M"), "right");
+  assert.equal(surfaceScreenSide(25, "M"), "left");
+  assert.equal(surfaceScreenSide(35, "M"), "left");
+  assert.equal(surfaceScreenSide(45, "M"), "right");
+});
