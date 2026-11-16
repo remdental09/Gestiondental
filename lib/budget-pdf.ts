@@ -4,7 +4,7 @@ import { zoneLabel } from "./treatment-zones.ts";
 
 /**
  * PDF del presupuesto / plan de tratamiento, con formato de presupuesto clínico: cabecera de la clínica, número y hora de emisión,
- * datos del paciente, detalle numerado con subtotales por fase, resumen, condiciones y firmas.
+ * datos del paciente, detalle numerado con subtotales por fase, resumen, condiciones y firma.
  * Se genera sin pasar por la impresión del navegador (que dejaba páginas en blanco), así el mismo archivo sirve para descargar y enviar por correo.
  */
 export type BudgetPdfMode = "detailed" | "total" | "no-prices";
@@ -212,25 +212,21 @@ export async function buildBudgetPdf(input: BudgetPdfInput): Promise<Uint8Array>
     "Presupuesto informativo, sujeto a evaluación y confirmación del profesional tratante.",
     "El plan puede modificarse según la evolución clínica y la respuesta del paciente al tratamiento.",
   ];
-  ensure(40 + notes.length * 13 + 130); // condiciones y firmas siempre juntas, nunca la firma sola en otra hoja
+  ensure(40 + notes.length * 13 + 100); // condiciones y firma siempre juntas, nunca la firma sola en otra hoja
   y -= 26; text("CONDICIONES Y OBSERVACIONES", M, 8, bold, PURPLE); y -= 5; rule(M, R, 0.8, LILAC);
   for (const note of notes) for (const [i, line] of wrap(note, regular, 8.5, R - M - 12).entries()) { y -= 12.5; if (i === 0) text("•", M + 2, 8.5, bold, CORAL); text(line, M + 12, 8.5, regular, MUTED); }
 
-  // ── Aceptación y firma
-  ensure(124);
+  // ── Firma del profesional
+  ensure(100);
   y -= 30;
   const signTop = y;
   const colW = 224;
-  y = signTop; text("ACEPTACIÓN DEL PACIENTE", M, 8, bold, PURPLE);
-  for (const [label, offset] of [["Nombre", 34], ["Firma", 58], ["Fecha", 82]] as const) {
-    y = signTop - offset; rule(M + 50, M + colW); y -= 10; text(label, M + 50, 7.5, regular, MUTED);
-  }
   const sx = R - colW + 16;
-  y = signTop - 58; rule(sx, R);
+  y = signTop - 44; rule(sx, R);
   y -= 13; page.drawText(pdfSafe(input.professionalName || "Profesional tratante"), { x: sx + ((R - sx) - bold.widthOfTextAtSize(pdfSafe(input.professionalName || "Profesional tratante"), 9.5)) / 2, y, size: 9.5, font: bold, color: INK });
   const credentials = [input.professionalSpecialty, input.professionalDocument ? `RUT ${input.professionalDocument}` : ""].filter(Boolean).join(" · ");
   if (credentials) { y -= 12; const safe = pdfSafe(credentials); page.drawText(safe, { x: sx + ((R - sx) - regular.widthOfTextAtSize(safe, 8)) / 2, y, size: 8, font: regular, color: MUTED }); }
-  y = signTop - 100;
+  y = signTop - 84;
 
   // ── Pie de cada página
   pages.forEach((p, index) => {
