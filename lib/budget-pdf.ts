@@ -111,7 +111,7 @@ export async function buildBudgetPdf(input: BudgetPdfInput): Promise<Uint8Array>
   page.drawRectangle({ x: 0, y: PAGE_H - BAND, width: PAGE_W, height: BAND, color: PURPLE });
   page.drawRectangle({ x: 0, y: PAGE_H - BAND - 3, width: PAGE_W, height: 3, color: CORAL });
   y = PAGE_H - 36; text(clinic, M, 19, bold, WHITE);
-  const sub = [input.professionalName, input.professionalSpecialty].filter(Boolean).join(" · ");
+  const sub = [input.professionalName, input.professionalDocument ? `RUT ${input.professionalDocument}` : "", input.professionalSpecialty].filter(Boolean).join(" · ");
   if (sub) { y -= 17; text(sub, M, 9.5, regular, LILAC); }
   if (input.contactEmail) { y -= 13; text(input.contactEmail, M, 8.5, regular, LILAC); }
   y = PAGE_H - 33; right(docTitle.toUpperCase(), R, 8, bold, LILAC);
@@ -217,16 +217,16 @@ export async function buildBudgetPdf(input: BudgetPdfInput): Promise<Uint8Array>
   for (const note of notes) for (const [i, line] of wrap(note, regular, 8.5, R - M - 12).entries()) { y -= 12.5; if (i === 0) text("•", M + 2, 8.5, bold, CORAL); text(line, M + 12, 8.5, regular, MUTED); }
 
   // ── Firma del profesional
-  ensure(100);
-  y -= 30;
+  ensure(125);
+  y -= 40;
   const signTop = y;
   const colW = 224;
   const sx = R - colW + 16;
-  y = signTop - 44; rule(sx, R);
+  y = signTop - 62; rule(sx, R);
   y -= 13; page.drawText(pdfSafe(input.professionalName || "Profesional tratante"), { x: sx + ((R - sx) - bold.widthOfTextAtSize(pdfSafe(input.professionalName || "Profesional tratante"), 9.5)) / 2, y, size: 9.5, font: bold, color: INK });
   const credentials = [input.professionalSpecialty, input.professionalDocument ? `RUT ${input.professionalDocument}` : ""].filter(Boolean).join(" · ");
   if (credentials) { y -= 12; const safe = pdfSafe(credentials); page.drawText(safe, { x: sx + ((R - sx) - regular.widthOfTextAtSize(safe, 8)) / 2, y, size: 8, font: regular, color: MUTED }); }
-  y = signTop - 84;
+  y = signTop - 102;
 
   // ── Pie de cada página
   pages.forEach((p, index) => {
