@@ -42,3 +42,10 @@ test("no avisa si lo dictado ya dice implante o ausente, ni si la pieza no está
   assert.deepEqual(chartConsistencyDoubts("Se realiza exodoncia simple de la 4.8.", chart), []);
   assert.deepEqual(chartConsistencyDoubts("Se realiza exodoncia simple de la 4.8.", []), []);
 });
+
+test("«molar inferior vital» descrito por el modelo no se guarda como Diagnóstico", async () => {
+  const tx = "Se realiza tratamiento de conductos en la 3.6, molar inferior vital, con conductometría y obturación de conductos.";
+  const out = await proposeFromTranscript({ transcript: tx, chart: [] }, model({ ...empty, texto_corregido: tx, nota: { ...empty.nota, diagnostico: "Molar inferior vital en la pieza 3.6.", procedimientos: "Se realiza tratamiento de conductos en la pieza 3.6." } }), () => {}, { today: "2026-11-06" });
+  const proposal = out.proposal ?? out;
+  assert.doesNotMatch(proposal.note ?? JSON.stringify(proposal), /Diagnóstico\s*\n?[^\n]*vital/i);
+});
