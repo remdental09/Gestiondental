@@ -344,6 +344,7 @@ export const isAppointmentText = (text: string) => APPOINTMENT_CUE_FOLDED.test(f
 
 /** Errores frecuentes del reconocimiento de voz en dictado dental. Solo palabras que no tienen otro sentido clínico. */
 const LEXICON: Array<[RegExp, string]> = [
+  [/(?<!\p{L})circ[óÓ]nio(?!\p{L})/giu, "circonio"],
   [/\bme\s?ci?al(es)?\b/gi, "mesial$1"],
   [/\bmecia(?:l|n)?\b/gi, "mesial"],
   [/\bmesia\b/gi, "mesial"],

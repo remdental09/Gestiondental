@@ -256,7 +256,8 @@ test('la IA redacta la nota y sus hallazgos con cita válida se cruzan con las r
   assert.equal(items.every((item) => item.evidence && transcript.includes(item.evidence)), true);
   assert.deepEqual(items.find((item) => item.tooth === 26).finding, { condition: 'caries', depth: 'esmalte', icdas: null, activity: null });
   assert.match(outcome.proposal.evolution.body, /FDI 2\.6 \(Chile 14\): caries de esmalte mesial \(CIE-11 DA08\.0&XA5R09 Caries dental · Esmalte\)\./);
-  assert.deepEqual(outcome.proposal.diagnoses.map((item) => [item.tooth, item.code]), [[26, 'DA08.0&XA5R09']]);
+  // «pieza 19 ausente» es un hallazgo objetivo: pérdida dentaria (DA0A.1), nunca diente retenido.
+  assert.deepEqual(outcome.proposal.diagnoses.map((item) => [item.tooth, item.code]), [[26, 'DA08.0&XA5R09'], [46, 'DA0A.1']]);
   const body = outcome.proposal.evolution.body;
   assert.match(body, /^Motivo de consulta\nRefiere sensibilidad al frío\./);
   assert.match(body, /Examen \(odontograma\)\nFDI 3\.6 \(Chile 30\): obturación oclusal\.\nFDI 4\.6 \(Chile 19\): ausente\./);

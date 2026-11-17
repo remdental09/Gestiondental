@@ -128,7 +128,7 @@ export function parseReview(raw: unknown, odontogram: OdontogramChange[]): AiObs
     const rec = entry as Record<string, unknown>;
     const m = /^([1-8])\.([1-8])$/.exec(typeof rec.pieza === "string" ? rec.pieza.trim() : "");
     const motivo = typeof rec.motivo === "string" ? rec.motivo.replace(/\s+/g, " ").trim().slice(0, 300) : "";
-    if (!m || motivo.length < 8) continue;
+    if (!m || motivo.length < 8 || wrongNumberingClaim(motivo)) continue;
     const tooth = Number(m[1]) * 10 + Number(m[2]);
     const wanted = fold(String(rec.estado ?? rec.superficie ?? ""));
     const target = odontogram.find((item) => item.tooth === tooth && (!wanted || fold(item.status ?? item.surface ?? "") === wanted || fold(item.status ?? "").includes(wanted)))
@@ -182,6 +182,13 @@ export const chileNumber = (tooth: number) => { const q = Math.floor(tooth / 10)
  * («FDI 2.6 (Chile 14) es incorrecta»). La tabla es determinista: si todas las equivalencias citadas son correctas, se descarta.
  */
 export function wrongNumberingClaim(motivo: string): boolean {
+  // Esta consulta no usa numeración universal salvo que se dicte: una objeción que la invoca es una mala lectura.
+  if (/(?:nomenclatura|numeraci[oó]n|sistema)\s+universal|en\s+universal|universal\s+\d/i.test(motivo) && /(?:FDI|Chile|pieza)/i.test(motivo)) return true;
+  // «Pieza 30 no es válida en FDI»: los números 1–32 son la numeración chilena de la consulta, no un error.
+  if (/no\s+(?:es\s+)?v[aá]lid|inv[aá]lid|no\s+existe/i.test(motivo) && /FDI/i.test(motivo)) {
+    const numbers = [...motivo.matchAll(/pieza\s+(\d{1,2})(?![.,]\d)/gi)].map((match) => Number(match[1]));
+    if (numbers.length && numbers.every((n) => n >= 1 && n <= 32)) return true;
+  }
   if (!/incorrect|err[oó]ne|no\s+corresponde|equivoc/i.test(motivo)) return false;
   const pairs = [...motivo.matchAll(/(?<!\d)([1-4])\.([1-8])\s*\(\s*Chile\s+(\d{1,2})\s*\)/gi)];
   return pairs.length > 0 && pairs.every((match) => chileNumber(Number(match[1]) * 10 + Number(match[2])) === Number(match[3]));

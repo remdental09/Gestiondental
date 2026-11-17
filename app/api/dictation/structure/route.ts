@@ -10,6 +10,15 @@ export const dynamic = "force-dynamic";
 
 const error = (message: string, status = 400) => Response.json({ error: message }, { status, headers: { "Cache-Control": "no-store" } });
 
+/** Solo sexo (F/M) y edad: nada que identifique a la persona llega al modelo. */
+function sanitizePatient(value: unknown): { patient?: { sex: "F" | "M" | null; age: number | null } } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const raw = value as Record<string, unknown>;
+  const sex = raw.sex === "F" || raw.sex === "M" ? raw.sex : null;
+  const age = typeof raw.age === "number" && Number.isInteger(raw.age) && raw.age >= 0 && raw.age < 120 ? raw.age : null;
+  return sex || age !== null ? { patient: { sex, age } } : {};
+}
+
 export async function POST(request: Request) {
   const user = await getChatGPTUser();
   if (!user) return error("Inicia sesión para preparar el dictado.", 401);
@@ -30,7 +39,7 @@ export async function POST(request: Request) {
     // Aprendizaje de este profesional (sus correcciones previas): si falla, se sigue sin él.
     const db = (env as unknown as { DB?: { prepare(sql: string): { bind(...v: unknown[]): { all<T>(): Promise<{ results: T[] }> } } } }).DB;
     const learned = db ? await db.prepare("SELECT entries FROM dictation_feedback WHERE owner_id = ? ORDER BY id DESC LIMIT 400").bind(user.userId).all<{ entries: string }>().then((r) => learnFromFeedback(r.results)).catch(() => NOTHING_LEARNED) : NOTHING_LEARNED;
-    const outcome = await proposeFromTranscript({ transcript, chart: sanitizeChart(record.chart) }, model, undefined, { ...(agent ? { timeoutMs: 80_000 } : {}), learned });
+    const outcome = await proposeFromTranscript({ transcript, chart: sanitizeChart(record.chart), ...sanitizePatient(record.patient) }, model, undefined, { ...(agent ? { timeoutMs: 80_000 } : {}), learned });
     return Response.json(outcome, { headers: { "Cache-Control": "no-store" } });
   } catch (cause) {
     const message = cause instanceof Error && cause.message ? cause.message : "No se pudo preparar la propuesta.";

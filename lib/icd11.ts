@@ -139,15 +139,18 @@ const RULES: Rule[] = [
   { re: /\bavulsion\b|\bavulsionad[oa]\b/, code: "NA0D.15" },
   // Erupción, maxilares, ATM
   { re: /\b(?:semi[\s-]?incluid[oa]|impactad[oa])\b/, code: "DA07.8" },
-  { re: /\bincluid[oa]\b|\b(?:diente|pieza|molar|canino|premolar|cordal)\s+retenid[oa]\b/, code: "DA07.7" },
+  // «incluida» suelto («rehabilitación incluida») no es un diente incluido: debe ir junto al diente.
+  { re: /\b(?:diente|pieza|molar|canino|premolar|cordal)(?:\s+(?:\d\.\d|[^\s.,;]+)){0,4}?\s+incluid[oa]\b|\b(?:diente|pieza|molar|canino|premolar|cordal)\s+retenid[oa]\b/, code: "DA07.7" },
   { re: /\balveolitis\b|\balveolo\s+seco\b|\bosteitis\s+alveolar\b/, code: "DA06.1" },
   { re: /\b(?:trastorno|disfuncion)\s+(?:de\s+(?:la\s+)?)?(?:articulacion\s+)?temporomandibular\b|\bdisfuncion\s+de\s+(?:la\s+)?atm\b|\bttm\b/, code: "DA0E.8" },
   { re: /\bbruxismo\s+(?:del\s+sueno|nocturno)\b/, code: "7A83" },
   { re: /\bresto\s+radicular\b|\braiz\s+(?:dental\s+)?retenida\b/, code: "DA0A.3" },
+  // Hallazgo objetivo de ausencia: no requiere que el clínico repita «diagnóstico de pérdida dentaria».
+  { re: /\b(?:ausencia\s+dentaria|perdida\s+dentaria|desdentad[oa]\s+parcial|(?:pieza|diente|molar|premolar|canino|incisivo)(?:\s+\d{1,2}(?:\.\d)?)?\s+(?:esta\s+)?ausente|falta\s+(?:la\s+|el\s+)?(?:pieza|diente))\b/, code: "DA0A.1" },
 ];
 
 /** Familias donde basta el código más específico («absceso periapical con fístula» no agrega «absceso periapical»). */
-const FAMILIES = ["DA09.6", "DA09.7", "NA0D.0", "DA07."];
+const FAMILIES = ["DA09.6", "DA09.7", "NA0D.0", "DA07.", "DA0A."];
 // El absceso fénix (DA09.3) es una periodontitis apical crónica reagudizada: no se agrega además DA09.7x.
 const family = (code: string) => (code === "DA09.3" ? "DA09.7" : FAMILIES.find((prefix) => code.startsWith(prefix)) ?? code);
 

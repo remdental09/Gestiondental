@@ -222,7 +222,7 @@ export function suggestPrestaciones(odontogram: OdontogramChange[], procedureLin
 }
 
 /** Verbos o marcas de que el acto se hizo en esta sesión (no un hallazgo existente). */
-const PERFORMED_TODAY = /(?<![a-z])(?:se\s+(?:le\s+)?(?:realiza|realizo|obtura|obturo|restaura|restauro|coloca|coloco|aplica|aplico|sella|sello|hace|hizo|efectua|efectuo|trata|trato|instala|instalo)|realizad[oa]s?|colocad[oa]s?|aplicad[oa]s?|hoy|en\s+esta\s+sesion)(?![a-z])/;
+const PERFORMED_TODAY = /(?<![a-z])(?:se\s+(?:le\s+)?(?:realiza|realizan|realizo|obtura|obturan|obturo|restaura|restauran|restauro|coloca|colocan|coloco|aplica|aplican|aplico|sella|sellan|sello|hace|hizo|efectua|efectuo|trata|trato|instala|instalan|instalo)|realizad[oa]s?|colocad[oa]s?|aplicad[oa]s?|hoy|en\s+esta\s+sesion)(?![a-z])/;
 const FINDING_ONLY_CODES = new Set([...AMALGAM_CODES, ...IONOMER_CODES, ...COMPOSITE_CODES, "5005012"]);
 
 /**

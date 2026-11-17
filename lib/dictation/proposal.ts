@@ -2,6 +2,7 @@ import { DENTAL_DICTIONARY_HINTS } from "./dental-lexicon.ts";
 import { APICAL_STATUSES, FRACTURE_STATUSES, isLesionStatus } from "../tooth-status.ts";
 import { applyAiReview, clinicalCoherence, parseReview, parseReviewExtras, REVIEW_PROMPT, reviewPayload } from "./clinical-review.ts";
 import { isDeducedSuggestion, type Learned } from "./learning.ts";
+import { applyClinicalItems, ITEMS_PROMPT, ITEMS_SCHEMA, parseAiItems, patientPrompt, polishNote, type ClinicalItem, type PatientContext } from "./clinical-items.ts";
 import { ACTS_PROMPT, ACTS_SCHEMA, addFacesFromActs, applyActsToOdontogram, parseActs, type ClinicalAct } from "./clinical-acts.ts";
 import { buildMinsalClinicalContext } from "./minsal-knowledge.ts";
 import { isPriorEndoSentence, priorEndoYear } from "./prior-endo.ts";
@@ -288,6 +289,10 @@ export type DictationProposal = {
   spokenName?: string;
   /** Lo que el tipo de evolución dejó fuera del odontograma («ya figura como implante»). */
   policyNotes?: string[];
+  /** Lista clínica estructurada (diagnóstico · plan · realizado por pieza): fuente del odontograma, arancel y CIE-11. */
+  items?: ClinicalItem[];
+  /** Diferencias entre la nota y la lista clínica, y ajustes hechos por la lista: se muestran en el resumen. */
+  itemWarnings?: string[];
 };
 
 export type ChartSurface = {
@@ -310,6 +315,8 @@ export type ChartSnapshot = {
 export type StructureInput = {
   transcript: string;
   chart: { tooth: number; status: string; foundation?: "tooth" | "implant"; extras?: string[] }[];
+  /** Sexo y edad (sin identidad) para la concordancia de la nota. */
+  patient?: PatientContext;
 };
 
 export type ClinicalModel = {
@@ -2574,6 +2581,8 @@ export function validateModelOutput(output: unknown): Record<string, unknown> {
   record.texto_corregido = typeof corrected === "string" ? corrected : "";
   // «actos» es complementario: si viene mal formado se ignora, sin descartar el resto de la extracción.
   if (!Array.isArray(record.actos)) record.actos = [];
+  // «lista_clinica» también: los modelos de respaldo sin esquema estricto pueden omitirla (las reglas la reconstruyen).
+  if (!Array.isArray(record.lista_clinica)) record.lista_clinica = [];
   for (const field of MODEL_ARRAY_FIELDS) {
     const value = record[field];
     if (value == null) { record[field] = []; continue; }
@@ -2686,6 +2695,8 @@ Examen vs procedimientos: «Examen» recoge solo lo que el profesional OBSERVA o
 11) "dudas": incluye dudas reales que el odontólogo deba resolver: además de números inválidos, autocorrecciones confusas o caras inciertas, pregunta cuando un término clínico esté mal reconocido o un diagnóstico sea posible/sospechado y el profesional diga que no hay criterios suficientes para confirmarlo. Cita brevemente la frase y pregunta qué término/diagnóstico confirma el clínico o qué dato permitiría distinguirlo. No propongas una respuesta como hecho ni asignes un código mientras no se aclare. Pregunta por la pieza solo si el número no es válido en ningún sistema (sin etiqueta: 1 a 32 es chilena, 33 a 48 y 51 a 85 es FDI; p. ej. «pieza 39» o «pieza 50»): pregunta «¿Qué pieza?» sin suponer ninguna. «pieza 30» es chilena (FDI 3.6): no es una duda. No preguntes por lo que ya falta en pagos, citas o sondajes (medio de pago, hora, sitio): eso se pregunta aparte.
 ${ACTS_PROMPT}
 
+${ITEMS_PROMPT}
+
 Las líneas que empiezan con «Aclaración:» son respuestas del profesional a preguntas anteriores; completan o corrigen lo dictado antes y tienen prioridad.
 
 Si el profesional se corrige («no, perdón», «mejor dicho»), usa solo lo corregido. Un control de implante («viene a control por un implante», «está conectado con un pilar», «sin sangrado») no es un implante instalado hoy: el relato va en motivo y examen, y la pieza puede ir en hallazgos con estado Implante. Un nombre de persona o un RUT dictado (del paciente, de un doctor o de otra persona) no es un hallazgo ni un dato de ficha; no lo inventes ni lo completes. Los antecedentes médicos (diabetes, hipertensión, etc.) van en anamnesis, no en indicaciones. "indicaciones" es solo lo que se le indica al paciente.`;
@@ -2695,7 +2706,7 @@ const STRING = { type: "string" } as const;
 export const AI_JSON_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["nota", "hallazgos", "procedimientos", "presupuesto", "ficha", "texto_corregido", "periodonto", "pagos", "citas", "diagnosticos", "diagnosticos_sugeridos", "dudas", "actos"],
+  required: ["nota", "hallazgos", "procedimientos", "presupuesto", "ficha", "texto_corregido", "periodonto", "pagos", "citas", "diagnosticos", "diagnosticos_sugeridos", "dudas", "actos", "lista_clinica"],
   properties: {
     nota: {
       type: "object",
@@ -2781,6 +2792,7 @@ export const AI_JSON_SCHEMA = {
     },
     dudas: { type: "array", items: STRING },
     actos: ACTS_SCHEMA,
+    lista_clinica: ITEMS_SCHEMA,
   },
 } as const;
 
@@ -2822,7 +2834,7 @@ export function buildModelUserPrompt(input: StructureInput): string {
   const toothContext = [...new Set(toothMentions(spokenPunctuation(input.transcript)).flatMap((item) => item.ok ? [item.numberingLabel] : []))];
   const candidates = candidatePrestaciones(input.transcript, 40);
   const catalog = candidates.length ? `Prestaciones candidatas del arancel (código · nombre; elige solo de esta lista, sin dinero):\n${candidates.map((item) => `${item.code} · ${prestacionLabel(item.name)}`).join("\n")}\n\n` : "";
-  return `Transcripción literal del dictado:\n«${input.transcript.trim()}»${chart}\n\nNumeración resuelta por la aplicación (conserva el sistema de origen): ${toothContext.join("; ") || "sin piezas identificadas"}.\n\n${catalog}${clinicalContext}\n\nDevuelve el JSON.`;
+  return `Transcripción literal del dictado:\n«${input.transcript.trim()}»${chart}\n\nNumeración resuelta por la aplicación (conserva el sistema de origen): ${toothContext.join("; ") || "sin piezas identificadas"}.${patientPrompt(input.patient)}\n\n${catalog}${clinicalContext}\n\nDevuelve el JSON.`;
 }
 
 /** Normaliza para comparar citas: sin tildes, minúsculas y solo letras o números. */
@@ -2937,6 +2949,7 @@ type AiExtraction = {
   appointments?: AppointmentChange[];
   diagnoses?: DiagnosisItem[];
   acts?: ClinicalAct[];
+  items?: ClinicalItem[];
 };
 
 /** ¿El número aparece en la cita solo como medida («3,3 mm», «3.3 de ancho», «de 4,5 de diámetro»)? Entonces no es una pieza. */
@@ -3428,7 +3441,13 @@ export function validateAiExtraction(input: unknown, transcript: string, options
     }
     return mention.ok ? { ok: true, tooth: mention.tooth } : { ok: false, reason: mention.reason };
   }, reject);
-  return { noteBody, odontogram, incomplete, budget, ficha, procedures, clarifications, rejected, correctedText, perio, perioPending, payments, appointments, diagnoses, acts };
+  // Lista clínica: misma resolución de piezas que los actos; sin cita verificable no entra.
+  const items = parseAiItems(record.lista_clinica, (pieza, sistema, evidence) => {
+    let mention = resolveAiTooth(pieza, sistema, evidence);
+    if (!mention.ok) mention = resolveAiTooth(pieza, sistema, quoteEvidenceWithPiece(evidence, pieza, sistema, transcript));
+    return mention.ok ? { ok: true, tooth: mention.tooth } : { ok: false, reason: mention.reason };
+  }, (evidence) => evidenceInTranscript(evidence, transcript));
+  return { noteBody, odontogram, incomplete, budget, ficha, procedures, clarifications, rejected, correctedText, perio, perioPending, payments, appointments, diagnoses, acts, items };
 }
 
 function sameFinding(a: OdontogramChange, b: OdontogramChange): boolean {
@@ -4121,6 +4140,14 @@ async function secondOpinion(model: ClinicalModel, proposal: DictationProposal, 
   }
 }
 
+/** Herramientas de lectura de piezas y frases que usa la lista clínica. */
+const ITEM_TOOLS = {
+  sentences: (text: string) => sentences(text),
+  teethIn: (sentence: string) => toothMentions(sentence).flatMap((mention) => (mention.ok ? [mention.tooth] : [])),
+  isPlan: (sentence: string) => isPlan(sentence),
+  formatFdi: (tooth: number) => formatFdi(tooth),
+};
+
 export async function proposeFromTranscript(
   input: StructureInput,
   model: ClinicalModel | null,
@@ -4140,7 +4167,17 @@ export async function proposeFromTranscript(
   const lexicon = { text: selfFix.text, corrections: [...frame.corrections, ...dictionary.corrections, ...selfFix.corrections] };
   const fixed = lexicon.text;
   const localOnly = structureTranscript(fixed, { today });
-  const withText = (proposal: DictationProposal, text: string, corrections: TranscriptCorrection[], aiDiagnoses: DiagnosisItem[] = []): DictationProposal => {
+  // Lista clínica (diagnóstico · plan · realizado): reconcilia odontograma, arancel y CIE-11, y pule la nota.
+  const withClinicalItems = (proposal: DictationProposal, text: string, aiItems: ClinicalItem[]): DictationProposal => {
+    const applied = applyClinicalItems(proposal, { text, aiItems, chart: input.chart ?? [] }, ITEM_TOOLS);
+    if (!applied.evolution) return applied;
+    const polished = polishNote(applied.evolution.body, input.patient);
+    let body = polished.body;
+    const changed = applied.odontogram.length !== proposal.odontogram.length || applied.odontogram.some((change, index) => change !== proposal.odontogram[index]);
+    if (changed && body.split("\n").some((line) => line.trim() === EXAM_REGISTRY_HEADER)) body = replaceExamSection(body, applied.odontogram.filter((item) => !item.advisory));
+    return { ...applied, evolution: { ...applied.evolution, body }, itemWarnings: [...(applied.itemWarnings ?? []), ...polished.notes] };
+  };
+  const withText = (proposal: DictationProposal, text: string, corrections: TranscriptCorrection[], aiDiagnoses: DiagnosisItem[] = [], aiItems: ClinicalItem[] = []): DictationProposal => {
     // En la nota solo entran los diagnósticos no sugeridos; las equivalencias sugeridas esperan confirmación.
     const diagnoses = mergeDiagnoses(cariesDiagnoses(proposal.odontogram), textDiagnoses(text), aiDiagnoses);
     const doubts = [...lexiconDoubts(text), ...numberingDoubts(text, input.chart ?? []), ...vagueSurfaceClarifications(text), ...chartConsistencyDoubts(text, input.chart ?? [])];
@@ -4199,15 +4236,15 @@ export async function proposeFromTranscript(
       // Sin la cita propuesta, la pregunta «¿A qué hora es la cita…?» sobra: queda solo el recordatorio.
       finished.clarifications = [...finished.clarifications.filter((item) => !/^¿A qué hora es la cita/.test(item)), ...reminders];
     }
-    return {
+    return withClinicalItems({
       ...finished,
       clarifications: [...finished.clarifications, ...endoQuestions, ...surgeryAsks].filter((item) => !(ruleBrandAsked && /^IA: ¿La marca dictada como/.test(item)) && !(hasPrestaciones && /^IA: No hay una prestaci[oó]n candidata/.test(item)) && !alreadyPlaced(item)),
-    };
+    }, text, aiItems);
   };
   if (!model) return { engine: "reglas-locales", model: null, notice: LOCAL_NOTICE, proposal: withText(localOnly, fixed, lexicon.corrections) };
   const started = Date.now();
   try {
-    const raw = await withTimeout(Promise.resolve(model.complete({ transcript: fixed, chart: input.chart })), options.timeoutMs ?? 50_000);
+    const raw = await withTimeout(Promise.resolve(model.complete({ transcript: fixed, chart: input.chart, ...(input.patient ? { patient: input.patient } : {}) })), options.timeoutMs ?? 50_000);
     const usedModel = isModelAnswer(raw) ? raw.usedModel : model.model;
     const aiNote = isModelAnswer(raw) && typeof raw.note === "string" && raw.note ? raw.note : undefined;
     const json = modelOutputToJson(isModelAnswer(raw) ? raw.output : raw);
@@ -4222,7 +4259,7 @@ export async function proposeFromTranscript(
     const proposal = { ...mergeProposals(ai, local, corrected), ...(ai.acts?.length ? { acts: ai.acts } : {}) };
     const aiMs = Date.now() - started;
     log("dictation.ai_ok", { model: usedModel, ms: aiMs, items: ai.odontogram.length, rejected: ai.rejected, corrections: reconciled.corrections.filter((item) => item.applied).length });
-    return { engine: "ia+reglas", model: usedModel, notice: AI_NOTICE, proposal: await secondOpinion(model, withText(proposal, corrected, [...lexicon.corrections, ...reconciled.corrections], ai.diagnoses ?? []), corrected, input.chart ?? [], log), aiMs, ...(aiNote ? { aiNote } : {}) };
+    return { engine: "ia+reglas", model: usedModel, notice: AI_NOTICE, proposal: await secondOpinion(model, withText(proposal, corrected, [...lexicon.corrections, ...reconciled.corrections], ai.diagnoses ?? [], ai.items ?? []), corrected, input.chart ?? [], log), aiMs, ...(aiNote ? { aiNote } : {}) };
   } catch (cause) {
     const aiMs = Date.now() - started;
     const reason = cause instanceof Error ? cause.message.replace(/\s+/g, " ").slice(0, 120) : "error";

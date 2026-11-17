@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { formatFdi, type ClinicalImage, type OdontogramData, type PerioExam } from "@/app/clinical-data";
 import { createAudioTranscription, AUDIO_DICTATION_NOTICE, MAX_DICTATION_MS } from "@/lib/dictation/audio-transcription";
 import { checkPatientMentions, patientVariantNote, patientWarning } from "@/lib/dictation/patient-check";
+import { ageFrom, inferSexFromName } from "@/lib/dictation/clinical-items";
 import { WordDiffView } from "@/components/text-correction";
 import { VoiceCommandCard, type AnnulHandler } from "@/components/evolution-annul";
 import { chileTodayIso, parseVoiceCommand, type CommandNote } from "@/lib/dictation/voice-command";
@@ -136,7 +137,7 @@ function suggestedPaymentBudget(
 type ReviewAppointment = AppointmentChange & { decision: Decided; dayValue: string; timeValue: string };
 /** Etiqueta de diagnóstico en revisión: la sugerida (AAE o caries pulpar) parte sin aceptar. */
 type ReviewDiagnosis = DiagnosisItem & { decision: Decided; toothText: string; findingsText: string; codeSearch: string };
-type PatientFicha = { name: string; rut: string; phone: string; email: string; allergies: string; history: string };
+type PatientFicha = { name: string; rut: string; phone: string; email: string; allergies: string; history: string; birthDate?: string };
 
 const originLabel: Record<ItemOrigin, string> = { ia: "IA", reglas: "Reglas", "ia+reglas": "IA + reglas" };
 const fichaLabel: Record<FichaChange["field"], string> = { allergies: "Alergias", history: "Antecedentes", medications: "Medicamentos" };
@@ -446,6 +447,8 @@ export function ClinicalDictation({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           transcript: text,
+          // Solo sexo (deducido del nombre, si es claro) y edad: la identidad no sale de la ficha.
+          patient: { sex: inferSexFromName(patientName), age: ageFrom(patient?.birthDate, chileTodayIso()) },
           chart: Object.entries(odontogram.teeth).map(([tooth, status]) => ({ tooth: Number(tooth), status, ...(odontogram.crowns?.[Number(tooth)]?.foundation ? { foundation: odontogram.crowns[Number(tooth)]!.foundation } : {}), ...(odontogram.extras?.[Number(tooth)]?.length ? { extras: odontogram.extras[Number(tooth)] } : {}) })),
         }),
       });
@@ -1068,6 +1071,15 @@ export function ClinicalDictation({
               </label>
               {prestSearch.trim().length >= 2 && <ul className="mt-2 space-y-1">{searchPrestaciones(prestSearch, 6).map((result) => <li key={result.code}><button type="button" className="w-full rounded-md border px-2 py-1 text-left text-xs hover:bg-emerald-50" onClick={() => { setPrestItems((current) => current.some((entry) => entry.code === result.code) ? current : [...current, { id: `pr-manual-${Date.now()}`, code: result.code, name: result.name, tooth: null, evidence: "", decision: "accepted" as const }]); setPrestSearch(""); }}>{result.code} · {result.name}</button></li>)}</ul>}
             </section>
+            {((proposal.items ?? []).some((item) => item.tooth || item.kind === "realizado") || (proposal.itemWarnings ?? []).length > 0) && <section className="rounded-xl border border-[#dddbe6] p-4" data-testid="dictation-items">
+              <h3 className="font-semibold">Lista clínica: diagnóstico · plan · realizado</h3>
+              <p className="mt-1 text-xs text-[#615f73]">De aquí salen el odontograma, el arancel y los diagnósticos. Lo planificado no se marca como hecho.</p>
+              <div className="mt-2 grid gap-2 sm:grid-cols-3">{(["diagnostico", "realizado", "plan"] as const).map((kind) => { const list = (proposal.items ?? []).filter((item) => item.kind === kind && (item.tooth || item.category !== "otro")); return <div key={kind} className={`rounded-lg border p-2 text-xs ${kind === "plan" ? "border-dashed border-[#b9b4cc]" : "border-[#ebe9f2]"}`} data-testid={`dictation-items-${kind}`}>
+                <p className="font-semibold">{kind === "diagnostico" ? "Diagnóstico / hallazgo" : kind === "plan" ? "Plan" : "Realizado hoy"}</p>
+                {list.length === 0 ? <p className="mt-1 text-[#6b6a7c]">—</p> : <ul className="mt-1 space-y-1">{list.map((item) => <li key={item.id}>{item.tooth ? `FDI ${formatFdi(item.tooth)}${item.chile ? ` (${item.chile})` : ""} · ` : ""}{item.category === "otro" ? item.what.slice(0, 60) : item.category.replace("_", " ")}{item.grade ? ` grado ${item.grade}` : ""}{item.origin === "ia" ? <span className="text-amber-800"> · por confirmar</span> : null}</li>)}</ul>}
+              </div>; })}</div>
+              {(proposal.itemWarnings ?? []).length > 0 && <ul className="mt-2 space-y-1 rounded-lg bg-amber-50 p-2 text-xs text-amber-950" data-testid="dictation-item-warnings">{(proposal.itemWarnings ?? []).map((warning) => <li key={warning}>{warning}</li>)}</ul>}
+            </section>}
             {missing.length > 0 && <section className="rounded-xl border border-[#dddbe6] bg-white p-3 text-sm text-[#3b3355]" data-testid="dictation-missing">
               <p><strong>Falta (opcional):</strong> {missing.join(" · ")}</p>
               <p className="mt-1 text-xs text-[#615f73]">No es obligatorio y no impide guardar la evolución. Puedes aclararlo después.</p>
