@@ -13,6 +13,8 @@ type TeamState = {
   team: { titular: string; members: Member[]; message: string };
   reload?: boolean;
   error?: string;
+  /** Resultado del correo automático de invitación (solo en la respuesta a invitar o renovar). */
+  mail?: { sent: true; to: string; from: string } | { sent: false; to: string; reason: "sin-correo" | "error"; detail?: string };
 };
 
 const STATUS_LABEL: Record<Member["status"], string> = { invitada: "Invitación pendiente", activa: "Activo", revocada: "Sin acceso", rechazada: "Rechazó", vencida: "Invitación vencida" };
@@ -99,6 +101,7 @@ export function EquipoPanel() {
 
   if (!state) return <section className="surface text-sm text-[#6b6a7c]" role="status">{error || "Cargando equipo…"}</section>;
   const { space, team } = state;
+  const sentMail = state.mail && state.mail.to === invited ? state.mail : null;
 
   async function invite(event: React.FormEvent) {
     event.preventDefault();
@@ -133,7 +136,7 @@ export function EquipoPanel() {
                 <select aria-label={`Rol de ${m.email}`} className="min-h-9 rounded-lg border border-[#dddbe6] bg-white px-2 text-sm" disabled={busy || m.status === "vencida"} value={m.role} onChange={e => act({ action: "rol", email: m.email, role: e.target.value })}>
                   <option value="dentista">Dentista</option><option value="admin">Administrador</option>
                 </select>
-                {(m.status === "invitada" || m.status === "vencida") && <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => m.status === "vencida" ? act({ action: "invitar", email: m.email, role: m.role }) : act({ action: "reenviar", email: m.email })}><RefreshCw className="mr-1 size-4"/>Renovar plazo</Button>}
+                {(m.status === "invitada" || m.status === "vencida") && <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={async () => { if (await (m.status === "vencida" ? act({ action: "invitar", email: m.email, role: m.role }) : act({ action: "reenviar", email: m.email }))) { setInvited(m.email); setCopied(false); } }}><RefreshCw className="mr-1 size-4"/>{m.status === "vencida" ? "Renovar plazo" : "Renovar y reenviar"}</Button>}
                 {confirmRemove === m.email
                   ? <span className="flex items-center gap-1 rounded-lg bg-rose-50 px-2 py-1 text-rose-900">¿Desea quitar el acceso a {m.name || m.email}?<Button type="button" size="sm" variant="ghost" className="text-rose-800" disabled={busy} onClick={async () => { await act({ action: "revocar", email: m.email }); setConfirmRemove(null); }}>Sí, quitar</Button><Button type="button" size="sm" variant="ghost" onClick={() => setConfirmRemove(null)}>No</Button></span>
                   : <Button type="button" size="sm" variant="ghost" className="text-[#a43542] hover:bg-rose-50" disabled={busy} onClick={() => setConfirmRemove(m.email)} data-testid="team-remove"><X className="mr-1 size-4"/>{m.status === "activa" ? "Quitar acceso" : "Anular invitación"}</Button>}
@@ -156,7 +159,11 @@ export function EquipoPanel() {
           <p className="text-xs text-[#6b6a7c]">El colega entra a la app con «Entrar con Google» usando ese mismo correo y acepta. No necesita configurar nada. El administrador además puede invitar y quitar personas.</p>
           {invited && team.message && (
             <div className="space-y-2 rounded-lg border border-[#c9c2e3] bg-white p-3 text-sm" role="status">
-              <p className="text-[#2b2540]">Invitación lista para <strong>{invited}</strong>. Avísale por donde prefieras:</p>
+              {sentMail?.sent
+                ? <p className="text-[#2b2540]" data-testid="invite-mail-sent"><Check className="mr-1 inline size-4 text-emerald-700"/>Correo de invitación enviado a <strong>{invited}</strong> desde {sentMail.from}. Si quieres, avísale también por:</p>
+                : sentMail && sentMail.reason === "error"
+                  ? <p className="text-amber-900" data-testid="invite-mail-error">La invitación quedó lista, pero Gmail no envió el correo ({sentMail.detail}). Avísale por:</p>
+                  : <p className="text-[#2b2540]" data-testid="invite-mail-none">Invitación lista para <strong>{invited}</strong>. Para que el correo salga solo, conecta un Gmail en Agenda → «Correo de confirmación de citas». Por ahora avísale por:</p>}
               <div className="flex flex-wrap gap-2">
                 <a className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-[#dddbe6] px-3 font-medium text-[#473a6d] hover:bg-[#efedf7]" href={`https://wa.me/?text=${encodeURIComponent(team.message)}`} target="_blank" rel="noopener noreferrer"><MessageCircle className="size-4"/>WhatsApp</a>
                 <a className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-[#dddbe6] px-3 font-medium text-[#473a6d] hover:bg-[#efedf7]" href={`mailto:${encodeURIComponent(invited)}?subject=${encodeURIComponent("Invitación a SpeakDent")}&body=${encodeURIComponent(team.message)}`}><Mail className="size-4"/>Correo</a>

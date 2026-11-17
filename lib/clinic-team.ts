@@ -141,3 +141,33 @@ export function inviteMessage(clinicName: string, inviterName: string, appUrl: s
   const who = inviterName.trim() || "Un colega";
   return `${who} te invitó a atender pacientes de ${clinic} en SpeakDent. Entra a ${appUrl} con «Entrar con Google» usando este mismo Gmail y acepta la invitación. Vence en ${INVITE_DAYS} días.`;
 }
+
+const escHtml = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+/** Correo de invitación que la app envía sola desde el Gmail conectado de la clínica. No lleva enlace secreto: el acceso lo da el Gmail invitado. */
+export function inviteEmail(input: { clinicName: string; inviterName: string; appUrl: string; invitedEmail: string; roleLabel: string }): { subject: string; text: string; html: string } {
+  const clinic = input.clinicName.trim() || "su clínica";
+  const who = input.inviterName.trim() || "Un colega";
+  const role = input.roleLabel.trim().toLowerCase() || "dentista";
+  const subject = `${who} te invitó a ${clinic} en SpeakDent`;
+  const text = [
+    "Hola:",
+    "",
+    `${who} te invitó a atender pacientes de ${clinic} en SpeakDent como ${role}.`,
+    "",
+    `1. Entra a ${input.appUrl}`,
+    `2. Pulsa «Entrar con Google» con este mismo Gmail (${input.invitedEmail}).`,
+    "3. Acepta la invitación que verás arriba.",
+    "",
+    `La invitación vence en ${INVITE_DAYS} días. No necesitas instalar ni configurar nada.`,
+  ].join("\n");
+  const html = `<!doctype html><html lang="es"><body style="margin:0;background:#f3f1f7;font-family:Arial,Helvetica,sans-serif;color:#35343f">
+<div style="max-width:520px;margin:0 auto;padding:24px"><div style="background:#fff;border-radius:12px;padding:28px;border:1px solid #e6e4ee">
+<p style="margin:0 0 8px;font-size:12px;font-weight:bold;letter-spacing:.06em;text-transform:uppercase;color:#473a6d">SpeakDent</p>
+<p style="margin:0 0 16px;font-size:16px;line-height:1.5"><strong>${escHtml(who)}</strong> te invitó a atender pacientes de <strong>${escHtml(clinic)}</strong> como ${escHtml(role)}.</p>
+<p style="margin:0 0 20px;font-size:14px;line-height:1.6">Pulsa «Entrar con Google» con este mismo Gmail (<strong>${escHtml(input.invitedEmail)}</strong>) y acepta la invitación que verás arriba. No necesitas instalar ni configurar nada.</p>
+<p style="margin:0 0 20px"><a href="${escHtml(input.appUrl)}" style="display:inline-block;background:#473a6d;color:#fff;text-decoration:none;font-weight:bold;padding:12px 20px;border-radius:8px">Entrar a SpeakDent</a></p>
+<p style="margin:0;font-size:12px;color:#6b6a7c">La invitación vence en ${INVITE_DAYS} días.</p>
+</div></div></body></html>`;
+  return { subject, text, html };
+}

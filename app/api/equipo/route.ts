@@ -6,8 +6,11 @@ import {
   acceptInvite, declineInvite, leaveClinic, listMembers, membershipsOf, renewInvite, revokeMember, setMemberRole, upsertInvite, type TeamDb,
 } from "@/app/clinic-team-db";
 import {
-  ROLE_LABEL, canManageTeam, checkInvite, checkRoleChange, inviteExpiry, inviteMessage, isExpired, normalizeEmail, visibleStatus,
+  ROLE_LABEL, canManageTeam, checkInvite, checkRoleChange, inviteEmail, inviteExpiry, inviteMessage, isExpired, normalizeEmail, visibleStatus, type TeamRole,
 } from "@/lib/clinic-team";
+import { getSender } from "@/app/appointment-mail-db";
+import { sendMailWithSender } from "@/app/drive-oauth";
+import { buildRawMessage } from "@/lib/appointment-mail";
 import { displayName } from "@/lib/clinician-profile";
 
 export const runtime = "edge";
@@ -58,6 +61,26 @@ async function state(user: ChatGPTUser, db: TeamDb, origin: string) {
   };
 }
 
+export type InviteMailResult = { sent: true; to: string; from: string } | { sent: false; to: string; reason: "sin-correo" | "error"; detail?: string };
+
+/**
+ * La invitación se avisa sola por correo, desde el Gmail que la clínica conectó para enviar (Agenda → correos a pacientes;
+ * si un administrador invita, se usa el de la clínica y, si no hay, el suyo). Sin Gmail conectado o si Gmail falla,
+ * la invitación igual queda creada y la interfaz ofrece WhatsApp, correo manual o copiar el mensaje.
+ */
+async function mailInvite(clinicId: string, personalId: string, to: string, role: TeamRole, inviterName: string, origin: string): Promise<InviteMailResult> {
+  const sender = await getSender(clinicId).catch(() => null) ?? (personalId !== clinicId ? await getSender(personalId).catch(() => null) : null);
+  if (!sender) return { sent: false, to, reason: "sin-correo" };
+  try {
+    const clinicName = await clinicLabel(clinicId);
+    const mail = inviteEmail({ clinicName: clinicName === "Clínica" ? "" : clinicName, inviterName, appUrl: origin, invitedEmail: to, roleLabel: ROLE_LABEL[role] });
+    await sendMailWithSender(sender, buildRawMessage({ from: sender.google_email, fromName: clinicName === "Clínica" ? "SpeakDent" : clinicName, to, replyTo: sender.google_email, ...mail }));
+    return { sent: true, to, from: sender.google_email };
+  } catch (error) {
+    return { sent: false, to, reason: "error", detail: error instanceof Error ? error.message.slice(0, 200) : "error" };
+  }
+}
+
 export async function GET(request: Request) {
   const user = await getChatGPTUser();
   if (!user) return fail("Inicia sesión.", 401);
@@ -98,7 +121,8 @@ export async function POST(request: Request) {
       const checked = checkInvite({ email: body.email, role: body.role }, { inviterEmail: myEmail, existing: await listMembers(db, clinicId), now });
       if (!checked.ok) return fail(checked.error);
       await upsertInvite(db, clinicId, checked.email, checked.role, personalId, stamp, inviteExpiry(now));
-      return done({ invited: checked.email });
+      const mail = await mailInvite(clinicId, personalId, checked.email, checked.role, await nameOf(personalId, user.displayName), origin);
+      return done({ invited: checked.email, mail });
     }
     if (action === "reenviar" || action === "revocar" || action === "rol") {
       if (!manage) return fail("Solo un administrador puede cambiar el equipo.", 403);
@@ -108,6 +132,8 @@ export async function POST(request: Request) {
       if (action === "reenviar") {
         if (target.status !== "invitada") return fail("Solo se reenvía una invitación pendiente.");
         await renewInvite(db, clinicId, email, inviteExpiry(now));
+        const mail = await mailInvite(clinicId, personalId, email, target.role, await nameOf(personalId, user.displayName), origin);
+        return done({ invited: email, mail });
       } else if (action === "revocar") {
         if (email === myEmail) return fail("Para dejar la clínica usa «Salir de esta clínica».");
         await revokeMember(db, clinicId, email, stamp);
