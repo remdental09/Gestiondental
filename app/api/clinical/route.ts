@@ -95,22 +95,27 @@ async function mayChangeEvolution(spaceId: string, evolutionId: number): Promise
 const NOT_AUTHOR = "Solo quien escribió esta evolución puede corregirla, anularla o eliminarla.";
 
 /** Quién armó el presupuesto y si quien mira puede modificarlo (autor, o dueño/administrador de la clínica). */
-async function budgetAccess(spaceId: string, budgetId: number) {
+async function budgetAccess(spaceId: string, budgetId: number, authors?: Map<number, { author_id: string }>) {
   const viewer = await getChatGPTUser();
+  if (!viewer) return { editable: false, mine: false };
+  const personalId = personalIdOf(viewer);
+  const role = spaceRoleOf(viewer);
   const db = teamDb();
-  const recorded = db ? await budgetAuthorOf(db, spaceId, budgetId) : null;
-  const personalId = viewer ? personalIdOf(viewer) : spaceId;
-  return { editable: viewer ? canChangeBudget(recorded, spaceId, personalId, spaceRoleOf(viewer)) : false, mine: evolutionAuthor(recorded, spaceId) === personalId };
+  // El dueño o un administrador modifican siempre: no dependen de leer el autor.
+  if (canManageTeam(role) && !authors && personalId === spaceId) return { editable: true, mine: true };
+  const recorded = authors ? authors.get(budgetId)?.author_id ?? null : db ? await budgetAuthorOf(db, spaceId, budgetId) : null;
+  return { editable: canChangeBudget(recorded, spaceId, personalId, role), mine: evolutionAuthor(recorded, spaceId) === personalId };
 }
 const NOT_BUDGET_OWNER = "Este presupuesto lo armó otro profesional: solo él o el dueño de la clínica pueden modificarlo.";
 
 /** Vista de un presupuesto recién cambiado, con su autor, para que la ficha no pierda «Presupuesto de…». */
-async function budgetViewWithAuthor(b: typeof budgets.$inferSelect, spaceId: string) {
+async function budgetViewWithAuthor(b: typeof budgets.$inferSelect, spaceId: string, authors?: Map<number, { author_id: string; author_name: string }>) {
   const db = teamDb();
-  const rows = db ? await budgetAuthorsOf(db, spaceId).catch(() => new Map()) : new Map();
-  const row = rows.get(b.id);
-  const access = await budgetAccess(spaceId, b.id).catch(() => ({ editable: true, mine: true }));
-  return { ...budgetView(b), authorName: row?.author_name || "", ...access };
+  const rows = authors ?? (db ? await budgetAuthorsOf(db, spaceId).catch(() => null) : new Map());
+  // Si no se pudo leer el autor, la ficha no ofrece editar (el servidor igual lo valida al guardar).
+  if (!rows) return { ...budgetView(b), authorName: "", mine: false, editable: false };
+  const access = await budgetAccess(spaceId, b.id, rows).catch(() => ({ editable: false, mine: false }));
+  return { ...budgetView(b), authorName: rows.get(b.id)?.author_name || "", ...access };
 }
 // This snapshot is supplied by a private runtime secret, never committed to Git.
 function calendarSnapshot(email: string, persisted: typeof calendarEvents.$inferSelect[]) {
@@ -693,7 +698,9 @@ export async function POST(request: Request) {
       ];
       await db.batch(updates as [typeof updates[number], ...Array<typeof updates[number]>]);
       const refreshed = await db.select().from(budgets).where(and(eq(budgets.ownerId, ownerId), eq(budgets.patientId, patientId))).orderBy(desc(budgets.id));
-      return Response.json({ budgets: await Promise.all(refreshed.map(row => budgetViewWithAuthor(row, ownerId))) });
+      const authorsDb = teamDb();
+      const authorMap = authorsDb ? await budgetAuthorsOf(authorsDb, ownerId).catch(() => undefined) : new Map();
+      return Response.json({ budgets: await Promise.all(refreshed.map(row => budgetViewWithAuthor(row, ownerId, authorMap))) });
     }
     if (action === "addAppointment") {
       const day = string(input.day, 10), time = string(input.time, 5), reason = string(input.reason, 500);
