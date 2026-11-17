@@ -102,3 +102,14 @@ test("la ruta propone y no guarda; el botón está en el formulario de la anamne
   assert.doesNotMatch(api.slice(api.indexOf("fromEvolutions")), /saveAnamnesis/);
   assert.match(comp, /anamnesis-from-notes/);
 });
+
+test("anamnesis en el celular: tarjetas y botones apilados, de ancho completo y fáciles de tocar; en pantallas grandes vuelve a la fila", () => {
+  const dialog = readFileSync(new URL("../components/anamnesis-dialog.tsx", import.meta.url), "utf8");
+  const card = dialog.slice(dialog.indexOf('data-testid="anamnesis-from-notes-card"') - 160, dialog.indexOf('data-testid="anamnesis-from-notes"'));
+  assert.match(card, /flex flex-col gap-3/);
+  assert.match(card, /sm:flex-row/);
+  assert.ok(!/flex-wrap items-center justify-between gap-3 rounded-xl border border-\[#f0b7bd\]/.test(card), "el texto ya no queda en una columna angosta junto al botón");
+  assert.match(dialog, /grid grid-cols-2 rounded-lg border border-\[#f0b7bd\] bg-white p-0\.5/, "selector Dictar / Escuchar entrevista en dos mitades");
+  assert.match(dialog, /data-testid="anamnesis-dictate" className=\{`h-12 w-full/, "botón de dictar grande y de ancho completo");
+  assert.match(dialog, /flex flex-col-reverse gap-2 sm:flex-row sm:justify-end/, "Guardar arriba y Cerrar abajo en el celular");
+});
