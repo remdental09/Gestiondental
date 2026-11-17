@@ -1,4 +1,7 @@
 import { loadProfile } from "@/app/clinician-profile-db";
+import { loadClinic } from "@/app/clinic-profile-db";
+import { loadBudgetFormat } from "@/app/budget-format-db";
+import { DEFAULT_FORMAT } from "@/lib/budget-format";
 import { budgetAuthorOf, type TeamDb } from "@/app/clinic-team-db";
 import { getSender, mailDb, ensureMailTables } from "@/app/appointment-mail-db";
 import { sendMailWithSender } from "@/app/drive-oauth";
@@ -37,9 +40,11 @@ export async function renderBudgetPdf(ownerId: string, budgetId: number, mode: B
   const author = authorDb ? await budgetAuthorOf(authorDb as unknown as TeamDb, ownerId, budgetId).catch(() => { throw new Error("No pude confirmar qué profesional armó este presupuesto. Intenta de nuevo en un momento."); }) : null;
   const professionalId = author || ownerId;
   const data = decodeBudgetData(budget.items);
-  const [profile, sender, space] = await Promise.all([
+  const [profile, sender, space, format, clinic] = await Promise.all([
     loadProfile(professionalId).catch(() => null), getSender(ownerId).catch(() => null),
     professionalId === ownerId ? Promise.resolve(null) : loadProfile(ownerId).catch(() => null),
+    // Formato de quien armó el presupuesto; logo de la clínica (el espacio), no de la consulta personal del colega.
+    loadBudgetFormat(professionalId).catch(() => ({ ...DEFAULT_FORMAT })), loadClinic(ownerId).catch(() => null),
   ]);
   // El nombre de la clínica es el del espacio (cuyo correo envía), no el de la consulta personal del profesional.
   const clinicName = (professionalId === ownerId ? profile?.clinicName : space?.clinicName) || undefined;
@@ -48,6 +53,7 @@ export async function renderBudgetPdf(ownerId: string, budgetId: number, mode: B
     patientName: patient.name, patientDocument: patient.rut?.trim() || undefined,
     professionalName: profile ? displayName(profile) : undefined, professionalSpecialty: profile?.specialty || undefined, professionalDocument: profile?.rut || undefined,
     clinicName, contactEmail: sender?.google_email, mode,
+    format, professionalTitles: profile?.extraTitles || undefined, logo: clinic?.logo || undefined,
   });
   return { bytes, fileName: budgetPdfFileName({ id: budget.id, isAlternative: data.isAlternative }), isAlternative: data.isAlternative, title: budget.title, patient, profile, sender, clinicName: clinicName || "" };
 }

@@ -198,7 +198,7 @@ export function plannedByTooth(plans: Array<{ id: number; title: string; isAlter
  * Dónde se trabaja, en una línea para el plan, la ficha y el PDF:
  * «Boca completa», «Sextante 2 · 1.3–2.3», «Piezas 1.2, 1.4 · Chile 7, 5», más el detalle libre si lo hay.
  */
-export function itemWhereText(item: BudgetItem): string {
+export function itemWhereText(item: BudgetItem, options: { chile?: boolean } = {}): string {
   const parts: string[] = [];
   const zone = parseZone(item.zone);
   const teeth = itemTeeth(item);
@@ -208,7 +208,7 @@ export function itemWhereText(item: BudgetItem): string {
     parts.push(label + range);
   }
   if (teeth.length && (!zone || zone.option.usesTeeth)) {
-    parts.push(`${teeth.length === 1 ? "Pieza" : "Piezas"} ${teeth.map(formatFdiTooth).join(", ")} · Chile ${teeth.map(fdiToChile).join(", ")}`);
+    parts.push(`${teeth.length === 1 ? "Pieza" : "Piezas"} ${teeth.map(formatFdiTooth).join(", ")}${options.chile === false ? "" : ` · Chile ${teeth.map(fdiToChile).join(", ")}`}`);
   }
   if (item.area?.trim()) parts.push(item.area.trim());
   return parts.join(" — ");
