@@ -2,13 +2,14 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { AlertTriangle, HeartPulse, Loader2, Mic, Pill, Plus, Sparkles, Square, X } from "lucide-react";
+import { AlertTriangle, HeartPulse, Loader2, Mic, Pill, Plus, Sparkles, Square, Users, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { createAudioTranscription } from "@/lib/dictation/audio-transcription";
+import { createAudioTranscription, MAX_DICTATION_MS } from "@/lib/dictation/audio-transcription";
+import type { InterviewResult, InterviewTurn } from "@/lib/anamnesis-interview";
 import { anamnesisAlerts, anamnesisSummary, CONDITIONS, emptyAnamnesis, mergeAnamnesis, type Anamnesis, type ConditionId, type YesNo } from "@/lib/anamnesis";
 
 const req = async (url: string, init?: RequestInit) => {
@@ -109,12 +110,14 @@ function AnamnesisReveal({ patientName, saved, origin, onClose, onAdd }: { patie
   </div>, document.body);
 }
 
-function Yn({ label, value, onChange }: { label: string; value: YesNo; onChange: (v: YesNo) => void }) {
-  return <div className="flex items-center justify-between gap-3 rounded-lg border border-[#dddbe6] bg-white px-3 py-2"><span className="text-sm">{label}</span>
+const DOUBT = <span className="ml-2 rounded bg-[#fde8b0] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#7a5200]">Revisar</span>;
+function Yn({ label, value, onChange, doubt }: { label: string; value: YesNo; onChange: (v: YesNo) => void; doubt?: boolean }) {
+  return <div data-doubtful={doubt || undefined} className={`flex items-center justify-between gap-3 rounded-lg border px-3 py-2 ${doubt ? "border-[#e0a100] bg-[#fff8e1]" : "border-[#dddbe6] bg-white"}`}><span className="text-sm">{label}{doubt && DOUBT}</span>
     <div className="flex gap-1">{(["si", "no"] as const).map(v => <button key={v} type="button" onClick={() => onChange(value === v ? "" : v)} aria-pressed={value === v}
       className={`rounded-md border px-3 py-1 text-xs font-semibold ${value === v ? (v === "si" ? "border-[#d62839] bg-[#d62839] text-white" : "border-[#473a6d] bg-[#473a6d] text-white") : "border-[#dddbe6] bg-white text-[#3b3355]"}`}>{v === "si" ? "Sí" : "No"}</button>)}</div></div>;
 }
-const L = ({ label, children }: { label: string; children: React.ReactNode }) => <label className="block space-y-1"><span className="text-sm font-medium text-[#3b3355]">{label}</span>{children}</label>;
+const L = ({ label, children, doubt }: { label: string; children: React.ReactNode; doubt?: boolean }) => <label data-doubtful={doubt || undefined} className={`block space-y-1 ${doubt ? "rounded-lg bg-[#fff8e1] p-1.5 ring-2 ring-[#e0a100]" : ""}`}><span className="text-sm font-medium text-[#3b3355]">{label}{doubt && DOUBT}</span>{children}</label>;
+const clock = (ms: number) => { const t = Math.max(0, Math.floor(ms / 1000)); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`; };
 
 function AnamnesisDialog({ patientId, patientName, initial, onClose, onSaved }: { patientId: number; patientName: string; initial: Anamnesis | null; onClose: () => void; onSaved: (a: Anamnesis) => void }) {
   const [form, setForm] = useState<Anamnesis>(initial ?? emptyAnamnesis());
@@ -124,27 +127,61 @@ function AnamnesisDialog({ patientId, patientName, initial, onClose, onSaved }: 
   const [fromNotes, setFromNotes] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(""), [notice, setNotice] = useState("");
+  const [mode, setMode] = useState<"dictate" | "interview">("dictate");
+  const [consent, setConsent] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+  const [doubtful, setDoubtful] = useState<Set<keyof Anamnesis>>(new Set());
+  const [turns, setTurns] = useState<InterviewTurn[]>([]);
+  const latest = useRef("");
   const engine = useRef(createAudioTranscription());
   useEffect(() => { const e = engine.current; return () => e.abort(); }, []);
-  const set = <K extends keyof Anamnesis>(key: K, value: Anamnesis[K]) => setForm(f => ({ ...f, [key]: value }));
-  const toggle = (id: ConditionId) => setForm(f => ({ ...f, conditions: f.conditions.includes(id) ? f.conditions.filter(c => c !== id) : [...f.conditions, id] }));
+  // Contador visible; el motor corta solo a los 4:00.
+  useEffect(() => {
+    if (status !== "recording") return;
+    const start = Date.now();
+    const id = setInterval(() => setElapsed(Math.min(Date.now() - start, MAX_DICTATION_MS)), 250);
+    return () => clearInterval(id);
+  }, [status]);
+  const set = <K extends keyof Anamnesis>(key: K, value: Anamnesis[K]) => { setForm(f => ({ ...f, [key]: value })); setDoubtful(d => { if (!d.has(key)) return d; const n = new Set(d); n.delete(key); return n; }); };
+  const doubt = (key: keyof Anamnesis) => doubtful.has(key);
+  const toggle = (id: ConditionId) => { setForm(f => ({ ...f, conditions: f.conditions.includes(id) ? f.conditions.filter(c => c !== id) : [...f.conditions, id] })); setDoubtful(d => { const n = new Set(d); n.delete("conditions"); return n; }); };
 
   const record = () => {
     setError(""); setNotice("");
     if (status === "recording") { engine.current.stop(); return; }
+    if (mode === "interview" && !consent) { setError("Marca que el paciente autorizó la grabación antes de escuchar la entrevista."); return; }
     if (!engine.current.isSupported()) { setError(engine.current.unsupportedMessage()); return; }
+    const interview = mode === "interview";
+    latest.current = transcript;
+    setElapsed(0);
     engine.current.start(transcript, {
-      onTranscript: text => setTranscript(text), onError: message => { setError(message); setStatus("error"); }, onEnd: () => setStatus("idle"), onStatus: setStatus,
+      onTranscript: text => { latest.current = text; setTranscript(text); }, onError: message => { setError(message); setStatus("error"); },
+      // En modo entrevista, apenas llega la transcripción se ordena sola en el formulario (no se guarda).
+      onEnd: () => { setStatus("idle"); if (interview && latest.current.trim().length >= 3) void organize(latest.current, "interview"); }, onStatus: setStatus,
     });
   };
-  const organize = useCallback(async () => {
+  const organize = useCallback(async (text?: string, as?: "dictate" | "interview") => {
+    const source = (text ?? transcript).trim();
+    const kind = as ?? mode;
     setError(""); setNotice(""); setOrganizing(true);
     try {
-      const patch = await req("/api/anamnesis", { method: "POST", body: JSON.stringify({ transcript }) });
-      if (patch) { setForm(f => mergeAnamnesis(f, patch)); setNotice("Dictado ordenado en el formulario. Revísalo y pulsa Guardar."); }
+      if (kind === "interview") {
+        const r = await fetch("/api/anamnesis", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ transcript: source, mode: "interview" }) });
+        const data = await r.json().catch(() => ({})) as Partial<InterviewResult> & { error?: string; warning?: string };
+        if (!r.ok || !data.anamnesis) throw new Error(data.error || "No se pudo ordenar la entrevista.");
+        const patch = data.anamnesis;
+        setForm(f => mergeAnamnesis(f, patch));
+        setDoubtful(new Set(data.doubtful ?? []));
+        setTurns(data.turns ?? []);
+        if (data.warning) setError(data.warning);
+        setNotice(`Entrevista ordenada en el formulario${data.doubtful?.length ? `; ${data.doubtful.length} dato(s) en ámbar por revisar` : ""}. Lo que no se conversó quedó vacío. Revisa y pulsa Guardar.`);
+      } else {
+        const patch = await req("/api/anamnesis", { method: "POST", body: JSON.stringify({ transcript: source }) });
+        if (patch) { setForm(f => mergeAnamnesis(f, patch)); setNotice("Dictado ordenado en el formulario. Revísalo y pulsa Guardar."); }
+      }
     } catch (cause) { setError(cause instanceof Error ? cause.message : "No se pudo ordenar el dictado."); }
     finally { setOrganizing(false); }
-  }, [transcript]);
+  }, [transcript, mode]);
   const buildFromNotes = async () => {
     setError(""); setNotice(""); setFromNotes(true);
     try {
@@ -159,7 +196,7 @@ function AnamnesisDialog({ patientId, patientName, initial, onClose, onSaved }: 
   };
   const save = async () => {
     setError(""); setNotice(""); setSaving(true);
-    try { const a = await req("/api/anamnesis", { method: "PUT", body: JSON.stringify({ patientId, anamnesis: form }) }); if (a) { onSaved(a); setNotice("Anamnesis guardada."); } }
+    try { const a = await req("/api/anamnesis", { method: "PUT", body: JSON.stringify({ patientId, anamnesis: form }) }); if (a) { onSaved(a); setDoubtful(new Set()); setNotice("Anamnesis guardada."); } }
     catch (cause) { setError(cause instanceof Error ? cause.message : "No se pudo guardar."); }
     finally { setSaving(false); }
   };
@@ -179,52 +216,71 @@ function AnamnesisDialog({ patientId, patientName, initial, onClose, onSaved }: 
       </div>
 
       <div className="space-y-2 rounded-xl border border-[#f0b7bd] bg-[#fff5f6] p-3">
-        <p className="text-sm font-semibold text-[#b81f2f]">Dictar anamnesis</p>
-        <p className="text-xs text-[#615f73]">Pulsa el micrófono y cuenta alergias, enfermedades, medicamentos, cirugías, hábitos y antecedentes dentales. Luego «Ordenar en el formulario».</p>
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" onClick={record} disabled={busy} data-testid="anamnesis-dictate" className={status === "recording" ? "bg-[#d62839] text-white hover:bg-[#b81f2f]" : ""} variant={status === "recording" ? "default" : "outline"}>
-            {status === "recording" ? <><Square className="mr-2 size-4" />Detener</> : busy ? <><Loader2 className="mr-2 size-4 animate-spin" />{status === "transcribing" ? "Transcribiendo…" : "Preparando…"}</> : <><Mic className="mr-2 size-4" />Dictar</>}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm font-semibold text-[#b81f2f]">{mode === "interview" ? "Escuchar entrevista" : "Dictar anamnesis"}</p>
+          <div role="radiogroup" aria-label="Modo de grabación" className="inline-flex rounded-lg border border-[#f0b7bd] bg-white p-0.5 text-xs font-semibold">
+            {([["dictate", "Dictar"], ["interview", "Escuchar entrevista"]] as const).map(([m, label]) => <button key={m} type="button" role="radio" aria-checked={mode === m} data-testid={`anamnesis-mode-${m}`}
+              disabled={status === "recording" || busy} onClick={() => { setMode(m); setError(""); }}
+              className={`rounded-md px-3 py-1.5 ${mode === m ? "bg-[#d62839] text-white" : "text-[#8f1a27]"}`}>{label}</button>)}
+          </div>
+        </div>
+        <p className="text-xs text-[#615f73]">{mode === "interview"
+          ? "Deja el teléfono entre tú y el paciente y conversa normalmente (máximo 4 minutos). La IA distingue tu voz de la del paciente, toma solo lo que el paciente dice o confirma y llena el formulario. Nada se guarda hasta que revises y pulses Guardar."
+          : "Pulsa el micrófono y cuenta alergias, enfermedades, medicamentos, cirugías, hábitos y antecedentes dentales (máximo 4 minutos). Luego «Ordenar en el formulario»."}</p>
+        {mode === "interview" && <label className="flex items-start gap-2 rounded-lg border border-[#dddbe6] bg-white px-3 py-2 text-sm">
+          <input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} disabled={status === "recording"} className="mt-0.5 size-4 accent-[#d62839]" data-testid="anamnesis-consent" />
+          <span>El paciente autorizó la grabación de la entrevista (el audio no se guarda)</span></label>}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" onClick={record} disabled={busy || organizing || (mode === "interview" && !consent && status !== "recording")} data-testid="anamnesis-dictate" className={status === "recording" ? "bg-[#d62839] text-white hover:bg-[#b81f2f]" : ""} variant={status === "recording" ? "default" : "outline"}>
+            {status === "recording" ? <><Square className="mr-2 size-4" />Detener</> : busy ? <><Loader2 className="mr-2 size-4 animate-spin" />{status === "transcribing" ? "Transcribiendo…" : "Preparando…"}</>
+              : mode === "interview" ? <><Users className="mr-2 size-4" />Escuchar entrevista</> : <><Mic className="mr-2 size-4" />Dictar</>}
           </Button>
-          <Button type="button" variant="outline" onClick={organize} disabled={organizing || busy || status === "recording" || transcript.trim().length < 3} data-testid="anamnesis-organize">
-            {organizing ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Sparkles className="mr-2 size-4" />}Ordenar en el formulario
+          {status === "recording" && <span role="timer" aria-live="off" data-testid="anamnesis-timer" className={`rounded-md px-2 py-1 font-mono text-sm tabular-nums ${MAX_DICTATION_MS - elapsed <= 30_000 ? "bg-[#fde8b0] text-[#7a5200]" : "bg-white text-[#3b3355]"}`}>
+            <span className="mr-1 inline-block size-2 animate-pulse rounded-full bg-[#d62839]" />{clock(elapsed)} / {clock(MAX_DICTATION_MS)}</span>}
+          <Button type="button" variant="outline" onClick={() => void organize()} disabled={organizing || busy || status === "recording" || transcript.trim().length < 3} data-testid="anamnesis-organize">
+            {organizing ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Sparkles className="mr-2 size-4" />}{organizing ? (mode === "interview" ? "Analizando entrevista…" : "Ordenando…") : "Ordenar en el formulario"}
           </Button>
         </div>
-        <Textarea value={transcript} onChange={e => setTranscript(e.target.value)} rows={3} placeholder="Aquí aparece lo dictado; también puedes escribirlo." aria-label="Texto dictado de la anamnesis" />
+        <Textarea value={transcript} onChange={e => setTranscript(e.target.value)} rows={3} placeholder={mode === "interview" ? "Aquí aparece la transcripción de la entrevista." : "Aquí aparece lo dictado; también puedes escribirlo."} aria-label="Texto dictado de la anamnesis" />
+        {turns.length > 0 && <details className="rounded-lg border border-[#dddbe6] bg-white p-2 text-sm" data-testid="anamnesis-turns">
+          <summary className="cursor-pointer text-xs font-semibold text-[#615f73]">Conversación separada por la IA ({turns.length} turnos)</summary>
+          <ol className="mt-2 max-h-56 space-y-1 overflow-y-auto">{turns.map((t, i) => <li key={i}><span className={`mr-1 text-[11px] font-semibold uppercase ${t.speaker === "paciente" ? "text-[#b81f2f]" : "text-[#473a6d]"}`}>{t.speaker === "paciente" ? "Paciente" : "Dentista"}:</span>{t.text}</li>)}</ol>
+        </details>}
       </div>
 
       {alerts.length > 0 && <div role="status" className="rounded-xl border border-[#d62839] bg-[#fff0f1] p-3 text-sm text-[#8f1a27]"><p className="font-semibold">Ten presente</p><ul className="list-disc pl-5">{alerts.map(a => <li key={a}>{a}</li>)}</ul></div>}
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <L label="Alergias (fármacos, látex, anestesia, alimentos)"><Textarea rows={2} value={form.allergies} onChange={e => set("allergies", e.target.value)} placeholder="Ej. Penicilina; niega otras" /></L>
-        <L label="Medicamentos de uso habitual"><Textarea rows={2} value={form.medications} onChange={e => set("medications", e.target.value)} placeholder="Ej. Losartán 50 mg c/12 h" /></L>
+        <L label="Alergias (fármacos, látex, anestesia, alimentos)" doubt={doubt("allergies")}><Textarea rows={2} value={form.allergies} onChange={e => set("allergies", e.target.value)} placeholder="Ej. Penicilina; niega otras" /></L>
+        <L label="Medicamentos de uso habitual" doubt={doubt("medications")}><Textarea rows={2} value={form.medications} onChange={e => set("medications", e.target.value)} placeholder="Ej. Losartán 50 mg c/12 h" /></L>
       </div>
-      <Yn label="¿Usa anticoagulantes / antiagregantes?" value={form.anticoagulants} onChange={v => set("anticoagulants", v)} />
+      <Yn label="¿Usa anticoagulantes / antiagregantes?" doubt={doubt("anticoagulants")} value={form.anticoagulants} onChange={v => set("anticoagulants", v)} />
 
-      <fieldset className="space-y-2"><legend className="text-sm font-medium text-[#3b3355]">Enfermedades y patologías</legend>
+      <fieldset data-doubtful={doubt("conditions") || undefined} className={`space-y-2 ${doubt("conditions") ? "rounded-lg bg-[#fff8e1] p-1.5 ring-2 ring-[#e0a100]" : ""}`}><legend className="text-sm font-medium text-[#3b3355]">Enfermedades y patologías{doubt("conditions") && DOUBT}</legend>
         <div className="grid gap-2 sm:grid-cols-2">{CONDITIONS.map(([id, label]) => <label key={id} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm ${form.conditions.includes(id) ? "border-[#d62839] bg-[#fff0f1] font-medium" : "border-[#dddbe6] bg-white"}`}>
           <input type="checkbox" checked={form.conditions.includes(id)} onChange={() => toggle(id)} className="size-4 accent-[#d62839]" />{label}</label>)}</div>
       </fieldset>
-      <L label="Otras enfermedades"><Textarea rows={2} value={form.otherConditions} onChange={e => set("otherConditions", e.target.value)} /></L>
+      <L label="Otras enfermedades" doubt={doubt("otherConditions")}><Textarea rows={2} value={form.otherConditions} onChange={e => set("otherConditions", e.target.value)} /></L>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <L label="Cirugías previas"><Textarea rows={2} value={form.surgeries} onChange={e => set("surgeries", e.target.value)} placeholder="Ej. Apendicectomía 2015" /></L>
-        <L label="Hospitalizaciones"><Textarea rows={2} value={form.hospitalizations} onChange={e => set("hospitalizations", e.target.value)} /></L>
+        <L label="Cirugías previas" doubt={doubt("surgeries")}><Textarea rows={2} value={form.surgeries} onChange={e => set("surgeries", e.target.value)} placeholder="Ej. Apendicectomía 2015" /></L>
+        <L label="Hospitalizaciones" doubt={doubt("hospitalizations")}><Textarea rows={2} value={form.hospitalizations} onChange={e => set("hospitalizations", e.target.value)} /></L>
       </div>
-      <L label="Reacciones previas a anestesia"><Input value={form.anesthesiaReactions} onChange={e => set("anesthesiaReactions", e.target.value)} maxLength={300} /></L>
+      <L label="Reacciones previas a anestesia" doubt={doubt("anesthesiaReactions")}><Input value={form.anesthesiaReactions} onChange={e => set("anesthesiaReactions", e.target.value)} maxLength={300} /></L>
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <L label="Embarazo / lactancia"><select value={form.pregnancy} onChange={e => set("pregnancy", e.target.value as Anamnesis["pregnancy"])} className="h-9 w-full rounded-md border border-[#dddbe6] bg-white px-2 text-sm">
+        <L label="Embarazo / lactancia" doubt={doubt("pregnancy")}><select value={form.pregnancy} onChange={e => set("pregnancy", e.target.value as Anamnesis["pregnancy"])} className="h-9 w-full rounded-md border border-[#dddbe6] bg-white px-2 text-sm">
           <option value="">Sin registrar</option><option value="no">No</option><option value="embarazada">Embarazada</option><option value="lactancia">En lactancia</option><option value="no-aplica">No aplica</option></select></L>
-        <L label="Tabaco"><Input value={form.smoking} onChange={e => set("smoking", e.target.value)} placeholder="Ej. 5 cigarrillos/día" maxLength={300} /></L>
-        <L label="Alcohol"><Input value={form.alcohol} onChange={e => set("alcohol", e.target.value)} placeholder="Ej. social" maxLength={300} /></L>
+        <L label="Tabaco" doubt={doubt("smoking")}><Input value={form.smoking} onChange={e => set("smoking", e.target.value)} placeholder="Ej. 5 cigarrillos/día" maxLength={300} /></L>
+        <L label="Alcohol" doubt={doubt("alcohol")}><Input value={form.alcohol} onChange={e => set("alcohol", e.target.value)} placeholder="Ej. social" maxLength={300} /></L>
       </div>
 
-      <div className="grid gap-2 sm:grid-cols-2"><Yn label="Bruxismo / aprieta los dientes" value={form.bruxism} onChange={v => set("bruxism", v)} /><Yn label="Sangrado de encías" value={form.gumBleeding} onChange={v => set("gumBleeding", v)} /></div>
+      <div className="grid gap-2 sm:grid-cols-2"><Yn label="Bruxismo / aprieta los dientes" doubt={doubt("bruxism")} value={form.bruxism} onChange={v => set("bruxism", v)} /><Yn label="Sangrado de encías" doubt={doubt("gumBleeding")} value={form.gumBleeding} onChange={v => set("gumBleeding", v)} /></div>
       <div className="grid gap-4 sm:grid-cols-2">
-        <L label="Última visita al dentista"><Input value={form.lastDentalVisit} onChange={e => set("lastDentalVisit", e.target.value)} placeholder="Ej. hace 1 año" maxLength={300} /></L>
-        <L label="Antecedentes odontológicos"><Textarea rows={2} value={form.dentalHistory} onChange={e => set("dentalHistory", e.target.value)} placeholder="Trauma, ortodoncia, cirugías orales, sensibilidad…" /></L>
+        <L label="Última visita al dentista" doubt={doubt("lastDentalVisit")}><Input value={form.lastDentalVisit} onChange={e => set("lastDentalVisit", e.target.value)} placeholder="Ej. hace 1 año" maxLength={300} /></L>
+        <L label="Antecedentes odontológicos" doubt={doubt("dentalHistory")}><Textarea rows={2} value={form.dentalHistory} onChange={e => set("dentalHistory", e.target.value)} placeholder="Trauma, ortodoncia, cirugías orales, sensibilidad…" /></L>
       </div>
-      <L label="Observaciones"><Textarea rows={2} value={form.observations} onChange={e => set("observations", e.target.value)} /></L>
+      <L label="Observaciones" doubt={doubt("observations")}><Textarea rows={2} value={form.observations} onChange={e => set("observations", e.target.value)} /></L>
 
       {error && <p role="alert" className="rounded-lg border border-[#e4a0a7] bg-[#fff5f5] p-2 text-sm text-[#922f3a]">{error}</p>}
       {notice && <p role="status" className="rounded-lg border border-[#b7dfc4] bg-[#f1fbf4] p-2 text-sm text-[#1d6b3a]">{notice}</p>}

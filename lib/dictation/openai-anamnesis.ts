@@ -1,5 +1,6 @@
 import { isReasoningModel, OPENAI_CORRECTION_MODEL } from "./openai-structure.ts";
 import { CONDITIONS, normalizeAnamnesis, type Anamnesis } from "../anamnesis.ts";
+import { normalizeInterview, type InterviewResult } from "../anamnesis-interview.ts";
 
 const PROMPT = `Eres asistente de un dentista chileno. Del dictado de una anamnesis médico-odontológica, extrae SOLO lo que el clínico o el paciente dijo; no inventes, no infieras ni completes. Si algo no se dijo, déjalo vacío ("").
 Corrige únicamente errores evidentes de reconocimiento de voz en términos médicos y de fármacos.
@@ -21,27 +22,51 @@ Si un dato figura solo en una evolución, agrégale la fecha entre paréntesis, 
 `,
 );
 
-export async function structureAnamnesis(source: string, apiKey: string, options: { model?: string; fetcher?: typeof fetch; fromNotes?: boolean } = {}): Promise<Anamnesis> {
+/** Entrevista grabada (dos voces, sin separación de hablantes): la IA reconoce quién es quién y solo extrae lo que el paciente afirma o confirma. */
+const INTERVIEW_PROMPT = `Eres asistente de un dentista chileno. Recibirás la transcripción automática (sin marcas de hablante) de una entrevista de anamnesis entre el DENTISTA (pregunta) y el PACIENTE (responde); puede haber un acompañante. Usa vocabulario médico y odontológico de Chile.
+1) Separa la conversación en turnos e infiere quién habla: las preguntas y explicaciones suelen ser del dentista; las respuestas sobre su salud, del paciente.
+2) Extrae SOLO lo que el paciente afirma o confirma (un "sí" a una pregunta del dentista cuenta como confirmación de lo preguntado). Lo que el dentista solo pregunta, supone o explica NO es un antecedente.
+3) Nunca inventes ni completes. Si un tema no se conversó, deja el campo vacío (""). Escribe "Niega …" solo si el paciente lo negó expresamente (p. ej. "Niega alergias", "No fuma"); "no se habló" ≠ "niega".
+4) Corrige solo errores evidentes de reconocimiento de voz en fármacos y términos médicos (p. ej. "salbutamol", "losartán", "metformina", "levotiroxina"). Conserva dosis y frecuencia tal como se dijeron (p. ej. "Losartán 50 mg cada 12 h"); no completes dosis.
+5) Marca en doubtful las claves cuyo valor es dudoso: respuesta ambigua o contradictoria, dosis o fármaco poco claro, no está claro si lo dijo el paciente, o el paciente dudó ("creo que", "no me acuerdo").
+Responde un JSON: {"turns":[{"speaker":"dentista"|"paciente","text":"..."}], "anamnesis":{...}, "doubtful":["clave", ...]}.
+anamnesis tiene estas claves:
+allergies (alergias a fármacos, látex, anestésicos, alimentos; "Niega alergias" si las negó),
+medications (fármacos de uso habitual con dosis si se dijeron; "Niega medicamentos" si lo negó), anticoagulants ("si" | "no" | ""),
+conditions (arreglo con ids de: ${CONDITIONS.map(([id, l]) => `${id}=${l}`).join("; ")}),
+otherConditions (otras enfermedades no listadas), surgeries (cirugías previas), hospitalizations, anesthesiaReactions,
+pregnancy ("no" | "embarazada" | "lactancia" | "no-aplica" | ""), smoking (tabaco: cantidad si se dijo), alcohol, bruxism ("si"|"no"|""), gumBleeding ("si"|"no"|""),
+lastDentalVisit, dentalHistory (trauma, ortodoncia, cirugías orales, extracciones, sensibilidad, molestias, motivo dental relevante), observations (lo demás relevante para la atención que dijo el paciente).
+Una enfermedad negada NO va en conditions. Una alergia a un fármaco (p. ej. salbutamol) va en allergies, no en medications.`;
+
+export async function structureInterview(transcript: string, apiKey: string, options: { model?: string; fetcher?: typeof fetch } = {}): Promise<InterviewResult> {
+  const content = await askOpenAI(INTERVIEW_PROMPT, transcript, apiKey, options, 60_000, 6000);
+  return normalizeInterview(content);
+}
+
+async function askOpenAI(system: string, source: string, apiKey: string, options: { model?: string; fetcher?: typeof fetch }, reasoningTimeout = 40_000, plainMaxTokens = 3000): Promise<unknown> {
   const fetcher = options.fetcher ?? fetch;
   const model = options.model || OPENAI_CORRECTION_MODEL;
   const response = await fetcher("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    signal: AbortSignal.timeout(isReasoningModel(model) ? 40_000 : 20_000),
+    signal: AbortSignal.timeout(isReasoningModel(model) ? reasoningTimeout : 20_000),
     body: JSON.stringify({
       model,
-      ...(isReasoningModel(model) ? { max_completion_tokens: 8000, reasoning_effort: "low" } : { temperature: 0, max_tokens: 3000 }),
+      ...(isReasoningModel(model) ? { max_completion_tokens: 8000, reasoning_effort: "low" } : { temperature: 0, max_tokens: plainMaxTokens }),
       response_format: { type: "json_object" },
-      messages: [{ role: "system", content: options.fromNotes ? NOTES_PROMPT : PROMPT }, { role: "user", content: source }],
+      messages: [{ role: "system", content: system }, { role: "user", content: source }],
     }),
   });
   if (!response.ok) throw new Error(`OpenAI respondió HTTP ${response.status}.`);
   const payload = await response.json() as { choices?: Array<{ message?: { content?: unknown } }> };
   const content = payload.choices?.[0]?.message?.content;
   if (typeof content !== "string" || !content.trim()) throw new Error("OpenAI no devolvió contenido.");
-  let parsed: unknown;
-  try { parsed = JSON.parse(content); } catch { throw new Error("La respuesta de OpenAI no tenía el formato esperado."); }
-  return normalizeAnamnesis(parsed);
+  try { return JSON.parse(content); } catch { throw new Error("La respuesta de OpenAI no tenía el formato esperado."); }
+}
+
+export async function structureAnamnesis(source: string, apiKey: string, options: { model?: string; fetcher?: typeof fetch; fromNotes?: boolean } = {}): Promise<Anamnesis> {
+  return normalizeAnamnesis(await askOpenAI(options.fromNotes ? NOTES_PROMPT : PROMPT, source, apiKey, options));
 }
 
 export type NoteForAnamnesis = { date: string; body: string };

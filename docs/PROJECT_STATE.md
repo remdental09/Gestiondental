@@ -213,6 +213,7 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 
 ## Anamnesis médico-odontológica (separada del ingreso, por ahora)
 - Botón rojo «Anamnesis» sobre las pestañas de la ficha (`components/anamnesis-dialog.tsx`): formulario (alergias, medicamentos, anticoagulantes, enfermedades por casillas, cirugías, hospitalizaciones, anestesia, embarazo, hábitos, antecedentes dentales) + dictado por audio (mismo motor que el resto) y «Ordenar en el formulario» (OpenAI, solo lo dicho, `lib/dictation/openai-anamnesis.ts`). Lo dictado completa, no borra; el clínico revisa y guarda.
+- Modo «Escuchar entrevista» (selector Dictar | Escuchar entrevista): exige marcar que el paciente autorizó la grabación; máximo 4:00 con contador (el motor corta solo). El audio va a la transcripción existente y se descarta; no se sube a R2 ni a Drive. Luna 5.6 (`structureInterview`) separa los turnos dentista/paciente, toma solo lo que el paciente afirma o confirma, deja vacío lo no conversado («niega» solo si lo negó) y marca los dudosos en ámbar. Si OpenAI falla, `localAnamnesisFromText` (`lib/anamnesis-interview.ts`) ordena con reglas y todo queda en ámbar. Nada se guarda sin «Guardar anamnesis».
 - Tabla `patient_anamnesis` (lazy, por `owner_id`), API `/api/anamnesis` (GET/PUT/POST). Pendiente: integrarla al flujo de ingreso del paciente y a la exportación/respaldo.
 
 ## Implante del vecino (corregido)
