@@ -1,5 +1,6 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import { budgetItemTotal, budgetPhases, budgetTotals, itemWhereText, type BudgetItem } from "./budget-plans.ts";
+import { DEFAULT_FORMAT, hexToRgb01, shade, tint, type BudgetFormat } from "./budget-format.ts";
 
 /**
  * PDF del presupuesto / plan de tratamiento, con formato de presupuesto clínico: cabecera de la clínica, número y hora de emisión,
@@ -21,11 +22,24 @@ export type BudgetPdfInput = {
   mode?: BudgetPdfMode;
   /** Momento de emisión; por defecto, ahora. Se muestra en hora de Chile. */
   issuedAt?: Date;
+  /** Formato propio del profesional (colores, nombre, datos, nota); por defecto, el de SpeakDent. */
+  format?: BudgetFormat;
+  /** Otros títulos del profesional (se muestran si el formato lo pide). */
+  professionalTitles?: string;
+  /** Logo de la clínica como data URL PNG o JPEG (WebP no se puede incrustar y se omite). */
+  logo?: string;
 };
 
 const PAGE_W = 595.28, PAGE_H = 841.89, M = 40, R = PAGE_W - M, FOOT = 52, BAND = 84;
-const INK = rgb(0.17, 0.16, 0.22), MUTED = rgb(0.4, 0.39, 0.47), PURPLE = rgb(0.28, 0.23, 0.43), DEEP = rgb(0.2, 0.16, 0.33);
-const LILAC = rgb(0.84, 0.81, 0.93), PALE = rgb(0.96, 0.95, 0.98), LINE = rgb(0.87, 0.86, 0.91), CORAL = rgb(0.94, 0.54, 0.37), WHITE = rgb(1, 1, 1);
+const INK = rgb(0.17, 0.16, 0.22), MUTED = rgb(0.4, 0.39, 0.47), LINE = rgb(0.87, 0.86, 0.91), WHITE = rgb(1, 1, 1);
+const asRgb = ([r, g, b]: [number, number, number]) => rgb(r, g, b);
+/** Colores del documento a partir del principal (cabecera, títulos) y el de acento (líneas y viñetas). */
+export function pdfColors(format: BudgetFormat = DEFAULT_FORMAT) {
+  return {
+    PURPLE: asRgb(hexToRgb01(format.primary)), DEEP: asRgb(shade(format.primary, 0.25)),
+    LILAC: asRgb(tint(format.primary, 0.78)), PALE: asRgb(tint(format.primary, 0.95)), CORAL: asRgb(hexToRgb01(format.accent)),
+  };
+}
 
 const money = (amount: number) => "$" + Math.round(amount).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
 const CP1252_EXTRA = new Set(["–", "—", "‘", "’", "“", "”", "•", "…", "€"]);
@@ -68,11 +82,22 @@ function wrap(text: string, font: PDFFont, size: number, width: number): string[
 }
 
 /** Columna «Dónde se trabaja» del PDF: zona, piezas en FDI y chilena, y el detalle libre. */
-export function itemZoneText(item: BudgetItem): string {
-  return itemWhereText(item) || "—";
+export function itemZoneText(item: BudgetItem, showChile = true): string {
+  return itemWhereText(item, { chile: showChile }) || "—";
 }
 
 export async function buildBudgetPdf(input: BudgetPdfInput): Promise<Uint8Array> {
+  const format = input.format ?? DEFAULT_FORMAT;
+  const { PURPLE, DEEP, LILAC, PALE, CORAL } = pdfColors(format);
+  const nameInHeader = format.namePosition !== "firma", nameInSignature = format.namePosition !== "cabecera";
+  // Los títulos libres van al final y acotados: si algo debe recortarse, nunca son el RUT ni el registro elegidos.
+  const shortTitles = (value: string) => { const t = value.trim().replace(/\s+/g, " "); return t.length > 90 ? t.slice(0, 89).trimEnd() + "…" : t; };
+  const credentialParts = [
+    format.showRut && input.professionalDocument ? `RUT ${input.professionalDocument}` : "",
+    format.showSpecialty ? input.professionalSpecialty : "",
+    format.registry ? `Reg. ${format.registry}` : "",
+    format.showTitles && input.professionalTitles ? shortTitles(input.professionalTitles) : "",
+  ].filter((part): part is string => Boolean(part && part.trim()));
   const mode = input.mode ?? "detailed";
   const priced = mode === "detailed";
   const issued = issuedParts(input.issuedAt ?? new Date());
@@ -104,10 +129,37 @@ export async function buildBudgetPdf(input: BudgetPdfInput): Promise<Uint8Array>
   newPage();
   page.drawRectangle({ x: 0, y: PAGE_H - BAND, width: PAGE_W, height: BAND, color: PURPLE });
   page.drawRectangle({ x: 0, y: PAGE_H - BAND - 3, width: PAGE_W, height: 3, color: CORAL });
-  y = PAGE_H - 36; text(clinic, M, 19, bold, WHITE);
-  const sub = [input.professionalName, input.professionalDocument ? `RUT ${input.professionalDocument}` : "", input.professionalSpecialty].filter(Boolean).join(" · ");
-  if (sub) { y -= 17; text(sub, M, 9.5, regular, LILAC); }
-  if (input.contactEmail) { y -= 13; text(input.contactEmail, M, 8.5, regular, LILAC); }
+  // Logo de la clínica en un recuadro blanco a la izquierda de la cabecera (si el formato lo pide y es PNG/JPEG).
+  let headerX = M;
+  if (format.showLogo && input.logo) {
+    const match = /^data:image\/(png|jpeg);base64,([A-Za-z0-9+/=]+)$/.exec(input.logo);
+    if (match) {
+      try {
+        const bytes = Uint8Array.from(atob(match[2]), ch => ch.charCodeAt(0));
+        const image = match[1] === "png" ? await pdf.embedPng(bytes) : await pdf.embedJpg(bytes);
+        const box = 56, scale = Math.min((box - 8) / image.width, (box - 8) / image.height);
+        const w = image.width * scale, h = image.height * scale;
+        page.drawRectangle({ x: M, y: PAGE_H - BAND + (BAND - box) / 2, width: box, height: box, color: WHITE });
+        page.drawImage(image, { x: M + (box - w) / 2, y: PAGE_H - BAND + (BAND - h) / 2, width: w, height: h });
+        headerX = M + box + 14;
+      } catch { /* logo dañado: se omite sin impedir el presupuesto */ }
+    }
+  }
+  // El nombre de la clínica se achica (hasta 13 pt) para no montarse sobre el título y el número de la derecha.
+  const clinicW = R - 150 - headerX;
+  let clinicSize = 19;
+  while (clinicSize > 13 && bold.widthOfTextAtSize(pdfSafe(clinic), clinicSize) > clinicW) clinicSize -= 0.5;
+  const clinicWrapped = wrap(clinic, bold, clinicSize, clinicW);
+  let clinicLine = clinicWrapped[0];
+  if (clinicWrapped.length > 1) {
+    clinicLine = clinicLine.trimEnd();
+    while (clinicLine.length > 1 && bold.widthOfTextAtSize(clinicLine + "…", clinicSize) > clinicW) clinicLine = clinicLine.slice(0, -1).trimEnd();
+    clinicLine += "…";
+  }
+  y = PAGE_H - 36; text(clinicLine, headerX, clinicSize, bold, WHITE);
+  const sub = [nameInHeader ? input.professionalName : "", ...(nameInHeader ? credentialParts : [])].filter(Boolean).join(" · ");
+  if (sub) { y -= 17; for (const [i, line] of wrap(sub, regular, 9.5, R - headerX - 170).slice(0, 2).entries()) { if (i) y -= 11; text(line, headerX, 9.5, regular, LILAC); } }
+  if (input.contactEmail) { y -= 13; text(input.contactEmail, headerX, 8.5, regular, LILAC); }
   y = PAGE_H - 33; right(docTitle.toUpperCase(), R, 8, bold, LILAC);
   if (number) { y -= 19; right(number, R, 17, bold, WHITE); }
   y -= 14; right(`Emitido el ${issued.day} a las ${issued.time}`, R, 8.5, regular, LILAC);
@@ -160,7 +212,7 @@ export async function buildBudgetPdf(input: BudgetPdfInput): Promise<Uint8Array>
       for (const item of phase.items) {
         counter++;
         const nameLines = wrap(item.label, regular, 10, cols.nameW);
-        const zoneLines = wrap(itemZoneText(item), regular, 9, cols.zoneW);
+        const zoneLines = wrap(itemZoneText(item, format.showChile), regular, 9, cols.zoneW);
         const rows = Math.max(nameLines.length, zoneLines.length);
         ensure(rows * 13 + 16, header);
         y -= 19;
@@ -200,26 +252,48 @@ export async function buildBudgetPdf(input: BudgetPdfInput): Promise<Uint8Array>
     }
   }
 
-  // ── Condiciones y observaciones
-  const notes = [
-    ...(priced || mode === "total" ? ["Valores expresados en pesos chilenos (CLP)."] : []),
-    "Presupuesto informativo, sujeto a evaluación y confirmación del profesional tratante.",
-    "El plan puede modificarse según la evolución clínica y la respuesta del paciente al tratamiento.",
-  ];
-  ensure(40 + notes.length * 13 + 100); // condiciones y firma siempre juntas, nunca la firma sola en otra hoja
-  y -= 26; text("CONDICIONES Y OBSERVACIONES", M, 8, bold, PURPLE); y -= 5; rule(M, R, 0.8, LILAC);
-  for (const note of notes) for (const [i, line] of wrap(note, regular, 8.5, R - M - 12).entries()) { y -= 12.5; if (i === 0) text("•", M + 2, 8.5, bold, CORAL); text(line, M + 12, 8.5, regular, MUTED); }
-
-  // ── Firma del profesional
-  ensure(125);
-  y -= 40;
-  const signTop = y;
+  // ── Alto de la firma (se calcula antes para reservar el espacio junto a las condiciones)
   const colW = 224;
   const sx = R - colW + 16;
+  // Credenciales en líneas que no cortan un dato a la mitad (cada «RUT …» o «Reg. …» queda entero); un dato más ancho que la columna se parte.
+  const credentialLines: string[] = [];
+  for (const part of credentialParts.flatMap(item => wrap(item, regular, 8, R - sx))) {
+    const last = credentialLines[credentialLines.length - 1];
+    if (last && regular.widthOfTextAtSize(last + " · " + part, 8) <= R - sx) credentialLines[credentialLines.length - 1] = last + " · " + part;
+    else credentialLines.push(part);
+  }
+  credentialLines.splice(4);
+  const signH = 40 + 62 + 13 + (nameInSignature ? 12 * credentialLines.length : 0) + 8;
+
+  // ── Condiciones y observaciones
+  const notes = [
+    ...(format.keepDefaultNotes ? [
+      ...(priced || mode === "total" ? ["Valores expresados en pesos chilenos (CLP)."] : []),
+      "Presupuesto informativo, sujeto a evaluación y confirmación del profesional tratante.",
+      "El plan puede modificarse según la evolución clínica y la respuesta del paciente al tratamiento.",
+    ] : []),
+    ...format.note.split("\n").map(line => line.trim()).filter(Boolean),
+  ];
+  const noteLines = notes.map(note => wrap(note, regular, 8.5, R - M - 12));
+  const noteRows = noteLines.reduce((sum, lines) => sum + lines.length, 0);
+  if (notes.length) {
+    ensure(31 + noteRows * 12.5 + signH); // condiciones y firma siempre juntas, nunca la firma sola en otra hoja
+    y -= 26; text("CONDICIONES Y OBSERVACIONES", M, 8, bold, PURPLE); y -= 5; rule(M, R, 0.8, LILAC);
+    for (const lines of noteLines) for (const [i, line] of lines.entries()) { y -= 12.5; if (i === 0) text("•", M + 2, 8.5, bold, CORAL); text(line, M + 12, 8.5, regular, MUTED); }
+  }
+
+  // ── Firma del profesional
+  ensure(signH);
+  y -= 40;
+  const signTop = y;
   y = signTop - 62; rule(sx, R);
-  y -= 13; page.drawText(pdfSafe(input.professionalName || "Profesional tratante"), { x: sx + ((R - sx) - bold.widthOfTextAtSize(pdfSafe(input.professionalName || "Profesional tratante"), 9.5)) / 2, y, size: 9.5, font: bold, color: INK });
-  const credentials = [input.professionalSpecialty, input.professionalDocument ? `RUT ${input.professionalDocument}` : ""].filter(Boolean).join(" · ");
-  if (credentials) { y -= 12; const safe = pdfSafe(credentials); page.drawText(safe, { x: sx + ((R - sx) - regular.widthOfTextAtSize(safe, 8)) / 2, y, size: 8, font: regular, color: MUTED }); }
+  const signName = pdfSafe(nameInSignature && input.professionalName ? input.professionalName : nameInSignature ? "Profesional tratante" : "Firma del profesional tratante");
+  let signSize = 9.5;
+  while (signSize > 7 && bold.widthOfTextAtSize(signName, signSize) > R - sx) signSize -= 0.5;
+  y -= 13; page.drawText(signName, { x: sx + Math.max(0, ((R - sx) - bold.widthOfTextAtSize(signName, signSize)) / 2), y, size: signSize, font: bold, color: INK });
+  if (nameInSignature) for (const line of credentialLines) {
+    y -= 12; page.drawText(line, { x: sx + ((R - sx) - regular.widthOfTextAtSize(line, 8)) / 2, y, size: 8, font: regular, color: MUTED });
+  }
   y = signTop - 102;
 
   // ── Pie de cada página
@@ -229,7 +303,7 @@ export async function buildBudgetPdf(input: BudgetPdfInput): Promise<Uint8Array>
       const safe = pdfSafe(value);
       p.drawText(safe, { x: align === "right" ? x - font.widthOfTextAtSize(safe, size) : x, y: yy, size, font, color });
     };
-    foot(`${clinic}${input.professionalName ? " · " + input.professionalName : ""}`, M, 8, bold);
+    foot(`${clinic}${input.professionalName && !clinic.includes(input.professionalName) ? " · " + input.professionalName : ""}`, M, 8, bold);
     foot(`Página ${index + 1} de ${pages.length}`, R, 8, regular, MUTED, "right");
     foot(`${docTitle}${number ? " " + number : ""} · Emitido el ${issued.day} a las ${issued.time}`, M, 7.5, regular, MUTED, "left", FOOT - 25);
   });
