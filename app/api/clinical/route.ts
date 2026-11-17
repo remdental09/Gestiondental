@@ -3,7 +3,7 @@ import { ALL_TOOTH_STATUSES, applyStatusToChart, isLesionStatus, pruneChartExtra
 import { isCariesDepth } from "@/lib/caries";
 import { env } from "cloudflare:workers";
 import { getChatGPTUser, personalIdOf, spaceRoleOf, type ChatGPTUser } from "@/app/chatgpt-auth";
-import { authorOf, authorsOf, ensureTeamTables, evolutionAuthors, type TeamDb } from "@/app/clinic-team-db";
+import { authorOf, authorsOf, budgetAuthors, budgetAuthorsOf, ensureTeamTables, evolutionAuthors, type TeamDb } from "@/app/clinic-team-db";
 import { canChangeEvolution, canManageTeam, evolutionAuthor } from "@/lib/clinic-team";
 import { loadProfile } from "@/app/clinician-profile-db";
 import { touchAppUser } from "@/app/app-users-db";
@@ -58,21 +58,30 @@ const validEmail = (value: string) => !value || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.tes
 const protect = async () => (await getChatGPTUser())?.userId ?? null;
 const teamDb = () => (env as unknown as { DB?: TeamDb }).DB;
 
-/**
- * Sentencia que registra al autor de la evolución recién insertada. Va en el MISMO batch que el INSERT
- * (usa last_insert_rowid()): si no se puede registrar el autor, tampoco se guarda la evolución, así una
- * evolución de un colega nunca queda atribuida por error al titular.
- */
-async function authorStatement(db: ReturnType<typeof getDb>, spaceId: string) {
+/** Autor (id personal, correo y nombre) de lo que se guarda ahora en el espacio. */
+async function currentAuthor() {
   const viewer = await getChatGPTUser();
   const raw = teamDb();
   if (!viewer) throw new Error("Sin sesión para registrar el autor.");
   if (raw) await ensureTeamTables(raw);
   const personalId = personalIdOf(viewer);
   const profile = await loadProfile(personalId).catch(() => null);
-  const name = (profile ? displayName(profile) : viewer.displayName).slice(0, 120);
-  // Se devuelve envuelto: una función async que devolviera la consulta la ejecutaría al resolverse.
-  return { statement: db.insert(evolutionAuthors).values({ ownerId: spaceId, evolutionId: sql`last_insert_rowid()`, authorId: personalId, authorEmail: viewer.email, authorName: name, recordedAt: new Date().toISOString() }) };
+  return { authorId: personalId, authorEmail: viewer.email, authorName: (profile ? displayName(profile) : viewer.displayName).slice(0, 120), recordedAt: new Date().toISOString() };
+}
+
+/**
+ * Sentencia que registra al autor de la evolución recién insertada. Va en el MISMO batch que el INSERT
+ * (usa last_insert_rowid()): si no se puede registrar el autor, tampoco se guarda la evolución, así una
+ * evolución de un colega nunca queda atribuida por error al titular.
+ * Se devuelve envuelto: una función async que devolviera la consulta la ejecutaría al resolverse.
+ */
+async function authorStatement(db: ReturnType<typeof getDb>, spaceId: string) {
+  return { statement: db.insert(evolutionAuthors).values({ ownerId: spaceId, evolutionId: sql`last_insert_rowid()`, ...await currentAuthor() }) };
+}
+
+/** Igual que `authorStatement`, para el presupuesto recién creado: su autor es quien firma el PDF. */
+async function budgetAuthorStatement(db: ReturnType<typeof getDb>, spaceId: string) {
+  return { statement: db.insert(budgetAuthors).values({ ownerId: spaceId, budgetId: sql`last_insert_rowid()`, ...await currentAuthor() }) };
 }
 
 /** Solo quien escribió una evolución la edita, anula o elimina. Las antiguas, sin autor registrado, son del titular del espacio. */
@@ -271,7 +280,14 @@ export async function GET() {
     return Response.json({
       patients: ps.map(p => ({ ...p, rut: p.rut || "", address: addresses.get(p.id) ?? emptyAddress() })),
       notes: ns.map(n => ({ id: n.id, patientId: n.patientId, date: displayDate(n.clinicalDate), clinicalDate: n.clinicalDate, recordedAt: n.recordedAt, title: n.title, body: n.body, sourceDocumentId: n.sourceDocumentId, backupStatus: n.backupStatus, diagnoses: diagnosesByNote.get(n.id) ?? [], ...annulView(n), ...authorView(n.id) })),
-      budgets: bs.map(budgetView),
+      budgets: await (async () => {
+        // Quién armó cada presupuesto (en una clínica, el colega que lo estableció); los antiguos, del titular.
+        const budgetAuthorMap = authorDb ? await budgetAuthorsOf(authorDb, ownerId).catch(() => new Map()) : new Map();
+        return bs.map(b => {
+          const row = budgetAuthorMap.get(b.id);
+          return { ...budgetView(b), authorName: row?.author_name || "", mine: (row?.author_id || ownerId) === personalId };
+        });
+      })(),
       appointments: as.map(a => ({ id: a.id, patientId: a.patientId, day: a.day.split("-").reverse().join("-"), time: a.time, reason: a.reason })),
       payments: pays.map(paymentView),
       calendarEvents: [...ces.filter(e => e.status !== "cancelled").map(e => ({ id: e.id, title: e.title, startAt: e.startAt, endAt: e.endAt, sourceTimeZone: e.sourceTimeZone, htmlLink: e.htmlLink, status: e.status, allDay: e.allDay, patientId: e.patientId })), ...snapshot.events],
@@ -587,7 +603,7 @@ export async function POST(request: Request) {
       // La fecha de la atención dictada (hoy o pasada) es la del presupuesto.
       const budgetDate = string(input.clinicalDate, 10);
       const createdAt = /^\d{4}-\d{2}-\d{2}$/.test(budgetDate) && !Number.isNaN(Date.parse(budgetDate)) && budgetDate <= t.slice(0, 10) ? `${budgetDate}T12:00:00.000Z` : t;
-      const [b] = await db.insert(budgets).values({ ownerId, patientId, title, items: itemsData, status: "Borrador", createdAt }).returning();
+      const [[b]] = await db.batch([db.insert(budgets).values({ ownerId, patientId, title, items: itemsData, status: "Borrador", createdAt }).returning(), (await budgetAuthorStatement(db, ownerId)).statement]);
       return Response.json({ budget: budgetView(b) }, { status: 201 });
     }
     if (action === "updateBudget") {

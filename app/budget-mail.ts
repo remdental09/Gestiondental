@@ -1,4 +1,5 @@
 import { loadProfile } from "@/app/clinician-profile-db";
+import { budgetAuthorOf, type TeamDb } from "@/app/clinic-team-db";
 import { getSender, mailDb, ensureMailTables } from "@/app/appointment-mail-db";
 import { sendMailWithSender } from "@/app/drive-oauth";
 import { budgetEmail, buildRawMessage, isValidEmail } from "@/lib/appointment-mail";
@@ -25,9 +26,13 @@ async function load(ownerId: string, budgetId: number) {
 }
 
 /** PDF del presupuesto con los datos del profesional, la clínica y el paciente; hora de emisión en hora de Chile. */
-/** `professionalId`: quien emite el presupuesto (su nombre, RUT y especialidad van arriba); por omisión, el titular del espacio. */
-export async function renderBudgetPdf(ownerId: string, budgetId: number, mode: BudgetPdfMode, professionalId: string = ownerId) {
+/**
+ * Arriba van nombre, especialidad y RUT de quien ARMÓ el presupuesto (en una clínica, el colega que lo estableció),
+ * lo descargue o envíe quien sea. Los presupuestos sin autor registrado son del titular del espacio.
+ */
+export async function renderBudgetPdf(ownerId: string, budgetId: number, mode: BudgetPdfMode) {
   const { budget, patient } = await load(ownerId, budgetId);
+  const professionalId = (await budgetAuthorOf(mailDb() as unknown as TeamDb, ownerId, budgetId).catch(() => null)) || ownerId;
   const data = decodeBudgetData(budget.items);
   const [profile, sender, space] = await Promise.all([
     loadProfile(professionalId).catch(() => null), getSender(ownerId).catch(() => null),
@@ -60,9 +65,9 @@ export async function previewBudgetMail(ownerId: string, budgetId: number) {
 }
 
 /** Genera el PDF del presupuesto y lo envía de inmediato al correo registrado del paciente. */
-export async function sendBudgetPdf(ownerId: string, budgetId: number, mode: BudgetPdfMode, professionalId: string = ownerId) {
+export async function sendBudgetPdf(ownerId: string, budgetId: number, mode: BudgetPdfMode) {
   const { email, sender } = await mailTarget(ownerId, budgetId);
-  const pdf = await renderBudgetPdf(ownerId, budgetId, mode, professionalId);
+  const pdf = await renderBudgetPdf(ownerId, budgetId, mode);
   const clinicName = pdf.clinicName;
   const mail = budgetEmail({ patientName: pdf.patient.name, clinicName, professionalName: pdf.profile ? displayName(pdf.profile) : "", title: pdf.title, isAlternative: pdf.isAlternative });
   await sendMailWithSender(sender, buildRawMessage({

@@ -19,6 +19,9 @@ export type BudgetPlan = {
   date: string;
   isAlternative: boolean;
   parentBudgetId: number | null;
+  /** Quién lo armó; en una clínica puede ser el colega (p. ej. el ortodoncista). `mine: false` = lo armó otro profesional. */
+  authorName?: string;
+  mine?: boolean;
 };
 
 export type BudgetPaymentEntry = {
@@ -184,7 +187,7 @@ export function BudgetCard({
         </div>
         {parentTitle && <p className="mt-1 text-sm text-[#6b6a7c]">Alternativa de «{parentTitle}»</p>}
         {patientName && <p className="mt-1 text-sm text-[#6b6a7c]">{patientName}</p>}
-        <p className="mt-1 text-xs text-[#8b8ca3]">{budget.date} · {budget.status}</p>
+        <p className="mt-1 text-xs text-[#8b8ca3]">{budget.date} · {budget.status}{budget.mine === false && budget.authorName ? ` · Presupuesto de ${budget.authorName}` : ""}</p>
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-semibold text-[#473a6d]">{money(totals.total)}</span>

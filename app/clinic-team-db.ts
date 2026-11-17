@@ -11,6 +11,16 @@ export const evolutionAuthors = sqliteTable("evolution_authors", {
   recordedAt: text("recorded_at").notNull(),
 }, table => [primaryKey({ columns: [table.ownerId, table.evolutionId] })]);
 
+/** Quién armó cada presupuesto: su nombre, especialidad y RUT van en el PDF, lo envíe quien lo envíe. */
+export const budgetAuthors = sqliteTable("budget_authors", {
+  ownerId: text("owner_id").notNull(),
+  budgetId: integer("budget_id").notNull(),
+  authorId: text("author_id").notNull(),
+  authorEmail: text("author_email").notNull(),
+  authorName: text("author_name").notNull().default(""),
+  recordedAt: text("recorded_at").notNull(),
+}, table => [primaryKey({ columns: [table.ownerId, table.budgetId] })]);
+
 /**
  * Tabla `clinic_members`: quién pertenece a qué clínica. `clinic_id` es el owner_id del titular, que es
  * también la partición de sus fichas. Se crea sola la primera vez (mismo patrón que las demás tablas nuevas),
@@ -39,6 +49,10 @@ export async function ensureTeamTables(db: TeamDb) {
   await db.prepare(
     "CREATE TABLE IF NOT EXISTS evolution_authors (owner_id TEXT NOT NULL, evolution_id INTEGER NOT NULL, author_id TEXT NOT NULL, " +
     "author_email TEXT NOT NULL, author_name TEXT NOT NULL DEFAULT '', recorded_at TEXT NOT NULL, PRIMARY KEY (owner_id, evolution_id))"
+  ).run();
+  await db.prepare(
+    "CREATE TABLE IF NOT EXISTS budget_authors (owner_id TEXT NOT NULL, budget_id INTEGER NOT NULL, author_id TEXT NOT NULL, " +
+    "author_email TEXT NOT NULL, author_name TEXT NOT NULL DEFAULT '', recorded_at TEXT NOT NULL, PRIMARY KEY (owner_id, budget_id))"
   ).run();
   ready = true;
 }
@@ -129,5 +143,20 @@ export async function authorsOf(db: TeamDb, spaceId: string): Promise<Map<number
 export async function authorOf(db: TeamDb, spaceId: string, evolutionId: number): Promise<string | null> {
   await ensureTeamTables(db);
   const row = await db.prepare("SELECT author_id FROM evolution_authors WHERE owner_id = ? AND evolution_id = ?").bind(spaceId, evolutionId).first<{ author_id: string }>();
+  return row?.author_id ?? null;
+}
+
+export type BudgetAuthorRow = { budget_id: number; author_id: string; author_email: string; author_name: string };
+
+export async function budgetAuthorsOf(db: TeamDb, spaceId: string): Promise<Map<number, BudgetAuthorRow>> {
+  await ensureTeamTables(db);
+  const { results } = await db.prepare("SELECT budget_id, author_id, author_email, author_name FROM budget_authors WHERE owner_id = ?").bind(spaceId).all<BudgetAuthorRow>();
+  return new Map(results.map(row => [row.budget_id, row]));
+}
+
+/** Autor del presupuesto; los anteriores a este registro son del titular del espacio. */
+export async function budgetAuthorOf(db: TeamDb, spaceId: string, budgetId: number): Promise<string | null> {
+  await ensureTeamTables(db);
+  const row = await db.prepare("SELECT author_id FROM budget_authors WHERE owner_id = ? AND budget_id = ?").bind(spaceId, budgetId).first<{ author_id: string }>();
   return row?.author_id ?? null;
 }
