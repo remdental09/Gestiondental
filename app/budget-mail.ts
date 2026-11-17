@@ -32,7 +32,10 @@ async function load(ownerId: string, budgetId: number) {
  */
 export async function renderBudgetPdf(ownerId: string, budgetId: number, mode: BudgetPdfMode) {
   const { budget, patient } = await load(ownerId, budgetId);
-  const professionalId = (await budgetAuthorOf(mailDb() as unknown as TeamDb, ownerId, budgetId).catch(() => null)) || ownerId;
+  // Solo una fila ausente significa «titular»; si la lectura falla, mejor avisar que firmar con el profesional equivocado.
+  const authorDb = mailDb();
+  const author = authorDb ? await budgetAuthorOf(authorDb as unknown as TeamDb, ownerId, budgetId).catch(() => { throw new Error("No pude confirmar qué profesional armó este presupuesto. Intenta de nuevo en un momento."); }) : null;
+  const professionalId = author || ownerId;
   const data = decodeBudgetData(budget.items);
   const [profile, sender, space] = await Promise.all([
     loadProfile(professionalId).catch(() => null), getSender(ownerId).catch(() => null),

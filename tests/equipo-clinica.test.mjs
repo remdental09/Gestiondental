@@ -187,7 +187,8 @@ test("presupuesto: queda a nombre de quien lo armó (p. ej. el ortodoncista invi
   assert.ok(create.includes("db.batch([db.insert(budgets)") && create.includes("(await budgetAuthorStatement(db, ownerId)).statement]"), "autor en el mismo batch que el presupuesto");
   assert.ok(route.includes("budgetId: sql`last_insert_rowid()`"));
   const mail = read("../app/budget-mail.ts");
-  assert.ok(mail.includes("const professionalId = (await budgetAuthorOf(") && mail.includes("|| ownerId;"), "PDF con el autor; los antiguos, del titular");
+  assert.ok(mail.includes("await budgetAuthorOf(") && mail.includes("const professionalId = author || ownerId;"), "PDF con el autor; los antiguos, del titular");
+  assert.ok(mail.includes("No pude confirmar qué profesional armó este presupuesto"), "si la lectura falla, no firma con otro profesional");
   for (const path of ["../app/api/presupuesto/pdf/route.ts", "../app/api/presupuesto/enviar/route.ts"]) assert.ok(!read(path).includes("personalIdOf"), `${path}: no usa a quien descarga o envía`);
   assert.ok(read("../components/budget-plan.tsx").includes("Presupuesto de ${budget.authorName}"));
 });
