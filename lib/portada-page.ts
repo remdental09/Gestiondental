@@ -74,6 +74,6 @@ ${error ? `<p class="error" role="alert">${escape(error)}</p>` : ""}
 <ul><li>Dictado clínico que propone y tú confirmas</li><li>Odontograma con nomenclatura FDI y chilena</li><li>Respaldo en tu propio Google Drive</li></ul>
 </section>
 <p class="city">Hecho en <b>Santiago de Chile</b></p>
-<footer><a href="/acerca">Acerca</a> · <a href="/privacidad">Privacidad</a></footer>
+<footer><a href="/acerca">Acerca</a> · <a href="/privacidad">Privacidad</a> · <a href="/terminos">Términos</a></footer>
 </main></body></html>`;
 }
