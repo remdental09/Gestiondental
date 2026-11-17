@@ -155,7 +155,6 @@ function drawJaw(canvas: HTMLCanvasElement, jaw: Jaw, face: ArchFace, geo: Geome
       ctx.beginPath(); ctx.moveTo(xs[k], y0); ctx.lineTo(xs[k], y1); ctx.strokeStyle = "rgba(13,10,22,.55)"; ctx.lineWidth = 4.4; ctx.stroke();
       ctx.beginPath(); ctx.moveTo(xs[k], y0); ctx.lineTo(xs[k], y1); ctx.strokeStyle = color; ctx.lineWidth = 2.4; ctx.stroke();
       for (let m = 1; m < site.depth; m++) { ctx.beginPath(); ctx.moveTo(xs[k] - 2.4, y0 + m * PX_PER_MM); ctx.lineTo(xs[k] + 2.4, y0 + m * PX_PER_MM); ctx.strokeStyle = "rgba(13,10,22,.7)"; ctx.lineWidth = 0.9; ctx.stroke(); }
-      if (site.suppuration) { ctx.beginPath(); ctx.arc(xs[k] + 5, y1 - 2, 2.6, 0, 6.2832); ctx.fillStyle = "#f5d142"; ctx.fill(); }
     });
   });
 
@@ -226,8 +225,8 @@ function ArchRow({ jaw, face, geo, view, images, gumOpacity, selected, teeth, on
         const y = view.gumY[Math.max(0, Math.min(view.gumY.length - 1, Math.round(xs[k])))] - (solo ? 9 : 14);
         const tone = depthTone(site.depth);
         return <span key={`${slot.tooth}-${k}`} aria-hidden="true" title={!site.measured ? "Valor normal por defecto (sin medir)" : `${site.depth} mm${site.bleeding ? ", sangrado" : ""}${site.suppuration ? ", supuración" : ""}`}
-          className={`pointer-events-none absolute flex -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border bg-[#130f1e]/90 font-bold leading-none ${solo ? "size-7 text-sm" : "size-[18px] text-[10px]"} ${TONE_STYLE[tone]} ${site.measured ? "" : "opacity-55"}`}
-          style={{ left: pctX(xs[k]), top: pctY(y) }}>{site.depth ?? ""}{site.bleeding && <i className="absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-[#ff4057]" />}</span>;
+          className={`pointer-events-none absolute flex -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border bg-[#130f1e]/90 font-bold leading-none ${solo ? "size-5 text-[10px]" : "size-[13px] text-[7px]"} ${TONE_STYLE[tone]} ${site.measured ? "" : "opacity-55"}`}
+          style={{ left: pctX(xs[k]), top: pctY(y) }}>{site.depth ?? ""}</span>;
       });
     })}
   </div>;
@@ -291,7 +290,7 @@ export function PerioArch({ teeth, toothStatuses, selected, onSelect, onOpen, re
       </div>
     </div>
     <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-[#615f73]">
-      <span className="text-emerald-800">0–3 mm</span><span className="text-amber-900">4–5 mm</span><span className="text-rose-800">≥6 mm</span><span>punto rojo y gota de sangre: sangrado · punto amarillo y pus: supuración (el fluido sale del margen gingival del sitio; en la pieza ampliada se ve más grande) · números tenues: valor normal por defecto, sin medir</span>
+      <span className="text-emerald-800">0–3 mm</span><span className="text-amber-900">4–5 mm</span><span className="text-rose-800">≥6 mm</span><span>gota de sangre: sangrado · pus cremoso: supuración (el fluido sale del margen gingival del sitio; en la pieza ampliada se ve más grande) · números tenues: valor normal por defecto, sin medir</span>
       <span>La cresta ósea es una estimación (nivel de inserción; 2 mm bajo la UAC si está sano); la altura real se confirma con radiografía. Un clic selecciona la pieza; doble clic la abre en grande.</span>
     </div>
   </div>;
