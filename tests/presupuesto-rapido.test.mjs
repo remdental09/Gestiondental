@@ -105,3 +105,12 @@ test("cara dicha después de la pieza se suma al tratamiento", () => {
   assert.equal(rows.length, 1);
   assert.equal(rows[0].code, parseQuickBudget("36 resina ocluso distal").rows[0].code);
 });
+
+test("implante propone cirugía y corona sobre implante; sin corona solo la cirugía", () => {
+  const rows = parseQuickBudget("implante en la 15 y 14").rows;
+  assert.deepEqual(rows.map((r) => `${r.teeth[0]}:${r.code}`).sort(), ["14:5011001", "14:5011046", "15:5011001", "15:5011046"]);
+  assert.equal(rows[0].label.endsWith(" en la"), false);
+  assert.deepEqual(parseQuickBudget("36 implante sin corona").rows.map((r) => r.code), ["5011001"]);
+  assert.deepEqual(parseQuickBudget("36 implante corona atornillada").rows.map((r) => r.code), ["5011001", "5011045"]);
+  assert.equal(parseQuickBudget("36 retiro de implante").rows.some((r) => r.code === "5011046"), false);
+});
