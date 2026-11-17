@@ -43,19 +43,21 @@ export function chileToFdiTooth(token: string | number): number | null {
 
 const unique = (teeth: number[]) => [...new Set(teeth)].sort((a, b) => a - b);
 
-/** Lee piezas en FDI («3.6, 4.6», «36 46») o en numeración chilena («30, 19», «C, H»). Ignora lo que no es pieza. */
+/**
+ * Lee piezas en FDI («3.6, 4.6», «36 46», «1.4,1.5», «1,4») o en numeración chilena («30, 19», «5,4,30»; temporales
+ * con letra MAYÚSCULA «C, H», para no confundir las palabras «a», «e», «o» con piezas). Ignora lo que no es pieza.
+ */
 export function parseTeethInput(text: string, numbering: ToothNumbering): number[] {
+  const found: number[] = [];
   if (numbering === "chile") {
-    const found: number[] = [];
-    for (const match of text.toUpperCase().matchAll(/(?<![\w.,$])(\d{1,2}|[A-T])(?![\w.,]?\d)/g)) {
-      const tooth = chileToFdiTooth(match[1]);
+    for (const match of text.matchAll(/(?<![\d.])(\d{1,2})(?!\d)|(?<![A-Za-zÀ-ÿ])([A-T])(?![A-Za-zÀ-ÿ])/g)) {
+      const tooth = chileToFdiTooth(match[1] ?? match[2]);
       if (tooth) found.push(tooth);
     }
     return unique(found);
   }
-  const found: number[] = [];
-  for (const match of text.matchAll(/(?<![\d.,$])([1-8])[.,]?([1-8])(?![\d.,]?\d)/g)) {
-    const tooth = Number(match[1]) * 10 + Number(match[2]);
+  for (const match of text.matchAll(/(?<![\d.])(?:([1-8])[.,]([1-8])|([1-8])([1-8]))(?!\d)/g)) {
+    const tooth = Number(match[1] ?? match[3]) * 10 + Number(match[2] ?? match[4]);
     if (isFdiTooth(tooth)) found.push(tooth);
   }
   return unique(found);
@@ -71,12 +73,29 @@ export function teethBothText(teeth: number[]): string {
 }
 
 /**
- * Piezas que podrían estar escritas en el nombre de la prestación sin punto («implante 14 15 y 12»).
- * Son ambiguas (FDI 1.4 o Chile 14 = FDI 2.6), así que se devuelven las dos lecturas para que el dentista elija.
+ * Piezas que podrían estar escritas en el nombre de la prestación. Las con punto («3.6») son FDI sin duda; los números
+ * sueltos («implante 14 15 y 12») son ambiguos (FDI 1.4 o Chile 14 = FDI 2.6), así que se dan las dos lecturas para que
+ * el dentista elija. Se ignoran cantidades («2 caras», «24 meses», «10%»), fechas y fracciones («3/4»), y los números
+ * de un dígito salvo que digan «pieza»/«diente».
  */
 export function teethHintsFromLabel(label: string): { fdi: number[]; chile: number[] } {
-  if (/\d\.\d/.test(label)) return { fdi: parseTeethInput(label, "fdi"), chile: [] };
-  const bare = [...label.matchAll(/(?<![\d.,$])(\d{1,2})(?![\d.,]?\d|\s*%)/g)].map(m => m[1]);
-  if (!bare.length) return { fdi: [], chile: [] };
-  return { fdi: parseTeethInput(bare.join(" "), "fdi"), chile: parseTeethInput(bare.join(" "), "chile") };
+  const dotted: number[] = [];
+  for (const match of label.matchAll(/(?<![\d.,$])([1-8])\.([1-8])(?![\d.,]?\d)/g)) {
+    const tooth = Number(match[1]) * 10 + Number(match[2]);
+    if (isFdiTooth(tooth)) dotted.push(tooth);
+  }
+  const rest = label
+    .replace(/(?<![\d.,$])[1-8]\.[1-8](?![\d.,]?\d)/g, " ")
+    .replace(/\d+\s*\/\s*\d+(\s*\/\s*\d+)?/g, " ")
+    .replace(/\$\s*[\d.]+|\d{1,3}(\.\d{3})+/g, " ")
+    .replace(/\b[x×]\s*\d+/gi, " ")
+    .replace(/\d+\s*(%|mm\b|cm\b|caras?\b|superficies?\b|sesion(es)?\b|sesión\b|mes(es)?\b|años?\b|conductos?\b|controles?\b|unidades?\b|veces\b|d[ií]as?\b|semanas?\b|horas?\b)/gi, " ");
+  const bare: string[] = [];
+  for (const match of rest.matchAll(/(?<![\d.,])(\d{1,2})(?![\d.,]?\d)/g)) {
+    const before = rest.slice(Math.max(0, match.index - 12), match.index).toLowerCase();
+    if (match[1].length === 1 && !/(pieza|piezas|diente|dientes)\s*(n[°º.]?\s*)?$/.test(before)) continue;
+    bare.push(match[1]);
+  }
+  if (!bare.length) return { fdi: unique(dotted), chile: [] };
+  return { fdi: unique([...dotted, ...parseTeethInput(bare.join(" "), "fdi")]), chile: unique([...dotted, ...parseTeethInput(bare.join(" "), "chile")]) };
 }

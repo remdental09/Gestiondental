@@ -19,7 +19,7 @@ test("FDI ↔ chilena: 3.6 = Chile 30, 4.6 = Chile 19 (no la Universal), tempora
 test("las piezas se escriben en FDI o en chilena según lo elegido", () => {
   assert.deepEqual(parseTeethInput("1.4, 1.5 y 36", "fdi"), [14, 15, 36]);
   assert.deepEqual(parseTeethInput("5, 4, 30", "chile"), [14, 15, 36]);
-  assert.deepEqual(parseTeethInput("C h", "chile"), [53, 63]);
+  assert.deepEqual(parseTeethInput("C H", "chile"), [53, 63]);
   assert.deepEqual(parseTeethInput("99 0", "fdi"), []);
 });
 
@@ -56,4 +56,29 @@ test("editar un plan o crear su alternativa no borra piezas, zona, código ni de
   const plan = readFileSync(new URL("../components/budget-plan.tsx", import.meta.url), "utf8");
   assert.match(plan, /<WherePicker item=\{item\}/);
   assert.match(plan, /itemWhereText\(item\)/, "el plan muestra dónde se trabaja");
+});
+
+test("revisión: comas sin espacio, «a/e/o» y números que no son piezas", () => {
+  assert.deepEqual(parseTeethInput("1.4,1.5", "fdi"), [14, 15]);
+  assert.deepEqual(parseTeethInput("14,15", "fdi"), [14, 15]);
+  assert.deepEqual(parseTeethInput("5,4,30", "chile"), [14, 15, 36]);
+  assert.deepEqual(parseTeethInput("C,H", "chile"), [53, 63]);
+  assert.deepEqual(parseTeethInput("5 a 8 y 30 e 19 o 4", "chile"), [11, 14, 15, 36, 46], "las palabras a/e/o no son piezas temporales");
+  assert.deepEqual(parseTeethInput("1.500", "fdi"), []);
+  for (const label of ["Obturación resina 2 caras", "Ortodoncia 24 meses", "Control 12/05/2026", "Corona 3/4", "x 6", "3 conductos", "Valor $45.000"]) {
+    assert.deepEqual(teethHintsFromLabel(label), { fdi: [], chile: [] }, label);
+  }
+  assert.deepEqual(teethHintsFromLabel("Implante 1.4 y 15"), { fdi: [14, 15], chile: [14, 27] }, "lo con punto es FDI; lo suelto, ambiguo");
+  assert.deepEqual(teethHintsFromLabel("pieza 6 corona").chile, [13], "un dígito solo si dice «pieza»");
+});
+
+test("revisión: la dentición temporal también tiene posteriores; el formulario no borra al solo mirar ni al escribir mal", () => {
+  const temp = zoneOptions("temp").map(o => o.key);
+  for (const key of ["ant-sup", "ant-inf", "post-sup", "post-inf", "molares"]) assert.ok(temp.includes(key), key);
+  const picker = readFileSync(new URL("../components/zone-picker.tsx", import.meta.url), "utf8");
+  assert.match(picker, /if \(GROUP_OF\[next\]\) \{ setPending\(/, "tocar Cuadrante/Sextante/Grupo solo abre opciones");
+  assert.match(picker, /if \(text\.trim\(\) && !parsed\.length\) \{ setNotice\(/, "texto sin piezas reconocibles no borra las piezas");
+  assert.match(picker, /const kind: Kind = pending \?\? kindOf\(item\.zone\)/, "lo guardado manda sobre el estado local");
+  const plan = readFileSync(new URL("../components/budget-plan.tsx", import.meta.url), "utf8");
+  assert.match(plan, /<section key=\{keyOf\(index\)\}/, "clave estable por prestación");
 });

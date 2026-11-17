@@ -51,7 +51,9 @@ export function zoneOptions(dentition: Dentition): ZoneOption[] {
   ] : [
     opt("ant-sup", "grupo", "Anteriores superiores", anterior(5, 6), "5.3–6.3"),
     opt("ant-inf", "grupo", "Anteriores inferiores", anterior(8, 7), "8.3–7.3"),
-    opt("molares", "grupo", "Molares temporales", [54, 55, 64, 65, 74, 75, 84, 85], "x.4 y x.5"),
+    opt("post-sup", "grupo", "Posteriores superiores", [54, 55, 64, 65], "5.5–5.4 y 6.4–6.5"),
+    opt("post-inf", "grupo", "Posteriores inferiores", [74, 75, 84, 85], "8.5–8.4 y 7.4–7.5"),
+    opt("molares", "grupo", "Molares", [54, 55, 64, 65, 74, 75, 84, 85], "x.4 y x.5"),
   ];
   return [
     opt("boca", "general", "Boca completa", range([...upper, ...lower], last), "todas las piezas"),

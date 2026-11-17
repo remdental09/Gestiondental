@@ -104,6 +104,16 @@ export function BudgetItemsEditor({ items, onChange }: { items: BudgetItem[]; on
     return () => { cancelled = true; };
   }, []);
   const update = (index: number, patch: Partial<BudgetItem>) => onChange(items.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item));
+  // Clave estable por prestación: al quitar una, la siguiente no hereda el estado (zona, numeración) de la quitada.
+  const [rowKeys, setRowKeys] = useState(() => ({ next: items.length, list: items.map((_, i) => i) }));
+  if (rowKeys.list.length !== items.length) {
+    const list = rowKeys.list.slice(0, items.length);
+    let next = rowKeys.next;
+    while (list.length < items.length) list.push(next++);
+    setRowKeys({ next, list });
+  }
+  const keyOf = (index: number) => rowKeys.list[index] ?? `n${index}`;
+  const removeItem = (index: number) => { setRowKeys(k => ({ next: k.next, list: k.list.filter((_, i) => i !== index) })); onChange(items.filter((_, itemIndex) => itemIndex !== index)); };
   // Si una prestación llega ya puesta (desde Aranceles, el dictado o una plantilla) o el arancel se cargó después,
   // el valor vacío se completa con el arancel propio. Una sola vez por prestación: si el clínico borra el valor, no se vuelve a rellenar.
   const autofilled = useRef(new Set<string>());
@@ -125,8 +135,8 @@ export function BudgetItemsEditor({ items, onChange }: { items: BudgetItem[]; on
       <div><h3 className="font-semibold">Prestaciones y fases</h3><p className="text-xs text-[#6b6a7c]">Agrúpalas por etapa del tratamiento.</p></div>
       <Button type="button" variant="outline" size="sm" onClick={() => onChange([...items, { label: "", amount: 0, phase: "Fase 1", discountPercent: 0 }])}><Plus className="mr-1 size-4"/>Agregar</Button>
     </div>
-    {items.map((item, index) => <section key={index} className="rounded-xl border border-[#e6e4ee] bg-[#f9f9fb] p-3" aria-label={`Prestación ${index + 1}`}>
-      <div className="mb-3 flex items-center justify-between gap-3"><span className="text-xs font-semibold uppercase tracking-wide text-[#4f4e62]">Prestación {index + 1}</span>{items.length > 1 && <button type="button" aria-label={`Quitar prestación ${index + 1}`} className="rounded p-1 text-[#8c4a51] hover:bg-rose-50" onClick={() => onChange(items.filter((_, itemIndex) => itemIndex !== index))}><Trash2 className="size-4"/></button>}</div>
+    {items.map((item, index) => <section key={keyOf(index)} className="rounded-xl border border-[#e6e4ee] bg-[#f9f9fb] p-3" aria-label={`Prestación ${index + 1}`}>
+      <div className="mb-3 flex items-center justify-between gap-3"><span className="text-xs font-semibold uppercase tracking-wide text-[#4f4e62]">Prestación {index + 1}</span>{items.length > 1 && <button type="button" aria-label={`Quitar prestación ${index + 1}`} className="rounded p-1 text-[#8c4a51] hover:bg-rose-50" onClick={() => removeItem(index)}><Trash2 className="size-4"/></button>}</div>
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="space-y-1 text-sm font-medium sm:col-span-2">Prestación<PrestacionField value={item.label} onChange={label => update(index, { label, code: undefined })} onPick={(label, code) => update(index, { label, code, ...(prices[code] && !item.amount ? { amount: prices[code] } : {}) })} hidden={hidden} names={names} customs={customs} onPickCustom={own => update(index, { label: own.name, code: undefined, ...(own.price && !item.amount ? { amount: own.price } : {}) })}/></label>
         <WherePicker item={item} onChange={patch => update(index, patch)}/>
