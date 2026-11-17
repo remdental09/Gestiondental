@@ -1,6 +1,5 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
-import { budgetItemTotal, budgetPhases, budgetTotals, itemTeeth, type BudgetItem } from "./budget-plans.ts";
-import { zoneLabel } from "./treatment-zones.ts";
+import { budgetItemTotal, budgetPhases, budgetTotals, itemWhereText, type BudgetItem } from "./budget-plans.ts";
 
 /**
  * PDF del presupuesto / plan de tratamiento, con formato de presupuesto clínico: cabecera de la clínica, número y hora de emisión,
@@ -29,7 +28,6 @@ const INK = rgb(0.17, 0.16, 0.22), MUTED = rgb(0.4, 0.39, 0.47), PURPLE = rgb(0.
 const LILAC = rgb(0.84, 0.81, 0.93), PALE = rgb(0.96, 0.95, 0.98), LINE = rgb(0.87, 0.86, 0.91), CORAL = rgb(0.94, 0.54, 0.37), WHITE = rgb(1, 1, 1);
 
 const money = (amount: number) => "$" + Math.round(amount).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
-const fdi = (tooth: number) => `${Math.floor(tooth / 10)}.${tooth % 10}`;
 const CP1252_EXTRA = new Set(["–", "—", "‘", "’", "“", "”", "•", "…", "€"]);
 
 /** Fecha y hora de emisión en hora de Chile: «16/11/2026» y «14:07». */
@@ -69,13 +67,9 @@ function wrap(text: string, font: PDFFont, size: number, width: number): string[
   return out.length ? out : [""];
 }
 
+/** Columna «Dónde se trabaja» del PDF: zona, piezas en FDI y chilena, y el detalle libre. */
 export function itemZoneText(item: BudgetItem): string {
-  if (item.zone) {
-    const label = zoneLabel(item.zone);
-    if (label) return label;
-  }
-  const teeth = itemTeeth(item);
-  return teeth.length ? teeth.map(fdi).join(", ") : "—";
+  return itemWhereText(item) || "—";
 }
 
 export async function buildBudgetPdf(input: BudgetPdfInput): Promise<Uint8Array> {
@@ -145,12 +139,12 @@ export async function buildBudgetPdf(input: BudgetPdfInput): Promise<Uint8Array>
   } else {
     // columnas: # | tratamiento | zona | cant. | valor | dto. | total
     const cols = priced
-      ? { num: M + 10, name: M + 30, nameW: 186, zone: M + 226, zoneW: 88, qty: M + 346, price: M + 410, disc: M + 454, total: R - 8 }
+      ? { num: M + 10, name: M + 30, nameW: 168, zone: M + 206, zoneW: 110, qty: M + 346, price: M + 410, disc: M + 454, total: R - 8 }
       : { num: M + 10, name: M + 30, nameW: 270, zone: M + 318, zoneW: R - 8 - (M + 318), qty: 0, price: 0, disc: 0, total: 0 };
     const header = () => {
       y -= 22; page.drawRectangle({ x: M, y: y - 7, width: R - M, height: 22, color: PURPLE });
       const h = (value: string, x: number) => text(value.toUpperCase(), x, 7.5, bold, WHITE);
-      h("N°", cols.num); h("Tratamiento", cols.name); h("Zona / piezas", cols.zone);
+      h("N°", cols.num); h("Tratamiento", cols.name); h("Dónde se trabaja", cols.zone);
       if (priced) { right("CANT.", cols.qty, 7.5, bold, WHITE); right("VALOR", cols.price, 7.5, bold, WHITE); right("DTO.", cols.disc, 7.5, bold, WHITE); right("TOTAL", cols.total, 7.5, bold, WHITE); }
       y -= 7;
     };

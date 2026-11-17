@@ -29,9 +29,9 @@ test('caracteres fuera de Latin-1 no rompen el PDF', async () => {
   await assert.doesNotReject(buildBudgetPdf({ ...base, patientName: 'Zoë 😀 Núñez', budget: { title: '😀', date: 'x', items: [{ label: 'Prueba ✓ 😀', amount: 1000 }] } }));
 });
 
-test('la zona del plan se muestra como zona o como piezas FDI', () => {
+test('la zona del plan se muestra como zona o como piezas en FDI y chilena', () => {
   assert.equal(itemZoneText({ label: 'x', amount: 1, zone: 'perm:boca' }), 'Boca completa');
-  assert.equal(itemZoneText({ label: 'x', amount: 1, teeth: [36, 46] }), '3.6, 4.6');
+  assert.equal(itemZoneText({ label: 'x', amount: 1, teeth: [36, 46] }), 'Piezas 3.6, 4.6 · Chile 30, 19');
   assert.equal(itemZoneText({ label: 'x', amount: 1 }), '—');
 });
 
