@@ -2,7 +2,7 @@
 // Set de regresión del dictado clínico.
 //   node scripts/dictation-eval.mjs            → solo reglas locales (sin red, sin costo)
 //   node scripts/dictation-eval.mjs --ai       → además la cadena de Workers AI del deploy (login de wrangler)
-//   node scripts/dictation-eval.mjs --openai   → además solo el respaldo OpenAI (gpt-4o-mini; clave en OPENAI_API_KEY del entorno)
+//   node scripts/dictation-eval.mjs --openai   → además solo el respaldo OpenAI (modelo OPENAI_STRUCTURE_MODEL, hoy gpt-5.6-luna; --openai-model <id> para otro; clave en OPENAI_API_KEY del entorno)
 // Opciones: --out <dir> (por defecto /workspace/gd-eval), --only c01,c02, --strict (sale con 1 si algo falla),
 //   --model <id> (prueba un solo modelo, sin respaldo; para comparar 8B vs 70B).
 // Nada se guarda en ninguna ficha: solo se comparan propuestas con lo esperado.
@@ -14,7 +14,7 @@ import { santiagoToday } from '../lib/dictation/spoken.ts';
 import { summarize, compare } from './dictation-eval-lib.mjs';
 import { runPatientIdentifyEval } from './patient-identify-eval.mjs';
 import { createWorkersAiModel } from '../lib/dictation/workers-ai.ts';
-import { openAiCostUsd } from '../lib/dictation/openai-structure.ts';
+import { openAiCostUsd, OPENAI_STRUCTURE_MODEL } from '../lib/dictation/openai-structure.ts';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
@@ -55,7 +55,7 @@ async function runEngine(label, model) {
     const logs = [];
     let outcome;
     try {
-      outcome = await P.proposeFromTranscript({ transcript: item.text, chart: item.chart ?? [] }, model, (event, data) => logs.push(`${event} ${JSON.stringify(data ?? {}).slice(0, 200)}`), { today: corpus.today, timeoutMs: 90_000 });
+      outcome = await P.proposeFromTranscript({ transcript: item.text, chart: item.chart ?? [], ...(item.patientContext ? { patient: item.patientContext } : {}) }, model, (event, data) => logs.push(`${event} ${JSON.stringify(data ?? {}).slice(0, 200)}`), { today: corpus.today, timeoutMs: 90_000 });
     } catch (cause) {
       rows.push({ item, diffs: [{ field: 'error', missing: [], extra: [String(cause?.message ?? cause)] }], engine: 'error' });
       continue;
@@ -104,7 +104,7 @@ if (flag('--openai')) {
   if (!apiKey) throw new Error('Falta OPENAI_API_KEY en el entorno.');
   const usages = [];
   const model = createWorkersAiModel(null, { totalMs: 60_000, openAi: { apiKey, model: value('--openai-model', ''), onUsage: (usage) => usages.push(usage) } });
-  results.push(await runEngine('IA (OpenAI gpt-4o-mini) + validación', model));
+  results.push(await runEngine(`IA (OpenAI ${value('--openai-model', '') || OPENAI_STRUCTURE_MODEL}) + validación`, model));
   if (usages.length) {
     const prompt = usages.reduce((sum, u) => sum + u.prompt_tokens, 0) / usages.length;
     const completion = usages.reduce((sum, u) => sum + u.completion_tokens, 0) / usages.length;

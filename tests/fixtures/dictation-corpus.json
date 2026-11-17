@@ -1,5 +1,5 @@
 {
-  "_about": "Set de regresión del dictado clínico. Todos los nombres y RUT son ficticios; no agregar datos de pacientes reales. Solo se comparan los campos presentes en expect. Formatos: odontogram 'pieza cara condición[:profundidad]' o 'pieza Estado'; perio 'pieza sitio mm [sangrado]'; payments 'monto medio'; appointments 'AAAA-MM-DD HH:MM'; diagnoses 'pieza código' (o 'pieza sin código: título'; ' (sugerido)' si es una equivalencia a confirmar); clarify/noClarify son regex sobre las preguntas.",
+  "_about": "Set de regresión del dictado clínico. Todos los nombres y RUT son ficticios; no agregar datos de pacientes reales. Solo se comparan los campos presentes en expect. Formatos: odontogram 'pieza cara condición[:profundidad]' o 'pieza Estado'; perio 'pieza sitio mm [sangrado]'; payments 'monto medio'; appointments 'AAAA-MM-DD HH:MM'; diagnoses 'pieza código' (o 'pieza sin código: título'; ' (sugerido)' si es una equivalencia a confirmar); clarify/noClarify son regex sobre las preguntas. Lista clínica: itemsInclude/itemsExclude 'pieza tipo categoría' (tipo diagnostico|plan|realizado); prestaciones 'código pieza [(aviso)]' y prestacionesInclude; diagnosedTeeth (piezas que deben tener algún diagnóstico); warn = regex sobre los avisos de la lista; patientContext {sex, age} se pasa a la redacción. prestacionesMatch: regex que alguna prestación debe cumplir (la IA puede elegir un código equivalente).",
   "today": "2026-11-01",
   "patient": {
     "name": "Camila Fuentes Araya",
@@ -676,6 +676,309 @@
           "36 Fractura radicular horizontal",
           "36 Fractura radicular vertical",
           "46 Absceso apical crónico (fístula)"
+        ],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c50-caso-3312-implantes-exodoncia-plan",
+      "_nota": "Basado en la evolución 3312 (sin datos identificatorios): conexión de implantes en 20 y 21, exodoncia de la 26 por movilidad II, escaneo y plan de puente.",
+      "patientContext": {
+        "sex": "F",
+        "age": 61
+      },
+      "text": "El paciente manifiesta dolor intenso en la zona anterior. Examen: movilidad dentaria grado dos en la pieza 26. Se realiza conexión de implante en la zona de las piezas 20 y 21 aproximadamente mediante minipilar con manga de 2,5 milímetros. Se extrae la pieza 26. Escaneo completo de cinco implantes con scanbody y minipilar, doble escaneo con barra de acrílico para buscar pasividad. Plan: próxima entrega rehabilitar mitad del arco inferior izquierdo conectando piezas 25 y 30 con puente de PMMA; si no hay pasividad, cortar y unir con acrílico.",
+      "expect": {
+        "odontogram": [
+          "32 Ausente",
+          "44 Implante",
+          "45 Implante"
+        ],
+        "itemsInclude": [
+          "32 realizado exodoncia",
+          "44 realizado pilar",
+          "45 realizado pilar",
+          "32 diagnostico movilidad",
+          "31 plan puente",
+          "36 plan puente"
+        ],
+        "itemsExclude": [
+          "31 realizado puente",
+          "36 realizado puente"
+        ],
+        "diagnosedTeeth": [
+          "32"
+        ],
+        "mobility": [
+          "32 II"
+        ],
+        "noteExcludes": [
+          "El paciente",
+          "aproximadamente"
+        ],
+        "patientWarning": false,
+        "prestacionesMatch": [
+          "^5003\\d{3} 32( \\(aviso\\))?$",
+          "^(50110(52|54)|9110044) (44|45|-)"
+        ]
+      }
+    },
+    {
+      "id": "c51-caso-3312-nota-con-secciones",
+      "_nota": "El mismo caso con el texto guardado (secciones «Procedimientos realizados:» y «Plan:»).",
+      "patientContext": {
+        "sex": "F",
+        "age": 61
+      },
+      "text": "Anamnesis: El paciente manifiesta dolor intenso en la zona anterior. Examen: movilidad dentaria grado II en la pieza 26. Procedimientos realizados: conexión de implante en la zona correspondiente a las piezas 20 y 21, aproximadamente, mediante minipilar con manga de 2,5 mm. Extracción de la pieza 26. Escaneo completo de cinco implantes con scanbody y minipilar, doble escaneo con barra de acrílico para buscar pasividad. Plan: próxima entrega rehabilitar mitad del arco inferior izquierdo conectando piezas 25 y 30 con puente de PMMA; si no hay pasividad, cortar y unir con acrílico.",
+      "expect": {
+        "odontogram": [
+          "32 Ausente",
+          "44 Implante",
+          "45 Implante"
+        ],
+        "itemsInclude": [
+          "32 realizado exodoncia",
+          "44 realizado pilar",
+          "45 realizado pilar"
+        ],
+        "diagnosedTeeth": [
+          "32"
+        ],
+        "noteExcludes": [
+          "El paciente"
+        ],
+        "clarifyExcludes": [
+          "^¿La exodoncia ya se realizó"
+        ],
+        "patientWarning": false,
+        "prestacionesMatch": [
+          "^5003\\d{3} 32( \\(aviso\\))?$",
+          "^50110(52|54) (44|45|-)"
+        ]
+      }
+    },
+    {
+      "id": "c52-multipieza-obturacion",
+      "text": "Se obturan con resina compuesta las piezas 1.4 y 1.5 por oclusal.",
+      "expect": {
+        "odontogram": [
+          "14 O restored",
+          "15 O restored"
+        ],
+        "prestaciones": [
+          "5005017 14",
+          "5005017 15"
+        ],
+        "itemsInclude": [
+          "14 realizado obturacion",
+          "15 realizado obturacion"
+        ],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c53-rango-plan-destartraje",
+      "text": "Se planifica destartraje de la 4.4 a la 4.1.",
+      "expect": {
+        "odontogram": [],
+        "prestaciones": [],
+        "itemsInclude": [
+          "41 plan destartraje",
+          "42 plan destartraje",
+          "43 plan destartraje",
+          "44 plan destartraje"
+        ],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c54-frase-mixta-hecho-y-plan",
+      "text": "Se obtura la 14 y se planifica endodoncia de la 19.",
+      "expect": {
+        "itemsInclude": [
+          "26 realizado obturacion",
+          "46 plan endodoncia"
+        ],
+        "itemsExclude": [
+          "46 realizado endodoncia",
+          "26 plan obturacion"
+        ],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c55-ausente-implante-planificado",
+      "text": "Examen intraoral. Se detecta que la pieza 30 está ausente. Se planifica un implante en la pieza 30. Costo del implante 1.490.000 pesos con rehabilitación oral de circónio incluida.",
+      "expect": {
+        "odontogram": [
+          "36 Ausente"
+        ],
+        "diagnoses": [
+          "36 DA0A.1"
+        ],
+        "itemsInclude": [
+          "36 diagnostico ausente",
+          "36 plan implante"
+        ],
+        "itemsExclude": [
+          "36 realizado implante"
+        ],
+        "warn": [
+          "planificado"
+        ],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c56-exodoncia-chilena-movilidad-iii",
+      "text": "Se realiza exodoncia de la pieza 17 por movilidad grado tres.",
+      "expect": {
+        "odontogram": [
+          "48 Ausente"
+        ],
+        "diagnoses": [
+          "48 DA0C.Z (sugerido)"
+        ],
+        "itemsInclude": [
+          "48 realizado exodoncia",
+          "48 diagnostico movilidad"
+        ],
+        "patientWarning": false,
+        "prestacionesMatch": [
+          "^5003\\d{3} 48( \\(aviso\\))?$"
+        ]
+      }
+    },
+    {
+      "id": "c57-mezcla-fdi-y-chilena",
+      "text": "Se extrae la 4.8. Se obtura la pieza 30 por oclusal con resina compuesta.",
+      "expect": {
+        "odontogram": [
+          "36 O restored",
+          "48 Ausente"
+        ],
+        "patientWarning": false,
+        "prestacionesMatch": [
+          "^5003\\d{3} 48( \\(aviso\\))?$",
+          "^5005\\d{3} 36( \\(aviso\\))?$"
+        ]
+      }
+    },
+    {
+      "id": "c58-implante-inmediato-misma-frase",
+      "text": "Se extrae la pieza 2.1 y se instala un implante inmediato.",
+      "expect": {
+        "odontogram": [
+          "21 Implante"
+        ],
+        "itemsInclude": [
+          "21 realizado exodoncia",
+          "21 realizado implante"
+        ],
+        "patientWarning": false,
+        "prestacionesMatch": [
+          "^(5011001|9110004) 21",
+          "^(5011018|9110004) 21"
+        ]
+      }
+    },
+    {
+      "id": "c59-conexion-dos-pilares",
+      "text": "Se conectan los implantes de las piezas 3.6 y 3.7 con pilar protésico.",
+      "expect": {
+        "itemsInclude": [
+          "36 realizado pilar",
+          "37 realizado pilar"
+        ],
+        "patientWarning": false,
+        "prestacionesMatch": [
+          "^(50110(52|54)|9110044) (36|37|-)"
+        ]
+      }
+    },
+    {
+      "id": "c60-corona-planificada",
+      "text": "Pieza 4.6 con endodoncia previa. Se planifica corona de zirconio en la 4.6.",
+      "expect": {
+        "odontogram": [],
+        "itemsInclude": [
+          "46 plan corona"
+        ],
+        "itemsExclude": [
+          "46 realizado corona"
+        ],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c61-movilidad-ii-dos-piezas",
+      "text": "Se observa movilidad grado dos en las piezas 3.1 y 4.1.",
+      "expect": {
+        "mobility": [
+          "31 II",
+          "41 II"
+        ],
+        "diagnoses": [
+          "31 DA0C.Z (sugerido)",
+          "41 DA0C.Z (sugerido)"
+        ],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c62-hedge-aproximadamente",
+      "text": "Se instala implante en la pieza 4.6 aproximadamente a nivel crestal.",
+      "expect": {
+        "odontogram": [
+          "46 Implante"
+        ],
+        "noteExcludes": [
+          "aproximadamente"
+        ],
+        "warn": [
+          "aproximadamente"
+        ],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c63-plan-condicional",
+      "text": "Si persiste el dolor, se realizará endodoncia de la 2.6.",
+      "expect": {
+        "odontogram": [],
+        "prestaciones": [],
+        "itemsInclude": [
+          "26 plan endodoncia"
+        ],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c64-exodoncia-no-realizada",
+      "text": "No se realiza la exodoncia de la 3.8 por falta de tiempo; queda pendiente.",
+      "expect": {
+        "odontogram": [],
+        "itemsInclude": [
+          "38 plan exodoncia"
+        ],
+        "itemsExclude": [
+          "38 realizado exodoncia"
+        ],
+        "patientWarning": false
+      }
+    },
+    {
+      "id": "c65-exodoncia-dos-piezas",
+      "text": "Se realiza exodoncia de las piezas 1.8 y 2.8.",
+      "expect": {
+        "odontogram": [
+          "18 Ausente",
+          "28 Ausente"
+        ],
+        "prestaciones": [
+          "5003001 18",
+          "5003001 28"
         ],
         "patientWarning": false
       }

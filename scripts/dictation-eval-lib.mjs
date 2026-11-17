@@ -28,6 +28,9 @@ export function summarize(proposal, transcript, patient) {
     ficha: sorted((proposal.ficha ?? []).map((item) => item.field)),
     budget: sorted(proposal.budget.map((item) => String(item.amount))),
     diagnoses: sorted((proposal.diagnoses ?? []).map((item) => `${item.tooth ?? '-'} ${item.code || `sin código: ${item.title}`}${item.suggested ? ' (sugerido)' : ''}`)),
+    prestaciones: sorted((proposal.prestaciones ?? []).map((item) => `${item.code} ${item.tooth ?? '-'}${item.advisory ? ' (aviso)' : ''}`)),
+    items: sorted((proposal.items ?? []).filter((item) => item.category !== 'otro').map((item) => `${item.tooth ?? '-'} ${item.kind} ${item.category}`)),
+    itemWarnings: proposal.itemWarnings ?? [],
     patientWarning: check.mismatches.length > 0,
     clarifications: proposal.clarifications,
     note: proposal.evolution?.body ?? '',
@@ -36,7 +39,7 @@ export function summarize(proposal, transcript, patient) {
   };
 }
 
-const LIST_FIELDS = ['odontogram', 'unchecked', 'incomplete', 'perio', 'mobility', 'payments', 'appointments', 'ficha', 'budget', 'diagnoses'];
+const LIST_FIELDS = ['odontogram', 'unchecked', 'incomplete', 'perio', 'mobility', 'payments', 'appointments', 'ficha', 'budget', 'diagnoses', 'prestaciones'];
 
 /** Diferencias por campo; solo se comparan los campos que el caso declara. */
 export function compare(expect, actual) {
@@ -68,6 +71,13 @@ export function compare(expect, actual) {
     if (hit) diffs.push({ field: 'clarifyExcludes', missing: [], extra: [hit] });
   }
   if ('titleIncludes' in expect && !actual.title.toLowerCase().includes(expect.titleIncludes.toLowerCase())) diffs.push({ field: 'titleIncludes', missing: [expect.titleIncludes], extra: [actual.title] });
+  // Lista clínica: los elementos declarados deben estar (puede haber más) y los excluidos no.
+  for (const value of expect.itemsInclude ?? []) if (!actual.items.includes(value)) diffs.push({ field: 'itemsInclude', missing: [value], extra: actual.items });
+  for (const value of expect.itemsExclude ?? []) if (actual.items.includes(value)) diffs.push({ field: 'itemsExclude', missing: [], extra: [value] });
+  for (const value of expect.prestacionesInclude ?? []) if (!actual.prestaciones.includes(value)) diffs.push({ field: 'prestacionesInclude', missing: [value], extra: actual.prestaciones });
+  for (const pattern of expect.prestacionesMatch ?? []) if (!actual.prestaciones.some((value) => new RegExp(pattern, 'u').test(value))) diffs.push({ field: 'prestacionesMatch', missing: [pattern], extra: actual.prestaciones });
+  for (const tooth of expect.diagnosedTeeth ?? []) if (!actual.diagnoses.some((dx) => dx.startsWith(`${tooth} `))) diffs.push({ field: 'diagnosedTeeth', missing: [tooth], extra: actual.diagnoses });
+  for (const pattern of expect.warn ?? []) if (!actual.itemWarnings.some((w) => new RegExp(pattern, 'iu').test(w))) diffs.push({ field: 'warn', missing: [pattern], extra: actual.itemWarnings });
   for (const text of expect.noteIncludes ?? []) if (!actual.note.includes(text)) diffs.push({ field: 'noteIncludes', missing: [text], extra: [] });
   for (const text of expect.noteExcludes ?? []) if (actual.note.includes(text)) diffs.push({ field: 'noteExcludes', missing: [], extra: [text] });
   return diffs;
