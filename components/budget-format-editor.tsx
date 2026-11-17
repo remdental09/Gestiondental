@@ -1,6 +1,6 @@
 "use client";
 
-import { PALETTES, type BudgetFormat, type NamePosition, type PaletteKey } from "@/lib/budget-format";
+import { CLINIC_PLACEMENTS, PALETTES, type BudgetClinicData, type BudgetFormat, type NamePosition, type PaletteKey } from "@/lib/budget-format";
 
 const POSITIONS: Array<{ key: NamePosition; label: string; hint: string }> = [
   { key: "ambos", label: "Arriba y en la firma", hint: "Cabecera y bloque de firma" },
@@ -9,11 +9,17 @@ const POSITIONS: Array<{ key: NamePosition; label: string; hint: string }> = [
 ];
 
 /** Controles del diseño del PDF (colores, nombre, datos, condiciones). Los usan Configuración y la vista previa del presupuesto. */
-export function BudgetFormatEditor({ format, onChange, logo }: { format: BudgetFormat; onChange: (next: BudgetFormat) => void; logo: { has: boolean; embeddable: boolean } }) {
+export function BudgetFormatEditor({ format, onChange, logo, profileClinic }: { format: BudgetFormat; onChange: (next: BudgetFormat) => void; logo: { has: boolean; embeddable: boolean }; profileClinic?: BudgetClinicData | null }) {
   const set = (patch: Partial<BudgetFormat>) => onChange({ ...format, ...patch });
   const pickPalette = (palette: PaletteKey) => set(palette === "propio" ? { palette } : { palette, primary: PALETTES[palette].primary, accent: PALETTES[palette].accent });
   const check = (key: "showRut" | "showSpecialty" | "showTitles" | "showLogo" | "showChile" | "keepDefaultNotes", label: string, disabled = false) =>
     <label className={"flex items-center gap-2 text-sm " + (disabled ? "text-[#a3a1b3]" : "text-[#35343f]")}><input type="checkbox" className="size-4 accent-[#473a6d]" checked={format[key] && !disabled} disabled={disabled} onChange={e => set({ [key]: e.target.checked })}/>{label}</label>;
+  const setClinic = (patch: Partial<BudgetClinicData>) => set({ clinic: { ...format.clinic, ...patch } });
+  const hasProfile = Boolean(profileClinic && Object.values(profileClinic).some(Boolean));
+  const field = (key: keyof BudgetClinicData, label: string, max: number, placeholder: string, wide = false) =>
+    <label className={"block text-sm text-[#35343f] " + (wide ? "sm:col-span-2" : "")}>{label}
+      <input maxLength={max} value={format.clinic[key]} onChange={e => setClinic({ [key]: e.target.value })} placeholder={placeholder} inputMode={key === "phone" ? "tel" : key === "email" ? "email" : undefined} className="mt-1 block min-h-10 w-full rounded-lg border border-[#d2d4df] bg-white px-3 text-base sm:text-sm" data-testid={`clinic-${key}`}/>
+    </label>;
   return <div className="space-y-5">
     <fieldset className="space-y-2">
       <legend className="text-sm font-semibold text-[#35343f]">Colores</legend>
@@ -56,6 +62,28 @@ export function BudgetFormatEditor({ format, onChange, logo }: { format: BudgetF
       <label className="block text-sm text-[#35343f]">N° de registro de prestador (opcional)
         <input maxLength={60} value={format.registry} onChange={e => set({ registry: e.target.value })} placeholder="Ej.: 123456 (Superintendencia de Salud)" className="mt-1 block min-h-10 w-full rounded-lg border border-[#d2d4df] bg-white px-3 text-base sm:text-sm"/>
       </label>
+    </fieldset>
+
+
+    <fieldset className="space-y-3" data-testid="clinic-data">
+      <legend className="text-sm font-semibold text-[#35343f]">Datos de tu clínica</legend>
+      <p className="text-xs text-[#6b6a7c]">Son los de tu consulta: salen en tus presupuestos. En una clínica donde eres invitado salen los datos de esa clínica, en el lugar que elijas aquí. Deja en blanco lo que no quieras mostrar; si escribes el nombre, reemplaza al de arriba.</p>
+      {hasProfile && <button type="button" onClick={() => set({ clinic: { ...format.clinic, ...Object.fromEntries(Object.entries(profileClinic!).filter(([, value]) => value)) } })} className="rounded-lg border border-[#b8b1d6] px-3 py-1.5 text-sm text-[#473a6d] hover:bg-[#f7f6fa]">Usar los datos del perfil de la clínica</button>}
+      <div className="grid gap-2 sm:grid-cols-2">
+        {field("name", "Nombre de la clínica", 60, "Ej.: Centro Dental Viña Norte")}
+        {field("rut", "RUT de la clínica", 20, "Ej.: 76.123.456-7")}
+        {field("address", "Dirección", 120, "Ej.: Av. Libertad 1234, of. 502", true)}
+        {field("city", "Ciudad o comuna", 60, "Ej.: Viña del Mar")}
+        {field("phone", "Teléfono", 40, "Ej.: +56 9 1234 5678")}
+        {field("email", "Correo", 120, "Ej.: contacto@clinica.cl")}
+        {field("web", "Sitio web", 80, "Ej.: www.clinica.cl")}
+      </div>
+      <div role="radiogroup" aria-label="Dónde van los datos de la clínica" className="grid gap-2 sm:grid-cols-2">
+        {CLINIC_PLACEMENTS.map(p => <label key={p.key} className={"cursor-pointer rounded-lg border p-3 text-sm focus-within:ring-2 focus-within:ring-[#473a6d]/40 " + (format.clinicPlacement === p.key ? "border-[#473a6d] bg-[#efedf7]" : "border-[#dddbe6]")}>
+          <input type="radio" name="clinic-placement" className="sr-only" checked={format.clinicPlacement === p.key} onChange={() => set({ clinicPlacement: p.key })}/>
+          <span className="block font-medium text-[#35343f]">{p.label}</span><span className="text-xs text-[#6b6a7c]">{p.hint}</span>
+        </label>)}
+      </div>
     </fieldset>
 
     <fieldset className="space-y-2">

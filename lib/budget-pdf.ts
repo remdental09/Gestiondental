@@ -1,6 +1,6 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import { budgetItemTotal, budgetPhases, budgetTotals, itemWhereText, type BudgetItem } from "./budget-plans.ts";
-import { DEFAULT_FORMAT, hexToRgb01, shade, tint, type BudgetFormat } from "./budget-format.ts";
+import { DEFAULT_FORMAT, clinicContactGroups, hexToRgb01, shade, tint, type BudgetFormat } from "./budget-format.ts";
 
 /**
  * PDF del presupuesto / plan de tratamiento, con formato de presupuesto clínico: cabecera de la clínica, número y hora de emisión,
@@ -81,6 +81,17 @@ function wrap(text: string, font: PDFFont, size: number, width: number): string[
   return out.length ? out : [""];
 }
 
+/** Como wrap, pero con un máximo de líneas: si sobra texto, la última termina en «…» y nada se sale del ancho. */
+export function fitLines(text: string, font: PDFFont, size: number, width: number, max: number): string[] {
+  const lines = wrap(text, font, size, width);
+  if (lines.length <= max) return lines;
+  const kept = lines.slice(0, max);
+  let last = kept[max - 1].trimEnd();
+  while (last.length > 1 && font.widthOfTextAtSize(last + "…", size) > width) last = last.slice(0, -1).trimEnd();
+  kept[max - 1] = last + "…";
+  return kept;
+}
+
 /** Columna «Dónde se trabaja» del PDF: zona, piezas en FDI y chilena, y el detalle libre. */
 export function itemZoneText(item: BudgetItem, showChile = true): string {
   return itemWhereText(item, { chile: showChile }) || "—";
@@ -103,7 +114,13 @@ export async function buildBudgetPdf(input: BudgetPdfInput): Promise<Uint8Array>
   const issued = issuedParts(input.issuedAt ?? new Date());
   const number = input.budget.id ? `N° ${input.budget.id}` : "";
   const docTitle = input.budget.isAlternative ? "Alternativa de tratamiento" : "Presupuesto de tratamiento";
-  const clinic = input.clinicName?.trim() || "Gestión Dental";
+  const clinic = format.clinic?.name || input.clinicName?.trim() || "Gestión Dental";
+  // Datos de la clínica del profesional (dirección, teléfono…), donde él los quiera.
+  // Dos grupos: [RUT, dirección] y [teléfono · correo · web]; cada uno con su espacio para que el teléfono y el correo siempre se vean.
+  const clinicGroups = format.clinic ? clinicContactGroups(format.clinic) : [];
+  const clinicParts = clinicGroups.flat();
+  const placement = clinicParts.length ? format.clinicPlacement : "no";
+  const groupLines = (font: PDFFont, size: number, width: number, perGroup: number) => clinicGroups.flatMap(group => fitLines(group.join(" · "), font, size, width, perGroup));
 
   const pdf = await PDFDocument.create();
   pdf.setTitle(pdfSafe(`${docTitle}${number ? " " + number : ""}`));
@@ -123,49 +140,56 @@ export async function buildBudgetPdf(input: BudgetPdfInput): Promise<Uint8Array>
   };
   const rule = (x1: number, x2: number, thickness = 0.5, color = LINE) => page.drawLine({ start: { x: x1, y }, end: { x: x2, y }, thickness, color });
   const newPage = () => { page = pdf.addPage([PAGE_W, PAGE_H]); pages.push(page); y = PAGE_H - M; };
-  const ensure = (needed: number, onNewPage?: () => void) => { if (y - needed < FOOT + 16) { newPage(); onNewPage?.(); } };
+  // Con los datos de la clínica al pie, el pie sube para no acercarse al borde de la hoja (margen de impresoras).
+  const footY = placement === "pie" ? FOOT + 16 : FOOT;
+  const ensure = (needed: number, onNewPage?: () => void) => { if (y - needed < footY + 16) { newPage(); onNewPage?.(); } };
 
-  // ── Cabecera de la clínica (solo primera página)
+  // ── Cabecera de la clínica (solo primera página). Se calcula todo antes de dibujar: la franja crece si hace falta.
   newPage();
-  page.drawRectangle({ x: 0, y: PAGE_H - BAND, width: PAGE_W, height: BAND, color: PURPLE });
-  page.drawRectangle({ x: 0, y: PAGE_H - BAND - 3, width: PAGE_W, height: 3, color: CORAL });
-  // Logo de la clínica en un recuadro blanco a la izquierda de la cabecera (si el formato lo pide y es PNG/JPEG).
-  let headerX = M;
+  let logoImage: Awaited<ReturnType<PDFDocument["embedPng"]>> | null = null;
   if (format.showLogo && input.logo) {
     const match = /^data:image\/(png|jpeg);base64,([A-Za-z0-9+/=]+)$/.exec(input.logo);
     if (match) {
       try {
         const bytes = Uint8Array.from(atob(match[2]), ch => ch.charCodeAt(0));
-        const image = match[1] === "png" ? await pdf.embedPng(bytes) : await pdf.embedJpg(bytes);
-        const box = 56, scale = Math.min((box - 8) / image.width, (box - 8) / image.height);
-        const w = image.width * scale, h = image.height * scale;
-        page.drawRectangle({ x: M, y: PAGE_H - BAND + (BAND - box) / 2, width: box, height: box, color: WHITE });
-        page.drawImage(image, { x: M + (box - w) / 2, y: PAGE_H - BAND + (BAND - h) / 2, width: w, height: h });
-        headerX = M + box + 14;
+        logoImage = match[1] === "png" ? await pdf.embedPng(bytes) : await pdf.embedJpg(bytes);
       } catch { /* logo dañado: se omite sin impedir el presupuesto */ }
     }
   }
+  const LOGO_BOX = 56;
+  const headerX = logoImage ? M + LOGO_BOX + 14 : M;
   // El nombre de la clínica se achica (hasta 13 pt) para no montarse sobre el título y el número de la derecha.
   const clinicW = R - 150 - headerX;
   let clinicSize = 19;
   while (clinicSize > 13 && bold.widthOfTextAtSize(pdfSafe(clinic), clinicSize) > clinicW) clinicSize -= 0.5;
-  const clinicWrapped = wrap(clinic, bold, clinicSize, clinicW);
-  let clinicLine = clinicWrapped[0];
-  if (clinicWrapped.length > 1) {
-    clinicLine = clinicLine.trimEnd();
-    while (clinicLine.length > 1 && bold.widthOfTextAtSize(clinicLine + "…", clinicSize) > clinicW) clinicLine = clinicLine.slice(0, -1).trimEnd();
-    clinicLine += "…";
+  const clinicLine = fitLines(clinic, bold, clinicSize, clinicW, 1)[0];
+  const textW = R - headerX - 170;
+  const sub = [nameInHeader ? input.professionalName : "", ...(nameInHeader ? credentialParts : [])].filter(Boolean).join(" · ");
+  const subLines = sub ? fitLines(sub, regular, 9.5, textW, 2) : [];
+  const headerContact = placement === "cabecera" ? groupLines(regular, 8.5, textW, 2) : [];
+  // El correo de envío no se repite si el de la clínica ya quedó escrito arriba.
+  const showSender = Boolean(input.contactEmail) && !(format.clinic?.email && headerContact.join(" ").includes(pdfSafe(format.clinic.email)));
+  const depth = 36 + (subLines.length ? 17 + 11 * (subLines.length - 1) : 0) + (showSender ? 13 : 0) + headerContact.length * 11;
+  // Sin datos de la clínica arriba la franja es la de siempre (todo cabía en 84 pt); con ellos crece lo justo.
+  const band = headerContact.length ? Math.max(BAND, depth + 16) : BAND;
+  page.drawRectangle({ x: 0, y: PAGE_H - band, width: PAGE_W, height: band, color: PURPLE });
+  page.drawRectangle({ x: 0, y: PAGE_H - band - 3, width: PAGE_W, height: 3, color: CORAL });
+  if (logoImage) {
+    const scale = Math.min((LOGO_BOX - 8) / logoImage.width, (LOGO_BOX - 8) / logoImage.height);
+    const w = logoImage.width * scale, h = logoImage.height * scale, top = PAGE_H - band + (band - LOGO_BOX) / 2;
+    page.drawRectangle({ x: M, y: top, width: LOGO_BOX, height: LOGO_BOX, color: WHITE });
+    page.drawImage(logoImage, { x: M + (LOGO_BOX - w) / 2, y: top + (LOGO_BOX - h) / 2, width: w, height: h });
   }
   y = PAGE_H - 36; text(clinicLine, headerX, clinicSize, bold, WHITE);
-  const sub = [nameInHeader ? input.professionalName : "", ...(nameInHeader ? credentialParts : [])].filter(Boolean).join(" · ");
-  if (sub) { y -= 17; for (const [i, line] of wrap(sub, regular, 9.5, R - headerX - 170).slice(0, 2).entries()) { if (i) y -= 11; text(line, headerX, 9.5, regular, LILAC); } }
-  if (input.contactEmail) { y -= 13; text(input.contactEmail, headerX, 8.5, regular, LILAC); }
+  for (const [i, lineText] of subLines.entries()) { y -= i ? 11 : 17; text(lineText, headerX, 9.5, regular, LILAC); }
+  if (showSender) { y -= 13; text(input.contactEmail!, headerX, 8.5, regular, LILAC); }
+  for (const lineText of headerContact) { y -= 11; text(lineText, headerX, 8.5, regular, WHITE); }
   y = PAGE_H - 33; right(docTitle.toUpperCase(), R, 8, bold, LILAC);
   if (number) { y -= 19; right(number, R, 17, bold, WHITE); }
   y -= 14; right(`Emitido el ${issued.day} a las ${issued.time}`, R, 8.5, regular, LILAC);
 
   // ── Título y datos del paciente
-  y = PAGE_H - BAND - 38; text(docTitle, M, 21, bold, DEEP);
+  y = PAGE_H - band - 38; text(docTitle, M, 21, bold, DEEP);
   const titleLines = wrap(input.budget.title, regular, 10.5, R - M);
   for (const line of titleLines) { y -= 17; text(line, M, 10.5, regular, MUTED); }
   y -= 18;
@@ -181,7 +205,44 @@ export async function buildBudgetPdf(input: BudgetPdfInput): Promise<Uint8Array>
   cell("Fecha del plan", input.budget.date, M + 372, 62);
   cell("Emisión", [issued.day, `${issued.time} h`], M + 442, 70);
   y = boxTop - boxH - 6;
+  if (placement === "paciente") {
+    y -= 8;
+    const lines = groupLines(regular, 8.5, R - M - 52, 1);
+    text("CLÍNICA", M, 7, bold, MUTED);
+    lines.forEach((lineText, i) => { if (i) y -= 11; text(lineText, M + 44, 8.5, regular, INK); });
+    y -= 4;
+  }
 
+  // ── Alto de la firma (se calcula antes para reservar el espacio junto a las condiciones)
+  const colW = 224;
+  const sx = R - colW + 16;
+  // Credenciales en líneas que no cortan un dato a la mitad (cada «RUT …» o «Reg. …» queda entero); un dato más ancho que la columna se parte.
+  const credentialLines: string[] = [];
+  for (const part of credentialParts.flatMap(item => wrap(item, regular, 8, R - sx))) {
+    const last = credentialLines[credentialLines.length - 1];
+    if (last && regular.widthOfTextAtSize(last + " · " + part, 8) <= R - sx) credentialLines[credentialLines.length - 1] = last + " · " + part;
+    else credentialLines.push(part);
+  }
+  credentialLines.splice(4);
+  // Datos de la clínica a la izquierda de la firma (si el profesional los quiere ahí).
+  const blockW = sx - 24 - M;
+  const signClinic = placement === "firma" ? [
+    ...fitLines(clinic, bold, 9, blockW, 1).map(t => ({ t, f: bold, size: 9 })),
+    ...clinicParts.flatMap(part => fitLines(part, regular, 8, blockW, part === [format.clinic.address, format.clinic.city].filter(Boolean).join(", ") ? 2 : 1)).map(t => ({ t, f: regular, size: 8 })),
+  ] : [];
+  const signH = 40 + Math.max(62 + 13 + (nameInSignature ? 12 * credentialLines.length : 0), 10 + 11 * signClinic.length) + 8;
+
+  // Condiciones y observaciones (se dibujan después)
+  const notes = [
+    ...(format.keepDefaultNotes ? [
+      ...(priced || mode === "total" ? ["Valores expresados en pesos chilenos (CLP)."] : []),
+      "Presupuesto informativo, sujeto a evaluación y confirmación del profesional tratante.",
+      "El plan puede modificarse según la evolución clínica y la respuesta del paciente al tratamiento.",
+    ] : []),
+    ...format.note.split("\n").map(line => line.trim()).filter(Boolean),
+  ];
+  const noteLines = notes.map(note => wrap(note, regular, 8.5, R - M - 12));
+  const noteRows = noteLines.reduce((sum, lines) => sum + lines.length, 0);
   if (mode === "total") {
     y -= 56; const label = "Total del presupuesto";
     page.drawText(label, { x: (PAGE_W - regular.widthOfTextAtSize(label, 11)) / 2, y, size: 11, font: regular, color: MUTED });
@@ -238,7 +299,8 @@ export async function buildBudgetPdf(input: BudgetPdfInput): Promise<Uint8Array>
       }
     }
     if (priced) {
-      ensure(96);
+      ensure(notes.length ? 96 : 96 + signH); // sin condiciones, el total y la firma van juntos: la firma nunca queda sola
+
       const boxX = R - 236, boxW = 236;
       y -= 14;
       const hasDiscount = totals.discount > 0;
@@ -252,30 +314,6 @@ export async function buildBudgetPdf(input: BudgetPdfInput): Promise<Uint8Array>
     }
   }
 
-  // ── Alto de la firma (se calcula antes para reservar el espacio junto a las condiciones)
-  const colW = 224;
-  const sx = R - colW + 16;
-  // Credenciales en líneas que no cortan un dato a la mitad (cada «RUT …» o «Reg. …» queda entero); un dato más ancho que la columna se parte.
-  const credentialLines: string[] = [];
-  for (const part of credentialParts.flatMap(item => wrap(item, regular, 8, R - sx))) {
-    const last = credentialLines[credentialLines.length - 1];
-    if (last && regular.widthOfTextAtSize(last + " · " + part, 8) <= R - sx) credentialLines[credentialLines.length - 1] = last + " · " + part;
-    else credentialLines.push(part);
-  }
-  credentialLines.splice(4);
-  const signH = 40 + 62 + 13 + (nameInSignature ? 12 * credentialLines.length : 0) + 8;
-
-  // ── Condiciones y observaciones
-  const notes = [
-    ...(format.keepDefaultNotes ? [
-      ...(priced || mode === "total" ? ["Valores expresados en pesos chilenos (CLP)."] : []),
-      "Presupuesto informativo, sujeto a evaluación y confirmación del profesional tratante.",
-      "El plan puede modificarse según la evolución clínica y la respuesta del paciente al tratamiento.",
-    ] : []),
-    ...format.note.split("\n").map(line => line.trim()).filter(Boolean),
-  ];
-  const noteLines = notes.map(note => wrap(note, regular, 8.5, R - M - 12));
-  const noteRows = noteLines.reduce((sum, lines) => sum + lines.length, 0);
   if (notes.length) {
     ensure(31 + noteRows * 12.5 + signH); // condiciones y firma siempre juntas, nunca la firma sola en otra hoja
     y -= 26; text("CONDICIONES Y OBSERVACIONES", M, 8, bold, PURPLE); y -= 5; rule(M, R, 0.8, LILAC);
@@ -294,18 +332,23 @@ export async function buildBudgetPdf(input: BudgetPdfInput): Promise<Uint8Array>
   if (nameInSignature) for (const line of credentialLines) {
     y -= 12; page.drawText(line, { x: sx + ((R - sx) - regular.widthOfTextAtSize(line, 8)) / 2, y, size: 8, font: regular, color: MUTED });
   }
-  y = signTop - 102;
+  signClinic.forEach((row, i) => { y = signTop - 10 - (i ? 3 : 0) - 11 * i; text(row.t, M, row.size, row.f, row.f === bold ? INK : MUTED); });
+  y = signTop - Math.max(102, 18 + 11 * signClinic.length);
 
   // ── Pie de cada página
+  const footClinic = placement === "pie" ? groupLines(regular, 7.5, R - M, 1) : [];
   pages.forEach((p, index) => {
-    p.drawLine({ start: { x: M, y: FOOT }, end: { x: R, y: FOOT }, thickness: 0.5, color: LINE });
-    const foot = (value: string, x: number, size: number, font: PDFFont, color = MUTED, align: "left" | "right" = "left", yy = FOOT - 14) => {
+    p.drawLine({ start: { x: M, y: footY }, end: { x: R, y: footY }, thickness: 0.5, color: LINE });
+    const foot = (value: string, x: number, size: number, font: PDFFont, color = MUTED, align: "left" | "right" = "left", yy = footY - 14) => {
       const safe = pdfSafe(value);
       p.drawText(safe, { x: align === "right" ? x - font.widthOfTextAtSize(safe, size) : x, y: yy, size, font, color });
     };
-    foot(`${clinic}${input.professionalName && !clinic.includes(input.professionalName) ? " · " + input.professionalName : ""}`, M, 8, bold);
-    foot(`Página ${index + 1} de ${pages.length}`, R, 8, regular, MUTED, "right");
-    foot(`${docTitle}${number ? " " + number : ""} · Emitido el ${issued.day} a las ${issued.time}`, M, 7.5, regular, MUTED, "left", FOOT - 25);
+    const pageLabel = `Página ${index + 1} de ${pages.length}`;
+    const owner = `${clinic}${input.professionalName && !clinic.includes(input.professionalName) ? " · " + input.professionalName : ""}`;
+    foot(fitLines(owner, bold, 8, R - M - regular.widthOfTextAtSize(pageLabel, 8) - 14, 1)[0], M, 8, bold);
+    foot(pageLabel, R, 8, regular, MUTED, "right");
+    foot(`${docTitle}${number ? " " + number : ""} · Emitido el ${issued.day} a las ${issued.time}`, M, 7.5, regular, MUTED, "left", footY - 25);
+    if (placement === "pie") footClinic.forEach((lineText, i) => foot(lineText, M, 7.5, regular, MUTED, "left", footY - 36 - 10 * i));
   });
   return pdf.save();
 }

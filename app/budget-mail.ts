@@ -1,7 +1,7 @@
 import { loadProfile } from "@/app/clinician-profile-db";
 import { loadClinic } from "@/app/clinic-profile-db";
 import { loadBudgetFormat } from "@/app/budget-format-db";
-import { DEFAULT_FORMAT, formatForPdf, type BudgetFormat } from "@/lib/budget-format";
+import { DEFAULT_FORMAT, clinicForBudget, formatForPdf, type BudgetFormat } from "@/lib/budget-format";
 import { budgetAuthorOf, type TeamDb } from "@/app/clinic-team-db";
 import { getSender, mailDb, ensureMailTables } from "@/app/appointment-mail-db";
 import { sendMailWithSender } from "@/app/drive-oauth";
@@ -55,7 +55,7 @@ export async function renderBudgetPdf(ownerId: string, budgetId: number, mode: B
     patientName: patient.name, patientDocument: patient.rut?.trim() || undefined,
     professionalName: profile ? displayName(profile) : undefined, professionalSpecialty: profile?.specialty || undefined, professionalDocument: profile?.rut || undefined,
     clinicName, contactEmail: sender?.google_email, mode,
-    format: pdfFormat, professionalTitles: profile?.extraTitles || undefined, logo: clinic?.logo || undefined,
+    format: clinicForBudget(pdfFormat, professionalId === ownerId, clinic), professionalTitles: profile?.extraTitles || undefined, logo: clinic?.logo || undefined,
   });
   return { bytes, editable, fileName: budgetPdfFileName({ id: budget.id, isAlternative: data.isAlternative }), isAlternative: data.isAlternative, title: budget.title, patient, profile, sender, clinicName: clinicName || "" };
 }
