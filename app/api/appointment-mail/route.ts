@@ -1,4 +1,4 @@
-import { getChatGPTUser } from "@/app/chatgpt-auth";
+import { SPACE_ADMIN_ONLY, getChatGPTUser, managesSpace } from "@/app/chatgpt-auth";
 import { getSender, removeSender, updateSettings } from "@/app/appointment-mail-db";
 import { previewReminder, runReminderCycle, sendReminderNow, sendTestMail } from "@/app/appointment-mail";
 
@@ -27,6 +27,7 @@ export async function PUT(request: Request) {
   const user = await getChatGPTUser();
   if (!user?.userId) return json({ error: "Inicia sesión." }, 401);
   if (!sameOrigin(request)) return json({ error: "Origen no permitido." }, 403);
+  if (!managesSpace(user)) return json({ error: SPACE_ADMIN_ONLY }, 403);
   const body = await request.json().catch(() => null) as { enabled?: unknown; sendHour?: unknown; message?: unknown } | null;
   if (!body) return json({ error: "Solicitud inválida." }, 400);
   const sender = await getSender(user.userId);
@@ -70,6 +71,7 @@ export async function DELETE(request: Request) {
   const user = await getChatGPTUser();
   if (!user?.userId) return json({ error: "Inicia sesión." }, 401);
   if (!sameOrigin(request)) return json({ error: "Origen no permitido." }, 403);
+  if (!managesSpace(user)) return json({ error: SPACE_ADMIN_ONLY }, 403);
   try { await removeSender(user.userId); return json({ sender: { connected: false } }); }
   catch { return json({ error: "No se pudo desconectar." }, 500); }
 }

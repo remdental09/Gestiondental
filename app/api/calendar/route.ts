@@ -1,4 +1,4 @@
-import { getChatGPTUser } from "@/app/chatgpt-auth";
+import { SPACE_ADMIN_ONLY, getChatGPTUser, managesSpace } from "@/app/chatgpt-auth";
 import { createAgendaEvent, deleteAgendaEvent, updateAgendaEvent, listCalendarChoices, listCalendarConnections, removeCalendarConnection, setCalendarChoice, syncGoogleCalendars } from "@/app/drive-oauth";
 
 export const runtime = "edge";
@@ -19,6 +19,8 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => null) as { action?: unknown; id?: unknown; calendarId?: unknown; enabled?: unknown; eventId?: unknown; title?: unknown; day?: unknown; time?: unknown; minutes?: unknown } | null;
   try {
     if (body?.action === "sync") { const results = await syncGoogleCalendars(user.userId); return json({ results, accounts: await listCalendarConnections(user.userId), calendars: await listCalendarChoices(user.userId) }); }
+    // Elegir o quitar calendarios cambia la agenda de toda la clínica; las citas sí las mueve cualquier dentista del equipo.
+    if ((body?.action === "setCalendar" || body?.action === "remove") && !managesSpace(user)) return json({ error: SPACE_ADMIN_ONLY }, 403);
     if (body?.action === "setCalendar" && typeof body.id === "string" && typeof body.calendarId === "string" && typeof body.enabled === "boolean") {
       await setCalendarChoice(user.userId, body.id, body.calendarId, body.enabled);
       return json({ accounts: await listCalendarConnections(user.userId), calendars: await listCalendarChoices(user.userId) });

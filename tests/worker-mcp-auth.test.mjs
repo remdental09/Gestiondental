@@ -7,6 +7,8 @@ import { resolveOwner, resolveOwnerWithRegistration } from '../app/access-owners
 import { aboutPage, privacyPage } from '../lib/public-pages.ts';
 import * as portada from '../lib/portada-page.ts';
 import * as googleLogin from '../lib/google-login.ts';
+import * as clinicTeamDb from '../app/clinic-team-db.ts';
+import * as clinicTeam from '../lib/clinic-team.ts';
 
 const source = readFileSync(new URL('../worker.ts', import.meta.url), 'utf8');
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText;
@@ -29,12 +31,14 @@ function worker() {
     jose: { createRemoteJWKSet: () => ({}), jwtVerify: async () => { throw new Error('invalid token'); } },
     'vinext/server/fetch-handler': { __esModule: true, default: { fetch: async request => {
       forwarded++;
-      return Response.json({ owner: request.headers.get('oai-authenticated-user-id'), clinic: request.headers.get('x-clinic-access-owner-id') });
+      return Response.json({ owner: request.headers.get('oai-authenticated-user-id'), clinic: request.headers.get('x-clinic-access-owner-id'), ...(request.headers.get('x-clinic-personal-id') ? { personal: request.headers.get('x-clinic-personal-id'), role: request.headers.get('x-clinic-space-role') } : {}) });
     } } },
     './app/access-owners': { resolveOwner, resolveOwnerWithRegistration },
     './lib/public-pages': { aboutPage, privacyPage },
     './lib/portada-page': portada,
     './lib/google-login': googleLogin,
+    './app/clinic-team-db': clinicTeamDb,
+    './lib/clinic-team': clinicTeam,
   };
   runInNewContext(compiled, { exports: exported, require: name => { assert.ok(name in imports, name); return imports[name]; }, Request, Response, Headers, URL, URLSearchParams, Map, atob, btoa, console, crypto, TextEncoder, TextDecoder, Date, fetch: async () => { throw new Error('sin red en pruebas'); } });
   return {
@@ -83,7 +87,7 @@ test('una aserción JWT inválida no permite suplantar la identidad', async () =
 test('la identidad de Access y la identidad MCP se inyectan solo en sus respectivos handlers', async () => {
   const instance = worker();
   const accessResponse = await instance.fetch(request('/api/clinical'), env, access({ email }));
-  assert.deepEqual(await accessResponse.json(), { owner: null, clinic: ownerId });
+  assert.deepEqual(await accessResponse.json(), { owner: null, clinic: ownerId, personal: ownerId, role: 'titular' });
   const mcpResponse = await instance.mcp(request('/mcp'), env, { props: { ownerId } });
   assert.deepEqual(await mcpResponse.json(), { owner: ownerId, clinic: null });
   assert.equal(instance.count(), 2);
@@ -110,7 +114,7 @@ test('con sesión de Google válida se delega con el propietario de ese correo; 
   const req = new Request('https://example.test/api/clinical', { headers: { Cookie: await sessionCookie(email), 'x-clinic-access-owner-id': 'forged-owner', 'oai-authenticated-user-id': 'forged-owner' } });
   const response = await instance.fetch(req, googleEnv, {});
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { owner: null, clinic: ownerId });
+  assert.deepEqual(await response.json(), { owner: null, clinic: ownerId, personal: ownerId, role: 'titular' });
 });
 
 test('una sesión falsificada, vencida o firmada con otro secreto no entra', async () => {
@@ -137,4 +141,50 @@ test('sin sesión, una página muestra la portada y no delega; el botón inicia 
   assert.equal(badState.headers.get('location'), '/?error=vencido');
   const out = await instance.fetch(new Request('https://example.test/auth/salir'), googleEnv, {});
   assert.match(out.headers.get('set-cookie'), /sd_session=; .*Max-Age=0/);
+});
+
+// ---------- Equipo de la clínica: el espacio de datos sale de la membresía guardada, nunca del navegador ----------
+
+const CLINICA = 'clinica-titular-000001';
+function fakeDb(rows, { fail = false } = {}) {
+  const statement = (sql) => {
+    let bound = [];
+    const self = {
+      bind: (...values) => { bound = values; return self; },
+      run: async () => { if (fail) throw new Error('D1 caída'); return {}; },
+      first: async () => null,
+      all: async () => {
+        if (fail) throw new Error('D1 caída');
+        if (!/FROM clinic_members WHERE email = \?/.test(sql)) return { results: [] };
+        return { results: rows.filter(r => r.email === bound[0] && ['invitada', 'activa'].includes(r.status)) };
+      },
+    };
+    return self;
+  };
+  return { prepare: statement };
+}
+const row = (over = {}) => ({ clinic_id: CLINICA, email, role: 'dentista', status: 'activa', invited_by: CLINICA, invited_at: '2026-11-01T00:00:00Z', expires_at: '2026-11-15T00:00:00Z', accepted_at: '2026-11-02T00:00:00Z', revoked_at: null, member_id: ownerId, name: '', ...over });
+const clinicReq = async (extraCookie = '', extraHeaders = {}) => new Request('https://example.test/api/clinical', { headers: { Cookie: (await sessionCookie(email)) + extraCookie, ...extraHeaders } });
+
+test('equipo: un miembro activo trabaja en el espacio de la clínica, con su id personal y su rol', async () => {
+  const instance = worker();
+  const response = await instance.fetch(await clinicReq(), { ...googleEnv, DB: fakeDb([row()]) }, {});
+  assert.deepEqual(await response.json(), { owner: null, clinic: CLINICA, personal: ownerId, role: 'dentista' });
+});
+
+test('equipo: puede volver a su espacio personal con la cookie; una invitación pendiente no da acceso', async () => {
+  const personal = await worker().fetch(await clinicReq('; gd_espacio=' + encodeURIComponent(ownerId)), { ...googleEnv, DB: fakeDb([row()]) }, {});
+  assert.equal((await personal.json()).clinic, ownerId);
+  const pending = await worker().fetch(await clinicReq(), { ...googleEnv, DB: fakeDb([row({ status: 'invitada', accepted_at: null })]) }, {});
+  assert.deepEqual(await pending.json(), { owner: null, clinic: ownerId, personal: ownerId, role: 'titular' });
+});
+
+test('equipo: revocado, la cookie de la clínica ya no abre sus fichas; ni se puede forjar espacio o rol por cabecera', async () => {
+  const revoked = await worker().fetch(await clinicReq('; gd_espacio=' + CLINICA, { 'x-clinic-personal-id': 'forjado', 'x-clinic-space-role': 'admin', 'x-clinic-access-owner-id': CLINICA }), { ...googleEnv, DB: fakeDb([row({ status: 'revocada' })]) }, {});
+  assert.deepEqual(await revoked.json(), { owner: null, clinic: ownerId, personal: ownerId, role: 'titular' });
+});
+
+test('equipo: si la base falla, se trabaja en el espacio personal (nunca en uno ajeno)', async () => {
+  const response = await worker().fetch(await clinicReq('; gd_espacio=' + CLINICA), { ...googleEnv, DB: fakeDb([row()], { fail: true }) }, {});
+  assert.equal((await response.json()).clinic, ownerId);
 });

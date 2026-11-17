@@ -1,4 +1,4 @@
-import { getChatGPTUser } from "@/app/chatgpt-auth";
+import { getChatGPTUser, personalIdOf } from "@/app/chatgpt-auth";
 import { loadHidden, loadNames, loadPrices, savePrice, setHidden, setName } from "@/app/aranceles-db";
 import { normalizePrice } from "@/lib/aranceles";
 import { normalizeName } from "@/lib/custom-prestaciones";
@@ -10,14 +10,16 @@ const headers = { "Cache-Control": "private, no-store" };
 const fail = (error: string, status = 400) => Response.json({ error }, { status, headers });
 
 export async function GET() {
-  const ownerId = (await getChatGPTUser())?.userId;
+  const viewer = await getChatGPTUser();
+  const ownerId = viewer ? personalIdOf(viewer) : null;
   if (!ownerId) return fail("Inicia sesión.", 401);
   try { const [prices, hidden, names] = await Promise.all([loadPrices(ownerId), loadHidden(ownerId), loadNames(ownerId)]); return Response.json({ prices, hidden, names }, { headers }); } catch { return fail("No se pudo leer el arancel.", 500); }
 }
 
 /** Fija (price = número) o quita (price = null) el precio de una prestación del catálogo. */
 export async function PUT(request: Request) {
-  const ownerId = (await getChatGPTUser())?.userId;
+  const viewer = await getChatGPTUser();
+  const ownerId = viewer ? personalIdOf(viewer) : null;
   if (!ownerId) return fail("Inicia sesión.", 401);
   const origin = request.headers.get("origin");
   if (origin && origin !== new URL(request.url).origin) return fail("Origen no permitido.", 403);
@@ -35,7 +37,8 @@ export async function PUT(request: Request) {
 
 /** Borra (hidden = true) o recupera (hidden = false) una prestación del catálogo en la lista de este profesional. */
 export async function POST(request: Request) {
-  const ownerId = (await getChatGPTUser())?.userId;
+  const viewer = await getChatGPTUser();
+  const ownerId = viewer ? personalIdOf(viewer) : null;
   if (!ownerId) return fail("Inicia sesión.", 401);
   const origin = request.headers.get("origin");
   if (origin && origin !== new URL(request.url).origin) return fail("Origen no permitido.", 403);

@@ -2,7 +2,12 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 export type ChatGPTUser = {
+  /** Espacio de datos en que se trabaja: el personal o el de la clínica a la que pertenece (pacientes, agenda, imágenes). */
   userId: string;
+  /** owner_id propio de la persona: su perfil profesional, sus aranceles y la autoría de sus evoluciones. */
+  personalId?: string;
+  /** Rol en el espacio actual: «titular» en el propio; «admin» o «dentista» en una clínica ajena. */
+  spaceRole?: "titular" | "admin" | "dentista";
   displayName: string;
   email: string;
   fullName: string | null;
@@ -17,6 +22,8 @@ const USER_FULL_NAME_ENCODING_HEADER =
 const ACCESS_USER_ID_HEADER = "x-clinic-access-owner-id";
 const ACCESS_USER_EMAIL_HEADER = "x-clinic-access-email";
 const ACCESS_USER_NAME_HEADER = "x-clinic-access-name";
+const ACCESS_PERSONAL_ID_HEADER = "x-clinic-personal-id";
+const ACCESS_SPACE_ROLE_HEADER = "x-clinic-space-role";
 const PERCENT_ENCODED_UTF8 = "percent-encoded-utf-8";
 const SIGN_IN_PATH = "/signin-with-chatgpt";
 const SIGN_OUT_PATH = "/signout-with-chatgpt";
@@ -29,8 +36,13 @@ export async function getChatGPTUser(): Promise<ChatGPTUser | null> {
   if (accessUserId && accessEmail) {
     const encodedName = requestHeaders.get(ACCESS_USER_NAME_HEADER);
     const accessName = encodedName ? safeDecodeURIComponent(encodedName) : null;
+    const personalId = requestHeaders.get(ACCESS_PERSONAL_ID_HEADER) || accessUserId;
+    const rawRole = requestHeaders.get(ACCESS_SPACE_ROLE_HEADER);
+    const spaceRole = rawRole === "admin" || rawRole === "dentista" ? rawRole : "titular";
     return {
       userId: accessUserId,
+      personalId,
+      spaceRole,
       displayName: accessName || accessEmail,
       email: accessEmail,
       fullName: accessName,
@@ -55,6 +67,25 @@ export async function getChatGPTUser(): Promise<ChatGPTUser | null> {
     fullName,
   };
 }
+
+/** owner_id propio (perfil, aranceles, autoría). Fuera de una clínica coincide con el espacio. */
+export function personalIdOf(user: ChatGPTUser): string {
+  return user.personalId || user.userId;
+}
+
+/** Rol en el espacio actual. Sin cabecera de rol (MCP, sesión ChatGPT) la persona trabaja en su propio espacio. */
+export function spaceRoleOf(user: ChatGPTUser): "titular" | "admin" | "dentista" {
+  return user.spaceRole ?? "titular";
+}
+
+/**
+ * Puede cambiar las conexiones compartidas del espacio (Drive, Google Calendar, correo de citas, envío de agenda).
+ * Dentro de una clínica solo el titular y los administradores; un dentista invitado no reemplaza las de la clínica.
+ */
+export function managesSpace(user: ChatGPTUser): boolean {
+  return spaceRoleOf(user) !== "dentista";
+}
+export const SPACE_ADMIN_ONLY = "Solo un administrador de la clínica puede cambiar esta conexión.";
 
 export async function requireChatGPTUser(
   returnTo: string,

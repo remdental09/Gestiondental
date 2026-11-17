@@ -1,4 +1,4 @@
-import { getChatGPTUser } from "@/app/chatgpt-auth";
+import { getChatGPTUser, personalIdOf } from "@/app/chatgpt-auth";
 import { createCustom, deleteCustom, listCustom, updateCustom } from "@/app/custom-prestaciones-db";
 import { normalizePrice } from "@/lib/aranceles";
 import { checkNewItems, MAX_CUSTOM_PER_OWNER, normalizeName } from "@/lib/custom-prestaciones";
@@ -9,7 +9,8 @@ const headers = { "Cache-Control": "private, no-store" };
 const fail = (error: string, status = 400) => Response.json({ error }, { status, headers });
 
 async function owner(request?: Request): Promise<{ ownerId: string } | Response> {
-  const ownerId = (await getChatGPTUser())?.userId;
+  const viewer = await getChatGPTUser();
+  const ownerId = viewer ? personalIdOf(viewer) : null;
   if (!ownerId) return fail("Inicia sesión.", 401);
   const origin = request?.headers.get("origin");
   if (request && origin && origin !== new URL(request.url).origin) return fail("Origen no permitido.", 403);

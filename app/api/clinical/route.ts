@@ -2,7 +2,9 @@ import { and, desc, eq, ne } from "drizzle-orm";
 import { ALL_TOOTH_STATUSES, applyStatusToChart, isLesionStatus, pruneChartExtras, removeLesionFromChart } from "@/lib/tooth-status";
 import { isCariesDepth } from "@/lib/caries";
 import { env } from "cloudflare:workers";
-import { getChatGPTUser } from "@/app/chatgpt-auth";
+import { getChatGPTUser, personalIdOf, spaceRoleOf, type ChatGPTUser } from "@/app/chatgpt-auth";
+import { authorOf, authorsOf, recordAuthor, type TeamDb } from "@/app/clinic-team-db";
+import { canChangeEvolution, canManageTeam, evolutionAuthor } from "@/lib/clinic-team";
 import { loadProfile } from "@/app/clinician-profile-db";
 import { touchAppUser } from "@/app/app-users-db";
 import { isDeveloperEmail } from "@/lib/developer-dashboard";
@@ -54,6 +56,26 @@ const validDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) && !Numbe
 const validPhone = (value: string) => !value || (/^[+\d()\s.-]{7,24}$/.test(value) && value.replace(/\D/g, "").length >= 8);
 const validEmail = (value: string) => !value || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 const protect = async () => (await getChatGPTUser())?.userId ?? null;
+const teamDb = () => (env as unknown as { DB?: TeamDb }).DB;
+
+/** Deja constancia de quién escribió la evolución dentro del espacio (clínica compartida o propio). */
+async function stampAuthor(spaceId: string, evolutionId: number, viewer: ChatGPTUser | null) {
+  const db = teamDb();
+  if (!db || !viewer) return;
+  const personalId = personalIdOf(viewer);
+  const profile = await loadProfile(personalId).catch(() => null);
+  await recordAuthor(db, spaceId, evolutionId, { id: personalId, email: viewer.email, name: profile ? displayName(profile) : viewer.displayName });
+}
+
+/** Solo quien escribió una evolución la edita, anula o elimina. Las antiguas, sin autor registrado, son del titular del espacio. */
+async function mayChangeEvolution(spaceId: string, evolutionId: number): Promise<boolean> {
+  const viewer = await getChatGPTUser();
+  if (!viewer) return false;
+  const db = teamDb();
+  const author = db ? await authorOf(db, spaceId, evolutionId) : null;
+  return canChangeEvolution(author, spaceId, personalIdOf(viewer));
+}
+const NOT_AUTHOR = "Solo quien escribió esta evolución puede corregirla, anularla o eliminarla.";
 // This snapshot is supplied by a private runtime secret, never committed to Git.
 function calendarSnapshot(email: string, persisted: typeof calendarEvents.$inferSelect[]) {
   if (email.toLowerCase() !== "lpaulr@gmail.com") return { events: [], capturedAt: null };
@@ -182,9 +204,18 @@ export async function GET() {
   try {
     const db = getDb();
     let profileFailed = false;
-    const profile = await loadProfile(ownerId).catch(() => { profileFailed = true; return null; });
+    const personalId = viewer ? personalIdOf(viewer) : ownerId;
+    const spaceRole = viewer ? spaceRoleOf(viewer) : "titular";
+    const profile = await loadProfile(personalId).catch(() => { profileFailed = true; return null; });
     // Registro de ingresos para el panel del desarrollador; si falla, la ficha carga igual.
-    await touchAppUser(ownerId, viewer?.email || "", viewer?.fullName || "").catch(() => undefined);
+    await touchAppUser(personalId, viewer?.email || "", viewer?.fullName || "").catch(() => undefined);
+    const authorDb = teamDb();
+    const authors = authorDb ? await authorsOf(authorDb, ownerId).catch(() => new Map()) : new Map();
+    const authorView = (id: number) => {
+      const row = authors.get(id);
+      const authorId = evolutionAuthor(row?.author_id, ownerId);
+      return { authorName: row?.author_name || "", authorEmail: row?.author_email || "", mine: authorId === personalId };
+    };
     const addresses = await loadAddresses(ownerId);
     const [ps, ns, bs, as, pe, ts, imgs, ces, pays, dxs] = await Promise.all([
       db.select().from(patients).where(eq(patients.ownerId, ownerId)).orderBy(patients.name),
@@ -231,14 +262,14 @@ export async function GET() {
     }));
     return Response.json({
       patients: ps.map(p => ({ ...p, rut: p.rut || "", address: addresses.get(p.id) ?? emptyAddress() })),
-      notes: ns.map(n => ({ id: n.id, patientId: n.patientId, date: displayDate(n.clinicalDate), clinicalDate: n.clinicalDate, recordedAt: n.recordedAt, title: n.title, body: n.body, sourceDocumentId: n.sourceDocumentId, backupStatus: n.backupStatus, diagnoses: diagnosesByNote.get(n.id) ?? [], ...annulView(n) })),
+      notes: ns.map(n => ({ id: n.id, patientId: n.patientId, date: displayDate(n.clinicalDate), clinicalDate: n.clinicalDate, recordedAt: n.recordedAt, title: n.title, body: n.body, sourceDocumentId: n.sourceDocumentId, backupStatus: n.backupStatus, diagnoses: diagnosesByNote.get(n.id) ?? [], ...annulView(n), ...authorView(n.id) })),
       budgets: bs.map(budgetView),
       appointments: as.map(a => ({ id: a.id, patientId: a.patientId, day: a.day.split("-").reverse().join("-"), time: a.time, reason: a.reason })),
       payments: pays.map(paymentView),
       calendarEvents: [...ces.filter(e => e.status !== "cancelled").map(e => ({ id: e.id, title: e.title, startAt: e.startAt, endAt: e.endAt, sourceTimeZone: e.sourceTimeZone, htmlLink: e.htmlLink, status: e.status, allDay: e.allDay, patientId: e.patientId })), ...snapshot.events],
       calendarSnapshotAt: snapshot.events.length ? snapshot.capturedAt : null,
       calendarSyncedAt: ces.reduce<string | null>((latest, e) => (e.importedAt && (!latest || e.importedAt > latest) ? e.importedAt : latest), null),
-      viewer: { name: profile ? displayName(profile) : viewer?.displayName || "", email: viewer?.email || "", registered: Boolean(profile) || profileFailed, specialty: profile?.specialty || "", clinicName: profile?.clinicName || "", developer: isDeveloperEmail(viewer?.email, (env as unknown as { DEVELOPER_EMAILS?: string }).DEVELOPER_EMAILS) },
+      viewer: { name: profile ? displayName(profile) : viewer?.displayName || "", email: viewer?.email || "", registered: Boolean(profile) || profileFailed, specialty: profile?.specialty || "", clinicName: profile?.clinicName || "", developer: isDeveloperEmail(viewer?.email, (env as unknown as { DEVELOPER_EMAILS?: string }).DEVELOPER_EMAILS), spaceRole, inClinic: personalId !== ownerId, manageTeam: canManageTeam(spaceRole) },
       periodontalExams: Object.fromEntries(ps.map(p => [p.id, (examsByPatient.get(p.id) ?? []).map(x => ({ id: x.id, recordedAt: x.recordedAt, ...normalizePerio(JSON.parse(x.teeth)) }))])),
       toothStatuses: charts,
       clinicalImages: imgs.map(i => ({ id: i.id, patientId: i.patientId, url: "/api/images/" + i.id, name: i.name, kind: i.kind, note: i.note, addedAt: displayDate(i.addedAt.slice(0, 10)), size: i.size, contentType: i.contentType })),
@@ -375,6 +406,7 @@ export async function POST(request: Request) {
         if (existing) return Response.json({ note: { id: existing.id, patientId: existing.patientId, date: displayDate(existing.clinicalDate), clinicalDate: existing.clinicalDate, recordedAt: existing.recordedAt, title: existing.title, body: existing.body, backupStatus: existing.backupStatus } });
       }
       const [n] = await db.insert(evolutions).values({ ownerId, patientId, clinicalDate, recordedAt: t, title, body, requestId, backupStatus: "not_configured" }).returning();
+      await stampAuthor(ownerId, n.id, await getChatGPTUser()).catch(() => undefined);
       let chart;
       try { chart = await syncInstalledImplants(ownerId, patientId, body, t, n.id, clinicalDate); }
       catch { chart = { updatedTeeth: [], odontogram: null, warning: "Evolución guardada; revisa el odontograma, cuya actualización no pudo verificarse." }; }
@@ -394,6 +426,7 @@ export async function POST(request: Request) {
       const [note] = await db.select().from(evolutions).where(and(eq(evolutions.id, evolutionId), eq(evolutions.patientId, patientId), eq(evolutions.ownerId, ownerId))).limit(1);
       if (!note) return error("Evolución no encontrada en esta ficha.", 404);
       if (note.status === "anulada") return error("Una evolución anulada no se puede editar.", 409);
+      if (!await mayChangeEvolution(ownerId, evolutionId)) return error(NOT_AUTHOR, 403);
       if (note.title === title && note.body === body) return Response.json({ note: { id: note.id, patientId, title, body }, unchanged: true });
       const viewer = await getChatGPTUser();
       const t = now();
@@ -415,6 +448,7 @@ export async function POST(request: Request) {
       const [note] = await db.select().from(evolutions).where(and(eq(evolutions.id, evolutionId), eq(evolutions.patientId, patientId), eq(evolutions.ownerId, ownerId))).limit(1);
       if (!note) return error("Evolución no encontrada en esta ficha.", 404);
       if (note.status === "anulada") return error("Esta evolución ya estaba anulada.", 409);
+      if (!await mayChangeEvolution(ownerId, evolutionId)) return error(NOT_AUTHOR, 403);
       const viewer = await getChatGPTUser();
       const t = now(), annulledBy = viewer?.email || ownerId;
       const annul = db.update(evolutions).set({ status: "anulada", annulledAt: t, annulledBy, annulReason: reason }).where(and(eq(evolutions.id, evolutionId), eq(evolutions.ownerId, ownerId), eq(evolutions.status, "vigente")));
@@ -423,6 +457,7 @@ export async function POST(request: Request) {
         const clinicalDate = dateInChile();
         const [, inserted] = await db.batch([annul, db.insert(evolutions).values({ ownerId, patientId, clinicalDate, recordedAt: t, title: replacementTitle, body: replacementBody, replacesId: evolutionId, backupStatus: "not_configured" }).returning()]);
         replacement = inserted[0];
+        if (replacement) await stampAuthor(ownerId, replacement.id, viewer).catch(() => undefined);
       } else await annul;
       const revertedTeeth = await revertChartOf(db, ownerId, patientId, evolutionId).catch(() => null);
       const revertedLinks = await revertLinkedRecords(db, ownerId, patientId, evolutionId).catch(() => null);
@@ -448,6 +483,7 @@ export async function POST(request: Request) {
       const replacementTitle = string(input.replacementTitle, 180) || "Evolución clínica";
       const [note] = await db.select({ id: evolutions.id }).from(evolutions).where(and(eq(evolutions.id, evolutionId), eq(evolutions.patientId, patientId), eq(evolutions.ownerId, ownerId))).limit(1);
       if (!note) return error("Evolución no encontrada en esta ficha.", 404);
+      if (!await mayChangeEvolution(ownerId, evolutionId)) return error(NOT_AUTHOR, 403);
       const t = now();
       const removeTags = db.delete(evolutionDiagnoses).where(and(eq(evolutionDiagnoses.evolutionId, evolutionId), eq(evolutionDiagnoses.ownerId, ownerId)));
       const removeNote = db.delete(evolutions).where(and(eq(evolutions.id, evolutionId), eq(evolutions.patientId, patientId), eq(evolutions.ownerId, ownerId)));
@@ -455,6 +491,7 @@ export async function POST(request: Request) {
       if (replacementBody) {
         const [, , inserted] = await db.batch([removeTags, removeNote, db.insert(evolutions).values({ ownerId, patientId, clinicalDate: dateInChile(), recordedAt: t, title: replacementTitle, body: replacementBody, backupStatus: "not_configured" }).returning()]);
         replacement = inserted[0];
+        if (replacement) await stampAuthor(ownerId, replacement.id, await getChatGPTUser()).catch(() => undefined);
       } else await db.batch([removeTags, removeNote]);
       const revertedTeeth = await revertChartOf(db, ownerId, patientId, evolutionId).catch(() => null);
       const revertedLinks = await revertLinkedRecords(db, ownerId, patientId, evolutionId).catch(() => null);
@@ -478,6 +515,7 @@ export async function POST(request: Request) {
       if ("error" in parsed) return error(parsed.error);
       const [note] = await db.select().from(evolutions).where(and(eq(evolutions.id, evolutionId), eq(evolutions.patientId, patientId), eq(evolutions.ownerId, ownerId))).limit(1);
       if (!note) return error("Evolución no encontrada en esta ficha.", 404);
+      if (!await mayChangeEvolution(ownerId, evolutionId)) return error(NOT_AUTHOR, 403);
       const t = now();
       const remove = db.delete(evolutionDiagnoses).where(and(eq(evolutionDiagnoses.evolutionId, evolutionId), eq(evolutionDiagnoses.ownerId, ownerId)));
       const inserts = parsed.tags.map(tag => db.insert(evolutionDiagnoses).values({ ownerId, patientId, evolutionId, code: tag.code, title: tag.title, tooth: tag.tooth, findings: tag.findings, evidence: tag.evidence, origin: tag.origin, suggestedFrom: tag.suggestedFrom, createdAt: t }));

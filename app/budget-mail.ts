@@ -25,10 +25,11 @@ async function load(ownerId: string, budgetId: number) {
 }
 
 /** PDF del presupuesto con los datos del profesional, la clínica y el paciente; hora de emisión en hora de Chile. */
-export async function renderBudgetPdf(ownerId: string, budgetId: number, mode: BudgetPdfMode) {
+/** `professionalId`: quien emite el presupuesto (su nombre, RUT y especialidad van arriba); por omisión, el titular del espacio. */
+export async function renderBudgetPdf(ownerId: string, budgetId: number, mode: BudgetPdfMode, professionalId: string = ownerId) {
   const { budget, patient } = await load(ownerId, budgetId);
   const data = decodeBudgetData(budget.items);
-  const [profile, sender] = await Promise.all([loadProfile(ownerId).catch(() => null), getSender(ownerId).catch(() => null)]);
+  const [profile, sender] = await Promise.all([loadProfile(professionalId).catch(() => null), getSender(ownerId).catch(() => null)]);
   const bytes = await buildBudgetPdf({
     budget: { id: budget.id, title: budget.title, date: displayDate(budget.createdAt), isAlternative: data.isAlternative, items: data.items },
     patientName: patient.name, patientDocument: patient.rut?.trim() || undefined,
@@ -54,9 +55,9 @@ export async function previewBudgetMail(ownerId: string, budgetId: number) {
 }
 
 /** Genera el PDF del presupuesto y lo envía de inmediato al correo registrado del paciente. */
-export async function sendBudgetPdf(ownerId: string, budgetId: number, mode: BudgetPdfMode) {
+export async function sendBudgetPdf(ownerId: string, budgetId: number, mode: BudgetPdfMode, professionalId: string = ownerId) {
   const { email, sender } = await mailTarget(ownerId, budgetId);
-  const pdf = await renderBudgetPdf(ownerId, budgetId, mode);
+  const pdf = await renderBudgetPdf(ownerId, budgetId, mode, professionalId);
   const clinicName = pdf.profile?.clinicName || "";
   const mail = budgetEmail({ patientName: pdf.patient.name, clinicName, professionalName: pdf.profile ? displayName(pdf.profile) : "", title: pdf.title, isAlternative: pdf.isAlternative });
   await sendMailWithSender(sender, buildRawMessage({
