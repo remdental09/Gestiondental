@@ -1,14 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CheckCircle2, Circle, Plus, Trash2, Wallet } from "lucide-react";
+import { CheckCircle2, Circle, MapPin, Plus, Trash2, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { budgetItemTotal, budgetPhases, budgetProgress, budgetTotals, itemTeeth, parseTeethText, type BudgetItem } from "@/lib/budget-plans";
-import { formatFdi } from "@/app/clinical-data";
+import { budgetItemTotal, budgetPhases, budgetProgress, budgetTotals, itemWhereText, type BudgetItem } from "@/lib/budget-plans";
 import type { Prestacion } from "@/lib/prestaciones-catalog";
-import { zoneLabel, zoneSummary, zoneTeeth } from "@/lib/treatment-zones";
-import { ZonePicker } from "@/components/zone-picker";
+import { WherePicker } from "@/components/zone-picker";
 
 export type BudgetPlan = {
   id: number;
@@ -106,6 +104,16 @@ export function BudgetItemsEditor({ items, onChange }: { items: BudgetItem[]; on
     return () => { cancelled = true; };
   }, []);
   const update = (index: number, patch: Partial<BudgetItem>) => onChange(items.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item));
+  // Clave estable por prestación: al quitar una, la siguiente no hereda el estado (zona, numeración) de la quitada.
+  const [rowKeys, setRowKeys] = useState(() => ({ next: items.length, list: items.map((_, i) => i) }));
+  if (rowKeys.list.length !== items.length) {
+    const list = rowKeys.list.slice(0, items.length);
+    let next = rowKeys.next;
+    while (list.length < items.length) list.push(next++);
+    setRowKeys({ next, list });
+  }
+  const keyOf = (index: number) => rowKeys.list[index] ?? `n${index}`;
+  const removeItem = (index: number) => { setRowKeys(k => ({ next: k.next, list: k.list.filter((_, i) => i !== index) })); onChange(items.filter((_, itemIndex) => itemIndex !== index)); };
   // Si una prestación llega ya puesta (desde Aranceles, el dictado o una plantilla) o el arancel se cargó después,
   // el valor vacío se completa con el arancel propio. Una sola vez por prestación: si el clínico borra el valor, no se vuelve a rellenar.
   const autofilled = useRef(new Set<string>());
@@ -127,14 +135,12 @@ export function BudgetItemsEditor({ items, onChange }: { items: BudgetItem[]; on
       <div><h3 className="font-semibold">Prestaciones y fases</h3><p className="text-xs text-[#6b6a7c]">Agrúpalas por etapa del tratamiento.</p></div>
       <Button type="button" variant="outline" size="sm" onClick={() => onChange([...items, { label: "", amount: 0, phase: "Fase 1", discountPercent: 0 }])}><Plus className="mr-1 size-4"/>Agregar</Button>
     </div>
-    {items.map((item, index) => <section key={index} className="rounded-xl border border-[#e6e4ee] bg-[#f9f9fb] p-3" aria-label={`Prestación ${index + 1}`}>
-      <div className="mb-3 flex items-center justify-between gap-3"><span className="text-xs font-semibold uppercase tracking-wide text-[#4f4e62]">Prestación {index + 1}</span>{items.length > 1 && <button type="button" aria-label={`Quitar prestación ${index + 1}`} className="rounded p-1 text-[#8c4a51] hover:bg-rose-50" onClick={() => onChange(items.filter((_, itemIndex) => itemIndex !== index))}><Trash2 className="size-4"/></button>}</div>
+    {items.map((item, index) => <section key={keyOf(index)} className="rounded-xl border border-[#e6e4ee] bg-[#f9f9fb] p-3" aria-label={`Prestación ${index + 1}`}>
+      <div className="mb-3 flex items-center justify-between gap-3"><span className="text-xs font-semibold uppercase tracking-wide text-[#4f4e62]">Prestación {index + 1}</span>{items.length > 1 && <button type="button" aria-label={`Quitar prestación ${index + 1}`} className="rounded p-1 text-[#8c4a51] hover:bg-rose-50" onClick={() => removeItem(index)}><Trash2 className="size-4"/></button>}</div>
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="space-y-1 text-sm font-medium sm:col-span-2">Prestación<PrestacionField value={item.label} onChange={label => update(index, { label, code: undefined })} onPick={(label, code) => update(index, { label, code, ...(prices[code] && !item.amount ? { amount: prices[code] } : {}) })} hidden={hidden} names={names} customs={customs} onPickCustom={own => update(index, { label: own.name, code: undefined, ...(own.price && !item.amount ? { amount: own.price } : {}) })}/></label>
-        <ZonePicker value={item.zone} label={item.label} onChange={zone => update(index, zone ? { zone, teeth: zoneTeeth(zone) } : { zone: undefined, teeth: undefined })}/>
+        <WherePicker item={item} onChange={patch => update(index, patch)}/>
         <label className="space-y-1 text-sm font-medium">Fase<Input maxLength={80} value={item.phase ?? ""} onChange={event => update(index, { phase: event.target.value })} placeholder="Fase 1 · Resolución"/></label>
-        {item.zone ? <label className="space-y-1 text-sm font-medium">Piezas (FDI)<Input readOnly value={zoneSummary(item.zone)} aria-label="Zona seleccionada" className="bg-[#efeef4]"/><span className="block text-xs font-normal text-[#6b6a7c]">Se marca en el odontograma. Quita la zona para elegir piezas sueltas.</span></label>
-        : <label className="space-y-1 text-sm font-medium">Piezas (FDI)<Input key={`teeth-${index}-${(item.teeth ?? []).join("-")}`} inputMode="decimal" maxLength={120} defaultValue={(item.teeth ?? []).map(formatFdi).join(", ")} onBlur={event => { const teeth = parseTeethText(event.target.value); if (teeth.join() === (item.teeth ?? []).join()) return; update(index, { teeth: teeth.length ? teeth : undefined, zone: undefined }); }} placeholder={itemTeeth(item).length ? itemTeeth(item).map(formatFdi).join(", ") + " (del nombre)" : "Ej.: 3.6, 4.6 · vacío si no aplica"}/><span className="block text-xs font-normal text-[#6b6a7c]">Se marca en el odontograma.</span></label>}
         <label className="space-y-1 text-sm font-medium">Valor CLP<Input type="number" inputMode="numeric" min="1" step="1" value={item.amount || ""} onChange={event => update(index, { amount: Number(event.target.value) })} placeholder="790000"/>{arancelFor(item, prices, customs) ? <span className="block text-xs font-normal text-[#6b6a7c]">Tu arancel: {money(arancelFor(item, prices, customs)!)}</span> : null}</label>
         <label className="space-y-1 text-sm font-medium">Descuento (%)<Input type="number" inputMode="numeric" min="0" max="100" step="1" value={item.discountPercent ?? 0} onChange={event => update(index, { discountPercent: Number(event.target.value) })}/></label>
         <div className="flex items-end justify-between gap-3 pb-2 text-sm"><span className="text-[#6b6a7c]">Total de la prestación</span><strong>{money(budgetItemTotal(item))}</strong></div>
@@ -216,7 +222,6 @@ export function BudgetCard({
       {budgetPhases(budget.items).map(phase => <section key={phase.name}>
         <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#4f4e62]">{phase.name}</h4>
         <ul className="space-y-2">{indexed.filter(({ item }) => (item.phase?.trim() || "Etapa 1") === phase.name).map(({ item, index }) => {
-          const teeth = itemTeeth(item);
           const done = Boolean(item.doneOn);
           return <li key={`${item.label}-${index}`} className={"flex flex-wrap items-start justify-between gap-x-4 gap-y-1 rounded-lg px-2 py-1.5 text-sm " + (done ? "bg-[#efeef4] text-[#3b3355]" : "text-[#615f73]")} data-testid={`budget-item-${budget.id}-${index}`}>
             <span className="flex min-w-0 items-start gap-2">
@@ -227,8 +232,7 @@ export function BudgetCard({
                 <span className={done ? "font-medium" : ""}>{item.label}</span>
                 {item.code ? <span className="ml-2 text-xs text-[#6b6a7c]">Cód. {item.code}</span> : null}
                 {item.discountPercent ? <span className="ml-2 text-xs text-[#3a2f5a]">−{item.discountPercent}%</span> : null}
-                {item.zone && <span className="ml-2 rounded bg-[#efeef4] px-1.5 py-0.5 text-[11px] font-semibold text-[#3a2f5a]" title={teeth.map(formatFdi).join(", ")}>{zoneLabel(item.zone)}</span>}
-                {teeth.length > 0 && !item.zone && <span className="ml-2 inline-flex flex-wrap gap-1 align-middle">{teeth.map(tooth => <span key={tooth} className="rounded bg-white px-1.5 py-0.5 text-[11px] font-semibold text-[#3a2f5a] ring-1 ring-[#dddbe6]">{formatFdi(tooth)}</span>)}</span>}
+                {itemWhereText(item) && <span className="mt-0.5 flex flex-wrap items-center gap-1 text-xs text-[#3a2f5a]" data-testid={`budget-where-${budget.id}-${index}`}><MapPin className="size-3.5 shrink-0 text-[#c95f35]" aria-hidden="true"/>{itemWhereText(item)}</span>}
                 {done && <span className="mt-0.5 block text-xs text-[#3a2f5a]">Realizada el {canTrack
                   ? <input type="date" aria-label={`Fecha en que se realizó «${item.label}»`} className="rounded border border-[#dddbe6] bg-white px-1 text-xs" value={item.doneOn} max={chileToday()} disabled={savingIndex !== null} onChange={event => { if (event.target.value) void setDone(index, event.target.value); }}/>
                   : displayIso(item.doneOn!)}</span>}

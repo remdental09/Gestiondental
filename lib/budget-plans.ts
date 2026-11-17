@@ -1,4 +1,5 @@
-import { parseZone, zoneTeeth } from "./treatment-zones.ts";
+import { parseZone, zoneFixesTeeth, zoneLabel, zoneTeeth } from "./treatment-zones.ts";
+import { formatFdiTooth, fdiToChile } from "./tooth-numbering.ts";
 
 export type BudgetItem = {
   label: string;
@@ -11,6 +12,8 @@ export type BudgetItem = {
   teeth?: number[];
   /** Zona de aplicación cuando no es una pieza suelta: «perm:cuad-1», «temp:boca», «perm:sext-3» (ver treatment-zones). Las piezas que cubre van en `teeth`. */
   zone?: string;
+  /** Detalle libre de dónde se trabaja («sitios con sacos > 4 mm», «zona edéntula 3.5–3.7»). */
+  area?: string;
   /** Fecha (AAAA-MM-DD) en que se realizó; ausente mientras está pendiente. */
   doneOn?: string;
 };
@@ -76,9 +79,10 @@ export function normalizeBudgetItems(value: unknown): BudgetItem[] | null {
     if (!Number.isSafeInteger(subtotal) || subtotal > 1_000_000_000) return null;
     const code = typeof item.code === "string" && /^\d{7}$/.test(item.code.trim()) ? item.code.trim() : "";
     const zone = typeof item.zone === "string" && parseZone(item.zone) ? item.zone : "";
-    const teeth = normalizeTeeth(zone ? zoneTeeth(zone) : item.teeth);
+    const teeth = normalizeTeeth(zoneFixesTeeth(zone) ? zoneTeeth(zone) : item.teeth);
+    const area = typeof item.area === "string" ? item.area.replace(/\s+/g, " ").trim().slice(0, 160) : "";
     const doneOn = typeof item.doneOn === "string" && validIsoDate(item.doneOn) ? item.doneOn : "";
-    items.push({ label, amount, ...(phase ? { phase } : {}), ...(discountPercent ? { discountPercent } : {}), ...(code ? { code } : {}), ...(teeth.length ? { teeth } : {}), ...(zone ? { zone } : {}), ...(doneOn ? { doneOn } : {}) });
+    items.push({ label, amount, ...(phase ? { phase } : {}), ...(discountPercent ? { discountPercent } : {}), ...(code ? { code } : {}), ...(teeth.length ? { teeth } : {}), ...(zone ? { zone } : {}), ...(area ? { area } : {}), ...(doneOn ? { doneOn } : {}) });
   }
   return items;
 }
@@ -188,4 +192,24 @@ export function plannedByTooth(plans: Array<{ id: number; title: string; isAlter
     });
   }
   return byTooth;
+}
+
+/**
+ * Dónde se trabaja, en una línea para el plan, la ficha y el PDF:
+ * «Boca completa», «Sextante 2 · 1.3–2.3», «Piezas 1.2, 1.4 · Chile 7, 5», más el detalle libre si lo hay.
+ */
+export function itemWhereText(item: BudgetItem): string {
+  const parts: string[] = [];
+  const zone = parseZone(item.zone);
+  const teeth = itemTeeth(item);
+  if (zone) {
+    const label = zoneLabel(item.zone);
+    const range = zone.option.key === "boca" || zone.option.usesTeeth ? "" : ` · ${zone.option.range}`;
+    parts.push(label + range);
+  }
+  if (teeth.length && (!zone || zone.option.usesTeeth)) {
+    parts.push(`${teeth.length === 1 ? "Pieza" : "Piezas"} ${teeth.map(formatFdiTooth).join(", ")} · Chile ${teeth.map(fdiToChile).join(", ")}`);
+  }
+  if (item.area?.trim()) parts.push(item.area.trim());
+  return parts.join(" — ");
 }
