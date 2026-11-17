@@ -245,8 +245,10 @@ function FaceAndGum({ face, setFace, gumPct, setGumPct, label }: { face: ArchFac
 const STAGE = "rounded-2xl border border-[#2a2142] bg-[radial-gradient(60%_45%_at_85%_0%,rgba(239,137,95,.18),transparent_70%),radial-gradient(70%_55%_at_10%_8%,rgba(120,96,196,.26),transparent_70%),linear-gradient(#171127,#0d0a16)]";
 
 /** Una sola pieza, igual que en la arcada (misma foto, encía y hueso según las medidas), ampliada para el análisis unitario. */
-export function PerioToothScene({ tooth, data, status }: { tooth: number; data: PerioTooth | undefined; status?: string }) {
-  const [face, setFace] = useState<ArchFace>("vestibular");
+export function PerioToothScene({ tooth, data, status, requestedFace }: { tooth: number; data: PerioTooth | undefined; status?: string; /** Cara pedida por el dictado guiado: la vista cambia sola al pasar a palatino/lingual. */ requestedFace?: ArchFace }) {
+  const [face, setFace] = useState<ArchFace>(requestedFace ?? "vestibular");
+  const [lastRequest, setLastRequest] = useState(requestedFace);
+  if (requestedFace !== lastRequest) { setLastRequest(requestedFace); if (requestedFace) setFace(requestedFace); }
   const [gumPct, setGumPct] = useState(72);
   const images = useArchImages();
   const jaw = jawOf(tooth);
