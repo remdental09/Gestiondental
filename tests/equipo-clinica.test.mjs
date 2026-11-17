@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
-  canChangeEvolution, canEditClinic, canManageTeam, checkInvite, checkRoleChange, chooseSpace, evolutionAuthor, inviteExpiry,
+  canChangeBudget, canChangeEvolution, canEditClinic, canManageTeam, checkInvite, checkRoleChange, chooseSpace, evolutionAuthor, inviteExpiry,
   inviteMessage, isExpired, visibleStatus, MAX_MEMBERS,
 } from "../lib/clinic-team.ts";
 
@@ -156,7 +156,6 @@ test("perfil, aranceles y PDF del presupuesto son de cada profesional; el perfil
   assert.ok(read("../app/api/profile/route.ts").includes("loadProfile(personalIdOf(user))"));
   assert.ok(read("../app/api/aranceles/route.ts").includes("personalIdOf(viewer)"));
   assert.ok(read("../app/api/aranceles/custom/route.ts").includes("personalIdOf(viewer)"));
-  assert.ok(read("../app/api/presupuesto/pdf/route.ts").includes("personalIdOf(user))"));
   assert.ok(read("../app/api/clinica/route.ts").includes("canEditClinic(spaceRoleOf(user))"));
   assert.ok(read("../app/api/importar-plataforma/route.ts").includes("canManageTeam(spaceRoleOf(viewer))"));
 });
@@ -180,4 +179,33 @@ test("revisión: panel de desarrollador por id personal; importar desde Drive y 
   assert.ok(read("../app/api/audio-transcription/route.ts").includes("const owner = personalIdOf(user);"));
   const mail = read("../app/budget-mail.ts");
   assert.ok(mail.includes("professionalId === ownerId ? profile?.clinicName : space?.clinicName"), "nombre de clínica del espacio en PDF y correo");
+});
+
+test("presupuesto: queda a nombre de quien lo armó (p. ej. el ortodoncista invitado), lo descargue o envíe quien sea", () => {
+  const read = path => readFileSync(new URL(path, import.meta.url), "utf8");
+  const create = route.slice(route.indexOf('action === "addBudget"'), route.indexOf('action === "updateBudget"'));
+  assert.ok(create.includes("db.batch([db.insert(budgets)") && create.includes("(await budgetAuthorStatement(db, ownerId)).statement]"), "autor en el mismo batch que el presupuesto");
+  assert.ok(route.includes("budgetId: sql`last_insert_rowid()`"));
+  const mail = read("../app/budget-mail.ts");
+  assert.ok(mail.includes("await budgetAuthorOf(") && mail.includes("const professionalId = author || ownerId;"), "PDF con el autor; los antiguos, del titular");
+  assert.ok(mail.includes("No pude confirmar qué profesional armó este presupuesto"), "si la lectura falla, no firma con otro profesional");
+  for (const path of ["../app/api/presupuesto/pdf/route.ts", "../app/api/presupuesto/enviar/route.ts"]) assert.ok(!read(path).includes("personalIdOf"), `${path}: no usa a quien descarga o envía`);
+  assert.ok(read("../components/budget-plan.tsx").includes("Presupuesto de ${budget.authorName}"));
+});
+
+test("presupuesto: lo modifican quien lo armó y el dueño de la clínica (o sus administradores), no otro dentista invitado", () => {
+  const ORTODONCISTA = "email:ortodoncista-0004";
+  assert.equal(canChangeBudget(ORTODONCISTA, TITULAR, ORTODONCISTA, "dentista"), true, "el ortodoncista modifica el suyo");
+  assert.equal(canChangeBudget(ORTODONCISTA, TITULAR, TITULAR, "titular"), true, "el dueño modifica el del ortodoncista");
+  assert.equal(canChangeBudget(ORTODONCISTA, TITULAR, COLEGA, "admin"), true, "un administrador nombrado por el dueño también");
+  assert.equal(canChangeBudget(ORTODONCISTA, TITULAR, COLEGA, "dentista"), false, "otro invitado no");
+  assert.equal(canChangeBudget(null, TITULAR, ORTODONCISTA, "dentista"), false, "los antiguos son del dueño");
+  assert.equal(canChangeBudget(null, TITULAR, TITULAR, "titular"), true);
+  for (const action of ["updateBudget", "selectBudgetAlternative"]) {
+    const start = route.indexOf(`action === "${action}"`);
+    const block = route.slice(start, route.indexOf("if (action ===", start + 20));
+    assert.ok(block.includes(".editable) return error(NOT_BUDGET_OWNER, 403)"), action);
+  }
+  const plan = readFileSync(new URL("../components/budget-plan.tsx", import.meta.url), "utf8");
+  assert.ok(plan.includes("onEdit && budget.editable !== false") && plan.includes("onSelectPrimary && budget.editable !== false"));
 });
