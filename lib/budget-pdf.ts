@@ -129,6 +129,7 @@ export async function buildBudgetPdf(input: BudgetPdfInput): Promise<Uint8Array>
   const regular = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
   const totals = budgetTotals(input.budget.items);
+  const undefinedCount = input.budget.items.filter(item => item.amount === 0).length;
 
   let page!: PDFPage;
   let y = 0;
@@ -249,6 +250,7 @@ export async function buildBudgetPdf(input: BudgetPdfInput): Promise<Uint8Array>
     y -= 38; const amount = money(totals.total);
     page.drawText(amount, { x: (PAGE_W - bold.widthOfTextAtSize(amount, 30)) / 2, y, size: 30, font: bold, color: PURPLE });
     y -= 12;
+    if (undefinedCount) { const note = `No incluye ${undefinedCount} ${undefinedCount === 1 ? "prestación" : "prestaciones"} por definir`; y -= 10; page.drawText(note, { x: (PAGE_W - regular.widthOfTextAtSize(note, 9)) / 2, y, size: 9, font: regular, color: MUTED }); y -= 6; }
   } else {
     // columnas: # | tratamiento | zona | cant. | valor | dto. | total
     const cols = priced
@@ -299,7 +301,7 @@ export async function buildBudgetPdf(input: BudgetPdfInput): Promise<Uint8Array>
       }
     }
     if (priced) {
-      ensure(notes.length ? 96 : 96 + signH); // sin condiciones, el total y la firma van juntos: la firma nunca queda sola
+      ensure((notes.length ? 96 : 96 + signH) + (undefinedCount ? 14 : 0)); // sin condiciones, el total y la firma van juntos: la firma nunca queda sola
 
       const boxX = R - 236, boxW = 236;
       y -= 14;
@@ -311,6 +313,7 @@ export async function buildBudgetPdf(input: BudgetPdfInput): Promise<Uint8Array>
       if (hasDiscount) { y -= 16; text("Descuentos", boxX + 14, 10, regular, MUTED); right("-" + money(totals.discount), boxX + boxW - 14, 10, regular, MUTED); }
       y -= hasDiscount ? 24 : 22; text("TOTAL", boxX + 14, 11, bold, DEEP); right(money(totals.total), boxX + boxW - 14, 16, bold, PURPLE);
       y = top - height - 4;
+      if (undefinedCount) { y -= 10; right(`No incluye ${undefinedCount} ${undefinedCount === 1 ? "prestación" : "prestaciones"} por definir`, boxX + boxW, 8.5, regular, MUTED); y -= 4; }
     }
   }
 

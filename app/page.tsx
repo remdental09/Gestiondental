@@ -594,9 +594,9 @@ export default function Home(){
     setArancelCart({patientId:selectedId,items:[]});
   };
   const createQuickBudget=async(title:string,items:BudgetPlan["items"])=>{
-    const normalized=normalizeBudgetItems(items);
+    const normalized=normalizeBudgetItems(items,true);
     if(!patient||!normalized)throw new Error("Revisa las prestaciones dictadas.");
-    const data=await persist({action:"addBudget",patientId:selectedId,title,items:normalized});
+    const data=await persist({action:"addBudget",patientId:selectedId,title,items:normalized,allowUndefinedValues:true});
     setBudgets(previous=>[data.budget,...previous]);
     setPrintingBudgetId(data.budget.id);
   };
@@ -687,9 +687,10 @@ export default function Home(){
         setBudgets(previous=>[data.budget,...previous]);
       }
       if(modal==="editBudget"){
-        const items=normalizeBudgetItems(budgetItems);
+        const keepsUndefined=patientBudgets.find(b=>b.id===editingBudgetId)?.items.some(item=>item.amount===0)??false;
+        const items=normalizeBudgetItems(budgetItems,keepsUndefined);
         if(!editingBudgetId||!budgetTitle.trim()||!items)throw new Error("Completa el nombre del plan y verifica que cada prestación tenga descripción y valor válido.");
-        const data=await persist({action:"updateBudget",patientId:selectedId,budgetId:editingBudgetId,title:budgetTitle.trim(),items});
+        const data=await persist({action:"updateBudget",patientId:selectedId,budgetId:editingBudgetId,title:budgetTitle.trim(),items,...(keepsUndefined?{allowUndefinedValues:true}:{})});
         setBudgets(previous=>previous.map(b=>b.id===editingBudgetId?data.budget:b));
       }
       if(modal==="appointment"){

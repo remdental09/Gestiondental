@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { Mic, MicOff, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -18,10 +18,11 @@ const money = (amount: number) => "$" + amount.toLocaleString("es-CL");
 const whereOf = (row: QuickRow) => row.zone ? zoneSummary(row.zone) : row.teeth.length ? `FDI ${row.teeth.map(formatFdiTooth).join(", ")} · Ch. ${row.teeth.map(fdiToChile).join(", ")}` : "General";
 
 export function QuickBudgetDialog({ open, onOpenChange, onCreate }: { open: boolean; onOpenChange: (open: boolean) => void; onCreate: (title: string, items: BudgetItem[]) => Promise<void> }) {
-  return <Dialog open={open} onOpenChange={onOpenChange}>{open && <QuickBudgetBody onClose={() => onOpenChange(false)} onCreate={onCreate} />}</Dialog>;
+  const busy = useRef(false);
+  return <Dialog open={open} onOpenChange={next => { if (!next && busy.current) return; onOpenChange(next); }}>{open && <QuickBudgetBody busy={busy} onClose={() => onOpenChange(false)} onCreate={onCreate} />}</Dialog>;
 }
 
-function QuickBudgetBody({ onClose, onCreate }: { onClose: () => void; onCreate: (title: string, items: BudgetItem[]) => Promise<void> }) {
+function QuickBudgetBody({ busy, onClose, onCreate }: { busy: MutableRefObject<boolean>; onClose: () => void; onCreate: (title: string, items: BudgetItem[]) => Promise<void> }) {
   const engine = useRef(createAudioTranscription());
   const [text, setText] = useState("");
   const [numbering, setNumbering] = useState<ToothNumbering>("fdi");
@@ -31,14 +32,17 @@ function QuickBudgetBody({ onClose, onCreate }: { onClose: () => void; onCreate:
   const [saving, setSaving] = useState(false);
   const [prices, setPrices] = useState<Record<string, number>>({});
   const [customs, setCustoms] = useState<Own[]>([]);
+  const [pricesState, setPricesState] = useState<"loading" | "ready" | "failed">("loading");
   // Cambios del profesional sobre lo entendido: prestación elegida y filas quitadas.
   const [picked, setPicked] = useState<Record<string, string>>({});
   const [removed, setRemoved] = useState<Set<string>>(new Set());
   useEffect(() => {
     let cancelled = false;
     const live = engine.current;
-    fetch("/api/aranceles").then(r => r.ok ? r.json() as Promise<{ prices?: Record<string, number> }> : null).then(r => { if (!cancelled && r?.prices) setPrices(r.prices); }).catch(() => {});
-    fetch("/api/aranceles/custom").then(r => r.ok ? r.json() as Promise<{ items?: Own[] }> : null).then(r => { if (!cancelled && r?.items) setCustoms(r.items); }).catch(() => {});
+    Promise.all([
+      fetch("/api/aranceles").then(r => r.ok ? r.json() as Promise<{ prices?: Record<string, number> }> : Promise.reject(new Error("aranceles"))),
+      fetch("/api/aranceles/custom").then(r => r.ok ? r.json() as Promise<{ items?: Own[] }> : Promise.reject(new Error("aranceles"))),
+    ]).then(([own, custom]) => { if (cancelled) return; setPrices(own.prices ?? {}); setCustoms(custom.items ?? []); setPricesState("ready"); }).catch(() => { if (!cancelled) setPricesState("failed"); });
     return () => { cancelled = true; live.abort(); };
   }, []);
 
@@ -52,13 +56,14 @@ function QuickBudgetBody({ onClose, onCreate }: { onClose: () => void; onCreate:
   const total = items.reduce((sum, item) => sum + item.amount, 0);
   const undefinedCount = items.filter(item => item.amount === 0).length;
 
+  const changeText = (value: string) => { setText(value); setPicked({}); setRemoved(new Set()); };
   const start = () => {
     setError("");
     if (!engine.current.isSupported()) { setError(engine.current.unsupportedMessage()); return; }
     setListening(true);
     engine.current.start(text, {
       onStatus: status => { setTranscribing(status === "transcribing"); setListening(status === "starting" || status === "recording"); },
-      onTranscript: value => setText(value),
+      onTranscript: value => changeText(value),
       onError: message => { setError(message); setListening(false); setTranscribing(false); },
       onEnd: () => { setListening(false); setTranscribing(false); },
     });
@@ -66,13 +71,16 @@ function QuickBudgetBody({ onClose, onCreate }: { onClose: () => void; onCreate:
   const stop = () => { setTranscribing(true); setListening(false); engine.current.stop(); };
 
   const create = async () => {
+    if (busy.current) return;
     if (!items.length) { setError("Dicta al menos una pieza con su tratamiento."); return; }
-    setSaving(true); setError("");
+    if (items.length > 30) { setError("Un plan admite hasta 30 prestaciones: divide el dictado en dos presupuestos."); return; }
+    busy.current = true; setSaving(true); setError("");
     try {
       const date = new Intl.DateTimeFormat("es-CL", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "America/Santiago" }).format(new Date());
       await onCreate(`Presupuesto rápido · ${date}`, items);
+      busy.current = false;
       onClose();
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "No se pudo crear el presupuesto."); setSaving(false); }
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "No se pudo crear el presupuesto."); setSaving(false); busy.current = false; }
   };
 
   return <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
@@ -86,17 +94,18 @@ function QuickBudgetBody({ onClose, onCreate }: { onClose: () => void; onCreate:
           {listening ? <MicOff className="mr-2 size-5" /> : <Mic className="mr-2 size-5" />}{listening ? "Detener" : text ? "Seguir dictando" : "Empezar a dictar"}
         </Button>
         <div role="radiogroup" aria-label="Numeración de las piezas" className="flex overflow-hidden rounded-lg border border-[#dddbe6]">
-          {([["fdi", "FDI"], ["chile", "Chilena"]] as const).map(([value, label]) => <button key={value} type="button" role="radio" aria-checked={numbering === value} onClick={() => setNumbering(value)} className={"min-h-12 px-3 " + (numbering === value ? "bg-[#473a6d] text-white" : "bg-white")}>{label}</button>)}
+          {([["fdi", "FDI"], ["chile", "Chilena"]] as const).map(([value, label]) => <button key={value} type="button" role="radio" aria-checked={parsed.numbering === value} onClick={() => setNumbering(value)} className={"min-h-12 px-3 " + (parsed.numbering === value ? "bg-[#473a6d] text-white" : "bg-white")}>{label}</button>)}
         </div>
       </div>
       {transcribing && <p role="status" className="rounded-lg bg-sky-50 p-3 font-medium text-sky-950">Transcribiendo el audio…</p>}
       {listening && <p role="status" className="font-medium text-[#473a6d]">Escuchando… di «36 exodoncia», «14 15 resina dos caras»; con puntos (3.6) siempre es FDI.</p>}
       <p className="rounded-lg bg-sky-50 p-3 text-xs leading-5 text-sky-950">{AUDIO_DICTATION_NOTICE}</p>
       <label className="block space-y-1.5 font-medium">Lo dictado (editable)
-        <Textarea rows={4} lang="es-CL" spellCheck={false} className="field-sizing-fixed text-base sm:text-sm" value={text} onChange={event => setText(event.target.value)} placeholder={QUICK_BUDGET_EXAMPLE} />
+        <Textarea rows={4} lang="es-CL" spellCheck={false} className="field-sizing-fixed text-base sm:text-sm" value={text} onChange={event => changeText(event.target.value)} placeholder={QUICK_BUDGET_EXAMPLE} />
       </label>
       {error && <p role="alert" className="rounded-lg bg-rose-50 p-3 text-rose-950">{error}</p>}
-      {parsed.leftovers.length > 0 && <p className="rounded-lg bg-amber-50 p-3 text-amber-950">Faltó el tratamiento en: {parsed.leftovers.join("; ")}.</p>}
+      {parsed.leftovers.length > 0 && <p role="alert" className="rounded-lg bg-amber-50 p-3 text-amber-950">Corrige el dictado para poder crear el presupuesto: {parsed.leftovers.join("; ")}.</p>}
+      {pricesState === "failed" && <p role="alert" className="rounded-lg bg-amber-50 p-3 text-amber-950">No se pudo leer tu arancel: los valores quedarán «por definir».</p>}
       {rows.length > 0 && <ul className="space-y-2" aria-label="Prestaciones entendidas">
         {rows.map((row, index) => {
           const options = row.options.filter(option => option.code !== row.code);
@@ -104,7 +113,7 @@ function QuickBudgetBody({ onClose, onCreate }: { onClose: () => void; onCreate:
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0"><p className="text-xs text-[#6b6a7c]">{whereOf(row)}</p><p className="font-medium">{row.needsChoice ? <span className="text-[#a43542]">Elige la prestación: «{row.label}»</span> : row.label}</p></div>
               <div className="flex shrink-0 items-center gap-2"><span className={items[index].amount ? "font-semibold" : "text-xs text-[#6b6a7c]"}>{items[index].amount ? money(items[index].amount) : "Por definir"}</span>
-                <button type="button" aria-label="Quitar esta prestación" className="rounded p-1 text-[#6b6a7c] hover:bg-[#f1f0f5]" onClick={() => setRemoved(previous => new Set(previous).add(row.id))}><Trash2 className="size-4" /></button></div>
+                <button type="button" aria-label={`Quitar ${row.label}`} className="rounded p-1 text-[#6b6a7c] hover:bg-[#f1f0f5]" onClick={() => setRemoved(previous => new Set(previous).add(row.id))}><Trash2 className="size-4" /></button></div>
             </div>
             {options.length > 0 && <label className="mt-2 block text-xs text-[#6b6a7c]">{row.needsChoice ? "Prestación del arancel" : "Cambiar por otra"}
               <select className="mt-1 w-full rounded-lg border border-[#dddbe6] bg-white p-2 text-sm text-[#35343f]" value="" onChange={event => { if (event.target.value) setPicked(previous => ({ ...previous, [row.id]: event.target.value })); }}>
@@ -118,7 +127,7 @@ function QuickBudgetBody({ onClose, onCreate }: { onClose: () => void; onCreate:
     </div>
     <DialogFooter>
       <Button type="button" variant="outline" onClick={onClose} disabled={saving}>Cancelar</Button>
-      <Button type="button" className="bg-[#473a6d] hover:bg-[#3a2f5a]" disabled={saving || !rows.length || rows.some(row => row.needsChoice)} onClick={() => void create()}>{saving ? "Creando…" : "Crear presupuesto"}</Button>
+      <Button type="button" className="bg-[#473a6d] hover:bg-[#3a2f5a]" disabled={saving || listening || transcribing || pricesState === "loading" || !rows.length || rows.some(row => row.needsChoice) || parsed.leftovers.length > 0 || items.length > 30} onClick={() => void create()}>{saving ? "Creando…" : "Crear presupuesto"}</Button>
     </DialogFooter>
   </DialogContent>;
 }

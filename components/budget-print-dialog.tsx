@@ -38,7 +38,8 @@ export function BudgetPrintDialog({ open, onOpenChange, budget, patientName }: {
 
 /** Existe solo mientras el diálogo está abierto: cada apertura parte con el estado limpio. */
 function BudgetPrintBody({ budget, patientName, onClose }: { budget: BudgetPlan; patientName: string; onClose: () => void }) {
-  const [mode, setMode] = useState<PrintMode>(budget.items.length > 0 && budget.items.every(item => item.amount === 0) ? "no-prices" : "detailed");
+  const allUndefined = budget.items.length > 0 && budget.items.every(item => item.amount === 0);
+  const [mode, setMode] = useState<PrintMode>(allUndefined ? "no-prices" : "detailed");
   const [busy, setBusy] = useState<"" | "preview" | "send" | "save">("");
   const [target, setTarget] = useState<{ to: string; from: string } | null>(null);
   const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
@@ -193,8 +194,8 @@ function BudgetPrintBody({ budget, patientName, onClose }: { budget: BudgetPlan;
 
         <aside className="min-w-0 space-y-4" aria-label="Opciones del presupuesto">
           <div role="radiogroup" aria-label="Formato del presupuesto" className="grid gap-2">
-            {modes.map(option => <button key={option.value} type="button" role="radio" aria-checked={mode === option.value} onClick={() => chooseMode(option.value)}
-              className={"rounded-xl border p-3 text-left transition " + (mode === option.value ? "border-[#473a6d] bg-[#efeef4]" : "border-[#dddbe6] bg-white hover:border-[#b8b1d6]")}>
+            {modes.map(option => <button key={option.value} type="button" role="radio" aria-checked={mode === option.value} disabled={allUndefined && option.value !== "no-prices"} onClick={() => chooseMode(option.value)}
+              className={"rounded-xl border p-3 text-left transition disabled:cursor-not-allowed disabled:opacity-50 " + (mode === option.value ? "border-[#473a6d] bg-[#efeef4]" : "border-[#dddbe6] bg-white hover:border-[#b8b1d6]")}>
               <span className="block font-semibold">{option.title}</span>
               <span className="mt-1 block text-xs text-[#615f73]">{option.description}</span>
             </button>)}

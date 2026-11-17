@@ -35,13 +35,13 @@ export type BudgetRecordData = BudgetRelationship & { items: BudgetItem[] };
 export function decodeBudgetData(value: string): BudgetRecordData {
   const parsed: unknown = JSON.parse(value);
   if (Array.isArray(parsed)) {
-    const items = normalizeBudgetItems(parsed);
+    const items = normalizeBudgetItems(parsed, true);
     if (!items) throw new Error("Presupuesto almacenado con prestaciones inválidas.");
     return { items, isAlternative: false, parentBudgetId: null };
   }
   if (!parsed || typeof parsed !== "object") throw new Error("Presupuesto almacenado con formato inválido.");
   const record = parsed as Record<string, unknown>;
-  const items = normalizeBudgetItems(record.items);
+  const items = normalizeBudgetItems(record.items, true);
   if (!items) throw new Error("Presupuesto almacenado con prestaciones inválidas.");
   const parentId = Number(record.parentBudgetId);
   const isAlternative = record.version === 1 && record.isAlternative === true
@@ -61,7 +61,8 @@ export function encodeBudgetData(items: BudgetItem[], relationship: BudgetRelati
   });
 }
 
-export function normalizeBudgetItems(value: unknown): BudgetItem[] | null {
+/** `allowZero`: valor «por definir» (presupuesto rápido). Lo ya guardado siempre se lee con 0 permitido. */
+export function normalizeBudgetItems(value: unknown, allowZero = false): BudgetItem[] | null {
   if (!Array.isArray(value) || value.length < 1 || value.length > 30) return null;
   const items: BudgetItem[] = [];
   let subtotal = 0;
@@ -73,7 +74,7 @@ export function normalizeBudgetItems(value: unknown): BudgetItem[] | null {
     const phase = typeof item.phase === "string" ? item.phase.trim().slice(0, 80) : "";
     const discountPercent = item.discountPercent === undefined || item.discountPercent === null || item.discountPercent === ""
       ? 0 : Number(item.discountPercent);
-    if (!label || !Number.isSafeInteger(amount) || amount < 0 || amount > 1_000_000_000
+    if (!label || !Number.isSafeInteger(amount) || amount < (allowZero ? 0 : 1) || amount > 1_000_000_000
       || !Number.isInteger(discountPercent) || discountPercent < 0 || discountPercent > 100) return null;
     subtotal += amount;
     if (!Number.isSafeInteger(subtotal) || subtotal > 1_000_000_000) return null;
