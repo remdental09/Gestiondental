@@ -73,7 +73,7 @@ export function normalizeBudgetItems(value: unknown): BudgetItem[] | null {
     const phase = typeof item.phase === "string" ? item.phase.trim().slice(0, 80) : "";
     const discountPercent = item.discountPercent === undefined || item.discountPercent === null || item.discountPercent === ""
       ? 0 : Number(item.discountPercent);
-    if (!label || !Number.isSafeInteger(amount) || amount < 1 || amount > 1_000_000_000
+    if (!label || !Number.isSafeInteger(amount) || amount < 0 || amount > 1_000_000_000
       || !Number.isInteger(discountPercent) || discountPercent < 0 || discountPercent > 100) return null;
     subtotal += amount;
     if (!Number.isSafeInteger(subtotal) || subtotal > 1_000_000_000) return null;

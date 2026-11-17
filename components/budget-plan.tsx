@@ -238,7 +238,7 @@ export function BudgetCard({
                   : displayIso(item.doneOn!)}</span>}
               </span>
             </span>
-            <span className="shrink-0">{money(budgetItemTotal(item))}</span>
+            <span className="shrink-0">{item.amount > 0 ? money(budgetItemTotal(item)) : <em className="text-xs text-[#6b6a7c]">Por definir</em>}</span>
           </li>;
         })}</ul>
       </section>)}

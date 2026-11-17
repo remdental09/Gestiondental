@@ -38,7 +38,7 @@ export function BudgetPrintDialog({ open, onOpenChange, budget, patientName }: {
 
 /** Existe solo mientras el diálogo está abierto: cada apertura parte con el estado limpio. */
 function BudgetPrintBody({ budget, patientName, onClose }: { budget: BudgetPlan; patientName: string; onClose: () => void }) {
-  const [mode, setMode] = useState<PrintMode>("detailed");
+  const [mode, setMode] = useState<PrintMode>(budget.items.length > 0 && budget.items.every(item => item.amount === 0) ? "no-prices" : "detailed");
   const [busy, setBusy] = useState<"" | "preview" | "send" | "save">("");
   const [target, setTarget] = useState<{ to: string; from: string } | null>(null);
   const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);

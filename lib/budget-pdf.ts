@@ -284,9 +284,9 @@ export async function buildBudgetPdf(input: BudgetPdfInput): Promise<Uint8Array>
         y = top;
         if (priced) {
           right("1", cols.qty, 9.5, regular, MUTED);
-          right(money(item.amount), cols.price, 10);
+          right(item.amount > 0 ? money(item.amount) : "Por definir", cols.price, item.amount > 0 ? 10 : 8.5);
           right(item.discountPercent ? `${item.discountPercent}%` : "—", cols.disc, 9, regular, MUTED);
-          right(money(budgetItemTotal(item)), cols.total, 10, bold);
+          right(item.amount > 0 ? money(budgetItemTotal(item)) : "Por definir", cols.total, item.amount > 0 ? 10 : 8.5, bold);
         }
         y = top - (rows - 1) * 13 - 8;
         rule(M, R);
