@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { PDFDocument } from "pdf-lib";
-import { DEFAULT_FORMAT, PALETTES, checkBudgetFormat, decodeBudgetFormat, luminance } from "../lib/budget-format.ts";
+import { DEFAULT_FORMAT, PALETTES, checkBudgetFormat, decodeBudgetFormat, formatForPdf, luminance } from "../lib/budget-format.ts";
 import { buildBudgetPdf, itemZoneText } from "../lib/budget-pdf.ts";
 
 const base = {
@@ -54,4 +54,25 @@ test("formato: rechaza nombres heredados como paleta, acentos casi blancos y má
   assert.equal(checkBudgetFormat({ palette: "toString" }).format.palette, DEFAULT_FORMAT.palette);
   assert.equal(checkBudgetFormat({ palette: "propio", primary: "#2a1f4d", accent: "#ffffff" }).ok, false);
   assert.equal(checkBudgetFormat({ note: Array.from({ length: 9 }, (_, i) => `n${i}`).join("\n") }).ok, false);
+});
+
+test("vista previa: el borrador solo se aplica a quien armó el presupuesto", () => {
+  const saved = { ...DEFAULT_FORMAT, note: "guardado" }, draft = { ...DEFAULT_FORMAT, note: "borrador", palette: "azul" };
+  assert.deepEqual(formatForPdf(saved, { viewerId: "ana", format: draft }, "ana"), { format: draft, editable: true });
+  assert.deepEqual(formatForPdf(saved, { viewerId: "titular", format: draft }, "ana"), { format: saved, editable: false });
+  assert.deepEqual(formatForPdf(saved, undefined, "ana"), { format: saved, editable: false });
+});
+
+test("el diálogo de vista previa muestra el PDF real, no una maqueta HTML", () => {
+  const source = readFileSync(new URL("../components/budget-print-dialog.tsx", import.meta.url), "utf8");
+  assert.match(source, /\/api\/presupuesto\/pdf/);
+  assert.match(source, /<iframe/);
+  assert.doesNotMatch(source, /budget-print-document/);
+  assert.match(source, /BudgetFormatEditor/);
+});
+
+test("el borrador del diseño se arma con el mismo PDF que se entrega: colores propios cambian la cabecera", async () => {
+  const a = await buildBudgetPdf({ ...base, format: { ...DEFAULT_FORMAT } });
+  const b = await buildBudgetPdf({ ...base, format: checkBudgetFormat({ palette: "verde" }).format });
+  assert.notDeepEqual(Buffer.from(a), Buffer.from(b));
 });

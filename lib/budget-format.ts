@@ -93,3 +93,12 @@ export function decodeBudgetFormat(value: string | null | undefined): BudgetForm
   try { const checked = checkBudgetFormat(JSON.parse(value)); return checked.ok ? checked.format : { ...DEFAULT_FORMAT }; }
   catch { return { ...DEFAULT_FORMAT }; }
 }
+
+/**
+ * Diseño con que sale el PDF: el borrador de la vista previa solo cuenta si quien mira es quien armó el presupuesto;
+ * en cualquier otro caso (otro colega, el titular viendo el de un colega) sale con el diseño guardado del autor.
+ */
+export function formatForPdf(saved: BudgetFormat, draft: { viewerId: string; format: BudgetFormat } | undefined, professionalId: string): { format: BudgetFormat; editable: boolean } {
+  const editable = Boolean(draft) && draft!.viewerId === professionalId;
+  return { format: editable ? draft!.format : saved, editable };
+}

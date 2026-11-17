@@ -189,7 +189,12 @@ test("presupuesto: queda a nombre de quien lo armó (p. ej. el ortodoncista invi
   const mail = read("../app/budget-mail.ts");
   assert.ok(mail.includes("await budgetAuthorOf(") && mail.includes("const professionalId = author || ownerId;"), "PDF con el autor; los antiguos, del titular");
   assert.ok(mail.includes("No pude confirmar qué profesional armó este presupuesto"), "si la lectura falla, no firma con otro profesional");
-  for (const path of ["../app/api/presupuesto/pdf/route.ts", "../app/api/presupuesto/enviar/route.ts"]) assert.ok(!read(path).includes("personalIdOf"), `${path}: no usa a quien descarga o envía`);
+  assert.ok(!read("../app/api/presupuesto/enviar/route.ts").includes("personalIdOf"), "enviar: no usa a quien envía");
+  // En la descarga tampoco decide quien la pide; solo la vista previa (POST) lo usa, y únicamente para saber si el borrador de diseño aplica.
+  const pdfRoute = read("../app/api/presupuesto/pdf/route.ts");
+  assert.equal(pdfRoute.split("personalIdOf(").length - 1, 1, "una sola vez");
+  assert.ok(pdfRoute.indexOf("personalIdOf(") > pdfRoute.indexOf("export async function POST"), "solo dentro de la vista previa");
+  assert.ok(mail.includes("formatForPdf(format, draft, professionalId)"), "el borrador solo aplica si quien mira es el autor");
   assert.ok(read("../components/budget-plan.tsx").includes("Presupuesto de ${budget.authorName}"));
 });
 
