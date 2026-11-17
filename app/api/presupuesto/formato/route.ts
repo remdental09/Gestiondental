@@ -15,9 +15,15 @@ const fail = (error: string, status = 400) => Response.json({ error }, { status,
 export async function GET() {
   const user = await getChatGPTUser();
   if (!user?.userId) return fail("Inicia sesión.", 401);
-  const [format, clinic] = await Promise.all([loadBudgetFormat(personalIdOf(user)), loadClinic(user.userId).catch(() => null)]);
+  const personalId = personalIdOf(user);
+  const [format, clinic, ownClinic] = await Promise.all([
+    loadBudgetFormat(personalId), loadClinic(user.userId).catch(() => null),
+    personalId === user.userId ? Promise.resolve(null) : loadClinic(personalId).catch(() => null),
+  ]);
   // Datos del perfil de la clínica del espacio, para ofrecer «Usar los datos del perfil» en el diseño.
-  const profileClinic = clinic ? { name: clinic.clinicName, rut: "", address: clinic.address, city: clinic.city, phone: clinic.phone, email: clinic.email, web: "" } : null;
+  // Los datos del diseño son de la consulta propia del profesional: se ofrecen los del perfil de SU consulta, no los de la clínica donde es invitado.
+  const own = ownClinic ?? clinic;
+  const profileClinic = own ? { name: own.clinicName, rut: "", address: own.address, city: own.city, phone: own.phone, email: own.email, web: "" } : null;
   return Response.json({ format, hasLogo: Boolean(clinic?.logo), logoEmbeddable: /^data:image\/(png|jpeg);/.test(clinic?.logo ?? ""), profileClinic }, { headers });
 }
 

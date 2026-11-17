@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { PDFDocument } from "pdf-lib";
-import { DEFAULT_FORMAT, PALETTES, checkBudgetFormat, clinicContactParts, decodeBudgetFormat, formatForPdf, luminance, previewActions } from "../lib/budget-format.ts";
+import { DEFAULT_FORMAT, PALETTES, checkBudgetFormat, clinicContactGroups, clinicContactParts, clinicForBudget, decodeBudgetFormat, formatForPdf, luminance, previewActions } from "../lib/budget-format.ts";
 import { buildBudgetPdf, itemZoneText } from "../lib/budget-pdf.ts";
 
 const base = {
@@ -98,7 +98,10 @@ test("datos de la clínica: se limpian, el correo se valida y la ubicación por 
   assert.equal(checkBudgetFormat({ clinicPlacement: "__proto__" }).format.clinicPlacement, "no");
   assert.equal(DEFAULT_FORMAT.clinicPlacement, "no");
   assert.deepEqual(decodeBudgetFormat(JSON.stringify({ palette: "azul" })).clinic, { name: "", rut: "", address: "", city: "", phone: "", email: "", web: "" }, "formatos guardados antes siguen funcionando");
-  assert.deepEqual(clinicContactParts(f.clinic), ["RUT 76.123.456-7", "Av. Libertad 1234, Viña del Mar", "Tel. +56 9 1234 5678", "contacto@dentalvina.cl", "www.dentalvina.cl"]);
+  const nb = text => text.replace(/ /g, "\u00A0");
+  assert.deepEqual(clinicContactParts(f.clinic), [nb("RUT clínica 76.123.456-7"), "Av. Libertad 1234, Viña del Mar", nb("Tel. +56 9 1234 5678"), "contacto@dentalvina.cl", "www.dentalvina.cl"], "teléfono y RUT con espacio duro: no se parten");
+  assert.deepEqual(clinicContactGroups(f.clinic).map(g => g.length), [2, 3], "dos grupos: el teléfono y el correo tienen su propia línea");
+  assert.equal(checkBudgetFormat({ clinic: { city: "Vin\u0303a\u200B" } }).format.clinic.city, "Viña", "NFC y sin caracteres invisibles");
 });
 
 test("datos de la clínica en el PDF: salen donde el dentista elige y el nombre propio reemplaza al de arriba", async () => {
@@ -123,4 +126,33 @@ test("la vista previa tiene botón Imprimir que imprime el mismo PDF mostrado", 
   const source = readFileSync(new URL("../components/budget-print-dialog.tsx", import.meta.url), "utf8");
   assert.match(source, /data-testid="budget-print"/);
   assert.match(source, /frame\.print\(\)/);
+});
+
+test("formato por defecto: el caso común (subtítulo en 2 líneas + correo de envío) sigue en una hoja, como antes", async () => {
+  const items = Array.from({ length: 4 }, (_, i) => ({ label: "Prestación " + i, amount: 100000 }));
+  const bytes = await buildBudgetPdf({ budget: { id: 1, title: "Plan", date: "1 nov 2026", items }, patientName: "Paciente", professionalName: "Dr. Luis Paul Rodríguez Murga",
+    professionalDocument: "13.051.751-K", professionalSpecialty: "Rehabilitación oral e implantología", contactEmail: "lpaulr@gmail.com", format: { ...DEFAULT_FORMAT } });
+  assert.equal((await PDFDocument.load(bytes)).getPageCount(), 1);
+});
+
+test("sin condiciones, la firma no queda sola en otra hoja: la última hoja también lleva el total", async () => {
+  const { PDFArray, decodePDFRawStream } = await import("pdf-lib");
+  for (const count of [5, 6, 18, 19, 31, 32]) {
+    const items = Array.from({ length: count }, (_, i) => ({ label: "Prestación " + i, amount: 50000 }));
+    const bytes = await buildBudgetPdf({ budget: { id: 1, title: "Plan", date: "1 nov 2026", items }, patientName: "P", professionalName: "Dra. Ana", format: { ...DEFAULT_FORMAT, keepDefaultNotes: false } });
+    const doc = await PDFDocument.load(bytes);
+    const contents = doc.getPage(doc.getPageCount() - 1).node.Contents();
+    const streams = contents instanceof PDFArray ? contents.asArray().map(ref => doc.context.lookup(ref)) : [contents];
+    const drawn = streams.map(stream => Buffer.from(decodePDFRawStream(stream).decode()).toString("latin1")).join("");
+    assert.ok(drawn.includes(Buffer.from("TOTAL", "latin1").toString("hex").toUpperCase()), `${count} prestaciones`);
+  }
+});
+
+test("en una clínica donde el profesional es invitado salen los datos de ESA clínica, no los de su consulta", () => {
+  const mine = checkBudgetFormat({ clinic: CLINIC, clinicPlacement: "pie" }).format;
+  assert.equal(clinicForBudget(mine, true, null), mine);
+  const there = clinicForBudget(mine, false, { clinicName: "Clínica X", address: "Calle 1", city: "Santiago", phone: "+56 2 2222 2222", email: "x@x.cl" });
+  assert.equal(there.clinic.name, "", "el nombre propio no reemplaza al de la clínica anfitriona");
+  assert.equal(there.clinic.address, "Calle 1");
+  assert.equal(there.clinicPlacement, "pie", "la ubicación sí es la que eligió el profesional");
 });

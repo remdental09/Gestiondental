@@ -67,7 +67,7 @@ export function BudgetFormatEditor({ format, onChange, logo, profileClinic }: { 
 
     <fieldset className="space-y-3" data-testid="clinic-data">
       <legend className="text-sm font-semibold text-[#35343f]">Datos de tu clínica</legend>
-      <p className="text-xs text-[#6b6a7c]">Son tuyos: salen en los presupuestos que armas. Deja en blanco lo que no quieras mostrar. Si escribes el nombre, reemplaza al de arriba.</p>
+      <p className="text-xs text-[#6b6a7c]">Son los de tu consulta: salen en tus presupuestos. En una clínica donde eres invitado salen los datos de esa clínica, en el lugar que elijas aquí. Deja en blanco lo que no quieras mostrar; si escribes el nombre, reemplaza al de arriba.</p>
       {hasProfile && <button type="button" onClick={() => set({ clinic: { ...format.clinic, ...Object.fromEntries(Object.entries(profileClinic!).filter(([, value]) => value)) } })} className="rounded-lg border border-[#b8b1d6] px-3 py-1.5 text-sm text-[#473a6d] hover:bg-[#f7f6fa]">Usar los datos del perfil de la clínica</button>}
       <div className="grid gap-2 sm:grid-cols-2">
         {field("name", "Nombre de la clínica", 60, "Ej.: Centro Dental Viña Norte")}

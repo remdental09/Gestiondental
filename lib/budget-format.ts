@@ -72,7 +72,7 @@ export function shade(hex: string, t: number): [number, number, number] {
 }
 
 const bool = (value: unknown, fallback: boolean) => (typeof value === "boolean" ? value : fallback);
-const line = (value: unknown, max: number) => (typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, max) : "");
+const line = (value: unknown, max: number) => (typeof value === "string" ? value.normalize("NFC").replace(/[\u200B-\u200D\u2060\uFEFF]/g, "").replace(/\s+/g, " ").trim().slice(0, max) : "");
 const PLACEMENTS = new Set<ClinicPlacement>(["no", "cabecera", "paciente", "firma", "pie"]);
 const text = (value: unknown, max: number) => (typeof value === "string" ? value.replace(/\r/g, "").trim().slice(0, max) : "");
 
@@ -138,15 +138,27 @@ export function previewActions(state: { inSync: boolean; hasPdf: boolean; proble
   return { canDownload: shown, canSend: shown && !(state.canEdit && state.dirty) };
 }
 
+/** Espacio duro (Latin-1): el teléfono y el RUT no se parten en dos líneas. */
+const keep = (value: string) => value.replace(/ /g, "\u00A0");
 /**
- * Líneas de contacto de la clínica para el PDF (sin el nombre, que va aparte): «RUT …», dirección y ciudad,
- * y teléfono · correo · web. Las vacías no aparecen.
+ * Datos de contacto de la clínica para el PDF (sin el nombre, que va aparte), en dos grupos que se acomodan por separado:
+ * [RUT, dirección y ciudad] y [teléfono, correo, web]. Los vacíos no aparecen.
  */
-export function clinicContactParts(c: BudgetClinicData): string[] {
+export function clinicContactGroups(c: BudgetClinicData): string[][] {
   return [
-    c.rut ? `RUT ${c.rut}` : "",
-    [c.address, c.city].filter(Boolean).join(", "),
-    c.phone ? `Tel. ${c.phone}` : "",
-    c.email, c.web,
-  ].filter(Boolean);
+    [c.rut ? keep(`RUT clínica ${c.rut}`) : "", [c.address, c.city].filter(Boolean).join(", ")].filter(Boolean),
+    [c.phone ? keep(`Tel. ${c.phone}`) : "", c.email, c.web].filter(Boolean),
+  ].filter(group => group.length);
+}
+export const clinicContactParts = (c: BudgetClinicData): string[] => clinicContactGroups(c).flat();
+
+/**
+ * Datos de clínica con que sale un presupuesto. Los del diseño del profesional son de SU consulta: valen en sus presupuestos
+ * propios. En un presupuesto de otra clínica (el profesional es invitado) salen los datos del perfil de ESA clínica,
+ * en la ubicación que el profesional eligió; así una clínica nunca sale con la dirección de otra.
+ */
+export function clinicForBudget(format: BudgetFormat, ownSpace: boolean, spaceClinic: { clinicName?: string; address?: string; city?: string; phone?: string; email?: string } | null): BudgetFormat {
+  if (ownSpace) return format;
+  const c = spaceClinic ?? {};
+  return { ...format, clinic: { ...EMPTY_CLINIC_DATA, address: c.address ?? "", city: c.city ?? "", phone: c.phone ?? "", email: c.email ?? "" } };
 }

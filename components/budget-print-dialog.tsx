@@ -56,6 +56,8 @@ function BudgetPrintBody({ budget, patientName, onClose }: { budget: BudgetPlan;
   const [problem, setProblem] = useState<string | null>(null);
   const urlRef = useRef<string | null>(null);
   const frameRef = useRef<HTMLIFrameElement | null>(null);
+  // URL que el iframe terminó de cargar: imprimir antes de eso imprimiría la hoja anterior o una en blanco.
+  const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
   const budgetId = budget.id;
 
   useEffect(() => {
@@ -118,16 +120,22 @@ function BudgetPrintBody({ budget, patientName, onClose }: { budget: BudgetPlan;
     document.body.appendChild(link); link.click(); link.remove();
     setNotice({ kind: "ok", text: "PDF descargado. Revisa tus descargas." });
   };
-  /** Imprime exactamente el PDF que se está viendo; si el navegador no deja imprimirlo desde aquí, lo abre en otra pestaña. */
+  /**
+   * Imprime exactamente el PDF que se está viendo. Safari y los teléfonos no imprimen un PDF incrustado (salen hojas en blanco
+   * sin avisar), así que ahí se abre el PDF en otra pestaña para imprimirlo con el visor del sistema.
+   */
+  const canPrint = actions.canDownload && loadedUrl === pdfUrl;
   const printPdf = () => {
-    if (!pdfUrl || !actions.canDownload) return;
+    if (!pdfUrl || !canPrint) return;
+    const ua = navigator.userAgent;
+    const embeddedPrintWorks = !/iPhone|iPad|iPod|Android|Mobile/i.test(ua) && !(/Safari/i.test(ua) && !/Chrome|Chromium|Edg|CriOS|FxiOS/i.test(ua));
     try {
       const frame = frameRef.current?.contentWindow;
-      if (!frame) throw new Error("sin vista");
+      if (!embeddedPrintWorks || !frame) throw new Error("abrir aparte");
       frame.focus(); frame.print();
     } catch {
       const tab = window.open(pdfUrl, "_blank");
-      setNotice(tab ? { kind: "ok", text: "Abrí el PDF en otra pestaña: imprímelo desde ahí." } : { kind: "error", text: "El navegador bloqueó la ventana. Usa «Abrir el PDF en una pestaña nueva» e imprime desde ahí." });
+      setNotice(tab ? { kind: "ok", text: "Abrí el PDF en otra pestaña: imprímelo desde ahí (botón compartir o imprimir)." } : { kind: "error", text: "El navegador bloqueó la ventana. Usa «Abrir el PDF en una pestaña nueva» e imprime desde ahí." });
     }
   };
   const saveFormat = async () => {
@@ -175,7 +183,7 @@ function BudgetPrintBody({ budget, patientName, onClose }: { budget: BudgetPlan;
       <div className="mt-4 grid gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <section aria-label="Vista previa del PDF" className="min-w-0">
           <div className="relative h-[70vh] min-h-[420px] overflow-hidden rounded-xl border border-[#dddbe6] bg-[#f1f0f5]" data-testid="budget-pdf-preview">
-            {pdfUrl && <iframe ref={frameRef} title="Vista previa del presupuesto en PDF" src={pdfUrl} className="size-full bg-white"/>}
+            {pdfUrl && <iframe ref={frameRef} onLoad={() => setLoadedUrl(pdfUrl)} title="Vista previa del presupuesto en PDF" src={pdfUrl} className="size-full bg-white"/>}
             {(rendering || (!pdfUrl && !problem && !formatError)) && <p role="status" className="absolute left-3 top-3 rounded-lg bg-white/90 px-3 py-1.5 text-xs text-[#4f4e62] shadow">Armando el PDF…</p>}
             {formatError && !problem && <p role="status" className="absolute inset-x-3 top-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-950">La vista no se actualiza hasta que corrijas el diseño: {formatError}</p>}
             {problem && <p role="alert" className="absolute inset-x-3 top-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-950">{problem}</p>}
@@ -221,7 +229,7 @@ function BudgetPrintBody({ budget, patientName, onClose }: { budget: BudgetPlan;
           <Button type="button" variant="outline" onClick={onClose}>Cerrar</Button>
           <div className="flex flex-col gap-2 sm:flex-row">
             <Button type="button" variant="outline" disabled={busy !== "" || !actions.canSend} onClick={() => void prepareSend()}><Mail className="mr-2 size-4"/>{busy === "preview" ? "Preparando…" : "Enviar al correo del paciente"}</Button>
-            <Button type="button" variant="outline" disabled={busy !== "" || !actions.canDownload} onClick={printPdf} data-testid="budget-print"><Printer className="mr-2 size-4"/>Imprimir</Button>
+            <Button type="button" variant="outline" disabled={busy !== "" || !canPrint} onClick={printPdf} data-testid="budget-print"><Printer className="mr-2 size-4"/>Imprimir</Button>
             <Button type="button" className="bg-[#473a6d] hover:bg-[#3a2f5a]" disabled={busy !== "" || !actions.canDownload} onClick={downloadPdf}><Download className="mr-2 size-4"/>Descargar PDF</Button>
           </div>
         </DialogFooter>
