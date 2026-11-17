@@ -45,8 +45,8 @@ test("Google: solo pide correo y nombre, y exige correo verificado", () => {
 
 test("la portada tiene el botón de Google, no refleja texto ajeno y su fondo existe", () => {
   const html = portadaPage();
-  assert.match(html, /href="\/auth\/google"/);
-  assert.match(html, /Entrar con Google/);
+  assert.match(html, /href="\/auth\/google\?entrada=personal"[^>]*>[\s\S]*?Entrar a mi consulta/);
+  assert.match(html, /href="\/auth\/google\?entrada=clinica"[^>]*>[\s\S]*?Entrar a una clínica/);
   assert.match(html, /Santiago de Chile/);
   assert.doesNotMatch(html, /role="alert"/);
   assert.match(portadaPage("cancelado"), /Se canceló/);

@@ -128,6 +128,30 @@ export function chooseSpace(personalId: string, active: Array<Pick<TeamMember, "
   return chosen ? { spaceId: chosen.clinicId, role: chosen.role, clinicId: chosen.clinicId } : personal;
 }
 
+/**
+ * Puerta de entrada (portada): «Entrar a mi consulta» abre siempre el espacio personal; «Entrar a una clínica» abre
+ * solo clínicas donde la persona es miembro activo. Así el colega nunca ve su consulta y la clínica por la misma puerta.
+ * Sin entrada elegida (sesiones antiguas) se entra a la consulta personal: nunca a un espacio ajeno por omisión.
+ */
+export type Entry = "personal" | "clinica";
+export const ENTRY_COOKIE = "gd_entrada";
+export const parseEntry = (value: string | null | undefined): Entry => (value === "clinica" ? "clinica" : "personal");
+
+export function chooseSpaceForEntry(personalId: string, active: Array<Pick<TeamMember, "clinicId" | "role" | "acceptedAt">>, requested: string | null | undefined, entry: Entry): Space {
+  const personal: Space = { spaceId: personalId, role: "titular", clinicId: null };
+  if (entry !== "clinica") return personal;
+  // En la entrada de clínica, la cookie del espacio personal no cuenta: se elige entre las clínicas.
+  return chooseSpace(personalId, active, requested === personalId ? null : requested);
+}
+
+/** Nombre visible de un espacio: el de la clínica si lo tiene; si no, «Clínica de <titular>» (nunca solo el nombre de una persona). */
+export function clinicDisplayName(clinicName: string | null | undefined, titularName: string | null | undefined): string {
+  const named = (clinicName ?? "").trim();
+  if (named) return named;
+  const owner = (titularName ?? "").trim();
+  return owner ? `Clínica de ${owner}` : "Clínica";
+}
+
 /** No se puede dejar a una clínica sin nadie que la administre: el titular siempre lo hace, así que solo se valida el titular. */
 export function checkRoleChange(target: Pick<TeamMember, "status">, role: unknown): { ok: true; role: TeamRole } | { ok: false; error: string } {
   if (!isTeamRole(role)) return { ok: false, error: "Rol no válido." };
@@ -139,7 +163,7 @@ export function checkRoleChange(target: Pick<TeamMember, "status">, role: unknow
 export function inviteMessage(clinicName: string, inviterName: string, appUrl: string): string {
   const clinic = clinicName.trim() || "nuestra clínica";
   const who = inviterName.trim() || "Un colega";
-  return `${who} te invitó a atender pacientes de ${clinic} en SpeakDent. Entra a ${appUrl} con «Entrar con Google» usando este mismo Gmail y acepta la invitación. Vence en ${INVITE_DAYS} días.`;
+  return `${who} te invitó a atender pacientes de ${clinic} en SpeakDent. Entra a ${appUrl}, pulsa «Entrar a una clínica» con este mismo Gmail y acepta la invitación. Tu consulta personal sigue aparte, en «Entrar a mi consulta». Vence en ${INVITE_DAYS} días.`;
 }
 
 const escHtml = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -156,16 +180,18 @@ export function inviteEmail(input: { clinicName: string; inviterName: string; ap
     `${who} te invitó a atender pacientes de ${clinic} en SpeakDent como ${role}.`,
     "",
     `1. Entra a ${input.appUrl}`,
-    `2. Pulsa «Entrar con Google» con este mismo Gmail (${input.invitedEmail}).`,
-    "3. Acepta la invitación que verás arriba.",
+    `2. Pulsa «Entrar a una clínica» con este mismo Gmail (${input.invitedEmail}).`,
+    "3. Acepta la invitación.",
     "",
+    "Tu consulta personal sigue aparte: entras a ella con «Entrar a mi consulta».",
     `La invitación vence en ${INVITE_DAYS} días. No necesitas instalar ni configurar nada.`,
   ].join("\n");
   const html = `<!doctype html><html lang="es"><body style="margin:0;background:#f3f1f7;font-family:Arial,Helvetica,sans-serif;color:#35343f">
 <div style="max-width:520px;margin:0 auto;padding:24px"><div style="background:#fff;border-radius:12px;padding:28px;border:1px solid #e6e4ee">
 <p style="margin:0 0 8px;font-size:12px;font-weight:bold;letter-spacing:.06em;text-transform:uppercase;color:#473a6d">SpeakDent</p>
 <p style="margin:0 0 16px;font-size:16px;line-height:1.5"><strong>${escHtml(who)}</strong> te invitó a atender pacientes de <strong>${escHtml(clinic)}</strong> como ${escHtml(role)}.</p>
-<p style="margin:0 0 20px;font-size:14px;line-height:1.6">Pulsa «Entrar con Google» con este mismo Gmail (<strong>${escHtml(input.invitedEmail)}</strong>) y acepta la invitación que verás arriba. No necesitas instalar ni configurar nada.</p>
+<p style="margin:0 0 20px;font-size:14px;line-height:1.6">Pulsa <strong>«Entrar a una clínica»</strong> con este mismo Gmail (<strong>${escHtml(input.invitedEmail)}</strong>) y acepta la invitación. No necesitas instalar ni configurar nada.</p>
+<p style="margin:0 0 20px;font-size:13px;line-height:1.5;color:#57566a">Tu consulta personal sigue aparte: entras a ella con «Entrar a mi consulta».</p>
 <p style="margin:0 0 20px"><a href="${escHtml(input.appUrl)}" style="display:inline-block;background:#473a6d;color:#fff;text-decoration:none;font-weight:bold;padding:12px 20px;border-radius:8px">Entrar a SpeakDent</a></p>
 <p style="margin:0;font-size:12px;color:#6b6a7c">La invitación vence en ${INVITE_DAYS} días.</p>
 </div></div></body></html>`;

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
   canChangeBudget, canChangeEvolution, canEditClinic, canManageTeam, checkInvite, checkRoleChange, chooseSpace, evolutionAuthor, inviteExpiry,
-  inviteEmail, inviteMessage, isExpired, visibleStatus, MAX_MEMBERS,
+  chooseSpaceForEntry, clinicDisplayName, parseEntry, inviteEmail, inviteMessage, isExpired, visibleStatus, MAX_MEMBERS,
 } from "../lib/clinic-team.ts";
 
 const NOW = new Date("2026-11-16T12:00:00Z");
@@ -109,7 +109,7 @@ const route = readFileSync(new URL("../app/api/clinical/route.ts", import.meta.u
 const equipo = readFileSync(new URL("../app/api/equipo/route.ts", import.meta.url), "utf8");
 
 test("worker: el espacio sale de la membresía en la base y las cabeceras entrantes se borran", () => {
-  assert.ok(worker.includes("activeMemberships(db") && worker.includes("chooseSpace("));
+  assert.ok(worker.includes("activeMemberships(db") && worker.includes("chooseSpaceForEntry("));
   assert.ok(worker.includes("headers.set(ACCESS_OWNER_ID_HEADER, space.spaceId)"));
   assert.ok(worker.includes("headers.set(PERSONAL_ID_HEADER, identity.owner.ownerId)"));
   const clear = worker.slice(worker.indexOf("function clearInboundIdentityHeaders"), worker.indexOf("// ---------- Inicio de sesión"));
@@ -213,7 +213,8 @@ test("presupuesto: lo modifican quien lo armó y el dueño de la clínica (o sus
 test("la invitación se envía sola por correo desde el Gmail conectado y nunca bloquea si falla", () => {
   const mail = inviteEmail({ clinicName: "Clínica <Norte>", inviterName: "Dr(a). Ana Pérez", appUrl: "https://speakdent.cl", invitedEmail: "colega@gmail.com", roleLabel: "Dentista" });
   assert.match(mail.subject, /Dr\(a\)\. Ana Pérez te invitó a Clínica <Norte> en SpeakDent/);
-  assert.match(mail.text, /Entrar con Google/);
+  assert.match(mail.text, /Entrar a una clínica/);
+  assert.match(mail.text, /Entrar a mi consulta/);
   assert.match(mail.text, /colega@gmail\.com/);
   assert.match(mail.html, /href="https:\/\/speakdent\.cl"/);
   assert.match(mail.html, /Clínica &lt;Norte&gt;/, "el HTML escapa el nombre de la clínica");
@@ -227,4 +228,24 @@ test("la invitación se envía sola por correo desde el Gmail conectado y nunca 
   const panel = readFileSync(new URL("../components/equipo-panel.tsx", import.meta.url), "utf8");
   assert.match(panel, /invite-mail-sent/);
   assert.match(panel, /invite-mail-none/);
+});
+
+test("dos puertas: la consulta personal y la clínica no se abren por la misma entrada", () => {
+  const active = [member()];
+  assert.equal(parseEntry(undefined), "personal");
+  assert.equal(parseEntry("algo"), "personal");
+  assert.equal(parseEntry("clinica"), "clinica");
+  assert.deepEqual(chooseSpaceForEntry(COLEGA, active, TITULAR, "personal"), { spaceId: COLEGA, role: "titular", clinicId: null });
+  assert.deepEqual(chooseSpaceForEntry(COLEGA, active, null, "clinica"), { spaceId: TITULAR, role: "dentista", clinicId: TITULAR });
+  assert.equal(chooseSpaceForEntry(COLEGA, active, COLEGA, "clinica").spaceId, TITULAR, "en la puerta de clínica no se cuela la consulta personal");
+  assert.equal(chooseSpaceForEntry(COLEGA, [], null, "clinica").spaceId, COLEGA, "sin clínica activa no se abre un espacio ajeno");
+});
+
+test("nombre de la clínica: si no tiene, «Clínica de <titular>», nunca solo el nombre de una persona", () => {
+  assert.equal(clinicDisplayName("Centro Dental Norte", "Dr(a). Ana"), "Centro Dental Norte");
+  assert.equal(clinicDisplayName("  ", "Dr(a). Luis Paul Rodríguez Murga"), "Clínica de Dr(a). Luis Paul Rodríguez Murga");
+  assert.equal(clinicDisplayName(null, ""), "Clínica");
+  const panel = readFileSync(new URL("../components/equipo-panel.tsx", import.meta.url), "utf8");
+  assert.match(panel, /clinic-entry-gate/, "entrada de clínica sin clínica activa: pantalla que solo ofrece invitaciones o ir a la consulta");
+  assert.match(panel, /clinic-entry-badge/, "en la clínica, barra fija con su nombre y el rol");
 });
