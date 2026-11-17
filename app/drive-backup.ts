@@ -8,6 +8,7 @@ import {
   patients, periodontalExams, toothStatuses,
 } from "@/db/schema";
 import { decodeBudgetData } from "@/lib/budget-plans";
+import { attachmentFileName } from "@/lib/attachment-name";
 
 const hex = (bytes: ArrayBuffer) => Array.from(new Uint8Array(bytes))
   .map(byte => byte.toString(16).padStart(2, "0")).join("");
@@ -70,12 +71,12 @@ export async function getDriveSnapshot(ownerId: string, patientId: number, conne
       id: e.id, recordedAt: e.recordedAt, data: JSON.parse(e.teeth),
     })),
     odontogram: teeth[0] ? JSON.parse(teeth[0].data) : null,
-    // Binary files remain in R2. Their metadata is included, but this document
-    // alone is not an independent copy of radiographs, photos or PDFs.
+    // Los binarios se copian a Drive como archivos «Adjunto N - nombre» en la carpeta del paciente;
+    // la ficha solo se confirma tras verificar cada archivo en Drive (ver backupAttachments).
     imageMetadata: images.map(i => ({
       id: i.id, name: i.name, kind: i.kind, note: i.note,
       size: i.size, contentType: i.contentType, addedAt: i.addedAt,
-      attachmentBackedUp: false,
+      driveFile: attachmentFileName(i.id, i.name, i.contentType),
     })),
   };
   // Markdown legible primero; al final, los datos completos en JSON para poder restaurar la ficha.
