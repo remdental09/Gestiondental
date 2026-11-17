@@ -108,6 +108,24 @@ const KEYWORDS: Array<{ test: RegExp; code: (text: string, teeth?: number[], con
   { test: /\bpulido\s+de\s+restauraciones\b/, code: () => "5005034" },
 ];
 
+/**
+ * Prestaciones del arancel para un tramo dictado en un presupuesto rápido («exodoncia», «resina dos caras»), para una
+ * pieza (FDI) o sin pieza. Mismas reglas que la nota clínica; si no hay regla clara, vacío (el profesional elige).
+ */
+export function prestacionCodesForSegment(text: string, tooth: number | null, faces: number): string[] {
+  const plain = fold(text);
+  const out: string[] = [];
+  const add = (code: string | null | undefined) => { if (code && byCode.has(code) && !out.includes(code)) out.push(code); };
+  if (/obturaci|restauraci|resina|composite|amalgama|ionomero|\bciv\b/.test(plain) && !/provisori|corona|incrustaci|carilla|puente|protesis/.test(plain)) {
+    if (tooth !== null) add(restorationCode(materialOf(text) ?? "composite", tooth, Math.max(1, faces)));
+    return out;
+  }
+  const teeth = tooth === null ? [] : [tooth];
+  for (const rule of KEYWORDS) if (rule.test.test(plain)) add(rule.code(plain, teeth, plain));
+  if (!out.length) add(matchPrestacion(text)?.code);
+  return out;
+}
+
 function teethOf(text: string): number[] {
   const out: number[] = [];
   for (const match of text.matchAll(/(?<![\p{L}\d.,])([1-8])\.([1-8])(?![\d])/gu)) out.push(Number(match[1]) * 10 + Number(match[2]));

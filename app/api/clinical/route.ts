@@ -605,7 +605,7 @@ export async function POST(request: Request) {
     if (action === "addBudget") {
       const title = string(input.title, 180);
       const rawItems = input.items === undefined ? [{ label: string(input.label, 180), amount: Number(input.amount), code: string(input.code, 7) }] : input.items;
-      const items = normalizeBudgetItems(rawItems);
+      const items = normalizeBudgetItems(rawItems, input.allowUndefinedValues === true);
       if (!title || !items) return error("Revisa el nombre del plan y cada prestación, su fase, valor y descuento.");
       const parentBudgetId = input.parentBudgetId === undefined || input.parentBudgetId === null || input.parentBudgetId === "" ? null : Number(input.parentBudgetId);
       if (parentBudgetId !== null) {
@@ -634,7 +634,7 @@ export async function POST(request: Request) {
     if (action === "updateBudget") {
       const budgetId = Number(input.budgetId), title = string(input.title, 180);
       const rawItems = input.items === undefined ? [{ label: string(input.label, 180), amount: Number(input.amount) }] : input.items;
-      const items = normalizeBudgetItems(rawItems);
+      const items = normalizeBudgetItems(rawItems, input.allowUndefinedValues === true);
       if (!Number.isSafeInteger(budgetId) || budgetId < 1 || !title || !items) return error("Revisa el nombre del plan y cada prestación, su fase, valor y descuento.");
       const [existing] = await db.select().from(budgets).where(and(eq(budgets.id, budgetId), eq(budgets.patientId, patientId), eq(budgets.ownerId, ownerId)));
       if (!existing) return error("Presupuesto no encontrado.", 404);

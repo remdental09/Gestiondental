@@ -238,7 +238,7 @@ export function BudgetCard({
                   : displayIso(item.doneOn!)}</span>}
               </span>
             </span>
-            <span className="shrink-0">{money(budgetItemTotal(item))}</span>
+            <span className="shrink-0">{item.amount > 0 ? money(budgetItemTotal(item)) : <em className="text-xs text-[#6b6a7c]">Por definir</em>}</span>
           </li>;
         })}</ul>
       </section>)}
@@ -256,7 +256,9 @@ export function BudgetCard({
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h4 className="font-semibold">Pagos y abonos de este tratamiento</h4>
             {balance > 0 && onRegisterPayment && <Button type="button" size="sm" className="bg-[#473a6d] hover:bg-[#3a2f5a]" onClick={onRegisterPayment}><Wallet className="mr-2 size-4"/>Registrar pago o abono</Button>}
-            {balance === 0 && <span className="rounded-full bg-[#efeef4] px-3 py-1 text-xs font-semibold text-[#3a2f5a]">Plan pagado</span>}
+            {balance === 0 && (budget.items.some(item => item.amount === 0)
+              ? <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-900">Hay prestaciones por definir</span>
+              : <span className="rounded-full bg-[#efeef4] px-3 py-1 text-xs font-semibold text-[#3a2f5a]">Plan pagado</span>)}
           </div>
           {payments.length
             ? <ul className="mt-3 space-y-2">{payments.map(payment => <li key={payment.id} className="flex flex-wrap justify-between gap-2 rounded-lg bg-[#f7f6fa] px-3 py-2 text-sm"><span><strong>{money(payment.amount)}</strong> · {paymentMethodLabel[payment.method] ?? payment.method}{payment.concept ? " · " + payment.concept : ""}</span><span className="text-[#6b6a7c]">{payment.date}</span></li>)}</ul>
