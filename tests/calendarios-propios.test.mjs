@@ -38,10 +38,12 @@ test("la agenda conecta Google Calendar con un botón (sin direcciones iCal) y s
   assert.equal(sched.split("syncGoogleCalendars()").length - 1, 3, "al día, cada hora y cada 15 minutos");
 });
 
-test("el registro ofrece conectar Google Calendar junto con Drive, en un solo paso", () => {
+test("el registro ofrece conectar Google Calendar junto con Drive, en un solo paso (opcional hasta la verificación de Google)", () => {
   const reg = readFileSync(new URL("../components/professional-registration.tsx", import.meta.url), "utf8");
   const oauth = readFileSync(new URL("../app/drive-oauth.ts", import.meta.url), "utf8");
-  assert.match(reg, /useState\(true\)\, \[connectCalendar, setConnectCalendar\] = useState\(true\)/);
+  assert.match(reg, /useState\(true\)\, \[connectCalendar, setConnectCalendar\] = useState\(CALENDAR_ON_BY_DEFAULT\)/);
+  // Calendar es permiso sensible: sin verificación de Google, marcado por defecto mostraría «app no verificada».
+  assert.match(reg, /export const CALENDAR_ON_BY_DEFAULT = false;/);
   assert.match(reg, /"\/api\/drive\/connect\?auto=1" \+ \(connectCalendar \? "&withCalendar=1" : ""\)/);
   assert.match(reg, /\/api\/drive\/connect\?calendar=1&auto=1/);
   assert.match(oauth, /withCalendar \? " " \+ CALENDAR_SCOPE : ""/);

@@ -3,10 +3,17 @@ import { useState } from "react";
 import { LogOut } from "lucide-react";
 import { COUNTRIES, SPECIALTIES, checkProfile, displayName, formatDocument, type ClinicianProfile, type ProfessionalDocumentType } from "@/lib/clinician-profile";
 
+/**
+ * Google Calendar es un permiso «sensible»: mientras Google no verifique la app, pedirlo muestra
+ * «Google no ha verificado esta aplicación». Por eso el registro parte solo con Drive (drive.file, no sensible,
+ * sin advertencia) y la agenda queda opcional. Pasar a true cuando Google apruebe la verificación.
+ */
+export const CALENDAR_ON_BY_DEFAULT = false;
+
 /** Registro mínimo en el primer ingreso: nombre, apellido, RUT y especialidad. Bloquea la app hasta completarlo. */
 export function ProfessionalRegistration({ email, onSaved }: { email: string; onSaved: (profile: ClinicianProfile) => void }) {
   const [form, setForm] = useState({ firstName: "", lastName: "", rut: "", specialty: "", country: "Chile", documentType: "rut" as ProfessionalDocumentType });
-  const [error, setError] = useState(""), [saving, setSaving] = useState(false), [connectDrive, setConnectDrive] = useState(true), [connectCalendar, setConnectCalendar] = useState(true);
+  const [error, setError] = useState(""), [saving, setSaving] = useState(false), [connectDrive, setConnectDrive] = useState(true), [connectCalendar, setConnectCalendar] = useState(CALENDAR_ON_BY_DEFAULT);
   const set = (key: keyof typeof form) => (value: string) => setForm((current) => ({ ...current, [key]: value }));
   const field = "mt-1 block min-h-11 w-full rounded-lg border border-[#d2d4df] bg-white px-3 text-base text-[#35343f] focus-visible:outline-2 focus-visible:outline-[#473a6d]";
 
@@ -67,7 +74,7 @@ export function ProfessionalRegistration({ email, onSaved }: { email: string; on
         </label>
         <label className="mt-3 flex items-start gap-3 rounded-lg border border-[#d2d4df] bg-[#f7f6fa] p-3 text-sm text-[#35343f]">
           <input type="checkbox" className="mt-0.5 size-5 shrink-0 accent-[#473a6d]" checked={connectCalendar} onChange={(e) => setConnectCalendar(e.target.checked)} data-testid="registro-calendario" />
-          <span><strong>Ver mis citas de Google Calendar en la agenda</strong><span className="mt-1 block text-[#615f73]">La app solo mira tus citas, no cambia nada, y se actualizan solas cada hora.</span></span>
+          <span><strong>Ver mis citas de Google Calendar en la agenda</strong><span className="mt-1 block text-[#615f73]">La app solo mira tus citas, no cambia nada, y se actualizan solas cada hora.{!CALENDAR_ON_BY_DEFAULT && " Mientras Google revisa la app, al marcarla verás un aviso de Google; puedes conectarla después desde Agenda."}</span></span>
         </label>
         {error && <p role="alert" className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-800">{error}</p>}
         <button type="submit" disabled={saving} className="mt-5 min-h-11 w-full rounded-lg bg-[#473a6d] px-4 text-base font-semibold text-white hover:bg-[#066d71] disabled:opacity-60">{saving ? "Guardando…" : "Guardar y entrar"}</button>
