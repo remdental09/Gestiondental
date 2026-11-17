@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 import { Mic, X } from "lucide-react";
 import { formatFdi, type PerioExam, type PerioSiteKey, type PerioTooth, type ToothHistoryEvent } from "@/app/clinical-data";
 import { depthTone } from "@/app/perio-arch-layout";
@@ -10,11 +10,15 @@ const KIND = ["Incisivo central", "Incisivo lateral", "Canino", "Primer premolar
 const TONE = { none: "text-slate-500", ok: "text-emerald-700", warn: "text-amber-700", crit: "text-rose-700" } as const;
 
 /** Análisis unitario de una pieza del periodontograma: la misma imagen de la arcada, aislada y ampliada. Solo lectura. */
-export function PerioToothModal({ tooth, chile, status, data, exams, toothHistory, onClose, returnFocusTo, onDeleteReading, onEditReading, onDictate }: {
+export function PerioToothModal({ tooth, chile, status, data, exams, toothHistory, onClose, returnFocusTo, onDeleteReading, onEditReading, onDictate, live, face }: {
   tooth: number; chile: number; status: string; data: PerioTooth | undefined; exams: PerioExam[]; toothHistory: ToothHistoryEvent[];
   onClose: () => void; returnFocusTo: HTMLElement | null;
   /** Cierra la ventana y dicta el periodontograma solo de esta pieza. */
   onDictate?: (tooth: number) => void;
+  /** Dictado guiado en curso: panel grande de lectura en lugar de la evolución de la pieza. */
+  live?: ReactNode;
+  /** Cara que pide el dictado (cambia sola la vista). */
+  face?: "vestibular" | "lingual";
   onDeleteReading?: (tooth: number, examId: number, day: string) => Promise<void>;
   onEditReading?: (tooth: number, examId: number, reading: PerioTooth, clinicalDate: string) => Promise<void>;
 }) {
@@ -43,16 +47,16 @@ export function PerioToothModal({ tooth, chile, status, data, exams, toothHistor
     <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="perio-tooth-title" className="fixed top-1/2 left-1/2 z-10 flex max-h-[92vh] w-[min(68rem,calc(100%-1.5rem))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-[#dddbe6] bg-white shadow-xl supports-[height:1dvh]:max-h-[92dvh]">
       <div className="flex items-start justify-between gap-3 border-b border-[#e6e4ee] px-4 py-3 sm:px-5">
         <div>
-          {onDictate && <button type="button" onClick={() => onDictate(tooth)} data-testid="perio-modal-dictate" className="mb-2 inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-[#473a6d] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#3a2f5a]"><Mic className="size-4" aria-hidden="true" />Dictar periodontograma de esta pieza</button>}
+          {onDictate && !live && <button type="button" onClick={() => onDictate(tooth)} data-testid="perio-modal-dictate" className="mb-2 inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-[#473a6d] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#3a2f5a]"><Mic className="size-4" aria-hidden="true" />Dictar periodontograma de esta pieza</button>}
           <p id="perio-tooth-title" className="text-lg font-semibold text-[#2a2540]">FDI {formatFdi(tooth)} · Chile {chile}</p>
-          <p className="mt-0.5 text-sm text-[#615f73]">{KIND[(tooth % 10) - 1]} · análisis periodontal de la pieza · solo lectura</p>
+          <p className="mt-0.5 text-sm text-[#615f73]">{KIND[(tooth % 10) - 1]} · {live ? "dictado guiado en curso" : "análisis periodontal de la pieza · solo lectura"}</p>
         </div>
         <button ref={closeRef} type="button" className="rounded-lg p-2 text-[#3b3355] hover:bg-[#efeef4]" onClick={onClose} aria-label="Cerrar"><X className="size-5" /></button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 sm:px-5">
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+        <div className={`grid grid-cols-1 gap-4 ${live ? "md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]" : "lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]"}`}>
           <div className="min-w-0 space-y-3">
-            <PerioToothScene tooth={tooth} data={data} status={status} />
+            <PerioToothScene tooth={tooth} data={data} status={status} requestedFace={face} />
             <div className="grid grid-cols-3 gap-1.5 text-center text-xs" aria-label="Seis sitios periodontales">
               {(["DV", "V", "MV", "DL", "L", "ML"] as PerioSiteKey[]).map(key => {
                 const reading = data?.sites[key], depth = reading?.depth ?? null, margin = reading?.margin ?? null;
@@ -65,7 +69,7 @@ export function PerioToothModal({ tooth, chile, status, data, exams, toothHistor
             </div>
             <p className="text-[11px] leading-4 text-[#615f73]">La cresta ósea es una estimación (nivel de inserción; 2 mm bajo la UAC si está sano); la altura real se confirma con radiografía. Las medidas se editan en el panel de la pieza.</p>
           </div>
-          <div className="min-w-0"><ToothTimeline tooth={tooth} history={toothHistory} exams={exams} mode="periodontograma" onDeleteReading={onDeleteReading} onEditReading={onEditReading} /></div>
+          {live ? <div className="order-first min-w-0 md:order-none">{live}</div> : <div className="min-w-0"><ToothTimeline tooth={tooth} history={toothHistory} exams={exams} mode="periodontograma" onDeleteReading={onDeleteReading} onEditReading={onEditReading} /></div>}
         </div>
       </div>
     </div>
