@@ -62,6 +62,7 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => ({})) as { accion?: unknown; toEmail?: unknown };
   const to = typeof body.toEmail === "string" ? body.toEmail.trim() : "";
   if (body.accion === "enviar" && to && !isValidEmail(to)) return json({ error: "Escribe un correo válido." }, 400);
+  if (!managesSpace(user)) return json({ error: SPACE_ADMIN_ONLY }, 403);
   try {
     const detail = body.accion === "enviar" ? await sendDigest(user.userId, to ? { to } : {}) : await sendDigestTest(user.userId);
     return json({ ok: true, detail, digest: await view(user.userId) });

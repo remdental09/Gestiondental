@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { getChatGPTUser } from "@/app/chatgpt-auth";
+import { getChatGPTUser, personalIdOf } from "@/app/chatgpt-auth";
 import { AUDIO_TRANSCRIPTION_MODEL, AUDIO_COMPATIBILITY_MODEL, MAX_AUDIO_BYTES, MAX_RECORDING_MS, transcribeDentalAudio } from "@/lib/dictation/openai-transcription";
 
 export const runtime = "edge";
@@ -33,7 +33,7 @@ export async function POST(request: Request) {
   if (request.headers.get("origin") !== new URL(request.url).origin) return json({ error: "Origen no permitido." }, 403);
   if (!env.OPENAI_API_KEY?.trim()) return json({ error: "Falta configurar OPENAI_API_KEY en el Worker de Cloudflare para transcribir audio." }, 503);
   if (!request.headers.get("content-type")?.startsWith("multipart/form-data")) return json({ error: "Envía una grabación de audio." }, 415);
-  const owner = user.userId;
+  const owner = personalIdOf(user);
   if (active.has(owner)) return json({ error: "Ya hay una transcripción en curso. Espera que termine." }, 429);
   active.add(owner);
   try {

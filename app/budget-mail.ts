@@ -29,14 +29,19 @@ async function load(ownerId: string, budgetId: number) {
 export async function renderBudgetPdf(ownerId: string, budgetId: number, mode: BudgetPdfMode, professionalId: string = ownerId) {
   const { budget, patient } = await load(ownerId, budgetId);
   const data = decodeBudgetData(budget.items);
-  const [profile, sender] = await Promise.all([loadProfile(professionalId).catch(() => null), getSender(ownerId).catch(() => null)]);
+  const [profile, sender, space] = await Promise.all([
+    loadProfile(professionalId).catch(() => null), getSender(ownerId).catch(() => null),
+    professionalId === ownerId ? Promise.resolve(null) : loadProfile(ownerId).catch(() => null),
+  ]);
+  // El nombre de la clínica es el del espacio (cuyo correo envía), no el de la consulta personal del profesional.
+  const clinicName = (professionalId === ownerId ? profile?.clinicName : space?.clinicName) || undefined;
   const bytes = await buildBudgetPdf({
     budget: { id: budget.id, title: budget.title, date: displayDate(budget.createdAt), isAlternative: data.isAlternative, items: data.items },
     patientName: patient.name, patientDocument: patient.rut?.trim() || undefined,
     professionalName: profile ? displayName(profile) : undefined, professionalSpecialty: profile?.specialty || undefined, professionalDocument: profile?.rut || undefined,
-    clinicName: profile?.clinicName || undefined, contactEmail: sender?.google_email, mode,
+    clinicName, contactEmail: sender?.google_email, mode,
   });
-  return { bytes, fileName: budgetPdfFileName({ id: budget.id, isAlternative: data.isAlternative }), isAlternative: data.isAlternative, title: budget.title, patient, profile, sender };
+  return { bytes, fileName: budgetPdfFileName({ id: budget.id, isAlternative: data.isAlternative }), isAlternative: data.isAlternative, title: budget.title, patient, profile, sender, clinicName: clinicName || "" };
 }
 
 /** Destino del correo: correo registrado del paciente y cuenta de envío. Lanza un error claro si no se puede enviar. */
@@ -58,7 +63,7 @@ export async function previewBudgetMail(ownerId: string, budgetId: number) {
 export async function sendBudgetPdf(ownerId: string, budgetId: number, mode: BudgetPdfMode, professionalId: string = ownerId) {
   const { email, sender } = await mailTarget(ownerId, budgetId);
   const pdf = await renderBudgetPdf(ownerId, budgetId, mode, professionalId);
-  const clinicName = pdf.profile?.clinicName || "";
+  const clinicName = pdf.clinicName;
   const mail = budgetEmail({ patientName: pdf.patient.name, clinicName, professionalName: pdf.profile ? displayName(pdf.profile) : "", title: pdf.title, isAlternative: pdf.isAlternative });
   await sendMailWithSender(sender, buildRawMessage({
     from: sender.google_email, fromName: clinicName || undefined, to: email, replyTo: sender.google_email, ...mail,

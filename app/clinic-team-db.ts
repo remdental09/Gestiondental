@@ -1,4 +1,15 @@
+import { integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import type { TeamMember, TeamRole } from "@/lib/clinic-team";
+
+/** Para insertar el autor en el mismo batch que la evolución (Drizzle). La tabla la crea `ensureTeamTables`. */
+export const evolutionAuthors = sqliteTable("evolution_authors", {
+  ownerId: text("owner_id").notNull(),
+  evolutionId: integer("evolution_id").notNull(),
+  authorId: text("author_id").notNull(),
+  authorEmail: text("author_email").notNull(),
+  authorName: text("author_name").notNull().default(""),
+  recordedAt: text("recorded_at").notNull(),
+}, table => [primaryKey({ columns: [table.ownerId, table.evolutionId] })]);
 
 /**
  * Tabla `clinic_members`: quién pertenece a qué clínica. `clinic_id` es el owner_id del titular, que es

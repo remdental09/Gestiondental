@@ -1,9 +1,9 @@
-import { and, desc, eq, ne } from "drizzle-orm";
+import { and, desc, eq, ne, sql } from "drizzle-orm";
 import { ALL_TOOTH_STATUSES, applyStatusToChart, isLesionStatus, pruneChartExtras, removeLesionFromChart } from "@/lib/tooth-status";
 import { isCariesDepth } from "@/lib/caries";
 import { env } from "cloudflare:workers";
 import { getChatGPTUser, personalIdOf, spaceRoleOf, type ChatGPTUser } from "@/app/chatgpt-auth";
-import { authorOf, authorsOf, recordAuthor, type TeamDb } from "@/app/clinic-team-db";
+import { authorOf, authorsOf, ensureTeamTables, evolutionAuthors, type TeamDb } from "@/app/clinic-team-db";
 import { canChangeEvolution, canManageTeam, evolutionAuthor } from "@/lib/clinic-team";
 import { loadProfile } from "@/app/clinician-profile-db";
 import { touchAppUser } from "@/app/app-users-db";
@@ -58,13 +58,21 @@ const validEmail = (value: string) => !value || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.tes
 const protect = async () => (await getChatGPTUser())?.userId ?? null;
 const teamDb = () => (env as unknown as { DB?: TeamDb }).DB;
 
-/** Deja constancia de quién escribió la evolución dentro del espacio (clínica compartida o propio). */
-async function stampAuthor(spaceId: string, evolutionId: number, viewer: ChatGPTUser | null) {
-  const db = teamDb();
-  if (!db || !viewer) return;
+/**
+ * Sentencia que registra al autor de la evolución recién insertada. Va en el MISMO batch que el INSERT
+ * (usa last_insert_rowid()): si no se puede registrar el autor, tampoco se guarda la evolución, así una
+ * evolución de un colega nunca queda atribuida por error al titular.
+ */
+async function authorStatement(db: ReturnType<typeof getDb>, spaceId: string) {
+  const viewer = await getChatGPTUser();
+  const raw = teamDb();
+  if (!viewer) throw new Error("Sin sesión para registrar el autor.");
+  if (raw) await ensureTeamTables(raw);
   const personalId = personalIdOf(viewer);
   const profile = await loadProfile(personalId).catch(() => null);
-  await recordAuthor(db, spaceId, evolutionId, { id: personalId, email: viewer.email, name: profile ? displayName(profile) : viewer.displayName });
+  const name = (profile ? displayName(profile) : viewer.displayName).slice(0, 120);
+  // Se devuelve envuelto: una función async que devolviera la consulta la ejecutaría al resolverse.
+  return { statement: db.insert(evolutionAuthors).values({ ownerId: spaceId, evolutionId: sql`last_insert_rowid()`, authorId: personalId, authorEmail: viewer.email, authorName: name, recordedAt: new Date().toISOString() }) };
 }
 
 /** Solo quien escribió una evolución la edita, anula o elimina. Las antiguas, sin autor registrado, son del titular del espacio. */
@@ -269,7 +277,7 @@ export async function GET() {
       calendarEvents: [...ces.filter(e => e.status !== "cancelled").map(e => ({ id: e.id, title: e.title, startAt: e.startAt, endAt: e.endAt, sourceTimeZone: e.sourceTimeZone, htmlLink: e.htmlLink, status: e.status, allDay: e.allDay, patientId: e.patientId })), ...snapshot.events],
       calendarSnapshotAt: snapshot.events.length ? snapshot.capturedAt : null,
       calendarSyncedAt: ces.reduce<string | null>((latest, e) => (e.importedAt && (!latest || e.importedAt > latest) ? e.importedAt : latest), null),
-      viewer: { name: profile ? displayName(profile) : viewer?.displayName || "", email: viewer?.email || "", registered: Boolean(profile) || profileFailed, specialty: profile?.specialty || "", clinicName: profile?.clinicName || "", developer: isDeveloperEmail(viewer?.email, (env as unknown as { DEVELOPER_EMAILS?: string }).DEVELOPER_EMAILS), spaceRole, inClinic: personalId !== ownerId, manageTeam: canManageTeam(spaceRole) },
+      viewer: { name: profile ? displayName(profile) : viewer?.displayName || "", email: viewer?.email || "", registered: Boolean(profile) || profileFailed, specialty: profile?.specialty || "", clinicName: (personalId === ownerId ? profile?.clinicName : (await loadProfile(ownerId).catch(() => null))?.clinicName) || "", developer: isDeveloperEmail(viewer?.email, (env as unknown as { DEVELOPER_EMAILS?: string }).DEVELOPER_EMAILS), spaceRole, inClinic: personalId !== ownerId, manageTeam: canManageTeam(spaceRole) },
       periodontalExams: Object.fromEntries(ps.map(p => [p.id, (examsByPatient.get(p.id) ?? []).map(x => ({ id: x.id, recordedAt: x.recordedAt, ...normalizePerio(JSON.parse(x.teeth)) }))])),
       toothStatuses: charts,
       clinicalImages: imgs.map(i => ({ id: i.id, patientId: i.patientId, url: "/api/images/" + i.id, name: i.name, kind: i.kind, note: i.note, addedAt: displayDate(i.addedAt.slice(0, 10)), size: i.size, contentType: i.contentType })),
@@ -326,6 +334,8 @@ export async function POST(request: Request) {
       return Response.json({ patient: { ...p, rut: documentType === "extranjero" ? (rut ?? "") : rutRaw || "", address } }, { status: 201 });
     }
     if (action === "previewDriveRecords" || action === "importDriveRecords") {
+      const importer = await getChatGPTUser();
+      if (!importer || !canManageTeam(spaceRoleOf(importer))) return error("Solo un administrador de la clínica puede importar fichas.", 403);
       try {
         const outcome = await runDriveRecordImport(ownerId, input.records, action === "importDriveRecords");
         if (action === "previewDriveRecords") return Response.json(outcome);
@@ -405,8 +415,7 @@ export async function POST(request: Request) {
         if (existing && existing.patientId !== patientId) return error("Esta solicitud pertenece a otra ficha.", 409);
         if (existing) return Response.json({ note: { id: existing.id, patientId: existing.patientId, date: displayDate(existing.clinicalDate), clinicalDate: existing.clinicalDate, recordedAt: existing.recordedAt, title: existing.title, body: existing.body, backupStatus: existing.backupStatus } });
       }
-      const [n] = await db.insert(evolutions).values({ ownerId, patientId, clinicalDate, recordedAt: t, title, body, requestId, backupStatus: "not_configured" }).returning();
-      await stampAuthor(ownerId, n.id, await getChatGPTUser()).catch(() => undefined);
+      const [[n]] = await db.batch([db.insert(evolutions).values({ ownerId, patientId, clinicalDate, recordedAt: t, title, body, requestId, backupStatus: "not_configured" }).returning(), (await authorStatement(db, ownerId)).statement]);
       let chart;
       try { chart = await syncInstalledImplants(ownerId, patientId, body, t, n.id, clinicalDate); }
       catch { chart = { updatedTeeth: [], odontogram: null, warning: "Evolución guardada; revisa el odontograma, cuya actualización no pudo verificarse." }; }
@@ -455,9 +464,8 @@ export async function POST(request: Request) {
       let replacement: typeof evolutions.$inferSelect | undefined;
       if (replacementBody) {
         const clinicalDate = dateInChile();
-        const [, inserted] = await db.batch([annul, db.insert(evolutions).values({ ownerId, patientId, clinicalDate, recordedAt: t, title: replacementTitle, body: replacementBody, replacesId: evolutionId, backupStatus: "not_configured" }).returning()]);
+        const [, inserted] = await db.batch([annul, db.insert(evolutions).values({ ownerId, patientId, clinicalDate, recordedAt: t, title: replacementTitle, body: replacementBody, replacesId: evolutionId, backupStatus: "not_configured" }).returning(), (await authorStatement(db, ownerId)).statement]);
         replacement = inserted[0];
-        if (replacement) await stampAuthor(ownerId, replacement.id, viewer).catch(() => undefined);
       } else await annul;
       const revertedTeeth = await revertChartOf(db, ownerId, patientId, evolutionId).catch(() => null);
       const revertedLinks = await revertLinkedRecords(db, ownerId, patientId, evolutionId).catch(() => null);
@@ -489,9 +497,8 @@ export async function POST(request: Request) {
       const removeNote = db.delete(evolutions).where(and(eq(evolutions.id, evolutionId), eq(evolutions.patientId, patientId), eq(evolutions.ownerId, ownerId)));
       let replacement: typeof evolutions.$inferSelect | undefined;
       if (replacementBody) {
-        const [, , inserted] = await db.batch([removeTags, removeNote, db.insert(evolutions).values({ ownerId, patientId, clinicalDate: dateInChile(), recordedAt: t, title: replacementTitle, body: replacementBody, backupStatus: "not_configured" }).returning()]);
+        const [, , inserted] = await db.batch([removeTags, removeNote, db.insert(evolutions).values({ ownerId, patientId, clinicalDate: dateInChile(), recordedAt: t, title: replacementTitle, body: replacementBody, backupStatus: "not_configured" }).returning(), (await authorStatement(db, ownerId)).statement]);
         replacement = inserted[0];
-        if (replacement) await stampAuthor(ownerId, replacement.id, await getChatGPTUser()).catch(() => undefined);
       } else await db.batch([removeTags, removeNote]);
       const revertedTeeth = await revertChartOf(db, ownerId, patientId, evolutionId).catch(() => null);
       const revertedLinks = await revertLinkedRecords(db, ownerId, patientId, evolutionId).catch(() => null);

@@ -125,7 +125,9 @@ test("ruta clínica: corregir, anular, eliminar o etiquetar una evolución exige
     assert.ok(block.includes("mayChangeEvolution(ownerId, evolutionId)") && block.includes("403"), action);
   }
   const add = route.slice(route.indexOf('action === "addNote"'), route.indexOf('action === "updateEvolution"'));
-  assert.ok(add.includes("stampAuthor(ownerId, n.id"));
+  assert.ok(add.includes("db.batch([db.insert(evolutions)") && add.includes("(await authorStatement(db, ownerId)).statement]"), "el autor va en el mismo batch que la evolución");
+  assert.equal(route.split("(await authorStatement(db, ownerId)).statement]").length - 1, 3, "nueva, reemplazo al anular y reemplazo al eliminar");
+  assert.ok(route.includes("evolutionId: sql`last_insert_rowid()`"));
 });
 
 test("API de equipo: solo administradores invitan, revocan o cambian roles; aceptar exige una invitación vigente a su correo", () => {
@@ -165,4 +167,17 @@ test("interfaz: la evolución de otro profesional muestra su autor y no ofrece e
   assert.ok(history.includes("{note.mine !== false && <div"));
   const page = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
   assert.ok(page.includes("<ClinicSpaceBar/>") && page.includes("<EquipoPanel/>"));
+});
+
+test("revisión: panel de desarrollador por id personal; importar desde Drive y enviar la agenda solo administradores; transcripción por persona", () => {
+  const read = path => readFileSync(new URL(path, import.meta.url), "utf8");
+  for (const path of ["../app/api/mejora/route.ts", "../app/api/auditoria/route.ts"]) assert.ok(read(path).includes("personalIdOf(user) !== owner || user.userId !== owner"), path);
+  const drive = route.slice(route.indexOf('action === "previewDriveRecords" || action === "importDriveRecords"'));
+  assert.ok(drive.slice(0, 300).includes("canManageTeam(spaceRoleOf(importer))"));
+  const digest = read("../app/api/agenda-digest/route.ts");
+  const post = digest.slice(digest.indexOf("export async function POST"));
+  assert.ok(post.includes("if (!managesSpace(user))"));
+  assert.ok(read("../app/api/audio-transcription/route.ts").includes("const owner = personalIdOf(user);"));
+  const mail = read("../app/budget-mail.ts");
+  assert.ok(mail.includes("professionalId === ownerId ? profile?.clinicName : space?.clinicName"), "nombre de clínica del espacio en PDF y correo");
 });
