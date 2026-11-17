@@ -1,7 +1,7 @@
 import { loadProfile } from "@/app/clinician-profile-db";
 import { loadClinic } from "@/app/clinic-profile-db";
 import { loadBudgetFormat } from "@/app/budget-format-db";
-import { DEFAULT_FORMAT } from "@/lib/budget-format";
+import { DEFAULT_FORMAT, formatForPdf, type BudgetFormat } from "@/lib/budget-format";
 import { budgetAuthorOf, type TeamDb } from "@/app/clinic-team-db";
 import { getSender, mailDb, ensureMailTables } from "@/app/appointment-mail-db";
 import { sendMailWithSender } from "@/app/drive-oauth";
@@ -33,7 +33,7 @@ async function load(ownerId: string, budgetId: number) {
  * Arriba van nombre, especialidad y RUT de quien ARMÓ el presupuesto (en una clínica, el colega que lo estableció),
  * lo descargue o envíe quien sea. Los presupuestos sin autor registrado son del titular del espacio.
  */
-export async function renderBudgetPdf(ownerId: string, budgetId: number, mode: BudgetPdfMode) {
+export async function renderBudgetPdf(ownerId: string, budgetId: number, mode: BudgetPdfMode, draft?: { viewerId: string; format: BudgetFormat }) {
   const { budget, patient } = await load(ownerId, budgetId);
   // Solo una fila ausente significa «titular»; si la lectura falla, mejor avisar que firmar con el profesional equivocado.
   const authorDb = mailDb();
@@ -48,14 +48,16 @@ export async function renderBudgetPdf(ownerId: string, budgetId: number, mode: B
   ]);
   // El nombre de la clínica es el del espacio (cuyo correo envía), no el de la consulta personal del profesional.
   const clinicName = (professionalId === ownerId ? profile?.clinicName : space?.clinicName) || undefined;
+  // Un diseño en borrador (vista previa antes de guardar) solo vale para quien armó el presupuesto: nadie ve el PDF «de otro» con su propio diseño.
+  const { format: pdfFormat, editable } = formatForPdf(format, draft, professionalId);
   const bytes = await buildBudgetPdf({
     budget: { id: budget.id, title: budget.title, date: displayDate(budget.createdAt), isAlternative: data.isAlternative, items: data.items },
     patientName: patient.name, patientDocument: patient.rut?.trim() || undefined,
     professionalName: profile ? displayName(profile) : undefined, professionalSpecialty: profile?.specialty || undefined, professionalDocument: profile?.rut || undefined,
     clinicName, contactEmail: sender?.google_email, mode,
-    format, professionalTitles: profile?.extraTitles || undefined, logo: clinic?.logo || undefined,
+    format: pdfFormat, professionalTitles: profile?.extraTitles || undefined, logo: clinic?.logo || undefined,
   });
-  return { bytes, fileName: budgetPdfFileName({ id: budget.id, isAlternative: data.isAlternative }), isAlternative: data.isAlternative, title: budget.title, patient, profile, sender, clinicName: clinicName || "" };
+  return { bytes, editable, fileName: budgetPdfFileName({ id: budget.id, isAlternative: data.isAlternative }), isAlternative: data.isAlternative, title: budget.title, patient, profile, sender, clinicName: clinicName || "" };
 }
 
 /** Destino del correo: correo registrado del paciente y cuenta de envío. Lanza un error claro si no se puede enviar. */

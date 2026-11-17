@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { PDFDocument } from "pdf-lib";
-import { DEFAULT_FORMAT, PALETTES, checkBudgetFormat, decodeBudgetFormat, luminance } from "../lib/budget-format.ts";
+import { DEFAULT_FORMAT, PALETTES, checkBudgetFormat, decodeBudgetFormat, formatForPdf, luminance, previewActions } from "../lib/budget-format.ts";
 import { buildBudgetPdf, itemZoneText } from "../lib/budget-pdf.ts";
 
 const base = {
@@ -54,4 +54,35 @@ test("formato: rechaza nombres heredados como paleta, acentos casi blancos y má
   assert.equal(checkBudgetFormat({ palette: "toString" }).format.palette, DEFAULT_FORMAT.palette);
   assert.equal(checkBudgetFormat({ palette: "propio", primary: "#2a1f4d", accent: "#ffffff" }).ok, false);
   assert.equal(checkBudgetFormat({ note: Array.from({ length: 9 }, (_, i) => `n${i}`).join("\n") }).ok, false);
+});
+
+test("vista previa: el borrador solo se aplica a quien armó el presupuesto", () => {
+  const saved = { ...DEFAULT_FORMAT, note: "guardado" }, draft = { ...DEFAULT_FORMAT, note: "borrador", palette: "azul" };
+  assert.deepEqual(formatForPdf(saved, { viewerId: "ana", format: draft }, "ana"), { format: draft, editable: true });
+  assert.deepEqual(formatForPdf(saved, { viewerId: "titular", format: draft }, "ana"), { format: saved, editable: false });
+  assert.deepEqual(formatForPdf(saved, undefined, "ana"), { format: saved, editable: false });
+});
+
+test("el diálogo de vista previa muestra el PDF real, no una maqueta HTML", () => {
+  const source = readFileSync(new URL("../components/budget-print-dialog.tsx", import.meta.url), "utf8");
+  assert.match(source, /\/api\/presupuesto\/pdf/);
+  assert.match(source, /<iframe/);
+  assert.doesNotMatch(source, /budget-print-document/);
+  assert.match(source, /BudgetFormatEditor/);
+});
+
+test("el borrador del diseño se arma con el mismo PDF que se entrega: colores propios cambian la cabecera", async () => {
+  const a = await buildBudgetPdf({ ...base, format: { ...DEFAULT_FORMAT } });
+  const b = await buildBudgetPdf({ ...base, format: checkBudgetFormat({ palette: "verde" }).format });
+  assert.notDeepEqual(Buffer.from(a), Buffer.from(b));
+});
+
+test("vista previa: descargar y enviar solo con el PDF al día; enviar además sin cambios sin guardar ni diseño inválido", () => {
+  const ok = { inSync: true, hasPdf: true, problem: false, canEdit: true, dirty: false, invalid: false };
+  assert.deepEqual(previewActions(ok), { canDownload: true, canSend: true });
+  assert.deepEqual(previewActions({ ...ok, dirty: true }), { canDownload: true, canSend: false }, "cambios sin guardar: se baja lo que se ve, no se envía");
+  assert.deepEqual(previewActions({ ...ok, inSync: false }), { canDownload: false, canSend: false }, "mientras se rearma, nada");
+  assert.deepEqual(previewActions({ ...ok, invalid: true, dirty: true }), { canDownload: false, canSend: false }, "diseño inválido: la vista quedó vieja");
+  assert.deepEqual(previewActions({ ...ok, problem: true }), { canDownload: false, canSend: false });
+  assert.deepEqual(previewActions({ ...ok, canEdit: false, dirty: true }), { canDownload: true, canSend: true }, "sin editor (otro autor) no hay borrador que guardar");
 });
