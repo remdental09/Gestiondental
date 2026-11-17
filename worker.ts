@@ -8,6 +8,8 @@ import {
   signSession, verifySession, readCookie, cookie, randomToken, googleAuthUrl, acceptedGoogleProfile,
 } from "./lib/google-login";
 import { resolveOwner, resolveOwnerWithRegistration, type OwnerConfig, type ClinicOwner } from "./app/access-owners";
+import { activeMemberships, type TeamDb } from "./app/clinic-team-db";
+import { chooseSpace, type Space } from "./lib/clinic-team";
 
 type AccessIdentity = { email?: string | null };
 type AccessContext = {
@@ -34,6 +36,9 @@ type OAuthEnv = Cloudflare.Env & OwnerConfig & {
 const ACCESS_EMAIL_HEADER = "x-clinic-access-email";
 const ACCESS_OWNER_ID_HEADER = "x-clinic-access-owner-id";
 const ACCESS_NAME_HEADER = "x-clinic-access-name";
+const PERSONAL_ID_HEADER = "x-clinic-personal-id";
+const SPACE_ROLE_HEADER = "x-clinic-space-role";
+const SPACE_COOKIE = "gd_espacio";
 const USER_ID_HEADER = "oai-authenticated-user-id";
 const USER_EMAIL_HEADER = "oai-authenticated-user-email";
 const USER_FULL_NAME_HEADER = "oai-authenticated-user-full-name";
@@ -156,6 +161,8 @@ function clearInboundIdentityHeaders(headers: Headers) {
     ACCESS_EMAIL_HEADER,
     ACCESS_OWNER_ID_HEADER,
     ACCESS_NAME_HEADER,
+    PERSONAL_ID_HEADER,
+    SPACE_ROLE_HEADER,
     "Cf-Access-Jwt-Assertion",
     USER_ID_HEADER,
     USER_EMAIL_HEADER,
@@ -259,14 +266,38 @@ async function identify(request: Request, env: OAuthEnv, context: ExecutionConte
   return wantsPage ? portadaResponse(new URL(request.url).searchParams.get("error"), request.method) : denied();
 }
 
+/**
+ * Espacio de datos de esta solicitud: el personal o el de una clínica donde la persona es miembro activo.
+ * Se consulta en cada solicitud, así que revocar a un miembro corta su acceso de inmediato.
+ * Si la base no responde, se trabaja en el espacio personal (nunca en uno ajeno).
+ */
+async function resolveSpace(request: Request, env: OAuthEnv, identity: { email: string; owner: ClinicOwner }): Promise<Space> {
+  const personal: Space = { spaceId: identity.owner.ownerId, role: "titular", clinicId: null };
+  const db = (env as unknown as { DB?: TeamDb }).DB;
+  if (!db || !identity.email) return personal;
+  try {
+    const active = await activeMemberships(db, identity.email.trim().toLowerCase());
+    if (!active.length) return personal;
+    const raw = readCookie(request.headers.get("Cookie"), SPACE_COOKIE);
+    let requested: string | null = null;
+    try { requested = raw ? decodeURIComponent(raw) : null; } catch { requested = null; }
+    return chooseSpace(identity.owner.ownerId, active, requested);
+  } catch {
+    return personal;
+  }
+}
+
 async function privateAppFetch(request: Request, env: OAuthEnv, context: ExecutionContext): Promise<Response> {
   const identity = await identify(request, env, context);
   if (identity instanceof Response) return identity;
+  const space = await resolveSpace(request, env, identity);
 
   const headers = new Headers(request.headers);
   clearInboundIdentityHeaders(headers);
   headers.set(ACCESS_EMAIL_HEADER, identity.email);
-  headers.set(ACCESS_OWNER_ID_HEADER, identity.owner.ownerId);
+  headers.set(ACCESS_OWNER_ID_HEADER, space.spaceId);
+  headers.set(PERSONAL_ID_HEADER, identity.owner.ownerId);
+  headers.set(SPACE_ROLE_HEADER, space.role);
   headers.set(ACCESS_NAME_HEADER, encodeURIComponent(identity.owner.name));
   return app.fetch(new Request(request, { headers }), env, context);
 }
@@ -414,7 +445,7 @@ const oauthProvider = new OAuthProvider<OAuthEnv>({
       // Confirmación de cita desde el correo del paciente: pública, sin sesión. Solo esta ruta; cada enlace lleva un código secreto de un solo uso.
       if (path === "/api/confirmar" && (request.method === "GET" || request.method === "HEAD" || request.method === "POST")) {
         const headers = new Headers(request.headers);
-        for (const name of [ACCESS_EMAIL_HEADER, ACCESS_OWNER_ID_HEADER, ACCESS_NAME_HEADER, USER_ID_HEADER, USER_EMAIL_HEADER, USER_FULL_NAME_HEADER, USER_FULL_NAME_ENCODING_HEADER]) headers.delete(name);
+        for (const name of [ACCESS_EMAIL_HEADER, ACCESS_OWNER_ID_HEADER, ACCESS_NAME_HEADER, PERSONAL_ID_HEADER, SPACE_ROLE_HEADER, USER_ID_HEADER, USER_EMAIL_HEADER, USER_FULL_NAME_HEADER, USER_FULL_NAME_ENCODING_HEADER]) headers.delete(name);
         return app.fetch(new Request(request, { headers }), env, context);
       }
       // Portada: imágenes públicas, inicio y cierre de sesión con Google.

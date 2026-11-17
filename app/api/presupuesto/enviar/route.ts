@@ -1,4 +1,4 @@
-import { getChatGPTUser } from "@/app/chatgpt-auth";
+import { getChatGPTUser, personalIdOf } from "@/app/chatgpt-auth";
 import { previewBudgetMail, sendBudgetPdf } from "@/app/budget-mail";
 
 export const runtime = "edge";
@@ -26,6 +26,6 @@ export async function POST(request: Request) {
   const budgetId = Number(body?.budgetId);
   const mode = typeof body?.mode === "string" && MODES.has(body.mode) ? body.mode as "detailed" | "total" | "no-prices" : "detailed";
   if (!Number.isSafeInteger(budgetId) || budgetId < 1) return json({ error: "Presupuesto inválido." }, 400);
-  try { return json({ ok: true, ...(await sendBudgetPdf(user.userId, budgetId, mode)) }); }
+  try { return json({ ok: true, ...(await sendBudgetPdf(user.userId, budgetId, mode, personalIdOf(user))) }); }
   catch (error) { return json({ error: error instanceof Error ? error.message : "No se pudo enviar el correo." }, 502); }
 }

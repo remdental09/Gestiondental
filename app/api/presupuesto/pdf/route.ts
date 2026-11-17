@@ -1,4 +1,4 @@
-import { getChatGPTUser } from "@/app/chatgpt-auth";
+import { getChatGPTUser, personalIdOf } from "@/app/chatgpt-auth";
 import { renderBudgetPdf } from "@/app/budget-mail";
 
 export const runtime = "edge";
@@ -14,7 +14,7 @@ export async function GET(request: Request) {
   const modeParam = url.searchParams.get("mode") ?? "detailed";
   if (!Number.isSafeInteger(budgetId) || budgetId < 1 || !MODES.has(modeParam)) return Response.json({ error: "Solicitud inválida." }, { status: 400 });
   try {
-    const { bytes, fileName } = await renderBudgetPdf(user.userId, budgetId, modeParam as "detailed" | "total" | "no-prices");
+    const { bytes, fileName } = await renderBudgetPdf(user.userId, budgetId, modeParam as "detailed" | "total" | "no-prices", personalIdOf(user));
     return new Response(bytes as BodyInit, { headers: { "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="${fileName}"`, "Cache-Control": "private, no-store" } });
   } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "No se pudo generar el PDF." }, { status: 409 }); }
 }

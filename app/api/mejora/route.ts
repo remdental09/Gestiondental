@@ -1,7 +1,7 @@
 // Mejora continua (solo el titular de la app): uso por profesional, lo que más se corrige de las propuestas del dictado
 // y la prueba del banco de casos con la IA real. Solo datos agregados: nunca texto dictado ni datos de pacientes.
 import { env } from "cloudflare:workers";
-import { getChatGPTUser } from "@/app/chatgpt-auth";
+import { getChatGPTUser, personalIdOf } from "@/app/chatgpt-auth";
 import { summarizeImprovement, type ClinicianLabel, type FeedbackRow, type UsageRow } from "@/lib/improvement";
 import { judgeCase, itemKey, type CoherenceCase } from "@/lib/dictation/coherence-cases";
 import { learnFromFeedback } from "@/lib/dictation/learning";
@@ -23,7 +23,7 @@ async function titular() {
   const user = await getChatGPTUser();
   if (!user?.userId) return { error: json({ error: "Inicia sesión." }, 401) };
   const owner = config.CLINIC_OWNER_ID?.trim();
-  if (!owner || user.userId !== owner) return { error: json({ error: "Solo el titular de la aplicación ve la mejora continua." }, 403) };
+  if (!owner || personalIdOf(user) !== owner || user.userId !== owner) return { error: json({ error: "Solo el titular de la aplicación ve la mejora continua." }, 403) };
   return { user };
 }
 

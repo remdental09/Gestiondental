@@ -1,4 +1,4 @@
-import { getChatGPTUser } from "@/app/chatgpt-auth";
+import { SPACE_ADMIN_ONLY, getChatGPTUser, managesSpace } from "@/app/chatgpt-auth";
 import { digestWhatsAppText, getDigest, saveDigest, sendDigest, sendDigestTest } from "@/app/agenda-digest";
 import { getSender } from "@/app/appointment-mail-db";
 import { isValidEmail } from "@/lib/appointment-mail";
@@ -27,6 +27,7 @@ export async function PUT(request: Request) {
   const user = await getChatGPTUser();
   if (!user?.userId) return json({ error: "Inicia sesión." }, 401);
   if (!sameOrigin(request)) return json({ error: "Origen no permitido." }, 403);
+  if (!managesSpace(user)) return json({ error: SPACE_ADMIN_ONLY }, 403);
   const body = await request.json().catch(() => null) as { enabled?: unknown; toEmail?: unknown; sendHour?: unknown; abbreviate?: unknown } | null;
   if (!body) return json({ error: "Solicitud inválida." }, 400);
   const settings: { enabled?: boolean; toEmail?: string; sendHour?: number; abbreviate?: boolean } = {};
@@ -61,6 +62,7 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => ({})) as { accion?: unknown; toEmail?: unknown };
   const to = typeof body.toEmail === "string" ? body.toEmail.trim() : "";
   if (body.accion === "enviar" && to && !isValidEmail(to)) return json({ error: "Escribe un correo válido." }, 400);
+  if (!managesSpace(user)) return json({ error: SPACE_ADMIN_ONLY }, 403);
   try {
     const detail = body.accion === "enviar" ? await sendDigest(user.userId, to ? { to } : {}) : await sendDigestTest(user.userId);
     return json({ ok: true, detail, digest: await view(user.userId) });

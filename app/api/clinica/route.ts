@@ -1,4 +1,5 @@
-import { getChatGPTUser } from "@/app/chatgpt-auth";
+import { getChatGPTUser, spaceRoleOf } from "@/app/chatgpt-auth";
+import { canEditClinic } from "@/lib/clinic-team";
 import { loadClinic, saveClinic } from "@/app/clinic-profile-db";
 import { checkClinic } from "@/lib/clinic-profile";
 
@@ -20,6 +21,7 @@ export async function POST(request: Request) {
   if (!user) return error("Inicia sesión.", 401);
   const origin = request.headers.get("origin");
   if (origin && origin !== new URL(request.url).origin) return error("Origen no permitido.", 403);
+  if (!canEditClinic(spaceRoleOf(user))) return error("Solo un administrador de la clínica puede cambiar su perfil.", 403);
   let body: unknown;
   try { body = await request.json(); } catch { return error("Solicitud no válida."); }
   const checked = checkClinic(body);

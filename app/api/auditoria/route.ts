@@ -2,7 +2,7 @@
 // Se calcula al leer, así que siempre refleja el estado actual de la ficha; solo se guarda la decisión del profesional
 // sobre cada observación («Real» / «Falsa alarma»), que sirve para medir cuánto acierta el auditor.
 import { env } from "cloudflare:workers";
-import { getChatGPTUser } from "@/app/chatgpt-auth";
+import { getChatGPTUser, personalIdOf } from "@/app/chatgpt-auth";
 import { auditRecord, type AuditFinding } from "@/lib/audit/record-audit";
 import { decodeBudgetData } from "@/lib/budget-plans";
 import type { OdontogramData } from "@/app/clinical-data";
@@ -102,7 +102,7 @@ export async function POST(request: Request) {
   // «probar» (solo el titular): corre el banco de evoluciones con la IA real y dice si el lector acierta.
   if (body.accion === "probar") {
     const owner = config.CLINIC_OWNER_ID?.trim();
-    if (!owner || user.userId !== owner) return json({ error: "Solo el titular de la aplicación prueba la revisión." }, 403);
+    if (!owner || personalIdOf(user) !== owner || user.userId !== owner) return json({ error: "Solo el titular de la aplicación prueba la revisión." }, 403);
     const key = config.OPENAI_API_KEY?.trim();
     if (!key) return json({ error: "La app no tiene la IA configurada (falta OPENAI_API_KEY)." }, 503);
     const from = Number(body.desde ?? 0);
