@@ -255,6 +255,11 @@ export default function Home(){
   },[]);
   const [noteTitle,setNoteTitle]=useState(""),[noteBody,setNoteBody]=useState("");
   const [dictationRequest,setDictationRequest]=useState<{nonce:number;text:string;patientId:number;ignoreCommand?:boolean;incorporate?:boolean}|null>(null);
+  const editEvolution=useCallback(async(note:Note,title:string,body:string)=>{
+    await persist({action:"updateEvolution",patientId:note.patientId,evolutionId:note.id,title,body});
+    setNotes(previous=>previous.map(n=>n.id===note.id?{...n,title,body}:n));
+    setChartMessage("Evolución corregida. El odontograma no cambia solo: revísalo si corregiste piezas.");
+  },[persist]);
   const [showAnnulled,setShowAnnulled]=useState(false),[annulTarget,setAnnulTarget]=useState<Note|null>(null);
   /** Elimina definitivamente o anula (y opcionalmente reemplaza) una evolución tras la confirmación explícita del dentista. */
   const annulEvolution=useCallback(async(patientId:number,evolutionId:number,mode:RemovalMode,reason:string,replacement:AnnulReplacement|null)=>{
@@ -823,6 +828,7 @@ export default function Home(){
       setChartMessage(error instanceof Error ? error.message : "No se pudo actualizar el odontograma.");
     }
   }}
+  onEdit={editEvolution}
   onAnnul={note => setAnnulTarget(note)}
 /></div></TabsContent>
             <TabsContent value="odontograma"><OdontogramDateBar dates={chartDates(toothStatuses[selectedId]??emptyOdontogram())} value={chartDate} onChange={setChartDate}/><Suspense fallback={<div className="min-h-[320px] rounded-xl bg-white p-5 text-sm text-[#6b6a7c]" role="status">Cargando odontograma…</div>}><Odontogram key={`${selectedId}-${chartDate??"hoy"}`} endo={endoMarks} onOpenEndo={tooth=>{setEndoFocus(tooth);setActiveTab("endodoncia")}} onSetPriorEndo={endoData?setPriorEndo:undefined} priorEndo={Object.fromEntries((endoData?.cases??[]).filter(c=>c.prior).map(c=>[c.tooth,c.priorYear??""]))} treatments={toothTreatmentMap} planned={plannedTeeth} onSetPlannedDone={setBudgetItemDone} onOpenPlan={()=>setActiveTab("presupuestos")} onDeleteEvent={deleteToothEvent} onEditEvent={editToothEvent} data={chartDate?chartAt(toothStatuses[selectedId]??emptyOdontogram(),chartDate):toothStatuses[selectedId]??emptyOdontogram()} evolutionEvents={toothEvolutionHistory} onSetStatus={chartDate?readOnlyChart:updateTooth} onRemoveLesion={chartDate?readOnlyChart:removeToothLesion} onSetMissingReason={chartDate?readOnlyChart:updateMissingReason} onSetSurface={chartDate?readOnlyChart:updateSurface} onSetCrownDetails={chartDate?readOnlyChart:updateCrownDetails}/></Suspense></TabsContent>
