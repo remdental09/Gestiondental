@@ -205,39 +205,39 @@ function AnamnesisDialog({ patientId, patientName, initial, onClose, onSaved }: 
 
   return <Dialog open onOpenChange={v => { if (!v) { engine.current.abort(); onClose(); } }}>
     <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-3xl" data-testid="anamnesis-dialog">
-      <DialogHeader><DialogTitle className="flex items-center gap-2 text-[#b81f2f]"><HeartPulse className="size-5" />Anamnesis médico-odontológica</DialogTitle>
+      <DialogHeader className="text-left"><DialogTitle className="flex items-center gap-2 text-left text-[#b81f2f]"><HeartPulse className="size-5" />Anamnesis médico-odontológica</DialogTitle>
         <DialogDescription>Paciente: <strong>{patientName}</strong>{form.updatedAt ? ` · última actualización ${new Date(form.updatedAt).toLocaleDateString("es-CL")}` : " · aún sin registrar"}</DialogDescription></DialogHeader>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#f0b7bd] bg-[#fff5f6] p-3">
-        <p className="min-w-0 flex-1 text-xs text-[#615f73]"><span className="block text-sm font-semibold text-[#b81f2f]">Armar desde las evoluciones</span>Lee las evoluciones de este paciente y propone solo los antecedentes que están escritos. No guarda: tú revisas.</p>
-        <Button type="button" variant="outline" onClick={() => void buildFromNotes()} disabled={fromNotes || organizing || saving} data-testid="anamnesis-from-notes">
+      <div className="flex flex-col gap-3 rounded-xl border border-[#f0b7bd] bg-[#fff5f6] p-4 sm:flex-row sm:items-center sm:justify-between sm:p-3" data-testid="anamnesis-from-notes-card">
+        <p className="min-w-0 flex-1 text-sm leading-snug text-[#615f73] sm:text-xs"><span className="mb-1 block text-base font-semibold text-[#b81f2f] sm:mb-0 sm:text-sm">Armar desde las evoluciones</span>Lee las evoluciones de este paciente y propone solo los antecedentes que están escritos. No guarda: tú revisas.</p>
+        <Button type="button" variant="outline" className="h-11 w-full sm:h-9 sm:w-auto" onClick={() => void buildFromNotes()} disabled={fromNotes || organizing || saving} data-testid="anamnesis-from-notes">
           {fromNotes ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Sparkles className="mr-2 size-4" />}{fromNotes ? "Leyendo evoluciones…" : "Armar desde evoluciones"}
         </Button>
       </div>
 
-      <div className="space-y-2 rounded-xl border border-[#f0b7bd] bg-[#fff5f6] p-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-sm font-semibold text-[#b81f2f]">{mode === "interview" ? "Escuchar entrevista" : "Dictar anamnesis"}</p>
-          <div role="radiogroup" aria-label="Modo de grabación" className="inline-flex rounded-lg border border-[#f0b7bd] bg-white p-0.5 text-xs font-semibold">
+      <div className="space-y-3 rounded-xl border border-[#f0b7bd] bg-[#fff5f6] p-4 sm:space-y-2 sm:p-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+          <p className="text-base font-semibold text-[#b81f2f] sm:text-sm">{mode === "interview" ? "Escuchar entrevista" : "Dictar anamnesis"}</p>
+          <div role="radiogroup" aria-label="Modo de grabación" className="grid grid-cols-2 rounded-lg border border-[#f0b7bd] bg-white p-0.5 text-sm font-semibold sm:inline-flex sm:text-xs">
             {([["dictate", "Dictar"], ["interview", "Escuchar entrevista"]] as const).map(([m, label]) => <button key={m} type="button" role="radio" aria-checked={mode === m} data-testid={`anamnesis-mode-${m}`}
               disabled={status === "recording" || busy} onClick={() => { setMode(m); setError(""); }}
-              className={`rounded-md px-3 py-1.5 ${mode === m ? "bg-[#d62839] text-white" : "text-[#8f1a27]"}`}>{label}</button>)}
+              className={`min-h-10 rounded-md px-3 py-1.5 text-center ${mode === m ? "bg-[#d62839] text-white" : "text-[#8f1a27]"}`}>{label}</button>)}
           </div>
         </div>
-        <p className="text-xs text-[#615f73]">{mode === "interview"
+        <p className="text-sm leading-snug text-[#615f73] sm:text-xs">{mode === "interview"
           ? "Deja el teléfono entre tú y el paciente y conversa normalmente (máximo 4 minutos). La IA distingue tu voz de la del paciente, toma solo lo que el paciente dice o confirma y llena el formulario. Nada se guarda hasta que revises y pulses Guardar."
           : "Pulsa el micrófono y cuenta alergias, enfermedades, medicamentos, cirugías, hábitos y antecedentes dentales (máximo 4 minutos). Luego «Ordenar en el formulario»."}</p>
         {mode === "interview" && <label className="flex items-start gap-2 rounded-lg border border-[#dddbe6] bg-white px-3 py-2 text-sm">
           <input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} disabled={status === "recording"} className="mt-0.5 size-4 accent-[#d62839]" data-testid="anamnesis-consent" />
           <span>El paciente autorizó la grabación de la entrevista (el audio no se guarda)</span></label>}
-        <div className="flex flex-wrap items-center gap-2">
-          <Button type="button" onClick={record} disabled={busy || organizing || (mode === "interview" && !consent && status !== "recording")} data-testid="anamnesis-dictate" className={status === "recording" ? "bg-[#d62839] text-white hover:bg-[#b81f2f]" : ""} variant={status === "recording" ? "default" : "outline"}>
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+          <Button type="button" onClick={record} disabled={busy || organizing || (mode === "interview" && !consent && status !== "recording")} data-testid="anamnesis-dictate" className={`h-12 w-full text-base sm:h-9 sm:w-auto sm:text-sm ${status === "recording" ? "bg-[#d62839] text-white hover:bg-[#b81f2f]" : ""}`} variant={status === "recording" ? "default" : "outline"}>
             {status === "recording" ? <><Square className="mr-2 size-4" />Detener</> : busy ? <><Loader2 className="mr-2 size-4 animate-spin" />{status === "transcribing" ? "Transcribiendo…" : "Preparando…"}</>
               : mode === "interview" ? <><Users className="mr-2 size-4" />Escuchar entrevista</> : <><Mic className="mr-2 size-4" />Dictar</>}
           </Button>
-          {status === "recording" && <span role="timer" aria-live="off" data-testid="anamnesis-timer" className={`rounded-md px-2 py-1 font-mono text-sm tabular-nums ${MAX_DICTATION_MS - elapsed <= 30_000 ? "bg-[#fde8b0] text-[#7a5200]" : "bg-white text-[#3b3355]"}`}>
+          {status === "recording" && <span role="timer" aria-live="off" data-testid="anamnesis-timer" className={`self-center rounded-md px-2 py-1 font-mono text-sm tabular-nums ${MAX_DICTATION_MS - elapsed <= 30_000 ? "bg-[#fde8b0] text-[#7a5200]" : "bg-white text-[#3b3355]"}`}>
             <span className="mr-1 inline-block size-2 animate-pulse rounded-full bg-[#d62839]" />{clock(elapsed)} / {clock(MAX_DICTATION_MS)}</span>}
-          <Button type="button" variant="outline" onClick={() => void organize()} disabled={organizing || busy || status === "recording" || transcript.trim().length < 3} data-testid="anamnesis-organize">
+          <Button type="button" variant="outline" className="h-12 w-full text-base sm:h-9 sm:w-auto sm:text-sm" onClick={() => void organize()} disabled={organizing || busy || status === "recording" || transcript.trim().length < 3} data-testid="anamnesis-organize">
             {organizing ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Sparkles className="mr-2 size-4" />}{organizing ? (mode === "interview" ? "Analizando entrevista…" : "Ordenando…") : "Ordenar en el formulario"}
           </Button>
         </div>
@@ -284,8 +284,8 @@ function AnamnesisDialog({ patientId, patientName, initial, onClose, onSaved }: 
 
       {error && <p role="alert" className="rounded-lg border border-[#e4a0a7] bg-[#fff5f5] p-2 text-sm text-[#922f3a]">{error}</p>}
       {notice && <p role="status" className="rounded-lg border border-[#b7dfc4] bg-[#f1fbf4] p-2 text-sm text-[#1d6b3a]">{notice}</p>}
-      <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => { engine.current.abort(); onClose(); }}>Cerrar</Button>
-        <Button type="button" onClick={save} disabled={saving || status === "recording"} data-testid="anamnesis-save" className="bg-[#d62839] text-white hover:bg-[#b81f2f]">{saving ? "Guardando…" : "Guardar anamnesis"}</Button></div>
+      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><Button type="button" variant="outline" className="h-11 w-full sm:h-9 sm:w-auto" onClick={() => { engine.current.abort(); onClose(); }}>Cerrar</Button>
+        <Button type="button" onClick={save} disabled={saving || status === "recording"} data-testid="anamnesis-save" className="h-12 w-full bg-[#d62839] text-base text-white hover:bg-[#b81f2f] sm:h-9 sm:w-auto sm:text-sm">{saving ? "Guardando…" : "Guardar anamnesis"}</Button></div>
     </DialogContent>
   </Dialog>;
 }
