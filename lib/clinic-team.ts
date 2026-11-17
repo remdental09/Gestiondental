@@ -106,6 +106,14 @@ export function canChangeEvolution(recordedAuthorId: string | null | undefined, 
 }
 
 /**
+ * Un presupuesto lo modifican quien lo armó y el dueño de la clínica (titular o administradores que él nombra).
+ * Otro dentista invitado no lo toca: el ortodoncista invitado establece sus presupuestos, pero no los de otros.
+ */
+export function canChangeBudget(recordedAuthorId: string | null | undefined, spaceId: string, viewerPersonalId: string, viewerRole: SpaceRole): boolean {
+  return evolutionAuthor(recordedAuthorId, spaceId) === viewerPersonalId || canManageTeam(viewerRole);
+}
+
+/**
  * Espacio de datos en que trabaja una persona.
  * `requested`: el último espacio elegido (cookie). Solo se respeta si sigue siendo válido;
  * un miembro revocado vuelve a su espacio personal en la siguiente solicitud.

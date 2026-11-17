@@ -3,8 +3,8 @@ import { ALL_TOOTH_STATUSES, applyStatusToChart, isLesionStatus, pruneChartExtra
 import { isCariesDepth } from "@/lib/caries";
 import { env } from "cloudflare:workers";
 import { getChatGPTUser, personalIdOf, spaceRoleOf, type ChatGPTUser } from "@/app/chatgpt-auth";
-import { authorOf, authorsOf, budgetAuthors, budgetAuthorsOf, ensureTeamTables, evolutionAuthors, type TeamDb } from "@/app/clinic-team-db";
-import { canChangeEvolution, canManageTeam, evolutionAuthor } from "@/lib/clinic-team";
+import { authorOf, authorsOf, budgetAuthorOf, budgetAuthors, budgetAuthorsOf, ensureTeamTables, evolutionAuthors, type TeamDb } from "@/app/clinic-team-db";
+import { canChangeBudget, canChangeEvolution, canManageTeam, evolutionAuthor } from "@/lib/clinic-team";
 import { loadProfile } from "@/app/clinician-profile-db";
 import { touchAppUser } from "@/app/app-users-db";
 import { isDeveloperEmail } from "@/lib/developer-dashboard";
@@ -93,6 +93,25 @@ async function mayChangeEvolution(spaceId: string, evolutionId: number): Promise
   return canChangeEvolution(author, spaceId, personalIdOf(viewer));
 }
 const NOT_AUTHOR = "Solo quien escribió esta evolución puede corregirla, anularla o eliminarla.";
+
+/** Quién armó el presupuesto y si quien mira puede modificarlo (autor, o dueño/administrador de la clínica). */
+async function budgetAccess(spaceId: string, budgetId: number) {
+  const viewer = await getChatGPTUser();
+  const db = teamDb();
+  const recorded = db ? await budgetAuthorOf(db, spaceId, budgetId) : null;
+  const personalId = viewer ? personalIdOf(viewer) : spaceId;
+  return { editable: viewer ? canChangeBudget(recorded, spaceId, personalId, spaceRoleOf(viewer)) : false, mine: evolutionAuthor(recorded, spaceId) === personalId };
+}
+const NOT_BUDGET_OWNER = "Este presupuesto lo armó otro profesional: solo él o el dueño de la clínica pueden modificarlo.";
+
+/** Vista de un presupuesto recién cambiado, con su autor, para que la ficha no pierda «Presupuesto de…». */
+async function budgetViewWithAuthor(b: typeof budgets.$inferSelect, spaceId: string) {
+  const db = teamDb();
+  const rows = db ? await budgetAuthorsOf(db, spaceId).catch(() => new Map()) : new Map();
+  const row = rows.get(b.id);
+  const access = await budgetAccess(spaceId, b.id).catch(() => ({ editable: true, mine: true }));
+  return { ...budgetView(b), authorName: row?.author_name || "", ...access };
+}
 // This snapshot is supplied by a private runtime secret, never committed to Git.
 function calendarSnapshot(email: string, persisted: typeof calendarEvents.$inferSelect[]) {
   if (email.toLowerCase() !== "lpaulr@gmail.com") return { events: [], capturedAt: null };
@@ -285,7 +304,8 @@ export async function GET() {
         const budgetAuthorMap = authorDb ? await budgetAuthorsOf(authorDb, ownerId).catch(() => new Map()) : new Map();
         return bs.map(b => {
           const row = budgetAuthorMap.get(b.id);
-          return { ...budgetView(b), authorName: row?.author_name || "", mine: (row?.author_id || ownerId) === personalId };
+          const author = row?.author_id || ownerId;
+          return { ...budgetView(b), authorName: row?.author_name || "", mine: author === personalId, editable: author === personalId || canManageTeam(spaceRole) };
         });
       })(),
       appointments: as.map(a => ({ id: a.id, patientId: a.patientId, day: a.day.split("-").reverse().join("-"), time: a.time, reason: a.reason })),
@@ -604,7 +624,7 @@ export async function POST(request: Request) {
       const budgetDate = string(input.clinicalDate, 10);
       const createdAt = /^\d{4}-\d{2}-\d{2}$/.test(budgetDate) && !Number.isNaN(Date.parse(budgetDate)) && budgetDate <= t.slice(0, 10) ? `${budgetDate}T12:00:00.000Z` : t;
       const [[b]] = await db.batch([db.insert(budgets).values({ ownerId, patientId, title, items: itemsData, status: "Borrador", createdAt }).returning(), (await budgetAuthorStatement(db, ownerId)).statement]);
-      return Response.json({ budget: budgetView(b) }, { status: 201 });
+      return Response.json({ budget: await budgetViewWithAuthor(b, ownerId) }, { status: 201 });
     }
     if (action === "updateBudget") {
       const budgetId = Number(input.budgetId), title = string(input.title, 180);
@@ -613,6 +633,7 @@ export async function POST(request: Request) {
       if (!Number.isSafeInteger(budgetId) || budgetId < 1 || !title || !items) return error("Revisa el nombre del plan y cada prestación, su fase, valor y descuento.");
       const [existing] = await db.select().from(budgets).where(and(eq(budgets.id, budgetId), eq(budgets.patientId, patientId), eq(budgets.ownerId, ownerId)));
       if (!existing) return error("Presupuesto no encontrado.", 404);
+      if (!(await budgetAccess(ownerId, budgetId)).editable) return error(NOT_BUDGET_OWNER, 403);
       const relationship = decodeBudgetData(existing.items);
       const updatedTotal = budgetTotals(items).total;
       if (updatedTotal < budgetTotals(relationship.items).total) {
@@ -621,7 +642,7 @@ export async function POST(request: Request) {
         if (updatedTotal < paid) return error("El total del plan no puede quedar por debajo de los pagos ya registrados. Revisa los abonos antes de reducirlo.", 409);
       }
       const [b] = await db.update(budgets).set({ title, items: encodeBudgetData(items, relationship) }).where(and(eq(budgets.id, budgetId), eq(budgets.patientId, patientId), eq(budgets.ownerId, ownerId))).returning();
-      return Response.json({ budget: budgetView(b) });
+      return Response.json({ budget: await budgetViewWithAuthor(b, ownerId) });
     }
     if (action === "setBudgetItemDone") {
       const budgetId = Number(input.budgetId), index = Number(input.index);
@@ -640,7 +661,7 @@ export async function POST(request: Request) {
         return done ? { ...rest, doneOn } : rest;
       });
       const [b] = await db.update(budgets).set({ items: encodeBudgetData(items, data) }).where(and(eq(budgets.id, budgetId), eq(budgets.patientId, patientId), eq(budgets.ownerId, ownerId))).returning();
-      return Response.json({ budget: budgetView(b) });
+      return Response.json({ budget: await budgetViewWithAuthor(b, ownerId) });
     }
     if (action === "selectBudgetAlternative") {
       const budgetId = Number(input.budgetId);
@@ -654,6 +675,7 @@ export async function POST(request: Request) {
       if (!currentPrimary) return error("El plan principal asociado ya no existe.", 409);
       const primaryData = decodeBudgetData(currentPrimary.items);
       if (primaryData.isAlternative) return error("El grupo de alternativas requiere revisión antes de cambiar el plan principal.", 409);
+      if (!(await budgetAccess(ownerId, currentPrimary.id)).editable || !(await budgetAccess(ownerId, selected.id)).editable) return error(NOT_BUDGET_OWNER, 403);
       const [linkedPayment] = await db.select({ id: payments.id }).from(payments).where(and(eq(payments.ownerId, ownerId), eq(payments.patientId, patientId), eq(payments.budgetId, currentPrimary.id))).limit(1);
       if (linkedPayment) return error("Este plan principal tiene abonos asociados. No se cambió el plan para conservar el historial de pagos.", 409);
 
@@ -671,7 +693,7 @@ export async function POST(request: Request) {
       ];
       await db.batch(updates as [typeof updates[number], ...Array<typeof updates[number]>]);
       const refreshed = await db.select().from(budgets).where(and(eq(budgets.ownerId, ownerId), eq(budgets.patientId, patientId))).orderBy(desc(budgets.id));
-      return Response.json({ budgets: refreshed.map(budgetView) });
+      return Response.json({ budgets: await Promise.all(refreshed.map(row => budgetViewWithAuthor(row, ownerId))) });
     }
     if (action === "addAppointment") {
       const day = string(input.day, 10), time = string(input.time, 5), reason = string(input.reason, 500);

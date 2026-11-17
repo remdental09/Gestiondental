@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
-  canChangeEvolution, canEditClinic, canManageTeam, checkInvite, checkRoleChange, chooseSpace, evolutionAuthor, inviteExpiry,
+  canChangeBudget, canChangeEvolution, canEditClinic, canManageTeam, checkInvite, checkRoleChange, chooseSpace, evolutionAuthor, inviteExpiry,
   inviteMessage, isExpired, visibleStatus, MAX_MEMBERS,
 } from "../lib/clinic-team.ts";
 
@@ -191,4 +191,21 @@ test("presupuesto: queda a nombre de quien lo armó (p. ej. el ortodoncista invi
   assert.ok(mail.includes("No pude confirmar qué profesional armó este presupuesto"), "si la lectura falla, no firma con otro profesional");
   for (const path of ["../app/api/presupuesto/pdf/route.ts", "../app/api/presupuesto/enviar/route.ts"]) assert.ok(!read(path).includes("personalIdOf"), `${path}: no usa a quien descarga o envía`);
   assert.ok(read("../components/budget-plan.tsx").includes("Presupuesto de ${budget.authorName}"));
+});
+
+test("presupuesto: lo modifican quien lo armó y el dueño de la clínica (o sus administradores), no otro dentista invitado", () => {
+  const ORTODONCISTA = "email:ortodoncista-0004";
+  assert.equal(canChangeBudget(ORTODONCISTA, TITULAR, ORTODONCISTA, "dentista"), true, "el ortodoncista modifica el suyo");
+  assert.equal(canChangeBudget(ORTODONCISTA, TITULAR, TITULAR, "titular"), true, "el dueño modifica el del ortodoncista");
+  assert.equal(canChangeBudget(ORTODONCISTA, TITULAR, COLEGA, "admin"), true, "un administrador nombrado por el dueño también");
+  assert.equal(canChangeBudget(ORTODONCISTA, TITULAR, COLEGA, "dentista"), false, "otro invitado no");
+  assert.equal(canChangeBudget(null, TITULAR, ORTODONCISTA, "dentista"), false, "los antiguos son del dueño");
+  assert.equal(canChangeBudget(null, TITULAR, TITULAR, "titular"), true);
+  for (const action of ["updateBudget", "selectBudgetAlternative"]) {
+    const start = route.indexOf(`action === "${action}"`);
+    const block = route.slice(start, route.indexOf("if (action ===", start + 20));
+    assert.ok(block.includes(".editable) return error(NOT_BUDGET_OWNER, 403)"), action);
+  }
+  const plan = readFileSync(new URL("../components/budget-plan.tsx", import.meta.url), "utf8");
+  assert.ok(plan.includes("onEdit && budget.editable !== false") && plan.includes("onSelectPrimary && budget.editable !== false"));
 });

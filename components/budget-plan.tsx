@@ -22,6 +22,8 @@ export type BudgetPlan = {
   /** Quién lo armó; en una clínica puede ser el colega (p. ej. el ortodoncista). `mine: false` = lo armó otro profesional. */
   authorName?: string;
   mine?: boolean;
+  /** `false`: lo armó otro dentista invitado; solo su autor o el dueño de la clínica lo modifican. */
+  editable?: boolean;
 };
 
 export type BudgetPaymentEntry = {
@@ -193,8 +195,8 @@ export function BudgetCard({
         <span className="font-semibold text-[#473a6d]">{money(totals.total)}</span>
         {onPrint && <Button type="button" variant="outline" size="sm" onClick={onPrint}>Vista previa / PDF</Button>}
         {onCreateAlternative && <Button type="button" variant="outline" size="sm" onClick={onCreateAlternative}>Crear alternativa</Button>}
-        {onSelectPrimary && <Button type="button" variant="outline" size="sm" onClick={onSelectPrimary}>Establecer como principal</Button>}
-        {onEdit && <Button type="button" variant="outline" size="sm" onClick={onEdit}>Editar</Button>}
+        {onSelectPrimary && budget.editable !== false && <Button type="button" variant="outline" size="sm" onClick={onSelectPrimary}>Establecer como principal</Button>}
+        {onEdit && budget.editable !== false && <Button type="button" variant="outline" size="sm" onClick={onEdit}>Editar</Button>}
       </div>
     </div>
     {!budget.isAlternative && <div className="mt-4 border-t border-[#efeef4] pt-3" data-testid={"budget-progress-" + budget.id}>
