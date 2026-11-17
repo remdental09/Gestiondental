@@ -1,12 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Building2, Check, Copy, Mail, MessageCircle, RefreshCw, UserPlus, Users, X } from "lucide-react";
+import { Building2, Check, Copy, LogOut, Mail, MessageCircle, RefreshCw, Stethoscope, UserPlus, Users, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 type Role = "admin" | "dentista";
 type Member = { email: string; name: string; role: Role; roleLabel: string; status: "invitada" | "activa" | "revocada" | "rechazada" | "vencida"; invitedAt: string; acceptedAt: string | null; expiresAt: string; isMe: boolean };
 type TeamState = {
+  /** Puerta por la que se entró desde la portada. */
+  entry: "personal" | "clinica";
+  hasClinics: boolean;
   space: { name: string; role: "titular" | Role; roleLabel: string; inClinic: boolean; manage: boolean };
   spaces: Array<{ id: string; name: string; current: boolean }>;
   invitations: Array<{ clinicId: string; clinicName: string; invitedBy: string; role: Role; roleLabel: string; expiresAt: string }>;
@@ -56,35 +59,80 @@ function useTeam() {
 }
 
 /**
- * Franja superior: invitaciones recibidas (aceptar o rechazar) y, si la persona trabaja en más de un espacio,
- * el selector «Trabajando en». No aparece si no hay nada que mostrar.
+ * Franja superior según la puerta de entrada:
+ * - «Entrar a una clínica»: barra coral fija con el nombre de la clínica y el rol (para no confundir dónde se escribe),
+ *   selector entre clínicas si hay varias y enlace a la consulta personal. Sin clínica activa, una pantalla que tapa
+ *   la app y solo ofrece aceptar invitaciones o ir a la consulta personal.
+ * - «Entrar a mi consulta»: invitaciones recibidas y, si ya pertenece a alguna clínica, el acceso a esa otra puerta.
  */
+function InvitationCards({ state, busy, act }: { state: TeamState; busy: boolean; act: (body: Record<string, unknown>) => Promise<boolean> }) {
+  return <>{state.invitations.map(inv => (
+    <section key={inv.clinicId} className="flex flex-wrap items-center gap-3 rounded-xl border border-[#c9c2e3] bg-[#efedf7] p-4" aria-label="Invitación a una clínica" data-testid="clinic-invitation">
+      <Building2 className="size-5 shrink-0 text-[#473a6d]" aria-hidden="true"/>
+      <p className="min-w-0 flex-1 text-sm text-[#2b2540]"><strong>{inv.invitedBy}</strong> te invitó a atender pacientes de <strong>{inv.clinicName}</strong> como {inv.roleLabel.toLowerCase()}. Vence el {day(inv.expiresAt)}.</p>
+      <div className="flex gap-2">
+        <Button type="button" size="sm" disabled={busy} className="bg-[#473a6d] text-white hover:bg-[#3a2f5a]" onClick={() => act({ action: "aceptar", clinicId: inv.clinicId })} data-testid="accept-invitation"><Check className="mr-1.5 size-4"/>Aceptar</Button>
+        <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => act({ action: "rechazar", clinicId: inv.clinicId })}>Rechazar</Button>
+      </div>
+    </section>
+  ))}</>;
+}
+
 export function ClinicSpaceBar() {
   const { state, error, busy, act } = useTeam();
   if (!state) return null;
-  const several = state.spaces.length > 1;
-  if (!state.invitations.length && !several) return null;
+  const errorLine = error && <p role="alert" className="text-sm text-rose-800">{error}</p>;
+
+  if (state.entry === "clinica" && !state.space.inClinic) {
+    return (
+      <div role="dialog" aria-modal="true" aria-labelledby="puerta-clinica" className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-[#2b1d14]/75 p-4 sm:items-center" data-testid="clinic-entry-gate">
+        <div className="my-6 w-full max-w-lg space-y-4 rounded-xl border-t-4 border-[#e07a50] bg-white p-6 shadow-xl">
+          <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-[#c95f35]"><Building2 className="size-4"/>Entrada de clínica</p>
+          <h2 id="puerta-clinica" className="text-2xl font-semibold text-[#35343f]">{state.invitations.length ? "Acepta la invitación para entrar" : "Aún no perteneces a ninguna clínica"}</h2>
+          {state.invitations.length
+            ? <InvitationCards state={state} busy={busy} act={act}/>
+            : <p className="text-sm text-[#615f73]">Pide al administrador de la clínica que te invite con este mismo Gmail. Cuando llegue la invitación, vuelve a entrar por «Entrar a una clínica».</p>}
+          {errorLine}
+          <div className="flex flex-wrap gap-2 pt-1">
+            <a href="/auth/entrada?tipo=personal" className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-[#dddbe6] px-4 text-sm font-semibold text-[#473a6d] hover:bg-[#efedf7]"><Stethoscope className="size-4"/>Ir a mi consulta</a>
+            <a href="/auth/salir" className="inline-flex min-h-10 items-center gap-2 rounded-lg px-4 text-sm font-medium text-[#57566a] hover:text-[#473a6d]"><LogOut className="size-4"/>Salir</a>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (state.entry === "clinica") {
+    const several = state.spaces.length > 1;
+    return (
+      <div className="mb-5 space-y-3" data-testid="clinic-space-bar">
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-[#f0b49a] bg-gradient-to-r from-[#fde7dc] to-[#fbeee8] px-4 py-3" data-testid="clinic-entry-badge">
+          <Building2 className="size-5 shrink-0 text-[#c95f35]" aria-hidden="true"/>
+          <p className="min-w-0 flex-1 text-sm text-[#5a2a16]">Estás en <strong>{state.space.name}</strong> como {state.space.roleLabel.toLowerCase()}. Lo que escribas queda en las fichas de esta clínica, firmado por ti.</p>
+          {several && (
+            <select className="min-h-10 rounded-lg border border-[#f0b49a] bg-white px-3 text-base font-semibold text-[#c95f35] sm:text-sm" disabled={busy} value={state.spaces.find(s => s.current)?.id ?? ""} onChange={e => act({ action: "espacio", spaceId: e.target.value })} aria-label="Cambiar de clínica" data-testid="space-switcher">
+              {state.spaces.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          )}
+          <a href="/auth/entrada?tipo=personal" className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-[#f0b49a] bg-white px-3 text-sm font-semibold text-[#473a6d] hover:bg-[#efedf7]" data-testid="go-personal"><Stethoscope className="size-4"/>Ir a mi consulta</a>
+        </div>
+        <InvitationCards state={state} busy={busy} act={act}/>
+        {errorLine}
+      </div>
+    );
+  }
+
+  if (!state.invitations.length && !state.hasClinics) return null;
   return (
     <div className="mb-5 space-y-3" data-testid="clinic-space-bar">
-      {state.invitations.map(inv => (
-        <section key={inv.clinicId} className="flex flex-wrap items-center gap-3 rounded-xl border border-[#c9c2e3] bg-[#efedf7] p-4" aria-label="Invitación a una clínica" data-testid="clinic-invitation">
-          <Building2 className="size-5 shrink-0 text-[#473a6d]" aria-hidden="true"/>
-          <p className="min-w-0 flex-1 text-sm text-[#2b2540]"><strong>{inv.invitedBy}</strong> te invitó a atender pacientes de <strong>{inv.clinicName}</strong> como {inv.roleLabel.toLowerCase()}. Vence el {day(inv.expiresAt)}.</p>
-          <div className="flex gap-2">
-            <Button type="button" size="sm" disabled={busy} className="bg-[#473a6d] text-white hover:bg-[#3a2f5a]" onClick={() => act({ action: "aceptar", clinicId: inv.clinicId })} data-testid="accept-invitation"><Check className="mr-1.5 size-4"/>Aceptar</Button>
-            <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => act({ action: "rechazar", clinicId: inv.clinicId })}>Rechazar</Button>
-          </div>
-        </section>
-      ))}
-      {several && (
-        <label className="flex flex-wrap items-center gap-2 text-sm text-[#57566a]">
-          <span className="font-medium">Trabajando en</span>
-          <select className="min-h-10 rounded-lg border border-[#dddbe6] bg-white px-3 text-base font-semibold text-[#473a6d] sm:text-sm" disabled={busy} value={state.spaces.find(s => s.current)?.id ?? ""} onChange={e => act({ action: "espacio", spaceId: e.target.value })} data-testid="space-switcher">
-            {state.spaces.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
-        </label>
+      <InvitationCards state={state} busy={busy} act={act}/>
+      {state.hasClinics && (
+        <p className="flex flex-wrap items-center gap-2 text-sm text-[#57566a]">
+          <Stethoscope className="size-4 text-[#473a6d]"/>Estás en <strong className="text-[#473a6d]">tu consulta</strong>.
+          <a href="/auth/entrada?tipo=clinica" className="inline-flex items-center gap-1 font-semibold text-[#c95f35] underline-offset-2 hover:underline" data-testid="go-clinic"><Building2 className="size-4"/>Entrar a una clínica</a>
+        </p>
       )}
-      {error && <p role="alert" className="text-sm text-rose-800">{error}</p>}
+      {errorLine}
     </div>
   );
 }

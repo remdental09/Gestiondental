@@ -130,17 +130,23 @@ test('sin sesión, una página muestra la portada y no delega; el botón inicia 
   const instance = worker();
   const page = await instance.fetch(new Request('https://example.test/', { headers: { Accept: 'text/html' } }), googleEnv, {});
   assert.equal(page.status, 200);
-  assert.match(await page.text(), /Entrar con Google/);
+  assert.match(await page.text(), /Entrar a mi consulta[\s\S]*Entrar a una clínica/);
   assert.equal(instance.count(), 0);
   const start = await instance.fetch(new Request('https://example.test/auth/google'), googleEnv, {});
   assert.equal(start.status, 302);
   const location = new URL(start.headers.get('location'));
   assert.equal(location.hostname, 'accounts.google.com');
   assert.match(start.headers.get('set-cookie'), /sd_oauth_state=/);
+  assert.match(start.headers.get('set-cookie'), /gd_entrada=personal/, 'sin elegir puerta, se entra a la consulta personal');
+  const clinicStart = await instance.fetch(new Request('https://example.test/auth/google?entrada=clinica'), googleEnv, {});
+  assert.match(clinicStart.headers.get('set-cookie'), /gd_entrada=clinica/);
   const badState = await instance.fetch(new Request('https://example.test/auth/google/callback?code=x&state=otro', { headers: { Cookie: 'sd_oauth_state=esperado' } }), googleEnv, {});
   assert.equal(badState.headers.get('location'), '/?error=vencido');
   const out = await instance.fetch(new Request('https://example.test/auth/salir'), googleEnv, {});
   assert.match(out.headers.get('set-cookie'), /sd_session=; .*Max-Age=0/);
+  const door = await instance.fetch(new Request('https://example.test/auth/entrada?tipo=clinica'), googleEnv, {});
+  assert.equal(door.headers.get('location'), '/');
+  assert.match(door.headers.get('set-cookie'), /gd_entrada=clinica/);
 });
 
 // ---------- Equipo de la clínica: el espacio de datos sale de la membresía guardada, nunca del navegador ----------
@@ -166,10 +172,19 @@ function fakeDb(rows, { fail = false } = {}) {
 const row = (over = {}) => ({ clinic_id: CLINICA, email, role: 'dentista', status: 'activa', invited_by: CLINICA, invited_at: '2026-11-01T00:00:00Z', expires_at: '2026-11-15T00:00:00Z', accepted_at: '2026-11-02T00:00:00Z', revoked_at: null, member_id: ownerId, name: '', ...over });
 const clinicReq = async (extraCookie = '', extraHeaders = {}) => new Request('https://example.test/api/clinical', { headers: { Cookie: (await sessionCookie(email)) + extraCookie, ...extraHeaders } });
 
-test('equipo: un miembro activo trabaja en el espacio de la clínica, con su id personal y su rol', async () => {
+test('equipo: por «Entrar a una clínica», un miembro activo trabaja en la clínica, con su id personal y su rol', async () => {
   const instance = worker();
-  const response = await instance.fetch(await clinicReq(), { ...googleEnv, DB: fakeDb([row()]) }, {});
+  const response = await instance.fetch(await clinicReq('; gd_entrada=clinica'), { ...googleEnv, DB: fakeDb([row()]) }, {});
   assert.deepEqual(await response.json(), { owner: null, clinic: CLINICA, personal: ownerId, role: 'dentista' });
+});
+
+test('equipo: por «Entrar a mi consulta» (o sin puerta elegida) nunca se abre la clínica, aunque la cookie la pida', async () => {
+  for (const extra of ['; gd_entrada=personal; gd_espacio=' + CLINICA, '; gd_espacio=' + CLINICA, '']) {
+    const response = await worker().fetch(await clinicReq(extra), { ...googleEnv, DB: fakeDb([row()]) }, {});
+    assert.deepEqual(await response.json(), { owner: null, clinic: ownerId, personal: ownerId, role: 'titular' }, extra);
+  }
+  const forced = await worker().fetch(await clinicReq('; gd_entrada=clinica; gd_espacio=' + encodeURIComponent(ownerId)), { ...googleEnv, DB: fakeDb([row()]) }, {});
+  assert.equal((await forced.json()).clinic, CLINICA, 'en la puerta de clínica, la cookie personal no abre la consulta');
 });
 
 test('equipo: puede volver a su espacio personal con la cookie; una invitación pendiente no da acceso', async () => {

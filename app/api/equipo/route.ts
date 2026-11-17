@@ -6,7 +6,7 @@ import {
   acceptInvite, declineInvite, leaveClinic, listMembers, membershipsOf, renewInvite, revokeMember, setMemberRole, upsertInvite, type TeamDb,
 } from "@/app/clinic-team-db";
 import {
-  ROLE_LABEL, canManageTeam, checkInvite, checkRoleChange, inviteEmail, inviteExpiry, inviteMessage, isExpired, normalizeEmail, visibleStatus, type TeamRole,
+  ENTRY_COOKIE, ROLE_LABEL, canManageTeam, checkInvite, clinicDisplayName, parseEntry, type Entry, checkRoleChange, inviteEmail, inviteExpiry, inviteMessage, isExpired, normalizeEmail, visibleStatus, type TeamRole,
 } from "@/lib/clinic-team";
 import { getSender } from "@/app/appointment-mail-db";
 import { sendMailWithSender } from "@/app/drive-oauth";
@@ -21,6 +21,11 @@ const headers = { "Cache-Control": "no-store" };
 const fail = (message: string, status = 400) => Response.json({ error: message }, { status, headers });
 const teamDb = () => (env as unknown as { DB?: TeamDb }).DB;
 const spaceCookie = (value: string) => `${SPACE_COOKIE}=${encodeURIComponent(value)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${365 * 86_400}`;
+const entryCookie = (entry: Entry) => `${ENTRY_COOKIE}=${entry}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${30 * 86_400}`;
+const entryOf = (request: Request): Entry => {
+  const raw = (request.headers.get("Cookie") ?? "").split(";").map(part => part.trim()).find(part => part.startsWith(ENTRY_COOKIE + "="));
+  return parseEntry(raw?.slice(ENTRY_COOKIE.length + 1));
+};
 
 async function nameOf(ownerId: string, fallback: string) {
   const profile = await loadProfile(ownerId).catch(() => null);
@@ -29,10 +34,10 @@ async function nameOf(ownerId: string, fallback: string) {
 
 async function clinicLabel(clinicId: string) {
   const clinic = await loadClinic(clinicId).catch(() => null);
-  return clinic?.clinicName?.trim() || (await nameOf(clinicId, "Clínica")) ;
+  return clinicDisplayName(clinic?.clinicName, clinic?.clinicName?.trim() ? "" : await nameOf(clinicId, ""));
 }
 
-async function state(user: ChatGPTUser, db: TeamDb, origin: string) {
+async function state(user: ChatGPTUser, db: TeamDb, origin: string, entry: Entry) {
   const now = new Date();
   const personalId = personalIdOf(user);
   const role = spaceRoleOf(user);
@@ -44,11 +49,13 @@ async function state(user: ChatGPTUser, db: TeamDb, origin: string) {
   const members = await listMembers(db, user.userId);
   const titularName = await nameOf(user.userId, "Titular");
   return {
+    // Puerta por la que se entró: la consulta personal y las clínicas no comparten selector.
+    entry,
     space: { name: spaceName, role, roleLabel: ROLE_LABEL[role], inClinic: personalId !== user.userId, manage },
-    spaces: [
-      { id: personalId, name: "Mi espacio personal", current: personalId === user.userId },
-      ...await Promise.all(active.map(async m => ({ id: m.clinicId, name: await clinicLabel(m.clinicId), current: m.clinicId === user.userId }))),
-    ],
+    spaces: entry === "clinica"
+      ? await Promise.all(active.map(async m => ({ id: m.clinicId, name: await clinicLabel(m.clinicId), current: m.clinicId === user.userId })))
+      : [{ id: personalId, name: "Mi consulta", current: personalId === user.userId }],
+    hasClinics: active.length > 0,
     invitations: await Promise.all(pending.map(async m => ({ clinicId: m.clinicId, clinicName: await clinicLabel(m.clinicId), invitedBy: await nameOf(m.invitedBy, "Un colega"), role: m.role, roleLabel: ROLE_LABEL[m.role], expiresAt: m.expiresAt }))),
     team: {
       titular: titularName,
@@ -56,7 +63,7 @@ async function state(user: ChatGPTUser, db: TeamDb, origin: string) {
       members: members
         .filter(m => manage || m.status === "activa")
         .map(m => ({ email: m.email, name: m.name, role: m.role, roleLabel: ROLE_LABEL[m.role], status: visibleStatus(m, now), invitedAt: m.invitedAt, acceptedAt: m.acceptedAt, expiresAt: m.expiresAt, isMe: m.email === normalizeEmail(user.email) })),
-      message: manage ? inviteMessage(spaceName === "Clínica" ? "" : spaceName, await nameOf(personalId, user.displayName), origin) : "",
+      message: manage ? inviteMessage(spaceName, await nameOf(personalId, user.displayName), origin) : "",
     },
   };
 }
@@ -86,7 +93,7 @@ export async function GET(request: Request) {
   if (!user) return fail("Inicia sesión.", 401);
   const db = teamDb();
   if (!db) return fail("La base de datos no está disponible.", 503);
-  try { return Response.json(await state(user, db, new URL(request.url).origin), { headers }); }
+  try { return Response.json(await state(user, db, new URL(request.url).origin, entryOf(request)), { headers }); }
   catch { return fail("No se pudo leer el equipo.", 500); }
 }
 
@@ -109,9 +116,11 @@ export async function POST(request: Request) {
   const clinicId = user.userId;
   const manage = canManageTeam(spaceRoleOf(user));
   const action = body.action;
-  const done = async (extra: Record<string, unknown> = {}, cookie?: string) => {
-    const response = Response.json({ ...await state(user, db, origin), ...extra }, { headers });
+  const entry = entryOf(request);
+  const done = async (extra: Record<string, unknown> = {}, cookie?: string, nextEntry?: Entry) => {
+    const response = Response.json({ ...await state(user, db, origin, nextEntry ?? entry), ...extra }, { headers });
     if (cookie) response.headers.append("Set-Cookie", cookie);
+    if (nextEntry) response.headers.append("Set-Cookie", entryCookie(nextEntry));
     return response;
   };
 
@@ -152,17 +161,20 @@ export async function POST(request: Request) {
       if (isExpired(invite, now)) return fail("La invitación venció. Pide que te la reenvíen.", 410);
       const accepted = await acceptInvite(db, target, myEmail, personalId, await nameOf(personalId, user.displayName), stamp);
       if (!accepted) return fail("No se pudo aceptar la invitación. Pide que te la reenvíen.", 409);
-      // Se entra directo a la clínica; la página se recarga para leer sus fichas.
-      return done({ reload: true }, spaceCookie(target));
+      // Se entra directo a la clínica por su puerta; la página se recarga para leer sus fichas.
+      return done({ reload: true }, spaceCookie(target), "clinica");
     }
     if (action === "salir") {
       if (personalId === clinicId) return fail("Estás en tu espacio personal.");
       await leaveClinic(db, clinicId, myEmail, stamp);
-      return done({ reload: true }, spaceCookie(personalId));
+      return done({ reload: true }, spaceCookie(personalId), "personal");
     }
     if (action === "espacio") {
       const target = typeof body.spaceId === "string" ? body.spaceId : "";
-      const allowed = target === personalId || (await membershipsOf(db, myEmail)).some(m => m.clinicId === target && m.status === "activa");
+      // Dentro de cada puerta: la de clínica solo cambia entre clínicas; la personal, solo a la propia consulta.
+      const allowed = entry === "clinica"
+        ? target !== personalId && (await membershipsOf(db, myEmail)).some(m => m.clinicId === target && m.status === "activa")
+        : target === personalId;
       if (!allowed) return fail("No perteneces a ese espacio.", 403);
       return done({ reload: true }, spaceCookie(target));
     }

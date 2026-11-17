@@ -5,6 +5,7 @@ const escape = (value: string) => value.replace(/[&<>"']/g, (char) => `&#${char.
 
 export const PORTADA_CSP = "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 
+const BUILDING = `<svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="#fb923c" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M5 21V7l7-4 7 4v14M9 21v-5h6v5M10 9h4M12 7v4"/></svg>`;
 const GOOGLE_G = `<svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>`;
 
 const MARK = `<svg width="34" height="34" viewBox="0 0 40 40" aria-hidden="true"><path d="M13 8c-4 0-7 3.2-7 8 0 4.6 1.6 7.4 2.6 11.6.8 3.4 1.4 6.4 3.4 6.4 2.4 0 2.2-4.2 3.6-7.2.8-1.6 1.6-2.4 2.4-2.4s1.6.8 2.4 2.4c1.4 3 1.2 7.2 3.6 7.2 2 0 2.6-3 3.4-6.4C32.4 23.4 34 20.6 34 16c0-4.8-3-8-7-8-3 0-4.4 1.6-7 1.6S16 8 13 8z" fill="none" stroke="#5eead4" stroke-width="2.2" stroke-linejoin="round"/><path d="M2 20h5l2-5 3 10 3-7 2 2h2M38 20h-3" fill="none" stroke="#38bdf8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" opacity=".9"/></svg>`;
@@ -42,6 +43,12 @@ h1 em{font-style:normal;background:linear-gradient(90deg,#5eead4,#38bdf8);-webki
 .google{display:inline-flex;align-items:center;justify-content:center;gap:12px;min-height:52px;padding:0 26px;border-radius:12px;
  background:#fff;color:#1f2937;font-weight:600;font-size:16px;text-decoration:none;box-shadow:0 10px 30px rgba(56,189,248,.18),0 0 0 1px rgba(255,255,255,.1)}
 .google:hover{background:#f1f5f9}
+.doors{display:grid;gap:12px;max-width:400px}
+.clinic{display:inline-flex;align-items:center;justify-content:center;gap:12px;min-height:52px;padding:0 26px;border-radius:12px;
+ background:rgba(255,255,255,.06);color:#fff;font-weight:600;font-size:16px;text-decoration:none;border:1px solid rgba(251,146,60,.65)}
+.clinic:hover{background:rgba(251,146,60,.14)}
+.clinic:focus-visible{outline:3px solid #fb923c;outline-offset:3px}
+.door-note{margin:2px 0 0;font-size:13px;color:#8b9bb8}
 .google:focus-visible{outline:3px solid #5eead4;outline-offset:3px}
 .note{margin:16px 0 0;font-size:13px;color:#8b9bb8;max-width:400px}
 .error{margin:0 0 18px;padding:10px 14px;border-radius:10px;border:1px solid rgba(251,146,60,.5);background:rgba(124,45,18,.35);color:#fed7aa;font-size:14px}
@@ -56,7 +63,7 @@ footer a{color:#94a3b8}
  .hero::before{background:linear-gradient(180deg,rgba(6,10,23,.1) 0%,rgba(6,10,23,.15) 42%,rgba(6,10,23,.9) 60%,#060a17 74%)}
  .panel{margin:0;padding:0 22px 76px}
  h1{margin-top:22px}.lead{font-size:16px;margin-bottom:22px}
- .google{width:100%}
+ .google,.clinic{width:100%}
  ul{display:none}
  footer{left:22px;right:auto}.city{display:none}
 }
@@ -69,7 +76,11 @@ footer a{color:#94a3b8}
 <h1 id="titulo">Dicta la atención. <em>La ficha se escribe sola.</em></h1>
 <p class="lead">Evolución, odontograma y presupuesto a partir de tu voz. Hecho para dentistas en Chile.</p>
 ${error ? `<p class="error" role="alert">${escape(error)}</p>` : ""}
-<a class="google" href="${LOGIN_PATH}">${GOOGLE_G}Entrar con Google</a>
+<div class="doors">
+<a class="google" href="${LOGIN_PATH}?entrada=personal" data-entrada="personal">${GOOGLE_G}Entrar a mi consulta</a>
+<a class="clinic" href="${LOGIN_PATH}?entrada=clinica" data-entrada="clinica">${BUILDING}Entrar a una clínica</a>
+<p class="door-note">¿Una clínica te invitó a atender a sus pacientes? Entra por «Entrar a una clínica» con tu mismo Gmail. Tu consulta personal queda aparte.</p>
+</div>
 <p class="note">Entras con tu cuenta de Google (Gmail). Cada dentista ve solo sus propias fichas.</p>
 <ul><li>Dictado clínico que propone y tú confirmas</li><li>Odontograma con nomenclatura FDI y chilena</li><li>Respaldo en tu propio Google Drive</li></ul>
 </section>

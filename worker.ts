@@ -9,7 +9,7 @@ import {
 } from "./lib/google-login";
 import { resolveOwner, resolveOwnerWithRegistration, type OwnerConfig, type ClinicOwner } from "./app/access-owners";
 import { activeMemberships, type TeamDb } from "./app/clinic-team-db";
-import { chooseSpace, type Space } from "./lib/clinic-team";
+import { ENTRY_COOKIE, chooseSpaceForEntry, parseEntry, type Space } from "./lib/clinic-team";
 
 type AccessIdentity = { email?: string | null };
 type AccessContext = {
@@ -195,12 +195,22 @@ function redirect(location: string, cookies: string[] = []) {
   return new Response(null, { status: 302, headers });
 }
 
+/** Puerta elegida en la portada («mi consulta» o «una clínica»); dura lo que la sesión. */
+const entryCookie = (entry: "personal" | "clinica") => cookie(ENTRY_COOKIE, entry, SESSION_DAYS * 86_400);
+
 function startGoogleLogin(request: Request, env: OAuthEnv): Response {
   const config = googleLoginConfig(env);
   if (!config.configured) return redirect("/?error=configuracion");
   const state = randomToken();
   const redirectUri = new URL(CALLBACK_PATH, request.url).toString();
-  return redirect(googleAuthUrl(config.clientId, redirectUri, state), [cookie(STATE_COOKIE, state, 600)]);
+  const entry = parseEntry(new URL(request.url).searchParams.get("entrada"));
+  return redirect(googleAuthUrl(config.clientId, redirectUri, state), [cookie(STATE_COOKIE, state, 600), entryCookie(entry)]);
+}
+
+/** Cambiar de puerta sin volver a pasar por Google: la sesión es la misma persona; el acceso a cada clínica se valida en cada solicitud. */
+function switchEntry(request: Request): Response {
+  const entry = parseEntry(new URL(request.url).searchParams.get("tipo"));
+  return redirect("/", [entryCookie(entry)]);
 }
 
 async function finishGoogleLogin(request: Request, env: OAuthEnv): Promise<Response> {
@@ -244,7 +254,7 @@ async function finishGoogleLogin(request: Request, env: OAuthEnv): Promise<Respo
 function logout(request: Request): Response {
   // Si aún se entró por Cloudflare Access, también se cierra esa sesión.
   const viaAccess = Boolean(request.headers.get("Cf-Access-Jwt-Assertion"));
-  return redirect(viaAccess ? "/cdn-cgi/access/logout" : "/", [cookie(SESSION_COOKIE, "", 0)]);
+  return redirect(viaAccess ? "/cdn-cgi/access/logout" : "/", [cookie(SESSION_COOKIE, "", 0), cookie(ENTRY_COOKIE, "", 0)]);
 }
 
 async function sessionOwner(request: Request, env: OAuthEnv, allowRegistration: boolean): Promise<{ email: string; owner: ClinicOwner } | null> {
@@ -276,12 +286,14 @@ async function resolveSpace(request: Request, env: OAuthEnv, identity: { email: 
   const db = (env as unknown as { DB?: TeamDb }).DB;
   if (!db || !identity.email) return personal;
   try {
+    const entry = parseEntry(readCookie(request.headers.get("Cookie"), ENTRY_COOKIE));
+    if (entry !== "clinica") return personal;
     const active = await activeMemberships(db, identity.email.trim().toLowerCase());
     if (!active.length) return personal;
     const raw = readCookie(request.headers.get("Cookie"), SPACE_COOKIE);
     let requested: string | null = null;
     try { requested = raw ? decodeURIComponent(raw) : null; } catch { requested = null; }
-    return chooseSpace(identity.owner.ownerId, active, requested);
+    return chooseSpaceForEntry(identity.owner.ownerId, active, requested, entry);
   } catch {
     return personal;
   }
@@ -453,6 +465,7 @@ const oauthProvider = new OAuthProvider<OAuthEnv>({
       if (path === LOGIN_PATH && request.method === "GET") return startGoogleLogin(request, env);
       if (path === CALLBACK_PATH && request.method === "GET") return finishGoogleLogin(request, env);
       if (path === LOGOUT_PATH && (request.method === "GET" || request.method === "POST")) return logout(request);
+      if (path === "/auth/entrada" && request.method === "GET") return switchEntry(request);
       if (path === "/authorize") return authorize(request, env, context);
       return privateAppFetch(request, env, context);
     },
