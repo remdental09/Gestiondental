@@ -16,7 +16,9 @@ export async function GET() {
   const user = await getChatGPTUser();
   if (!user?.userId) return fail("Inicia sesión.", 401);
   const [format, clinic] = await Promise.all([loadBudgetFormat(personalIdOf(user)), loadClinic(user.userId).catch(() => null)]);
-  return Response.json({ format, hasLogo: Boolean(clinic?.logo), logoEmbeddable: /^data:image\/(png|jpeg);/.test(clinic?.logo ?? "") }, { headers });
+  // Datos del perfil de la clínica del espacio, para ofrecer «Usar los datos del perfil» en el diseño.
+  const profileClinic = clinic ? { name: clinic.clinicName, rut: "", address: clinic.address, city: clinic.city, phone: clinic.phone, email: clinic.email, web: "" } : null;
+  return Response.json({ format, hasLogo: Boolean(clinic?.logo), logoEmbeddable: /^data:image\/(png|jpeg);/.test(clinic?.logo ?? ""), profileClinic }, { headers });
 }
 
 /**

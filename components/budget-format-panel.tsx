@@ -4,20 +4,21 @@ import { useEffect, useState } from "react";
 import { Eye, FileText, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BudgetFormatEditor } from "@/components/budget-format-editor";
-import { DEFAULT_FORMAT, checkBudgetFormat, type BudgetFormat } from "@/lib/budget-format";
+import { DEFAULT_FORMAT, checkBudgetFormat, type BudgetClinicData, type BudgetFormat } from "@/lib/budget-format";
 
 /** Configuración → «Mi presupuesto»: cómo se ve el PDF que arma este profesional. Vista previa con datos de ejemplo. */
 export function BudgetFormatPanel() {
   const [format, setFormat] = useState<BudgetFormat | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [logo, setLogo] = useState({ has: false, embeddable: false });
+  const [profileClinic, setProfileClinic] = useState<BudgetClinicData | null>(null);
   const [busy, setBusy] = useState<"" | "guardar" | "vista">("");
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
   useEffect(() => {
     let live = true;
-    fetch("/api/presupuesto/formato").then(r => r.ok ? r.json() as Promise<{ format: BudgetFormat; hasLogo: boolean; logoEmbeddable: boolean }> : null)
-      .then(data => { if (!live) return; if (!data) setLoadFailed(true); setFormat(data?.format ?? { ...DEFAULT_FORMAT }); if (data) setLogo({ has: data.hasLogo, embeddable: data.logoEmbeddable }); })
+    fetch("/api/presupuesto/formato").then(r => r.ok ? r.json() as Promise<{ format: BudgetFormat; hasLogo: boolean; logoEmbeddable: boolean; profileClinic?: BudgetClinicData | null }> : null)
+      .then(data => { if (!live) return; if (!data) setLoadFailed(true); setFormat(data?.format ?? { ...DEFAULT_FORMAT }); if (data) { setLogo({ has: data.hasLogo, embeddable: data.logoEmbeddable }); setProfileClinic(data.profileClinic ?? null); } })
       .catch(() => { if (live) { setLoadFailed(true); setFormat({ ...DEFAULT_FORMAT }); } });
     return () => { live = false; };
   }, []);
@@ -61,7 +62,7 @@ export function BudgetFormatPanel() {
       </div>
     </div>
 
-    <BudgetFormatEditor format={format} onChange={next => { setFormat(next); setMessage(null); }} logo={logo}/>
+    <BudgetFormatEditor format={format} onChange={next => { setFormat(next); setMessage(null); }} logo={logo} profileClinic={profileClinic}/>
 
     {message && <p role={message.ok ? "status" : "alert"} className={"rounded-lg p-3 text-sm " + (message.ok ? "bg-emerald-50 text-emerald-900" : "bg-rose-50 text-rose-800")}>{message.text}</p>}
   </section>;

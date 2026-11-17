@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Download, ExternalLink, Mail, Save } from "lucide-react";
+import { Download, ExternalLink, Mail, Printer, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { BudgetFormatEditor } from "@/components/budget-format-editor";
-import { checkBudgetFormat, previewActions, type BudgetFormat } from "@/lib/budget-format";
+import { checkBudgetFormat, previewActions, type BudgetClinicData, type BudgetFormat } from "@/lib/budget-format";
 import type { BudgetPlan } from "@/components/budget-plan";
 
 type PrintMode = "detailed" | "total" | "no-prices";
@@ -47,6 +47,7 @@ function BudgetPrintBody({ budget, patientName, onClose }: { budget: BudgetPlan;
   const [draft, setDraft] = useState<BudgetFormat | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [logo, setLogo] = useState({ has: false, embeddable: false });
+  const [profileClinic, setProfileClinic] = useState<BudgetClinicData | null>(null);
   // null hasta que el servidor dice si este profesional es el autor: hasta entonces no se ofrece el editor.
   const [editable, setEditable] = useState<boolean | null>(null);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
@@ -54,12 +55,13 @@ function BudgetPrintBody({ budget, patientName, onClose }: { budget: BudgetPlan;
   const requestToken = useRef(0);
   const [problem, setProblem] = useState<string | null>(null);
   const urlRef = useRef<string | null>(null);
+  const frameRef = useRef<HTMLIFrameElement | null>(null);
   const budgetId = budget.id;
 
   useEffect(() => {
     let live = true;
-    fetch("/api/presupuesto/formato").then(r => r.ok ? r.json() as Promise<{ format: BudgetFormat; hasLogo: boolean; logoEmbeddable: boolean }> : Promise.reject(new Error("formato")))
-      .then(data => { if (!live) return; setSaved(data.format); setDraft(data.format); setLogo({ has: data.hasLogo, embeddable: data.logoEmbeddable }); })
+    fetch("/api/presupuesto/formato").then(r => r.ok ? r.json() as Promise<{ format: BudgetFormat; hasLogo: boolean; logoEmbeddable: boolean; profileClinic?: BudgetClinicData | null }> : Promise.reject(new Error("formato")))
+      .then(data => { if (!live) return; setSaved(data.format); setDraft(data.format); setLogo({ has: data.hasLogo, embeddable: data.logoEmbeddable }); setProfileClinic(data.profileClinic ?? null); })
       .catch(() => { if (live) setLoadFailed(true); });
     return () => { live = false; };
   }, []);
@@ -116,6 +118,18 @@ function BudgetPrintBody({ budget, patientName, onClose }: { budget: BudgetPlan;
     document.body.appendChild(link); link.click(); link.remove();
     setNotice({ kind: "ok", text: "PDF descargado. Revisa tus descargas." });
   };
+  /** Imprime exactamente el PDF que se está viendo; si el navegador no deja imprimirlo desde aquí, lo abre en otra pestaña. */
+  const printPdf = () => {
+    if (!pdfUrl || !actions.canDownload) return;
+    try {
+      const frame = frameRef.current?.contentWindow;
+      if (!frame) throw new Error("sin vista");
+      frame.focus(); frame.print();
+    } catch {
+      const tab = window.open(pdfUrl, "_blank");
+      setNotice(tab ? { kind: "ok", text: "Abrí el PDF en otra pestaña: imprímelo desde ahí." } : { kind: "error", text: "El navegador bloqueó la ventana. Usa «Abrir el PDF en una pestaña nueva» e imprime desde ahí." });
+    }
+  };
   const saveFormat = async () => {
     if (!draftFormat || loadFailed) return;
     setBusy("save"); setNotice(null);
@@ -156,12 +170,12 @@ function BudgetPrintBody({ budget, patientName, onClose }: { budget: BudgetPlan;
   return <>
       <DialogHeader>
         <DialogTitle>Previsualizar presupuesto</DialogTitle>
-        <DialogDescription>Esto es el PDF tal como lo recibirá {patientName || "el paciente"}. Cambia aquí el diseño y la vista se actualiza; puedes descargarlo o enviarlo al correo registrado.</DialogDescription>
+        <DialogDescription>Esto es el PDF tal como lo recibirá {patientName || "el paciente"}. Cambia aquí el diseño y la vista se actualiza; puedes imprimirlo, descargarlo o enviarlo al correo registrado.</DialogDescription>
       </DialogHeader>
       <div className="mt-4 grid gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <section aria-label="Vista previa del PDF" className="min-w-0">
           <div className="relative h-[70vh] min-h-[420px] overflow-hidden rounded-xl border border-[#dddbe6] bg-[#f1f0f5]" data-testid="budget-pdf-preview">
-            {pdfUrl && <iframe title="Vista previa del presupuesto en PDF" src={pdfUrl} className="size-full bg-white"/>}
+            {pdfUrl && <iframe ref={frameRef} title="Vista previa del presupuesto en PDF" src={pdfUrl} className="size-full bg-white"/>}
             {(rendering || (!pdfUrl && !problem && !formatError)) && <p role="status" className="absolute left-3 top-3 rounded-lg bg-white/90 px-3 py-1.5 text-xs text-[#4f4e62] shadow">Armando el PDF…</p>}
             {formatError && !problem && <p role="status" className="absolute inset-x-3 top-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-950">La vista no se actualiza hasta que corrijas el diseño: {formatError}</p>}
             {problem && <p role="alert" className="absolute inset-x-3 top-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-950">{problem}</p>}
@@ -180,7 +194,7 @@ function BudgetPrintBody({ budget, patientName, onClose }: { budget: BudgetPlan;
           {canEdit && draft ? <details className="rounded-xl border border-[#dddbe6] bg-white p-3" open data-testid="budget-design-editor">
             <summary className="cursor-pointer text-sm font-semibold text-[#35343f]">Diseño del PDF (colores, firma, condiciones)</summary>
             <div className="mt-4">
-              <fieldset disabled={busy === "save"} className="min-w-0 border-0 p-0"><BudgetFormatEditor format={draft} onChange={changeDraft} logo={logo}/></fieldset>
+              <fieldset disabled={busy === "save"} className="min-w-0 border-0 p-0"><BudgetFormatEditor format={draft} onChange={changeDraft} logo={logo} profileClinic={profileClinic}/></fieldset>
               {formatError && <p role="alert" className="mt-3 rounded-lg bg-rose-50 p-3 text-sm text-rose-800">{formatError}</p>}
               <div className="mt-4 flex flex-wrap items-center gap-2">
                 <Button type="button" size="sm" disabled={busy !== "" || !dirty || Boolean(formatError)} onClick={() => void saveFormat()} className="bg-[#473a6d] text-white hover:bg-[#3a2f5a]"><Save className="mr-2 size-4"/>{busy === "save" ? "Guardando…" : "Guardar como mi diseño"}</Button>
@@ -207,6 +221,7 @@ function BudgetPrintBody({ budget, patientName, onClose }: { budget: BudgetPlan;
           <Button type="button" variant="outline" onClick={onClose}>Cerrar</Button>
           <div className="flex flex-col gap-2 sm:flex-row">
             <Button type="button" variant="outline" disabled={busy !== "" || !actions.canSend} onClick={() => void prepareSend()}><Mail className="mr-2 size-4"/>{busy === "preview" ? "Preparando…" : "Enviar al correo del paciente"}</Button>
+            <Button type="button" variant="outline" disabled={busy !== "" || !actions.canDownload} onClick={printPdf} data-testid="budget-print"><Printer className="mr-2 size-4"/>Imprimir</Button>
             <Button type="button" className="bg-[#473a6d] hover:bg-[#3a2f5a]" disabled={busy !== "" || !actions.canDownload} onClick={downloadPdf}><Download className="mr-2 size-4"/>Descargar PDF</Button>
           </div>
         </DialogFooter>

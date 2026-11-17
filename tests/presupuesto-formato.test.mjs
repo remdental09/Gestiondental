@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { PDFDocument } from "pdf-lib";
-import { DEFAULT_FORMAT, PALETTES, checkBudgetFormat, decodeBudgetFormat, formatForPdf, luminance, previewActions } from "../lib/budget-format.ts";
+import { DEFAULT_FORMAT, PALETTES, checkBudgetFormat, clinicContactParts, decodeBudgetFormat, formatForPdf, luminance, previewActions } from "../lib/budget-format.ts";
 import { buildBudgetPdf, itemZoneText } from "../lib/budget-pdf.ts";
 
 const base = {
@@ -85,4 +85,42 @@ test("vista previa: descargar y enviar solo con el PDF al día; enviar además s
   assert.deepEqual(previewActions({ ...ok, invalid: true, dirty: true }), { canDownload: false, canSend: false }, "diseño inválido: la vista quedó vieja");
   assert.deepEqual(previewActions({ ...ok, problem: true }), { canDownload: false, canSend: false });
   assert.deepEqual(previewActions({ ...ok, canEdit: false, dirty: true }), { canDownload: true, canSend: true }, "sin editor (otro autor) no hay borrador que guardar");
+});
+
+const CLINIC = { name: "Centro Dental Viña Norte", rut: "76.123.456-7", address: "Av. Libertad 1234", city: "Viña del Mar", phone: "+56 9 1234 5678", email: "Contacto@DentalVina.cl", web: "https://www.dentalvina.cl/" };
+
+test("datos de la clínica: se limpian, el correo se valida y la ubicación por defecto es no mostrarlos", () => {
+  const f = checkBudgetFormat({ clinic: CLINIC, clinicPlacement: "firma" }).format;
+  assert.equal(f.clinic.email, "contacto@dentalvina.cl");
+  assert.equal(f.clinic.web, "www.dentalvina.cl");
+  assert.equal(f.clinicPlacement, "firma");
+  assert.equal(checkBudgetFormat({ clinic: { email: "no-es-correo" } }).ok, false);
+  assert.equal(checkBudgetFormat({ clinicPlacement: "__proto__" }).format.clinicPlacement, "no");
+  assert.equal(DEFAULT_FORMAT.clinicPlacement, "no");
+  assert.deepEqual(decodeBudgetFormat(JSON.stringify({ palette: "azul" })).clinic, { name: "", rut: "", address: "", city: "", phone: "", email: "", web: "" }, "formatos guardados antes siguen funcionando");
+  assert.deepEqual(clinicContactParts(f.clinic), ["RUT 76.123.456-7", "Av. Libertad 1234, Viña del Mar", "Tel. +56 9 1234 5678", "contacto@dentalvina.cl", "www.dentalvina.cl"]);
+});
+
+test("datos de la clínica en el PDF: salen donde el dentista elige y el nombre propio reemplaza al de arriba", async () => {
+  const textOf = async placement => {
+    const bytes = await buildBudgetPdf({ ...base, format: checkBudgetFormat({ clinic: CLINIC, clinicPlacement: placement }).format });
+    const doc = await PDFDocument.load(bytes);
+    return { pages: doc.getPageCount(), raw: Buffer.from(bytes).toString("latin1") };
+  };
+  for (const placement of ["cabecera", "paciente", "firma", "pie"]) {
+    const { pages } = await textOf(placement);
+    assert.equal(pages, 1, placement);
+  }
+  const without = await buildBudgetPdf({ ...base, format: checkBudgetFormat({ clinic: CLINIC, clinicPlacement: "no" }).format });
+  const withFoot = await buildBudgetPdf({ ...base, format: checkBudgetFormat({ clinic: CLINIC, clinicPlacement: "pie" }).format });
+  assert.notDeepEqual(Buffer.from(without), Buffer.from(withFoot));
+  const plain = await buildBudgetPdf({ ...base, format: { ...DEFAULT_FORMAT }, issuedAt: new Date("2026-11-17T12:00:00Z") });
+  const noClinic = await buildBudgetPdf({ ...base, format: checkBudgetFormat({ clinic: { ...CLINIC, name: "" }, clinicPlacement: "no" }).format, issuedAt: new Date("2026-11-17T12:00:00Z") });
+  assert.equal(Buffer.from(plain).length, Buffer.from(noClinic).length, "con «No mostrar» y sin nombre propio, el PDF queda como antes");
+});
+
+test("la vista previa tiene botón Imprimir que imprime el mismo PDF mostrado", () => {
+  const source = readFileSync(new URL("../components/budget-print-dialog.tsx", import.meta.url), "utf8");
+  assert.match(source, /data-testid="budget-print"/);
+  assert.match(source, /frame\.print\(\)/);
 });

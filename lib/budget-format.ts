@@ -4,6 +4,18 @@
  */
 export type PaletteKey = "lila" | "azul" | "verde" | "grafito" | "burdeo" | "propio";
 export type NamePosition = "cabecera" | "firma" | "ambos";
+/** Dónde salen los datos de la clínica en el PDF. */
+export type ClinicPlacement = "no" | "cabecera" | "paciente" | "firma" | "pie";
+export const CLINIC_PLACEMENTS: Array<{ key: ClinicPlacement; label: string; hint: string }> = [
+  { key: "cabecera", label: "Arriba", hint: "En la franja de color, bajo el nombre de la clínica" },
+  { key: "paciente", label: "Bajo los datos del paciente", hint: "Una línea antes del detalle" },
+  { key: "firma", label: "Junto a la firma", hint: "A la izquierda de la firma" },
+  { key: "pie", label: "Al pie de cada hoja", hint: "Junto al número de página" },
+  { key: "no", label: "No mostrar", hint: "Solo el nombre arriba" },
+];
+/** Datos de la clínica que el profesional quiere en sus presupuestos (todos opcionales). */
+export type BudgetClinicData = { name: string; rut: string; address: string; city: string; phone: string; email: string; web: string };
+export const EMPTY_CLINIC_DATA: BudgetClinicData = { name: "", rut: "", address: "", city: "", phone: "", email: "", web: "" };
 export type BudgetFormat = {
   palette: PaletteKey;
   /** Colores en hex (#rrggbb). Con una paleta lista, son los de la paleta. */
@@ -22,6 +34,9 @@ export type BudgetFormat = {
   note: string;
   /** Mantener las condiciones generales de la app además de la nota propia. */
   keepDefaultNotes: boolean;
+  /** Datos de la clínica propios de este profesional; el nombre, si se escribe, reemplaza al de la cabecera. */
+  clinic: BudgetClinicData;
+  clinicPlacement: ClinicPlacement;
 };
 
 export const PALETTES: Record<Exclude<PaletteKey, "propio">, { label: string; primary: string; accent: string }> = {
@@ -35,6 +50,7 @@ export const PALETTES: Record<Exclude<PaletteKey, "propio">, { label: string; pr
 export const DEFAULT_FORMAT: BudgetFormat = {
   palette: "lila", primary: PALETTES.lila.primary, accent: PALETTES.lila.accent, namePosition: "ambos",
   showRut: true, showSpecialty: true, showTitles: false, registry: "", showLogo: true, showChile: true, note: "", keepDefaultNotes: true,
+  clinic: { ...EMPTY_CLINIC_DATA }, clinicPlacement: "no",
 };
 
 const HEX = /^#[0-9a-f]{6}$/i;
@@ -56,6 +72,8 @@ export function shade(hex: string, t: number): [number, number, number] {
 }
 
 const bool = (value: unknown, fallback: boolean) => (typeof value === "boolean" ? value : fallback);
+const line = (value: unknown, max: number) => (typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, max) : "");
+const PLACEMENTS = new Set<ClinicPlacement>(["no", "cabecera", "paciente", "firma", "pie"]);
 const text = (value: unknown, max: number) => (typeof value === "string" ? value.replace(/\r/g, "").trim().slice(0, max) : "");
 
 export type FormatCheck = { ok: true; format: BudgetFormat } | { ok: false; error: string };
@@ -76,6 +94,13 @@ export function checkBudgetFormat(input: unknown): FormatCheck {
   const noteLines = text(b.note, 600).split("\n").map(line => line.trim()).filter(Boolean);
   if (noteLines.length > 8) return { ok: false, error: "Las notas admiten hasta 8 líneas." };
   const note = noteLines.join("\n");
+  const c = (b.clinic && typeof b.clinic === "object" ? b.clinic : {}) as Record<string, unknown>;
+  const clinic: BudgetClinicData = {
+    name: line(c.name, 60), rut: line(c.rut, 20), address: line(c.address, 120), city: line(c.city, 60),
+    phone: line(c.phone, 40), email: line(c.email, 120).toLowerCase(), web: line(c.web, 80).replace(/^https?:\/\//i, "").replace(/\/$/, ""),
+  };
+  if (clinic.email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(clinic.email)) return { ok: false, error: "El correo de la clínica no es válido." };
+  const clinicPlacement: ClinicPlacement = typeof b.clinicPlacement === "string" && PLACEMENTS.has(b.clinicPlacement as ClinicPlacement) ? b.clinicPlacement as ClinicPlacement : "no";
   return {
     ok: true,
     format: {
@@ -83,6 +108,7 @@ export function checkBudgetFormat(input: unknown): FormatCheck {
       showRut: bool(b.showRut, true), showSpecialty: bool(b.showSpecialty, true), showTitles: bool(b.showTitles, false),
       registry: text(b.registry, 60), showLogo: bool(b.showLogo, true), showChile: bool(b.showChile, true),
       note, keepDefaultNotes: bool(b.keepDefaultNotes, true),
+      clinic, clinicPlacement,
     },
   };
 }
@@ -110,4 +136,17 @@ export function formatForPdf(saved: BudgetFormat, draft: { viewerId: string; for
 export function previewActions(state: { inSync: boolean; hasPdf: boolean; problem: boolean; canEdit: boolean; dirty: boolean; invalid: boolean }) {
   const shown = state.inSync && state.hasPdf && !state.problem && !state.invalid;
   return { canDownload: shown, canSend: shown && !(state.canEdit && state.dirty) };
+}
+
+/**
+ * Líneas de contacto de la clínica para el PDF (sin el nombre, que va aparte): «RUT …», dirección y ciudad,
+ * y teléfono · correo · web. Las vacías no aparecen.
+ */
+export function clinicContactParts(c: BudgetClinicData): string[] {
+  return [
+    c.rut ? `RUT ${c.rut}` : "",
+    [c.address, c.city].filter(Boolean).join(", "),
+    c.phone ? `Tel. ${c.phone}` : "",
+    c.email, c.web,
+  ].filter(Boolean);
 }
