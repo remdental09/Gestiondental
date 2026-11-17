@@ -1,7 +1,8 @@
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { formatFdi, type PerioTooth } from "@/app/clinical-data";
 import { PERIO_ARCH_IMAGES } from "@/app/perio-arch-assets";
+import { fluidFile, FLUIDS, siteFluids } from "@/app/perio-fluids";
 import { archCurves, archImageKey, archSlots, CROWN_MD_MM, depthTone, jawOf, PX_PER_MM, sampleCurve, siteXs, toothLevels, type ArchFace, type Jaw, type ToothLevels, type ToothSlot } from "@/app/perio-arch-layout";
 
 const OCC = 34;      // px entre el borde del lienzo y el borde incisal/oclusal
@@ -48,6 +49,7 @@ function jawGeometry(jaw: Jaw, face: ArchFace) {
   return { slots, width, parts, H };
 }
 type Geometry = ReturnType<typeof jawGeometry>;
+const SOLO_FLUID_GROW = 1.6; // en la pieza ampliada el fluido se ve más grande que el círculo con el número
 const SOLO_PAD = 64; // px de encía y hueso a cada lado de la pieza aislada
 /** La misma pieza de la arcada, sola: mismas medidas y misma foto, con margen de hueso a los lados. */
 function toothGeometry(tooth: number, face: ArchFace): Geometry {
@@ -197,6 +199,25 @@ function ArchRow({ jaw, face, geo, view, images, gumOpacity, selected, teeth, on
         <span className={`pointer-events-none absolute inset-x-0 flex flex-col items-center text-[11px] font-semibold leading-tight text-white/85 ${flip ? "bottom-1" : "top-1"}`}>{formatFdi(slot.tooth)}{note && <span className="text-[9px] font-medium text-amber-300">{note}</span>}{label && <span className="text-[9px] font-medium text-white/50">{label}</span>}</span>
       </button>;
     })}
+    {/* Sangrado y supuración fotográficos: nacen del surco, en el margen gingival de cada sitio, y corren hacia la corona. */}
+    {slots.map((slot, i) => {
+      const lv = view.levels[i];
+      if (lv.excluded) return null;
+      const xs = siteXs(slot);
+      return lv.sites.map((site, k) => siteFluids(slot.tooth, k, face, site).map(fluid => {
+        const spec = FLUIDS[fluid.id], grow = solo ? SOLO_FLUID_GROW : 1, x = xs[k] + fluid.dxMm * PX_PER_MM * grow;
+        const y = view.gumY[Math.max(0, Math.min(view.gumY.length - 1, Math.round(xs[k])))];
+        const headAt = flip ? "12%" : "88%";
+        return <span key={`${slot.tooth}-${k}-${fluid.id}`} aria-hidden="true" data-testid="perio-fluid" data-kind={fluid.kind} className={`perio-fluid ${solo ? "perio-fluid-solo" : ""}`}
+          style={{ left: pctX(x), top: pctY(y), width: `${((spec.widthMm * PX_PER_MM * grow) / width) * 100}%`, transform: `translate(-50%, -${headAt})`, "--fd": `${fluid.delayMs}ms` } as CSSProperties}>
+          <span className="perio-fluid-halo" style={{ top: headAt }} />
+          <span className="perio-fluid-flip" style={{ transform: `scale(${fluid.mirror ? -1 : 1}, ${flip ? 1 : -1})` }}>
+            {/* eslint-disable-next-line @next/next/no-img-element -- capa decorativa pequeña y ya optimizada (WebP) */}
+            <img src={fluidFile(fluid.id)} alt="" draggable={false} className="perio-fluid-img" />
+          </span>
+        </span>;
+      }));
+    })}
     {slots.map((slot, i) => {
       const lv = view.levels[i];
       if (lv.excluded) return null;
@@ -270,7 +291,7 @@ export function PerioArch({ teeth, toothStatuses, selected, onSelect, onOpen, re
       </div>
     </div>
     <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-[#615f73]">
-      <span className="text-emerald-800">0–3 mm</span><span className="text-amber-900">4–5 mm</span><span className="text-rose-800">≥6 mm</span><span>punto rojo: sangrado · punto amarillo: supuración · números tenues: valor normal por defecto, sin medir</span>
+      <span className="text-emerald-800">0–3 mm</span><span className="text-amber-900">4–5 mm</span><span className="text-rose-800">≥6 mm</span><span>punto rojo y gota de sangre: sangrado · punto amarillo y pus: supuración (el fluido sale del margen gingival del sitio; en la pieza ampliada se ve más grande) · números tenues: valor normal por defecto, sin medir</span>
       <span>La cresta ósea es una estimación (nivel de inserción; 2 mm bajo la UAC si está sano); la altura real se confirma con radiografía. Un clic selecciona la pieza; doble clic la abre en grande.</span>
     </div>
   </div>;
