@@ -63,16 +63,19 @@ export type FormatCheck = { ok: true; format: BudgetFormat } | { ok: false; erro
 /** Valida y completa un formato. El color principal lleva texto blanco encima: debe ser oscuro para que se lea. */
 export function checkBudgetFormat(input: unknown): FormatCheck {
   const b = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
-  const palette: PaletteKey = typeof b.palette === "string" && (b.palette === "propio" || b.palette in PALETTES) ? b.palette as PaletteKey : DEFAULT_FORMAT.palette;
+  const palette: PaletteKey = typeof b.palette === "string" && (b.palette === "propio" || Object.hasOwn(PALETTES, b.palette)) ? b.palette as PaletteKey : DEFAULT_FORMAT.palette;
   let primary = palette === "propio" ? text(b.primary, 7).toLowerCase() : PALETTES[palette].primary;
   let accent = palette === "propio" ? text(b.accent, 7).toLowerCase() : PALETTES[palette].accent;
   if (palette === "propio") {
     if (!HEX.test(primary) || !HEX.test(accent)) return { ok: false, error: "Elige los dos colores." };
-    if (luminance(primary) > 0.2) return { ok: false, error: "El color principal es muy claro: el texto blanco de la cabecera no se leería. Elige uno más oscuro." };
+    if (luminance(primary) > 0.12) return { ok: false, error: "El color principal es muy claro: el texto blanco de la cabecera no se leería. Elige uno más oscuro." };
+    if (luminance(accent) > 0.6) return { ok: false, error: "El color de acento es muy claro: se perdería sobre el papel blanco. Elige uno más intenso." };
   }
   primary ||= DEFAULT_FORMAT.primary; accent ||= DEFAULT_FORMAT.accent;
   const namePosition: NamePosition = b.namePosition === "cabecera" || b.namePosition === "firma" ? b.namePosition : "ambos";
-  const note = text(b.note, 600).split("\n").map(line => line.trim()).filter(Boolean).slice(0, 8).join("\n");
+  const noteLines = text(b.note, 600).split("\n").map(line => line.trim()).filter(Boolean);
+  if (noteLines.length > 8) return { ok: false, error: "Las notas admiten hasta 8 líneas." };
+  const note = noteLines.join("\n");
   return {
     ok: true,
     format: {

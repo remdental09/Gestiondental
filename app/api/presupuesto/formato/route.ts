@@ -26,8 +26,7 @@ export async function GET() {
 export async function POST(request: Request) {
   const user = await getChatGPTUser();
   if (!user?.userId) return fail("Inicia sesión.", 401);
-  const sentFrom = request.headers.get("origin");
-  if (sentFrom && sentFrom !== new URL(request.url).origin) return fail("Origen no permitido.", 403);
+  if (request.headers.get("origin") !== new URL(request.url).origin) return fail("Origen no permitido.", 403);
   let body: Record<string, unknown>;
   try { body = await request.json(); } catch { return fail("Solicitud no válida."); }
   const checked = checkBudgetFormat(body?.format);

@@ -14,6 +14,7 @@ const POSITIONS: Array<{ key: NamePosition; label: string; hint: string }> = [
 /** Configuración → «Mi presupuesto»: cómo se ve el PDF que arma este profesional. Vista previa con datos de ejemplo. */
 export function BudgetFormatPanel() {
   const [format, setFormat] = useState<BudgetFormat | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [logo, setLogo] = useState({ has: false, embeddable: false });
   const [busy, setBusy] = useState<"" | "guardar" | "vista">("");
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
@@ -21,8 +22,8 @@ export function BudgetFormatPanel() {
   useEffect(() => {
     let live = true;
     fetch("/api/presupuesto/formato").then(r => r.ok ? r.json() as Promise<{ format: BudgetFormat; hasLogo: boolean; logoEmbeddable: boolean }> : null)
-      .then(data => { if (!live) return; setFormat(data?.format ?? { ...DEFAULT_FORMAT }); if (data) setLogo({ has: data.hasLogo, embeddable: data.logoEmbeddable }); })
-      .catch(() => { if (live) setFormat({ ...DEFAULT_FORMAT }); });
+      .then(data => { if (!live) return; if (!data) setLoadFailed(true); setFormat(data?.format ?? { ...DEFAULT_FORMAT }); if (data) setLogo({ has: data.hasLogo, embeddable: data.logoEmbeddable }); })
+      .catch(() => { if (live) { setLoadFailed(true); setFormat({ ...DEFAULT_FORMAT }); } });
     return () => { live = false; };
   }, []);
 
@@ -31,6 +32,7 @@ export function BudgetFormatPanel() {
   const pickPalette = (palette: PaletteKey) => set(palette === "propio" ? { palette } : { palette, primary: PALETTES[palette].primary, accent: PALETTES[palette].accent });
 
   async function send(action: "guardar" | "vista") {
+    if (action === "guardar" && loadFailed) { setMessage({ ok: false, text: "No se pudo cargar tu formato guardado; recarga la página antes de guardar para no pisarlo." }); return; }
     const checked = checkBudgetFormat(format);
     if (!checked.ok) { setMessage({ ok: false, text: checked.error }); return; }
     // La pestaña se abre antes de esperar al servidor: así el navegador no la bloquea como ventana emergente.
@@ -43,7 +45,11 @@ export function BudgetFormatPanel() {
         const url = URL.createObjectURL(await response.blob());
         if (preview) preview.location.href = url; else window.open(url, "_blank");
         setTimeout(() => URL.revokeObjectURL(url), 60_000);
-      } else setMessage({ ok: true, text: "Formato guardado. Tus próximos presupuestos en PDF saldrán así." });
+      } else {
+        const saved = await response.json().catch(() => null) as { format?: BudgetFormat } | null;
+        if (saved?.format) setFormat(saved.format);
+        setMessage({ ok: true, text: "Formato guardado. Tus próximos presupuestos en PDF saldrán así." });
+      }
     } catch (error) {
       preview?.close();
       setMessage({ ok: false, text: error instanceof Error ? error.message : "No se pudo completar." });

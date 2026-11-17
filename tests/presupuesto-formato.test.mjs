@@ -48,3 +48,10 @@ test("el formato es del profesional que arma el presupuesto, y el logo es de la 
   assert.match(route, /saveBudgetFormat\(personalId, checked\.format\)/, "se guarda en el id personal, no en el de la clínica");
   assert.doesNotMatch(route, /patients|SELECT/, "la vista previa no lee pacientes reales");
 });
+
+test("formato: rechaza nombres heredados como paleta, acentos casi blancos y más de 8 líneas de notas", () => {
+  assert.equal(checkBudgetFormat({ palette: "__proto__" }).format.palette, DEFAULT_FORMAT.palette);
+  assert.equal(checkBudgetFormat({ palette: "toString" }).format.palette, DEFAULT_FORMAT.palette);
+  assert.equal(checkBudgetFormat({ palette: "propio", primary: "#2a1f4d", accent: "#ffffff" }).ok, false);
+  assert.equal(checkBudgetFormat({ note: Array.from({ length: 9 }, (_, i) => `n${i}`).join("\n") }).ok, false);
+});

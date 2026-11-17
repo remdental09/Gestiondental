@@ -90,11 +90,13 @@ export async function buildBudgetPdf(input: BudgetPdfInput): Promise<Uint8Array>
   const format = input.format ?? DEFAULT_FORMAT;
   const { PURPLE, DEEP, LILAC, PALE, CORAL } = pdfColors(format);
   const nameInHeader = format.namePosition !== "firma", nameInSignature = format.namePosition !== "cabecera";
+  // Los títulos libres van al final y acotados: si algo debe recortarse, nunca son el RUT ni el registro elegidos.
+  const shortTitles = (value: string) => { const t = value.trim().replace(/\s+/g, " "); return t.length > 90 ? t.slice(0, 89).trimEnd() + "…" : t; };
   const credentialParts = [
-    format.showSpecialty ? input.professionalSpecialty : "",
-    format.showTitles ? input.professionalTitles : "",
     format.showRut && input.professionalDocument ? `RUT ${input.professionalDocument}` : "",
+    format.showSpecialty ? input.professionalSpecialty : "",
     format.registry ? `Reg. ${format.registry}` : "",
+    format.showTitles && input.professionalTitles ? shortTitles(input.professionalTitles) : "",
   ].filter((part): part is string => Boolean(part && part.trim()));
   const mode = input.mode ?? "detailed";
   const priced = mode === "detailed";
@@ -147,7 +149,13 @@ export async function buildBudgetPdf(input: BudgetPdfInput): Promise<Uint8Array>
   const clinicW = R - 150 - headerX;
   let clinicSize = 19;
   while (clinicSize > 13 && bold.widthOfTextAtSize(pdfSafe(clinic), clinicSize) > clinicW) clinicSize -= 0.5;
-  const clinicLine = wrap(clinic, bold, clinicSize, clinicW)[0];
+  const clinicWrapped = wrap(clinic, bold, clinicSize, clinicW);
+  let clinicLine = clinicWrapped[0];
+  if (clinicWrapped.length > 1) {
+    clinicLine = clinicLine.trimEnd();
+    while (clinicLine.length > 1 && bold.widthOfTextAtSize(clinicLine + "…", clinicSize) > clinicW) clinicLine = clinicLine.slice(0, -1).trimEnd();
+    clinicLine += "…";
+  }
   y = PAGE_H - 36; text(clinicLine, headerX, clinicSize, bold, WHITE);
   const sub = [nameInHeader ? input.professionalName : "", ...(nameInHeader ? credentialParts : [])].filter(Boolean).join(" · ");
   if (sub) { y -= 17; for (const [i, line] of wrap(sub, regular, 9.5, R - headerX - 170).slice(0, 2).entries()) { if (i) y -= 11; text(line, headerX, 9.5, regular, LILAC); } }
@@ -244,6 +252,19 @@ export async function buildBudgetPdf(input: BudgetPdfInput): Promise<Uint8Array>
     }
   }
 
+  // ── Alto de la firma (se calcula antes para reservar el espacio junto a las condiciones)
+  const colW = 224;
+  const sx = R - colW + 16;
+  // Credenciales en líneas que no cortan un dato a la mitad (cada «RUT …» o «Reg. …» queda entero); un dato más ancho que la columna se parte.
+  const credentialLines: string[] = [];
+  for (const part of credentialParts.flatMap(item => wrap(item, regular, 8, R - sx))) {
+    const last = credentialLines[credentialLines.length - 1];
+    if (last && regular.widthOfTextAtSize(last + " · " + part, 8) <= R - sx) credentialLines[credentialLines.length - 1] = last + " · " + part;
+    else credentialLines.push(part);
+  }
+  credentialLines.splice(4);
+  const signH = 40 + 62 + 13 + (nameInSignature ? 12 * credentialLines.length : 0) + 8;
+
   // ── Condiciones y observaciones
   const notes = [
     ...(format.keepDefaultNotes ? [
@@ -256,28 +277,21 @@ export async function buildBudgetPdf(input: BudgetPdfInput): Promise<Uint8Array>
   const noteLines = notes.map(note => wrap(note, regular, 8.5, R - M - 12));
   const noteRows = noteLines.reduce((sum, lines) => sum + lines.length, 0);
   if (notes.length) {
-    ensure(40 + noteRows * 13 + 100); // condiciones y firma siempre juntas, nunca la firma sola en otra hoja
+    ensure(31 + noteRows * 12.5 + signH); // condiciones y firma siempre juntas, nunca la firma sola en otra hoja
     y -= 26; text("CONDICIONES Y OBSERVACIONES", M, 8, bold, PURPLE); y -= 5; rule(M, R, 0.8, LILAC);
     for (const lines of noteLines) for (const [i, line] of lines.entries()) { y -= 12.5; if (i === 0) text("•", M + 2, 8.5, bold, CORAL); text(line, M + 12, 8.5, regular, MUTED); }
   }
 
   // ── Firma del profesional
-  ensure(125);
+  ensure(signH);
   y -= 40;
   const signTop = y;
-  const colW = 224;
-  const sx = R - colW + 16;
   y = signTop - 62; rule(sx, R);
-  const signName = nameInSignature && input.professionalName ? input.professionalName : "Firma del profesional tratante";
-  y -= 13; page.drawText(pdfSafe(signName), { x: sx + ((R - sx) - bold.widthOfTextAtSize(pdfSafe(signName), 9.5)) / 2, y, size: 9.5, font: bold, color: INK });
-  // Credenciales en líneas que no cortan un dato a la mitad (cada «RUT …» o «Reg. …» queda entero).
-  const credentialLines: string[] = [];
-  for (const part of credentialParts.map(pdfSafe)) {
-    const last = credentialLines[credentialLines.length - 1];
-    if (last && regular.widthOfTextAtSize(last + " · " + part, 8) <= R - sx) credentialLines[credentialLines.length - 1] = last + " · " + part;
-    else credentialLines.push(part);
-  }
-  if (nameInSignature) for (const line of credentialLines.slice(0, 3)) {
+  const signName = pdfSafe(nameInSignature && input.professionalName ? input.professionalName : nameInSignature ? "Profesional tratante" : "Firma del profesional tratante");
+  let signSize = 9.5;
+  while (signSize > 7 && bold.widthOfTextAtSize(signName, signSize) > R - sx) signSize -= 0.5;
+  y -= 13; page.drawText(signName, { x: sx + Math.max(0, ((R - sx) - bold.widthOfTextAtSize(signName, signSize)) / 2), y, size: signSize, font: bold, color: INK });
+  if (nameInSignature) for (const line of credentialLines) {
     y -= 12; page.drawText(line, { x: sx + ((R - sx) - regular.widthOfTextAtSize(line, 8)) / 2, y, size: 8, font: regular, color: MUTED });
   }
   y = signTop - 102;
