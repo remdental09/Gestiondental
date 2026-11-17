@@ -175,6 +175,18 @@ function facesOf(text: string, said: number): number {
   return Math.max(said, roots, initials, 1);
 }
 
+/**
+ * Un implante lleva su corona: «implante» dicho solo propone la cirugía y la prótesis fija unitaria cementada sobre implante
+ * (5011046; «atornillada» → 5011045). «Sin corona» deja solo la cirugía. Otros actos con implante (retiro, control, mantención…) no.
+ */
+function codesFor(text: string, tooth: number | null, faces: number): string[] {
+  if (/\bimplantes?\b/.test(text) && !/retiro|remocion|explant|mantencion|control|cone\s*beam|informe|microtornillo|\bmini\b|periimplant|conexion|pilar|prueba|digitaliz|provision|ferulizacion/.test(text)) {
+    if (/sin\s+corona/.test(text)) return ["5011001"];
+    return ["5011001", /atornillad/.test(text) ? "5011045" : "5011046"];
+  }
+  return prestacionCodesForSegment(text, tooth, faces);
+}
+
 const COMPLEX_EXTRACTION = /quirurgic|compleja|retenid|incluid|cordal|tercer\s+molar/;
 
 /** Piezas dichas con prestaciones del arancel; devuelve las filas del presupuesto y lo que no se pudo usar. */
@@ -194,7 +206,9 @@ export function parseQuickBudget(raw: string, fallback: ToothNumbering = "fdi"):
   };
   for (const segment of segmentsOf(rest, numbering)) {
     for (const problem of segment.problems) leftovers.push(problem);
-    const text = segment.words.join(" ").trim();
+    const words = [...segment.words];
+    while (words.length && (NEUTRAL.has(words[words.length - 1]) || words[words.length - 1] === "pieza")) words.pop();
+    const text = words.join(" ").trim();
     const zones = [...new Set(segment.zones)];
     let where = [...new Set(segment.teeth)];
     const source = [whereLabel({ teeth: where, zones }), text].filter(Boolean).join(" · ");
@@ -216,7 +230,7 @@ export function parseQuickBudget(raw: string, fallback: ToothNumbering = "fdi"):
     }
     if (zones.length) {
       for (const zone of zones) {
-        const codes = prestacionCodesForSegment(text, null, faces);
+        const codes = codesFor(text, null, faces);
         if (!codes.length) unresolved([], zone);
         for (const code of codes) resolved(code, [], zone);
       }
@@ -226,7 +240,7 @@ export function parseQuickBudget(raw: string, fallback: ToothNumbering = "fdi"):
       const byCode = new Map<string, number[]>();
       const missing: number[] = [];
       for (const tooth of where) {
-        const codes = prestacionCodesForSegment(text, tooth, faces);
+        const codes = codesFor(text, tooth, faces);
         if (!codes.length) missing.push(tooth);
         for (const code of codes) byCode.set(code, [...(byCode.get(code) ?? []), tooth]);
       }
@@ -239,7 +253,7 @@ export function parseQuickBudget(raw: string, fallback: ToothNumbering = "fdi"):
       if (missing.length) unresolved(missing, "");
       continue;
     }
-    const codes = prestacionCodesForSegment(text, null, faces);
+    const codes = codesFor(text, null, faces);
     if (!codes.length) unresolved([], "");
     for (const code of codes) resolved(code, [], "");
   }
