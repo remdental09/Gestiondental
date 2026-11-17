@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
   canChangeBudget, canChangeEvolution, canEditClinic, canManageTeam, checkInvite, checkRoleChange, chooseSpace, evolutionAuthor, inviteExpiry,
-  inviteMessage, isExpired, visibleStatus, MAX_MEMBERS,
+  inviteEmail, inviteMessage, isExpired, visibleStatus, MAX_MEMBERS,
 } from "../lib/clinic-team.ts";
 
 const NOW = new Date("2026-11-16T12:00:00Z");
@@ -208,4 +208,23 @@ test("presupuesto: lo modifican quien lo armó y el dueño de la clínica (o sus
   }
   const plan = readFileSync(new URL("../components/budget-plan.tsx", import.meta.url), "utf8");
   assert.ok(plan.includes("onEdit && budget.editable !== false") && plan.includes("onSelectPrimary && budget.editable !== false"));
+});
+
+test("la invitación se envía sola por correo desde el Gmail conectado y nunca bloquea si falla", () => {
+  const mail = inviteEmail({ clinicName: "Clínica <Norte>", inviterName: "Dr(a). Ana Pérez", appUrl: "https://speakdent.cl", invitedEmail: "colega@gmail.com", roleLabel: "Dentista" });
+  assert.match(mail.subject, /Dr\(a\)\. Ana Pérez te invitó a Clínica <Norte> en SpeakDent/);
+  assert.match(mail.text, /Entrar con Google/);
+  assert.match(mail.text, /colega@gmail\.com/);
+  assert.match(mail.html, /href="https:\/\/speakdent\.cl"/);
+  assert.match(mail.html, /Clínica &lt;Norte&gt;/, "el HTML escapa el nombre de la clínica");
+  assert.doesNotMatch(mail.html, /token|codigo=|code=/i, "sin enlace secreto: el acceso lo da el Gmail invitado");
+
+  const route = readFileSync(new URL("../app/api/equipo/route.ts", import.meta.url), "utf8");
+  assert.match(route, /const mail = await mailInvite\(clinicId, personalId, checked\.email/);
+  assert.match(route, /const mail = await mailInvite\(clinicId, personalId, email, target\.role/, "renovar también reenvía el correo");
+  assert.match(route, /upsertInvite\(.*\);\n\s+const mail = await mailInvite/, "la invitación se guarda antes de intentar el correo");
+  assert.match(route, /catch \(error\) \{\n\s+return \{ sent: false, to, reason: "error"/, "un fallo de Gmail no rompe la invitación");
+  const panel = readFileSync(new URL("../components/equipo-panel.tsx", import.meta.url), "utf8");
+  assert.match(panel, /invite-mail-sent/);
+  assert.match(panel, /invite-mail-none/);
 });
