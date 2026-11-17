@@ -153,7 +153,8 @@ function segmentsOf(plain: string, numbering: ToothNumbering): Segment[] {
         continue;
       }
       lastWasTooth = false;
-      if (current.post) flush();
+      // «resina 36 ocluso distal»: la cara dicha tras la pieza es parte del mismo tratamiento.
+      if (current.post && !/^(?:ocluso|oclusal|mesio|mesial|disto|distal|vestibulo|vestibular|palato|palatin[oa]|linguo|lingual|incisal|mod|mo|od|do)\S*$/.test(word)) flush();
       current.words.push(word);
       current.treated = true;
     }

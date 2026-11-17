@@ -681,9 +681,10 @@ export default function Home(){
         setChartMessage(data.chart?.warning|| (data.chart?.updatedTeeth?.length?`Odontograma actualizado: FDI ${data.chart.updatedTeeth.map(formatFdi).join(", ")}.`:""));
       }
       if(modal==="budget"){
-        const items=normalizeBudgetItems(budgetItems);
+        const parentHasUndefined=alternativeParentBudgetId!==null&&(patientBudgets.find(b=>b.id===alternativeParentBudgetId)?.items.some(item=>item.amount===0)??false);
+        const items=normalizeBudgetItems(budgetItems,parentHasUndefined);
         if(!budgetTitle.trim()||!items)throw new Error("Completa el nombre del plan y verifica que cada prestación tenga descripción y valor válido.");
-        const data=await persist({action:"addBudget",patientId:selectedId,title:budgetTitle.trim(),items,...(alternativeParentBudgetId?{parentBudgetId:alternativeParentBudgetId}:{})});
+        const data=await persist({action:"addBudget",patientId:selectedId,title:budgetTitle.trim(),items,...(alternativeParentBudgetId?{parentBudgetId:alternativeParentBudgetId}:{}),...(parentHasUndefined?{allowUndefinedValues:true}:{})});
         setBudgets(previous=>[data.budget,...previous]);
       }
       if(modal==="editBudget"){

@@ -99,3 +99,9 @@ test("exodoncia quirúrgica no se cobra como simple; duplicados se unen", () => 
   assert.equal(parseQuickBudget("36 exodoncia quirúrgica").rows[0].needsChoice, true);
   assert.equal(parseQuickBudget("36 exodoncia. 36 exodoncia").rows.length, 1);
 });
+
+test("cara dicha después de la pieza se suma al tratamiento", () => {
+  const { rows } = parseQuickBudget("resina 36 ocluso distal");
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].code, parseQuickBudget("36 resina ocluso distal").rows[0].code);
+});
