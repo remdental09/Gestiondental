@@ -15,7 +15,7 @@ export type MarkdownRecord = {
   appointments: Array<{ day: string; time: string; reason: string }>;
   periodontalExams: Array<{ recordedAt: string; data: unknown }>;
   odontogram: { teeth?: Record<string, string>; surfaces?: Record<string, Record<string, { condition?: string; depth?: string | null; restorationMaterial?: string | null } | null>>; crowns?: Record<string, { material?: string; foundation?: string } | null>; missingReason?: Record<string, string> } | null;
-  imageMetadata: Array<{ name: string; kind?: string | null; note?: string | null; addedAt?: string | null }>;
+  imageMetadata: Array<{ name: string; driveFile?: string; kind?: string | null; note?: string | null; addedAt?: string | null }>;
 };
 
 const fdi = (tooth: string | number) => { const n = Number(tooth); return `${Math.floor(n / 10)}.${n % 10}`; };
@@ -94,7 +94,7 @@ export function fichaMarkdown(record: MarkdownRecord, generatedAt = ""): string 
   }
 
   if (record.appointments.length) out.push("## Citas", "", ...record.appointments.map(v => `- ${day(v.day)} ${v.time} · ${v.reason}`), "");
-  if (record.imageMetadata.length) out.push("## Imágenes y documentos", "", "_Los archivos quedan guardados en la aplicación; aquí solo su lista._", "",
-    ...record.imageMetadata.map(i => `- ${i.name}${i.kind ? ` (${i.kind})` : ""}${i.addedAt ? ` · ${day(i.addedAt)}` : ""}${i.note ? ` · ${i.note.replace(/\n/g, " ")}` : ""}`), "");
+  if (record.imageMetadata.length) out.push("## Imágenes y documentos", "", "_Cada archivo se respalda en esta misma carpeta de Drive con el nombre indicado._", "",
+    ...record.imageMetadata.map(i => `- ${i.driveFile || i.name}${i.kind ? ` (${i.kind})` : ""}${i.addedAt ? ` · ${day(i.addedAt)}` : ""}${i.note ? ` · ${i.note.replace(/\n/g, " ")}` : ""}`), "");
   return out.join("\n").replace(/\n{3,}/g, "\n\n").trim() + "\n";
 }

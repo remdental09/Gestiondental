@@ -67,6 +67,7 @@ function fixture() {
       '@/db': { getDb },
       '@/db/schema': tables,
       '@/lib/backup-markdown': { fichaMarkdown: (record) => `# Ficha clínica · ${record.patient.name}\n` },
+      '@/lib/attachment-name': { attachmentFileName: (id, name) => 'Adjunto ' + id + ' - ' + name },
       '@/app/anamnesis-db': { loadAnamnesis: async () => null },
       '@/app/patient-address-db': { loadAddresses: async () => new Map() },
     })[name],

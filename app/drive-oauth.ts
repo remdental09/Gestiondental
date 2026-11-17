@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import type { ChatGPTUser } from "@/app/chatgpt-auth";
+import { attachmentFileName } from "@/lib/attachment-name";
 import { confirmDriveSnapshot, getDriveSnapshot, listDriveBackupQueue } from "@/app/drive-backup";
 import { saveSender, type MailSender } from "@/app/appointment-mail-db";
 
@@ -12,6 +13,7 @@ type DriveStatement = {
 type DriveDatabase = { prepare(sql: string): DriveStatement };
 type DriveEnvironment = {
   DB?: DriveDatabase;
+  BUCKET?: { get(key: string): Promise<{ arrayBuffer(): Promise<ArrayBuffer> } | null> };
   GOOGLE_DRIVE_CLIENT_ID?: string;
   GOOGLE_DRIVE_CLIENT_SECRET?: string;
 };
@@ -528,6 +530,73 @@ async function writeMarkdownFile(accessToken: string, ownerId: string, account: 
   return fileId;
 }
 
+// ---------------------------------------------------------------------------
+// Archivos adjuntos (radiografías, fotos, PDF): se copian desde R2 a la carpeta del paciente.
+async function ensureAttachmentTable() {
+  await database().prepare("CREATE TABLE IF NOT EXISTS drive_attachment_files (owner_id TEXT NOT NULL, account TEXT NOT NULL, image_id INTEGER NOT NULL, file_id TEXT NOT NULL, size INTEGER NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (owner_id, account, image_id))").run();
+}
+
+/** Sube el binario a Drive (subida reanudable) y devuelve su id. */
+async function uploadAttachment(accessToken: string, folderId: string, fileName: string, contentType: string, bytes: ArrayBuffer) {
+  const start = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id", {
+    method: "POST",
+    headers: { Authorization: "Bearer " + accessToken, "Content-Type": "application/json; charset=UTF-8", "X-Upload-Content-Type": contentType, "X-Upload-Content-Length": String(bytes.byteLength) },
+    body: JSON.stringify({ name: fileName, parents: [folderId] }),
+  });
+  const location = start.headers.get("Location");
+  if (!start.ok || !location) throw new Error("Google Drive rechazó un adjunto (" + await googleErrorReason(start) + ").");
+  let response = await fetch(location, { method: "PUT", headers: { "Content-Type": contentType }, body: bytes });
+  if (response.status >= 500 || response.status === 429) response = await fetch(location, { method: "PUT", headers: { "Content-Type": contentType }, body: bytes });
+  if (!response.ok) throw new Error("Google Drive rechazó un adjunto (" + await googleErrorReason(response) + ").");
+  const id = (await response.json() as { id?: string }).id;
+  if (!id) throw new Error("Google Drive no devolvió el adjunto.");
+  return id;
+}
+
+/** Comprueba en Drive que el archivo existe, está en la carpeta, no está en la papelera y pesa lo mismo. */
+async function attachmentIsInDrive(accessToken: string, fileId: string, folderId: string, size: number) {
+  const response = await fetch("https://www.googleapis.com/drive/v3/files/" + encodeURIComponent(fileId) + "?fields=id,size,parents,trashed", { headers: { Authorization: "Bearer " + accessToken } });
+  if (response.status === 404 || response.status === 403) return false; // borrado o de otro Drive: se vuelve a subir
+  if (!response.ok) throw new Error("No pude verificar un adjunto en Drive (" + await googleErrorReason(response) + ").");
+  const file = await response.json() as { size?: string; parents?: string[]; trashed?: boolean };
+  return !file.trashed && Number(file.size) === size && Boolean(file.parents?.includes(folderId));
+}
+
+/**
+ * Copia a Drive todos los adjuntos de la ficha. Lanza error si alguno no queda verificado,
+ * de modo que la ficha no se declara respaldada con adjuntos faltantes.
+ */
+async function backupAttachments(accessToken: string, ownerId: string, account: string, patientId: number, folderId: string) {
+  const bucket = getEnvironment().BUCKET;
+  const { results } = await database().prepare("SELECT id, object_key, name, content_type, size FROM clinical_images WHERE owner_id = ? AND patient_id = ? ORDER BY id").bind(ownerId, patientId)
+    .all<{ id: number; object_key: string; name: string; content_type: string; size: number }>();
+  if (!results.length) return 0;
+  if (!bucket) throw new Error("No puedo leer los adjuntos para respaldarlos (almacenamiento no disponible).");
+  await ensureAttachmentTable();
+  const { results: known } = await database().prepare("SELECT image_id, file_id, size FROM drive_attachment_files WHERE owner_id = ? AND account = ?").bind(ownerId, account)
+    .all<{ image_id: number; file_id: string; size: number }>();
+  const byImage = new Map(known.map(row => [row.image_id, row]));
+  let uploaded = 0;
+  for (const image of results) {
+    const row = byImage.get(image.id);
+    if (row && row.size === image.size && await attachmentIsInDrive(accessToken, row.file_id, folderId, image.size)) continue;
+    // Tope por corrida para no pasar el límite de llamadas del Worker; lo que falte sigue en la próxima.
+    if (uploaded >= MAX_ATTACHMENT_UPLOADS_PER_RUN) throw new Error("Adjuntos de la ficha " + patientId + " en curso: se siguen copiando en la próxima corrida.");
+    const object = await bucket.get(image.object_key);
+    if (!object) throw new Error("El adjunto " + image.id + " no está en el almacenamiento; no se puede respaldar.");
+    const bytes = await object.arrayBuffer();
+    if (bytes.byteLength !== image.size) throw new Error("El adjunto " + image.id + " no coincide con su tamaño registrado.");
+    const fileId = await uploadAttachment(accessToken, folderId, attachmentFileName(image.id, image.name, image.content_type), image.content_type, bytes);
+    if (!await attachmentIsInDrive(accessToken, fileId, folderId, image.size)) throw new Error("No se pudo verificar el adjunto " + image.id + " en Drive.");
+    uploaded++;
+    await database().prepare("INSERT INTO drive_attachment_files (owner_id, account, image_id, file_id, size, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(owner_id, account, image_id) DO UPDATE SET file_id = excluded.file_id, size = excluded.size, updated_at = excluded.updated_at")
+      .bind(ownerId, account, image.id, fileId, image.size, now()).run();
+  }
+  return results.length;
+}
+
+const MAX_ATTACHMENT_UPLOADS_PER_RUN = 3;
+
 const markdownName = (patientId: number, name: string) => `Ficha ${patientId} - ${name.replace(/[\\/:*?"<>|]/g, " ").trim()}.md`;
 
 async function backupPatient(user: ChatGPTUser, patientId: number, tokenCache?: Map<string, string>) {
@@ -566,6 +635,7 @@ async function backupPatient(user: ChatGPTUser, patientId: number, tokenCache?: 
 
   await replaceDocumentText(accessToken, documentId, snapshot.documentText);
   await writeMarkdownFile(accessToken, user.userId, "principal", patientId, patientFolder.id, markdownName(patientId, snapshot.name), snapshot.markdown);
+  await backupAttachments(accessToken, user.userId, "principal", patientId, patientFolder.id);
   const confirmed = await confirmDriveSnapshot(
     user.userId,
     patientId,
@@ -802,6 +872,7 @@ async function backupPatientToMirror(user: ChatGPTUser, mirror: MirrorConnection
   }
   await replaceDocumentText(accessToken, documentId, snapshot.documentText);
   await writeMarkdownFile(accessToken, user.userId, "copia:" + mirror.google_sub, patientId, folder.id, markdownName(patientId, snapshot.name), snapshot.markdown);
+  await backupAttachments(accessToken, user.userId, "copia:" + mirror.google_sub, patientId, folder.id);
   const current = await getDriveSnapshot(user.userId, patientId);
   if (!current || current.digest !== snapshot.digest) return { saved: false, patientId, message: "La ficha cambió durante el respaldo; se copiará en el próximo intento." };
   await database().prepare(
