@@ -37,7 +37,7 @@ export function BudgetFormatEditor({ format, onChange, logo }: { format: BudgetF
     <fieldset className="space-y-2">
       <legend className="text-sm font-semibold text-[#35343f]">Dónde va tu nombre</legend>
       <div className="grid gap-2 sm:grid-cols-3">
-        {POSITIONS.map(p => <label key={p.key} className={"cursor-pointer rounded-lg border p-3 text-sm " + (format.namePosition === p.key ? "border-[#473a6d] bg-[#efedf7]" : "border-[#dddbe6]")}>
+        {POSITIONS.map(p => <label key={p.key} className={"cursor-pointer rounded-lg border p-3 text-sm focus-within:ring-2 focus-within:ring-[#473a6d]/40 " + (format.namePosition === p.key ? "border-[#473a6d] bg-[#efedf7]" : "border-[#dddbe6]")}>
           <input type="radio" name="name-position" className="sr-only" checked={format.namePosition === p.key} onChange={() => set({ namePosition: p.key })}/>
           <span className="block font-medium text-[#35343f]">{p.label}</span><span className="text-xs text-[#6b6a7c]">{p.hint}</span>
         </label>)}

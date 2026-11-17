@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { PDFDocument } from "pdf-lib";
-import { DEFAULT_FORMAT, PALETTES, checkBudgetFormat, decodeBudgetFormat, formatForPdf, luminance } from "../lib/budget-format.ts";
+import { DEFAULT_FORMAT, PALETTES, checkBudgetFormat, decodeBudgetFormat, formatForPdf, luminance, previewActions } from "../lib/budget-format.ts";
 import { buildBudgetPdf, itemZoneText } from "../lib/budget-pdf.ts";
 
 const base = {
@@ -75,4 +75,14 @@ test("el borrador del diseño se arma con el mismo PDF que se entrega: colores p
   const a = await buildBudgetPdf({ ...base, format: { ...DEFAULT_FORMAT } });
   const b = await buildBudgetPdf({ ...base, format: checkBudgetFormat({ palette: "verde" }).format });
   assert.notDeepEqual(Buffer.from(a), Buffer.from(b));
+});
+
+test("vista previa: descargar y enviar solo con el PDF al día; enviar además sin cambios sin guardar ni diseño inválido", () => {
+  const ok = { inSync: true, hasPdf: true, problem: false, canEdit: true, dirty: false, invalid: false };
+  assert.deepEqual(previewActions(ok), { canDownload: true, canSend: true });
+  assert.deepEqual(previewActions({ ...ok, dirty: true }), { canDownload: true, canSend: false }, "cambios sin guardar: se baja lo que se ve, no se envía");
+  assert.deepEqual(previewActions({ ...ok, inSync: false }), { canDownload: false, canSend: false }, "mientras se rearma, nada");
+  assert.deepEqual(previewActions({ ...ok, invalid: true, dirty: true }), { canDownload: false, canSend: false }, "diseño inválido: la vista quedó vieja");
+  assert.deepEqual(previewActions({ ...ok, problem: true }), { canDownload: false, canSend: false });
+  assert.deepEqual(previewActions({ ...ok, canEdit: false, dirty: true }), { canDownload: true, canSend: true }, "sin editor (otro autor) no hay borrador que guardar");
 });

@@ -5,7 +5,7 @@ import { Download, ExternalLink, Mail, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { BudgetFormatEditor } from "@/components/budget-format-editor";
-import { checkBudgetFormat, type BudgetFormat } from "@/lib/budget-format";
+import { checkBudgetFormat, previewActions, type BudgetFormat } from "@/lib/budget-format";
 import type { BudgetPlan } from "@/components/budget-plan";
 
 type PrintMode = "detailed" | "total" | "no-prices";
@@ -29,7 +29,7 @@ export function BudgetPrintDialog({ open, onOpenChange, budget, patientName }: {
   professionalName?: string;
   clinicName?: string;
 }) {
-  return <Dialog open={open} onOpenChange={onOpenChange}>
+  return <Dialog open={open && Boolean(budget)} onOpenChange={onOpenChange}>
     <DialogContent data-budget-print-dialog className="max-h-[92vh] w-[calc(100vw-2rem)] max-w-6xl overflow-x-hidden overflow-y-auto sm:max-w-6xl">
       {budget && <BudgetPrintBody key={budget.id} budget={budget} patientName={patientName} onClose={() => onOpenChange(false)}/>}
     </DialogContent>
@@ -47,9 +47,11 @@ function BudgetPrintBody({ budget, patientName, onClose }: { budget: BudgetPlan;
   const [draft, setDraft] = useState<BudgetFormat | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [logo, setLogo] = useState({ has: false, embeddable: false });
-  const [editable, setEditable] = useState(true);
+  // null hasta que el servidor dice si este profesional es el autor: hasta entonces no se ofrece el editor.
+  const [editable, setEditable] = useState<boolean | null>(null);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
-  const [rendering, setRendering] = useState(false);
+  const [renderedKey, setRenderedKey] = useState("");
+  const requestToken = useRef(0);
   const [problem, setProblem] = useState<string | null>(null);
   const urlRef = useRef<string | null>(null);
   const budgetId = budget.id;
@@ -62,21 +64,30 @@ function BudgetPrintBody({ budget, patientName, onClose }: { budget: BudgetPlan;
     return () => { live = false; };
   }, []);
   // Al cambiar el formato se pide confirmar de nuevo el envío.
-  const chooseMode = (next: PrintMode) => { setMode(next); setTarget(null); };
+  const chooseMode = (next: PrintMode) => { requestToken.current++; setMode(next); setTarget(null); };
+  const changeDraft = (next: BudgetFormat) => { requestToken.current++; setDraft(next); setTarget(null); setNotice(null); };
 
   const formatReady = Boolean(draft) || loadFailed;
   const checked = draft ? checkBudgetFormat(draft) : null;
   const draftFormat = checked?.ok ? checked.format : null;
-  const dirty = Boolean(draftFormat && saved && JSON.stringify(draftFormat) !== JSON.stringify(saved));
   const formatError = checked && !checked.ok ? checked.error : null;
   const draftKey = draftFormat ? JSON.stringify(draftFormat) : "";
+  const savedKey = saved ? JSON.stringify(saved) : "";
+  // Un diseño inválido cuenta como cambio sin guardar: la vista quedaría desactualizada respecto de lo que se edita.
+  const dirty = Boolean(draft && saved) && (Boolean(formatError) || draftKey !== savedKey);
+  const wantedKey = mode + "|" + draftKey;
+  const inSync = renderedKey === wantedKey;
+  const rendering = !inSync && !formatError && !problem && formatReady;
+  const canEdit = editable === true && Boolean(draft) && !loadFailed;
+  const actions = previewActions({ inSync, hasPdf: Boolean(pdfUrl), problem: Boolean(problem), canEdit, dirty, invalid: Boolean(formatError) });
 
   // El PDF se vuelve a armar con cada cambio de modo o de diseño (con una pausa corta para no pedir uno por tecla).
   useEffect(() => {
     if (!formatReady || (draft && !draftKey)) return;
     const controller = new AbortController();
+    const key = mode + "|" + draftKey;
     const timer = setTimeout(async () => {
-      setRendering(true); setProblem(null);
+      setProblem(null);
       try {
         const response = await fetch("/api/presupuesto/pdf", {
           method: "POST", headers: { "Content-Type": "application/json" }, signal: controller.signal,
@@ -87,11 +98,11 @@ function BudgetPrintBody({ budget, patientName, onClose }: { budget: BudgetPlan;
         if (controller.signal.aborted) return;
         const url = URL.createObjectURL(new Blob([blob], { type: "application/pdf" }));
         if (urlRef.current) URL.revokeObjectURL(urlRef.current);
-        urlRef.current = url; setPdfUrl(url); setEditable(response.headers.get("X-Format-Editable") !== "0");
+        urlRef.current = url; setPdfUrl(url); setEditable(response.headers.get("X-Format-Editable") !== "0"); setRenderedKey(key);
       } catch (error) {
         if (controller.signal.aborted) return;
         setProblem(error instanceof Error ? error.message : "No se pudo generar el PDF.");
-      } finally { if (!controller.signal.aborted) setRendering(false); }
+      }
     }, 350);
     return () => { clearTimeout(timer); controller.abort(); };
   }, [budgetId, mode, formatReady, draftKey]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -99,7 +110,7 @@ function BudgetPrintBody({ budget, patientName, onClose }: { budget: BudgetPlan;
 
   /** Descarga exactamente el PDF que se está viendo. */
   const downloadPdf = () => {
-    if (!pdfUrl) return;
+    if (!pdfUrl || !actions.canDownload) return;
     const link = document.createElement("a");
     link.href = pdfUrl; link.download = `${budget.isAlternative ? "Alternativa-de-tratamiento" : "Presupuesto-de-tratamiento"}-${budget.id}.pdf`;
     document.body.appendChild(link); link.click(); link.remove();
@@ -118,16 +129,19 @@ function BudgetPrintBody({ budget, patientName, onClose }: { budget: BudgetPlan;
     finally { setBusy(""); }
   };
   const prepareSend = async () => {
+    if (!actions.canSend) return;
+    const token = requestToken.current;
     setBusy("preview"); setNotice(null);
     try {
       const response = await fetch(`/api/presupuesto/enviar?budgetId=${budget.id}`);
       const result = await response.json().catch(() => ({})) as { preview?: { to: string; from: string }; error?: string };
       if (!response.ok || !result.preview) setNotice({ kind: "error", text: result.error ?? "No se pudo preparar el correo." });
-      else setTarget({ to: result.preview.to, from: result.preview.from });
+      else if (token === requestToken.current) setTarget({ to: result.preview.to, from: result.preview.from }); // si cambió el modo o el diseño mientras tanto, se descarta
     } catch { setNotice({ kind: "error", text: "Sin conexión. Intenta de nuevo." }); }
     finally { setBusy(""); }
   };
   const sendNow = async () => {
+    if (!actions.canSend) return;
     setBusy("send"); setNotice(null);
     try {
       const response = await fetch("/api/presupuesto/enviar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ budgetId: budget.id, mode }) });
@@ -137,7 +151,6 @@ function BudgetPrintBody({ budget, patientName, onClose }: { budget: BudgetPlan;
     } catch { setNotice({ kind: "error", text: "Sin conexión. No se envió; intenta de nuevo." }); }
     finally { setBusy(""); }
   };
-  const canEdit = editable && Boolean(draft) && !loadFailed;
   const blockSend = canEdit && dirty;
 
   return <>
@@ -148,8 +161,9 @@ function BudgetPrintBody({ budget, patientName, onClose }: { budget: BudgetPlan;
       <div className="mt-4 grid gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <section aria-label="Vista previa del PDF" className="min-w-0">
           <div className="relative h-[70vh] min-h-[420px] overflow-hidden rounded-xl border border-[#dddbe6] bg-[#f1f0f5]" data-testid="budget-pdf-preview">
-            {pdfUrl && <iframe key={pdfUrl} title="Vista previa del presupuesto en PDF" src={pdfUrl} className="size-full bg-white"/>}
-            {(rendering || (!pdfUrl && !problem)) && <p role="status" className="absolute left-3 top-3 rounded-lg bg-white/90 px-3 py-1.5 text-xs text-[#4f4e62] shadow">Armando el PDF…</p>}
+            {pdfUrl && <iframe title="Vista previa del presupuesto en PDF" src={pdfUrl} className="size-full bg-white"/>}
+            {(rendering || (!pdfUrl && !problem && !formatError)) && <p role="status" className="absolute left-3 top-3 rounded-lg bg-white/90 px-3 py-1.5 text-xs text-[#4f4e62] shadow">Armando el PDF…</p>}
+            {formatError && !problem && <p role="status" className="absolute inset-x-3 top-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-950">La vista no se actualiza hasta que corrijas el diseño: {formatError}</p>}
             {problem && <p role="alert" className="absolute inset-x-3 top-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-950">{problem}</p>}
           </div>
           {pdfUrl && <a href={pdfUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs text-[#473a6d] underline"><ExternalLink className="size-3"/>Abrir el PDF en una pestaña nueva</a>}
@@ -166,7 +180,7 @@ function BudgetPrintBody({ budget, patientName, onClose }: { budget: BudgetPlan;
           {canEdit && draft ? <details className="rounded-xl border border-[#dddbe6] bg-white p-3" open data-testid="budget-design-editor">
             <summary className="cursor-pointer text-sm font-semibold text-[#35343f]">Diseño del PDF (colores, firma, condiciones)</summary>
             <div className="mt-4">
-              <BudgetFormatEditor format={draft} onChange={next => { setDraft(next); setNotice(null); }} logo={logo}/>
+              <fieldset disabled={busy === "save"} className="min-w-0 border-0 p-0"><BudgetFormatEditor format={draft} onChange={changeDraft} logo={logo}/></fieldset>
               {formatError && <p role="alert" className="mt-3 rounded-lg bg-rose-50 p-3 text-sm text-rose-800">{formatError}</p>}
               <div className="mt-4 flex flex-wrap items-center gap-2">
                 <Button type="button" size="sm" disabled={busy !== "" || !dirty || Boolean(formatError)} onClick={() => void saveFormat()} className="bg-[#473a6d] text-white hover:bg-[#3a2f5a]"><Save className="mr-2 size-4"/>{busy === "save" ? "Guardando…" : "Guardar como mi diseño"}</Button>
@@ -174,26 +188,26 @@ function BudgetPrintBody({ budget, patientName, onClose }: { budget: BudgetPlan;
               </div>
             </div>
           </details> : <p className="rounded-xl border border-[#dddbe6] bg-[#f7f6fa] p-3 text-xs text-[#615f73]">
-            {loadFailed ? "No se pudo cargar tu diseño guardado; el PDF sale con el diseño actual. Recarga la página para editarlo." : editable ? "Cargando tu diseño…" : "Este presupuesto lo armó otro profesional del equipo, así que sale con su diseño. Cada uno ajusta el suyo desde sus propios presupuestos."}
+            {loadFailed ? "No se pudo cargar tu diseño guardado; el PDF sale con el diseño guardado. Recarga la página para editarlo." : editable === null ? "Cargando tu diseño…" : "Este presupuesto lo armó otro profesional del equipo, así que sale con su diseño. Cada uno ajusta el suyo desde sus propios presupuestos."}
           </p>}
         </aside>
       </div>
 
       <div className="space-y-3">
-        {target && <div role="alertdialog" aria-label="Confirmar envío" className="rounded-xl border border-[#b8b1d6] bg-[#f7f6fa] p-3 text-sm">
+        {target && <div role="region" aria-label="Confirmar envío" className="rounded-xl border border-[#b8b1d6] bg-[#f7f6fa] p-3 text-sm">
           <p>Se enviará el PDF a <strong>{target.to}</strong> desde <strong>{target.from}</strong>.</p>
           <div className="mt-3 flex flex-wrap gap-2">
-            <Button type="button" size="sm" className="bg-[#473a6d] hover:bg-[#3a2f5a]" disabled={busy !== ""} onClick={() => void sendNow()}>{busy === "send" ? "Enviando…" : "Enviar ahora"}</Button>
+            <Button type="button" size="sm" className="bg-[#473a6d] hover:bg-[#3a2f5a]" disabled={busy !== "" || !actions.canSend} onClick={() => void sendNow()}>{busy === "send" ? "Enviando…" : "Enviar ahora"}</Button>
             <Button type="button" size="sm" variant="outline" disabled={busy === "send"} onClick={() => setTarget(null)}>Cancelar</Button>
           </div>
         </div>}
-        {blockSend && <p role="status" className="rounded-lg bg-[#f7f6fa] p-3 text-sm text-[#4f4e62]">Para enviar el PDF con estos cambios, primero guarda el diseño: así el paciente recibe exactamente lo que ves.</p>}
+        {(blockSend || formatError) && <p role="status" className="rounded-lg bg-[#f7f6fa] p-3 text-sm text-[#4f4e62]">Para enviar el PDF con estos cambios, primero guarda el diseño: así el paciente recibe exactamente lo que ves.</p>}
         {notice && <p role={notice.kind === "error" ? "alert" : "status"} className={"rounded-lg p-3 text-sm " + (notice.kind === "error" ? "bg-amber-50 text-amber-950" : "bg-emerald-50 text-emerald-900")}>{notice.text}</p>}
         <DialogFooter className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
           <Button type="button" variant="outline" onClick={onClose}>Cerrar</Button>
           <div className="flex flex-col gap-2 sm:flex-row">
-            <Button type="button" variant="outline" disabled={busy !== "" || rendering || blockSend || Boolean(problem)} onClick={() => void prepareSend()}><Mail className="mr-2 size-4"/>{busy === "preview" ? "Preparando…" : "Enviar al correo del paciente"}</Button>
-            <Button type="button" className="bg-[#473a6d] hover:bg-[#3a2f5a]" disabled={busy !== "" || rendering || !pdfUrl || Boolean(problem)} onClick={downloadPdf}><Download className="mr-2 size-4"/>Descargar PDF</Button>
+            <Button type="button" variant="outline" disabled={busy !== "" || !actions.canSend} onClick={() => void prepareSend()}><Mail className="mr-2 size-4"/>{busy === "preview" ? "Preparando…" : "Enviar al correo del paciente"}</Button>
+            <Button type="button" className="bg-[#473a6d] hover:bg-[#3a2f5a]" disabled={busy !== "" || !actions.canDownload} onClick={downloadPdf}><Download className="mr-2 size-4"/>Descargar PDF</Button>
           </div>
         </DialogFooter>
       </div>
