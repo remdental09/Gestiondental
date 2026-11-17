@@ -21,6 +21,9 @@ type SyncResponse = {
   error?: string;
 };
 
+/** La autorización de Google venció o fue revocada: solo se arregla volviendo a conectarla. */
+export const needsReconnect = (lastRun: { ok: boolean | number; detail: string } | null | undefined, message = "") => /invalid_grant|venció|fue rechazada/.test(`${lastRun && !lastRun.ok ? lastRun.detail : ""} ${message}`);
+
 export function GoogleDriveBackup() {
   const [status, setStatus] = useState<DriveStatus | null>(null);
   const [busy, setBusy] = useState(false);
@@ -164,6 +167,7 @@ export function GoogleDriveBackup() {
         <p className="font-semibold text-emerald-950">Respaldo automático activo en {status.email || "Google Drive"}.</p>
         {message && <p className="mt-1 text-emerald-900">{message}</p>}
         {status.lastRun && !status.lastRun.ok && status.lastRun.detail.includes("insufficientPermissions") && <p className="mt-1"><a href="/api/drive/connect" className="font-semibold text-emerald-950 underline">Volver a conectar Google Drive</a> y dejar marcada la casilla de Drive.</p>}
+        {needsReconnect(status.lastRun, message) && <p className="mt-2"><a href="/api/drive/connect" className="inline-flex min-h-10 items-center rounded-lg bg-[#473a6d] px-4 py-2 text-sm font-semibold text-white hover:bg-[#3a2f5a]" data-testid="drive-reconnect">Volver a conectar Google Drive</a></p>}
         {(status.mirrors ?? []).map(mirror => <p key={mirror.email} className="mt-1 text-xs text-emerald-800">Copia adicional en {mirror.email}: {mirror.backedUp} de {mirror.total} fichas{mirror.lastVerifiedAt ? " (última " + fechaChile(mirror.lastVerifiedAt) + ")" : ""}.{mirror.backedUp < mirror.total ? " Las que faltan se copian solas en la revisión automática de cada hora." : ""}</p>)}
         <p className="mt-1 text-xs"><a href="/api/drive/connect?mirror=1" className="text-emerald-900 underline">{(status.mirrors ?? []).length ? "Agregar otra cuenta de Drive" : "Respaldar también en otra cuenta de Drive"}</a></p>
         {status.lastRun && <p className={"mt-1 text-xs " + (status.lastRun.ok ? "text-emerald-800" : "text-rose-800")}>Último respaldo {status.lastRun.source === "cron" ? "automático" : status.lastRun.source === "guardado" ? "al guardar" : "manual"} ({fechaChile(status.lastRun.ranAt)}): {status.lastRun.ok ? "correcto" : status.lastRun.detail}</p>}
