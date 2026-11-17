@@ -11,12 +11,21 @@
  * avisa que hay ruido o varias voces y detiene la escucha hasta que el clínico la reanude o escriba el valor.
  */
 import { describePerioDictation, spokenPerioValues, type PerioDictationSite, type PerioDictationTooth } from "./perio-dictation.ts";
+import { perioCommand, perioSuspicious, spokenNumber, spokenToothCommand, voiceValues } from "./perio-voice.ts";
 
 /** «await»: la aplicación propone una pieza y espera que el profesional la autorice con un clic antes de escuchar medidas. «site»: sondaje o margen de un sitio (ver `pos`). */
 export type GuideStep = "await" | "site" | "flags";
 /** `pos` recorre los seis sitios de la pieza: pos = 2·sitio + (0 sondaje | 1 margen); sitios 0–2 vestibular y 3–5 palatino/lingual. `misses`: respuestas seguidas no entendidas. */
-export type GuideState = { order: number[]; index: number; step: GuideStep; pos: number; misses: number; noisy: boolean; absent: number[]; paused: boolean; done: boolean; /** Dictado de una sola pieza: al terminarla se cierra, sin pasar a las siguientes. */ single?: boolean };
-export type GuideOutcome = { state: GuideState; say: string; apply?: PerioDictationTooth; markedAbsent?: number };
+export type GuideState = { order: number[]; index: number; step: GuideStep; pos: number; misses: number; noisy: boolean; absent: number[]; paused: boolean; done: boolean; /** Dictado de una sola pieza: al terminarla se cierra, sin pasar a las siguientes. */ single?: boolean;
+  /** Sondajes ya dictados en la pieza actual (para detectar saltos sospechosos entre sitios vecinos). */ depths?: Partial<Record<PerioDictationSite, number>>;
+  /** Valor sospechoso oído y no anotado: si el clínico lo repite igual, se acepta. */ retry?: number };
+/** Lo recién anotado, para mostrarlo en grande: qué parámetro, en qué sitio y con qué valor. */
+export type GuideRecord = { tooth: number; site: PerioDictationSite; field: "depth" | "margin" | "bleeding" | "suppuration"; value: number | boolean };
+/**
+ * `say`: texto completo (se muestra). `spoken`: versión breve que se dice en voz alta («Sondaje 3.» y la pregunta corta).
+ * `alert`: aviso grande en ámbar («¿Repite? Oí 15»). `miss`: no se reconoció una medida (la interfaz puede reintentar con otro transcriptor).
+ */
+export type GuideOutcome = { state: GuideState; say: string; spoken?: string; apply?: PerioDictationTooth; markedAbsent?: number; records?: GuideRecord[]; alert?: string; miss?: boolean };
 
 /** Intentos fallidos seguidos antes de avisar de ruido o varias voces. */
 export const MAX_MISSES = 3;
@@ -53,6 +62,15 @@ export function guidePrompt(state: GuideState, name = ""): string {
   if (margin) return `Ahora, dime el margen gingival de ${site}.`;
   if (state.pos === 0) return `Pieza ${spokenTooth(tooth)}${name ? `, ${name}` : ""}.\nDime el sondaje de ${site}.`;
   return `Dime el sondaje de ${site}.`;
+}
+
+/** Pregunta breve para la voz, una vez que la pieza ya fue anunciada: «Margen.» / «Sondaje central vestibular.». */
+export function guideShortPrompt(state: GuideState, name = ""): string {
+  if (state.done || state.step !== "site") return guidePrompt(state, name);
+  const tooth = state.order[state.index];
+  if (state.pos === 0) return guidePrompt(state, name);
+  if (state.pos % 2 === 1) return "Margen.";
+  return state.pos === 6 ? `${innerFace(tooth)[0].toUpperCase()}${innerFace(tooth).slice(1)}. Sondaje mesial.` : `Sondaje ${siteName(tooth, state.pos)}.`;
 }
 
 /**
@@ -121,7 +139,7 @@ export function guideAuthorize(current: GuideState, tooth: number, name = ""): G
   if (state.step !== "await") return { state: current, say: tooth === now ? "" : `Estás en la pieza ${spokenTooth(now)}. Termínala o di «saltar» antes de cambiar.` };
   const index = state.order.indexOf(tooth);
   if (index < 0) return { state, say: `La pieza ${spokenTooth(tooth)} no está en el recorrido.` };
-  state.index = index; state.step = "site"; state.pos = 0; state.paused = false; state.noisy = false; state.misses = 0;
+  state.index = index; state.step = "site"; state.pos = 0; state.paused = false; state.noisy = false; state.misses = 0; state.depths = {}; state.retry = undefined;
   return { state, say: guidePrompt(state, name) };
 }
 
@@ -139,7 +157,7 @@ export function guideHear(current: GuideState, utterance: string, name = "", typ
   const goTooth = (index: number, lead = ""): GuideOutcome => {
     state.misses = 0; state.noisy = false;
     if (index >= state.order.length) { state.done = true; return { state, say: state.single ? `${lead}Pieza ${spokenTooth(tooth)} lista. Revisa la arcada y guarda el examen.` : `${lead}Examen completo. Revisa la arcada y guarda el examen.` }; }
-    state.index = Math.max(0, index); state.step = "await"; state.pos = 0;
+    state.index = Math.max(0, index); state.step = "await"; state.pos = 0; state.depths = {}; state.retry = undefined;
     return { state, say: `${lead}${lead ? "\n" : ""}${guidePrompt(state, name)}` };
   };
   /** No entendió: repite la pregunta; tras varios intentos seguidos avisa de ruido o varias voces y deja de escuchar. */
@@ -152,29 +170,45 @@ export function guideHear(current: GuideState, utterance: string, name = "", typ
     return { state, say: `${reason}\n${guidePrompt(state, name)}` };
   };
 
-  if (has(text, /\b(terminar|termina|termino|finalizar|finaliza)\b/)) { state.done = true; return { state, say: "Examen terminado. Revisa la arcada y guarda el examen." }; }
+  const command = perioCommand(text);
+  if (command === "terminar") { state.done = true; return { state, say: "Examen terminado. Revisa la arcada y guarda el examen." }; }
   if (state.paused) {
-    if (has(text, /\b(continuar|continua|reanudar|seguir|sigamos|reintentar)\b/)) { state.paused = false; state.noisy = false; state.misses = 0; return { state, say: guidePrompt(state, name) }; }
+    if (command === "sigue") { state.paused = false; state.noisy = false; state.misses = 0; return { state, say: guidePrompt(state, name) }; }
     // Con la escucha detenida por ruido, lo escrito a mano sigue valiendo.
     if (!(typed && state.noisy)) return { state, say: "" };
     state.paused = false; state.noisy = false; state.misses = 0;
   }
-  if (has(text, /\b(pausa|pausar|espera)\b/)) { state.paused = true; return { state, say: "En pausa. Di «continuar» cuando quieras seguir." }; }
-  if (has(text, /\b(repetir|repite|repito|corregir|corrige|borrar|borra|de nuevo)\b/)) return { state, say: guidePrompt(state, name) };
-  if (has(text, /\b(atras|anterior|volver|vuelve)\b/)) {
+  if (command === "pausa") { state.paused = true; return { state, say: "En pausa. Di «sigue» cuando quieras continuar." }; }
+  if (command === "repite") return { state, say: guidePrompt(state, name) };
+  // «Corrige»: vuelve al último valor anotado para dictarlo de nuevo (lo nuevo reemplaza lo anterior).
+  if (command === "corrige") {
+    state.retry = undefined;
+    if (state.step === "flags") { state.step = "site"; state.pos = LAST_POS; return { state, say: `Corrige. ${guidePrompt(state, name)}` }; }
+    if (state.step === "site" && state.pos > 0) { state.pos -= 1; return { state, say: `Corrige. ${guidePrompt(state, name)}` }; }
+    return { state, say: guidePrompt(state, name) };
+  }
+  if (command === "atras") {
+    state.retry = undefined;
     if (state.step === "flags") { state.step = "site"; state.pos = LAST_POS; return { state, say: guidePrompt(state, name) }; }
     if (state.step === "site" && state.pos > 0) { state.pos -= 1; return { state, say: guidePrompt(state, name) }; }
     if (state.single) return { state, say: guidePrompt(state, name) };
     return goTooth(state.index - 1);
   }
-  if (has(text, /\b(ausente|ausencia|falta|no esta|extraida|perdida)\b/)) {
+  if (command === "ausente") {
     state.absent.push(tooth); state.order = state.order.filter(item => item !== tooth);
     const out = goTooth(state.index, `Pieza ${spokenTooth(tooth)} ausente. `);
     return { ...out, markedAbsent: tooth };
   }
-  if (has(text, /\b(saltar|salta|salto|omitir|omite|siguiente pieza)\b/)) return goTooth(state.index + 1);
+  if (command === "salta") return goTooth(state.index + 1);
 
-  if (state.step === "await") return { state, say: `Primero autoriza la pieza ${spokenTooth(tooth)} con un clic.` };
+  // «Pieza N»: autoriza por voz la pieza nombrada (solo mientras se espera autorización).
+  const named = spokenToothCommand(text);
+  if (state.step === "await") {
+    if (command === "sigue") return guideAuthorize(state, tooth, name);
+    if (named) return guideAuthorize(state, named, name);
+    return { state, say: `Primero autoriza la pieza ${spokenTooth(tooth)}: di «sigue» o pulsa Autorizar.` };
+  }
+  if (named && named !== tooth) return { state, say: `Estás en la pieza ${spokenTooth(tooth)}. Termínala o di «salta» antes de cambiar.\n${guidePrompt(state, name)}` };
 
   if (state.step === "flags") {
     // «sangrado vestibular, sin supuración»: lo negado se descarta y lo demás se marca.
@@ -182,7 +216,7 @@ export function guideHear(current: GuideState, utterance: string, name = "", typ
     const mentions = has(affirmed, /\b(sangrado|sangra|sangran|sangramiento|sangrante|hemorragia|supuracion|supura|supuran|pus)\b/);
     if (!mentions) {
       if (has(text, /\b(nada|no|ninguno|ninguna|sin|sano|sana|negativo)\b/) && !has(text, /\bnada mas\b/)) return goTooth(state.index + 1, "Sin sangrado ni supuración. ");
-      if (has(text, /\b(siguiente|listo|lista|continuar|continua|eso es todo|nada mas|ok)\b/)) return goTooth(state.index + 1);
+      if (command === "sigue" || has(text, /\b(siguiente|listo|lista|continuar|continua|eso es todo|nada mas|ok)\b/)) return goTooth(state.index + 1);
     }
     const parsed = parseGuideFlags(affirmed);
     if ("error" in parsed) return { state, say: parsed.error };
@@ -191,29 +225,58 @@ export function guideHear(current: GuideState, utterance: string, name = "", typ
     return { state, apply, say: `${describePerioDictation(apply).join(". ")}. ¿Algo más, o siguiente?` };
   }
 
+  // «Sangra» / «supura» solos: marcan el sitio recién medido (o el actual si aún no hay ninguno).
+  if (command === "sangra" || command === "supura") {
+    const key = SITE_KEYS[guideSite(state.pos > 0 ? state.pos - 1 : 0)];
+    const field = command === "sangra" ? "bleeding" : "suppuration";
+    const where = siteName(tooth, state.pos > 0 ? state.pos - 1 : 0);
+    const label = command === "sangra" ? "Sangra" : "Supura";
+    return { state, apply: { tooth, sites: { [key]: { [field]: true } } }, records: [{ tooth, site: key, field, value: true }], say: `${label} ${where}.\n${guidePrompt(state, name)}`, spoken: `${label}.` };
+  }
+  if (command === "sigue") return { state, say: guidePrompt(state, name) };
+
   // Un sitio por vez. En el sondaje se acepta «3» o «3 1» (sondaje y margen juntos); en el margen, un valor.
   const margin = state.pos % 2 === 1;
   const flags = inlineFlags(text);
   let values = spokenPerioValues(text);
+  if (!values.length) values = voiceValues(text)?.values ?? [];
   if (margin && !values.length && has(text, /\b(normal|normales|sin recesion|en la union|nada)\b/)) values = [0];
-  if (!values.length) return miss("No te entendí.");
+  if (!values.length) return { ...miss("No te entendí."), miss: true };
   const limit = margin ? 1 : 2;
-  if (values.length > limit) return miss(`Escuché ${values.length} valores y esperaba ${limit === 1 ? "uno" : "uno o dos"}.`);
+  if (values.length > limit) return { ...miss(`Escuché ${values.length} valores y esperaba ${limit === 1 ? "uno" : "uno o dos"}.`), miss: true };
   const [first, second] = values;
-  if (margin ? first < -10 || first > 20 : first < 0 || first > 20 || (second !== undefined && (second < -10 || second > 20))) return miss("Ese valor está fuera de rango.");
   const key = SITE_KEYS[guideSite(state.pos)];
+  // Fuera de rango (sondaje > 12, |margen| > 12) o salto ≥ 5 mm respecto de un sitio vecino: no se anota y se pregunta de nuevo.
+  const depths = { ...(state.depths ?? {}) };
+  const problem = perioSuspicious(margin ? "margin" : "depth", first, key, depths) ?? (second !== undefined ? perioSuspicious("margin", second, key, depths) : null);
+  const heardValue = second !== undefined && perioSuspicious("margin", second, key, depths) ? second : first;
+  if (problem === "range" || (problem === "jump" && state.retry !== first)) {
+    state.retry = problem === "jump" ? first : undefined;
+    const alert = `¿Repite? Oí ${spokenNumber(heardValue)}`;
+    const why = problem === "range" ? "Está fuera de rango." : "Es muy distinto del sitio vecino; si es correcto, repítelo.";
+    return { state, alert, say: `${alert}. ${why}\n${guidePrompt(state, name)}`, spoken: `¿Repite? Oí ${spokenNumber(heardValue)}.` };
+  }
+  state.retry = undefined;
+  if (!margin) depths[key] = first;
+  state.depths = depths;
   const reading: Record<string, number | boolean> = margin ? { margin: first } : { depth: first };
   if (!margin && second !== undefined) reading.margin = second;
   if (flags.bleeding) reading.bleeding = true;
   if (flags.suppuration) reading.suppuration = true;
   const apply: PerioDictationTooth = { tooth, sites: { [key]: reading } };
+  const records: GuideRecord[] = [{ tooth, site: key, field: margin ? "margin" : "depth", value: first }];
+  if (!margin && second !== undefined) records.push({ tooth, site: key, field: "margin", value: second });
+  if (flags.bleeding) records.push({ tooth, site: key, field: "bleeding", value: true });
+  if (flags.suppuration) records.push({ tooth, site: key, field: "suppuration", value: true });
   state.misses = 0;
   // Confirmación: nombra qué se anotó y dónde; la siguiente pregunta va aparte, en otra línea.
   const where = siteName(tooth, state.pos);
   const extras = [...(flags.bleeding ? ["sangra"] : []), ...(flags.suppuration ? ["supura"] : [])].join(", ");
   const said = `${margin ? "Margen gingival" : "Sondaje"} ${where}, ${spokenValues([first])}.${!margin && second !== undefined ? ` Margen gingival, ${spokenValues([second])}.` : ""}${extras ? ` ${extras[0].toUpperCase()}${extras.slice(1)}.` : ""}`;
+  // En voz alta, breve: «Sondaje 3.» / «Margen menos 1.».
+  const brief = `${margin ? "Margen" : "Sondaje"} ${spokenNumber(first)}.${!margin && second !== undefined ? ` Margen ${spokenNumber(second)}.` : ""}${extras ? ` ${extras[0].toUpperCase()}${extras.slice(1)}.` : ""}`;
   // Sondaje y margen juntos saltan el paso del margen.
   state.pos += !margin && second !== undefined ? 2 : 1;
   if (state.pos > LAST_POS) { state.step = "flags"; state.pos = 0; }
-  return { state, apply, say: `${said}\n${guidePrompt(state, name)}` };
+  return { state, apply, records, say: `${said}\n${guidePrompt(state, name)}`, spoken: `${brief}\n${guideShortPrompt(state, name)}` };
 }

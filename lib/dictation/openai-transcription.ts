@@ -1,5 +1,6 @@
 import { TOOTH_NUMBERING_PROMPT } from "./clinical-writing.ts";
 import { DENTAL_SPEECH_HINTS } from "./dental-lexicon.ts";
+import { PERIO_TRANSCRIPTION_KEYWORDS, PERIO_TRANSCRIPTION_PROMPT } from "./perio-voice.ts";
 
 export const AUDIO_TRANSCRIPTION_MODEL = "gpt-transcribe";
 /** Compatibilidad para cuentas que aún no exponen el modelo nuevo. Configuración explícita prevalece. */
@@ -13,7 +14,8 @@ export function audioExtension(type: string): string | null {
 }
 
 /** Solo audio y vocabulario general: nunca se añade identidad ni ficha previa al contexto. */
-export async function transcribeDentalAudio(audio: Blob, apiKey: string, options: { model?: string; fetcher?: typeof fetch; signal?: AbortSignal } = {}): Promise<{ text: string; model: string }> {
+export async function transcribeDentalAudio(audio: Blob, apiKey: string, options: { model?: string; fetcher?: typeof fetch; signal?: AbortSignal; /** «perio»: respuesta corta del periodontograma (número 0–12 u orden); sesga el modelo a esos términos. */ purpose?: "perio" } = {}): Promise<{ text: string; model: string }> {
+  const perio = options.purpose === "perio";
   const extension = audioExtension(audio.type);
   if (!extension || !audio.size || audio.size > MAX_AUDIO_BYTES) throw new Error("Audio vacío, demasiado grande o en un formato no compatible.");
   const model = options.model?.trim() || AUDIO_TRANSCRIPTION_MODEL;
@@ -21,10 +23,10 @@ export async function transcribeDentalAudio(audio: Blob, apiKey: string, options
   form.append("file", audio, `dictado.${extension}`);
   form.append("model", model);
   form.append("response_format", "json");
-  form.append("prompt", TOOTH_NUMBERING_PROMPT + "\n\nConsulta odontológica en español de Chile. El dictado puede incluir procedimientos, hallazgos, piezas dentales, superficies, medidas, presupuestos, pagos y datos administrativos explícitos como RUN/RUT, dígito verificador, fecha de nacimiento, correo electrónico y teléfono. Transcribe cada nombre, cifra y cero en el orden pronunciado; no completes ni deduzcas identidades, números o datos de contacto. Terminología: destartraje, detartraje, tartrectomía, supragingival, subgingival, pulpa, encía, pulpectomía, pulpotomía, ligamento periodontal, sondaje, seis grupos periodontales, pulido coronario, cirugía bucal, flapless, colgajo mucoperióstico, odontosección, alveoloplastia, sutura Vicryl o poliglactina 910, Vicryl Rapide, Monocryl, PDS, Prolene, nylon, poliamida, seda quirúrgica, calibres 3-0 y 4-0, injerto óseo, membrana, hemostasia, tubos de anestesia, tubete anestésico, lidocaína, articaína, paciente abonó, dejó la mitad, 50 por ciento del presupuesto, monto pagado. Conserva nombres de materiales y cifras tal como se dictaron; no completes dosis ni calibres.");
+  form.append("prompt", perio ? PERIO_TRANSCRIPTION_PROMPT : TOOTH_NUMBERING_PROMPT + "\n\nConsulta odontológica en español de Chile. El dictado puede incluir procedimientos, hallazgos, piezas dentales, superficies, medidas, presupuestos, pagos y datos administrativos explícitos como RUN/RUT, dígito verificador, fecha de nacimiento, correo electrónico y teléfono. Transcribe cada nombre, cifra y cero en el orden pronunciado; no completes ni deduzcas identidades, números o datos de contacto. Terminología: destartraje, detartraje, tartrectomía, supragingival, subgingival, pulpa, encía, pulpectomía, pulpotomía, ligamento periodontal, sondaje, seis grupos periodontales, pulido coronario, cirugía bucal, flapless, colgajo mucoperióstico, odontosección, alveoloplastia, sutura Vicryl o poliglactina 910, Vicryl Rapide, Monocryl, PDS, Prolene, nylon, poliamida, seda quirúrgica, calibres 3-0 y 4-0, injerto óseo, membrana, hemostasia, tubos de anestesia, tubete anestésico, lidocaína, articaína, paciente abonó, dejó la mitad, 50 por ciento del presupuesto, monto pagado. Conserva nombres de materiales y cifras tal como se dictaron; no completes dosis ni calibres.");
   if (model === "gpt-transcribe") {
     form.append("languages[]", "es");
-    for (const { phrase } of DENTAL_SPEECH_HINTS) form.append("keywords[]", phrase);
+    for (const phrase of perio ? PERIO_TRANSCRIPTION_KEYWORDS : DENTAL_SPEECH_HINTS.map(hint => hint.phrase)) form.append("keywords[]", phrase);
   } else {
     form.append("language", "es");
   }
