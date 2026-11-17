@@ -31,3 +31,8 @@ test("la ficha ya no dice que los archivos quedan solo en la aplicación", () =>
   assert.match(md, /Adjunto 3 - rx\.jpg/);
   assert.doesNotMatch(md, /solo su lista/);
 });
+
+test("tope de subidas por corrida y tratamiento de adjuntos borrados", () => {
+  assert.match(drive, /MAX_ATTACHMENT_UPLOADS_PER_RUN = 3/);
+  assert.match(drive, /response\.status === 404 \|\| response\.status === 403\) return false/);
+});

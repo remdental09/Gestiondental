@@ -545,7 +545,8 @@ async function uploadAttachment(accessToken: string, folderId: string, fileName:
   });
   const location = start.headers.get("Location");
   if (!start.ok || !location) throw new Error("Google Drive rechazó un adjunto (" + await googleErrorReason(start) + ").");
-  const response = await fetch(location, { method: "PUT", headers: { "Content-Type": contentType }, body: bytes });
+  let response = await fetch(location, { method: "PUT", headers: { "Content-Type": contentType }, body: bytes });
+  if (response.status >= 500 || response.status === 429) response = await fetch(location, { method: "PUT", headers: { "Content-Type": contentType }, body: bytes });
   if (!response.ok) throw new Error("Google Drive rechazó un adjunto (" + await googleErrorReason(response) + ").");
   const id = (await response.json() as { id?: string }).id;
   if (!id) throw new Error("Google Drive no devolvió el adjunto.");
@@ -555,7 +556,7 @@ async function uploadAttachment(accessToken: string, folderId: string, fileName:
 /** Comprueba en Drive que el archivo existe, está en la carpeta, no está en la papelera y pesa lo mismo. */
 async function attachmentIsInDrive(accessToken: string, fileId: string, folderId: string, size: number) {
   const response = await fetch("https://www.googleapis.com/drive/v3/files/" + encodeURIComponent(fileId) + "?fields=id,size,parents,trashed", { headers: { Authorization: "Bearer " + accessToken } });
-  if (response.status === 404) return false;
+  if (response.status === 404 || response.status === 403) return false; // borrado o de otro Drive: se vuelve a subir
   if (!response.ok) throw new Error("No pude verificar un adjunto en Drive (" + await googleErrorReason(response) + ").");
   const file = await response.json() as { size?: string; parents?: string[]; trashed?: boolean };
   return !file.trashed && Number(file.size) === size && Boolean(file.parents?.includes(folderId));
@@ -572,20 +573,29 @@ async function backupAttachments(accessToken: string, ownerId: string, account: 
   if (!results.length) return 0;
   if (!bucket) throw new Error("No puedo leer los adjuntos para respaldarlos (almacenamiento no disponible).");
   await ensureAttachmentTable();
+  const { results: known } = await database().prepare("SELECT image_id, file_id, size FROM drive_attachment_files WHERE owner_id = ? AND account = ?").bind(ownerId, account)
+    .all<{ image_id: number; file_id: string; size: number }>();
+  const byImage = new Map(known.map(row => [row.image_id, row]));
+  let uploaded = 0;
   for (const image of results) {
-    const row = await database().prepare("SELECT file_id, size FROM drive_attachment_files WHERE owner_id = ? AND account = ? AND image_id = ?").bind(ownerId, account, image.id).first<{ file_id: string; size: number }>();
+    const row = byImage.get(image.id);
     if (row && row.size === image.size && await attachmentIsInDrive(accessToken, row.file_id, folderId, image.size)) continue;
+    // Tope por corrida para no pasar el límite de llamadas del Worker; lo que falte sigue en la próxima.
+    if (uploaded >= MAX_ATTACHMENT_UPLOADS_PER_RUN) throw new Error("Adjuntos de la ficha " + patientId + " en curso: se siguen copiando en la próxima corrida.");
     const object = await bucket.get(image.object_key);
     if (!object) throw new Error("El adjunto " + image.id + " no está en el almacenamiento; no se puede respaldar.");
     const bytes = await object.arrayBuffer();
     if (bytes.byteLength !== image.size) throw new Error("El adjunto " + image.id + " no coincide con su tamaño registrado.");
     const fileId = await uploadAttachment(accessToken, folderId, attachmentFileName(image.id, image.name, image.content_type), image.content_type, bytes);
     if (!await attachmentIsInDrive(accessToken, fileId, folderId, image.size)) throw new Error("No se pudo verificar el adjunto " + image.id + " en Drive.");
+    uploaded++;
     await database().prepare("INSERT INTO drive_attachment_files (owner_id, account, image_id, file_id, size, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(owner_id, account, image_id) DO UPDATE SET file_id = excluded.file_id, size = excluded.size, updated_at = excluded.updated_at")
       .bind(ownerId, account, image.id, fileId, image.size, now()).run();
   }
   return results.length;
 }
+
+const MAX_ATTACHMENT_UPLOADS_PER_RUN = 3;
 
 const markdownName = (patientId: number, name: string) => `Ficha ${patientId} - ${name.replace(/[\\/:*?"<>|]/g, " ").trim()}.md`;
 
