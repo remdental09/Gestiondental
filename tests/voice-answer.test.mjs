@@ -28,11 +28,11 @@ test('un nuevo fragmento de voz reinicia la cuenta del silencio', () => {
 });
 
 test('la lectura de regreso distingue hipótesis diagnóstica y plan', () => {
-  assert.equal(voiceAnswerReadback('diagnosis', 'Caries distal.'), 'Redacté esta hipótesis diagnóstica: Caries distal. ¿Es correcto? Di correcto, pasar al plan; rectificar; o repetir.');
-  assert.equal(voiceAnswerReadback('plan', 'Restaurar con resina.'), 'Redacté este plan de tratamiento: Restaurar con resina. ¿Es correcto? Di correcto, preparar propuesta; rectificar; o repetir.');
+  assert.equal(voiceAnswerReadback('diagnosis', 'Caries distal.'), 'Redacté esta hipótesis diagnóstica: Caries distal. ¿Es correcto? Di correcto para continuar; rectificar; o repetir.');
+  assert.equal(voiceAnswerReadback('plan', 'Restaurar con resina.'), 'Redacté este plan de tratamiento: Restaurar con resina. ¿Es correcto? Di correcto para continuar; rectificar; o repetir.');
 });
 
-test('las órdenes habladas aprueban cada etapa y exigen una orden explícita para guardar', () => {
+test('la palabra correcto aprueba cada etapa y guarda la propuesta final', () => {
   assert.equal(parseVoiceReviewCommand('Correcto, preguntar plano.', 'diagnosis'), 'accept');
   assert.equal(parseVoiceReviewCommand('Correcto pasar al plan', 'diagnosis'), 'accept');
   assert.equal(parseVoiceReviewCommand('Correcto.', 'diagnosis'), 'accept');
@@ -44,7 +44,7 @@ test('las órdenes habladas aprueban cada etapa y exigen una orden explícita pa
   assert.equal(parseVoiceReviewCommand('Confirmar propuesta', 'proposal'), 'save');
   assert.equal(parseVoiceReviewCommand('Cara mesial', 'proposal'), 'mesial');
   assert.equal(parseVoiceReviewCommand('El diagnóstico correcto es caries mesial', 'diagnosis'), null);
-  assert.equal(parseVoiceReviewCommand('Correcto', 'proposal'), null);
+  assert.equal(parseVoiceReviewCommand('Correcto', 'proposal'), 'save');
   assert.equal(parseVoiceReviewCommand('No es correcto', 'diagnosis'), null);
   assert.equal(parseVoiceReviewCommand('Guardar', 'diagnosis'), null);
 });
