@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
-import { proposeFromTranscript, sanitizeChart } from "@/lib/dictation/proposal";
+import { focusedToothReview, proposeFromTranscript, sanitizeChart } from "@/lib/dictation/proposal";
 import { createWorkersAiModel } from "@/lib/dictation/workers-ai";
 import { agentEnabledFor } from "@/lib/dictation/openai-agent";
 import { learnFromFeedback, NOTHING_LEARNED } from "@/lib/dictation/learning";
@@ -39,8 +39,11 @@ export async function POST(request: Request) {
     // Aprendizaje de este profesional (sus correcciones previas): si falla, se sigue sin él.
     const db = (env as unknown as { DB?: { prepare(sql: string): { bind(...v: unknown[]): { all<T>(): Promise<{ results: T[] }> } } } }).DB;
     const learned = db ? await db.prepare("SELECT entries FROM dictation_feedback WHERE owner_id = ? ORDER BY id DESC LIMIT 400").bind(user.userId).all<{ entries: string }>().then((r) => learnFromFeedback(r.results)).catch(() => NOTHING_LEARNED) : NOTHING_LEARNED;
-    const outcome = await proposeFromTranscript({ transcript, chart: sanitizeChart(record.chart), ...sanitizePatient(record.patient) }, model, undefined, { ...(agent ? { timeoutMs: 80_000 } : {}), learned });
-    return Response.json(outcome, { headers: { "Cache-Control": "no-store" } });
+    const chart = sanitizeChart(record.chart);
+    const target = chart[0];
+    const review = record.focused === true && chart.length === 1 && target ? focusedToothReview(transcript, target.tooth) : undefined;
+    const outcome = await proposeFromTranscript({ transcript, chart, ...sanitizePatient(record.patient) }, model, undefined, { ...(agent ? { timeoutMs: 80_000 } : {}), learned });
+    return Response.json({ ...outcome, review }, { headers: { "Cache-Control": "no-store" } });
   } catch (cause) {
     const message = cause instanceof Error && cause.message ? cause.message : "No se pudo preparar la propuesta.";
     return error(message);

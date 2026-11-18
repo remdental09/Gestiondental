@@ -408,11 +408,17 @@ export async function POST(request: Request) {
 
     if (action === "applyToothDictation") {
       const tooth = Number(input.tooth), rawChanges = input.changes;
-      if (!Number.isSafeInteger(tooth) || !allowedTeeth.has(tooth) || !Array.isArray(rawChanges) || rawChanges.length < 1 || rawChanges.length > 20) return error("La pieza o la propuesta de dictado no son válidas.");
+      if (!Number.isSafeInteger(tooth) || !allowedTeeth.has(tooth) || !Array.isArray(rawChanges) || rawChanges.length < 1 || rawChanges.length > 23) return error("La pieza o la propuesta de dictado no son válidas.");
+      const budgetTitle = string(input.budgetTitle, 180);
+      const hasBudget = input.budgetItems !== undefined || input.budgetTitle !== undefined;
+      const normalizedBudget = hasBudget ? normalizeBudgetItems(input.budgetItems, true) : null;
+      if (hasBudget && (!budgetTitle || !normalizedBudget)) return error("Revisa el título y las prestaciones del presupuesto preliminar.");
+      if (normalizedBudget?.some(item => item.zone || item.teeth?.some(itemTooth => itemTooth !== tooth))) return error("El presupuesto de este dictado debe corresponder solo a la pieza seleccionada.");
       type DictationOperation =
         | { kind: "status"; status: string; missingReason?: "caries" | "other" | "unknown" }
         | { kind: "surface"; surface: OdontogramSurface; finding: SurfaceFinding }
-        | { kind: "crown"; material: string; shade: string | null; foundation?: "tooth" | "implant" };
+        | { kind: "crown"; material: string; shade: string | null; foundation?: "tooth" | "implant" }
+        | { kind: "diagnosis"; title: string; detail: string };
       const operations: DictationOperation[] = [];
       const uniqueKeys = new Set<string>();
       for (const raw of rawChanges) {
@@ -469,12 +475,21 @@ export async function POST(request: Request) {
           operations.push({ kind: "crown", material, shade, ...(foundation ? { foundation } : {}) });
           continue;
         }
+        if (kind === "diagnosis") {
+          const title = string(change.title, 100), detail = string(change.detail, 1000);
+          if (!title || !detail) return error("El diagnóstico dictado necesita un nombre y un detalle.");
+          if (uniqueKeys.has("diagnosis")) return error("La propuesta repite el diagnóstico de esta pieza.");
+          uniqueKeys.add("diagnosis");
+          operations.push({ kind: "diagnosis", title, detail });
+          continue;
+        }
         return error("La propuesta incluye un tipo de cambio que no pertenece al odontograma de una pieza.");
       }
 
       const [old] = await db.select().from(toothStatuses).where(and(eq(toothStatuses.ownerId, ownerId), eq(toothStatuses.patientId, patientId))).limit(1);
       const data = normalizeOdontogram(old ? JSON.parse(old.data) : {});
       const statusOperation = operations.find((operation) => operation.kind === "status");
+      const diagnosisOperation = operations.find((operation): operation is Extract<DictationOperation, { kind: "diagnosis" }> => operation.kind === "diagnosis");
       const statusCheck = { teeth: { ...data.teeth }, extras: Object.fromEntries(Object.entries(data.extras ?? {}).map(([key, items]) => [key, [...items]])) };
       if (statusOperation?.kind === "status") applyStatusToChart(statusCheck, tooth, statusOperation.status);
       const resultingStatus = statusCheck.teeth[tooth] ?? "Sin hallazgos";
@@ -539,10 +554,36 @@ export async function POST(request: Request) {
         if (failure) return error(failure.error);
       }
       const updatedAt = now();
-      await db.insert(toothStatuses).values({ ownerId, patientId, data: JSON.stringify(data), updatedAt }).onConflictDoUpdate({ target: toothStatuses.patientId, set: { data: JSON.stringify(data), updatedAt } });
+      if (diagnosisOperation) {
+        const before = toothHistorySnapshot(data, tooth);
+        appendToothHistory(data, tooth, "diagnosis", before, {
+          recordedAt: updatedAt, clinicalDate: dateInChile(), source: "manual",
+          title: diagnosisOperation.title, detail: diagnosisOperation.detail,
+        });
+      }
+      const chartWrite = db.insert(toothStatuses).values({ ownerId, patientId, data: JSON.stringify(data), updatedAt })
+        .onConflictDoUpdate({ target: toothStatuses.patientId, set: { data: JSON.stringify(data), updatedAt } });
+      let savedBudget: typeof budgets.$inferSelect | undefined;
+      if (normalizedBudget) {
+        const itemsData = encodeBudgetData(normalizedBudget.map(item => ({ ...item, teeth: [tooth] })), { isAlternative: false, parentBudgetId: null });
+        const [, inserted] = await db.batch([
+          chartWrite,
+          db.insert(budgets).values({ ownerId, patientId, title: budgetTitle, items: itemsData, status: "Borrador", createdAt: updatedAt }).returning(),
+          (await budgetAuthorStatement(db, ownerId)).statement,
+        ]);
+        savedBudget = inserted[0];
+      } else await chartWrite;
       const [verified] = await db.select({ data: toothStatuses.data }).from(toothStatuses).where(and(eq(toothStatuses.ownerId, ownerId), eq(toothStatuses.patientId, patientId))).limit(1);
       if (!verified) return error("No se pudo verificar el odontograma actualizado.", 503);
-      return Response.json({ odontogram: normalizeOdontogram(JSON.parse(verified.data)) });
+      if (normalizedBudget) {
+        const [verifiedBudget] = await db.select().from(budgets).where(and(eq(budgets.id, savedBudget?.id ?? -1), eq(budgets.ownerId, ownerId), eq(budgets.patientId, patientId))).limit(1);
+        if (!verifiedBudget) return error("El odontograma se guardó, pero no se pudo verificar el presupuesto preliminar.", 503);
+        savedBudget = verifiedBudget;
+      }
+      return Response.json({
+        odontogram: normalizeOdontogram(JSON.parse(verified.data)),
+        ...(savedBudget ? { budget: await budgetViewWithAuthor(savedBudget, ownerId) } : {}),
+      });
     }
 
     if (action === "updatePatient") {

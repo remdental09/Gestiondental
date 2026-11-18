@@ -1,18 +1,32 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Mic, MicOff, Sparkles } from "lucide-react";
+import { Mic, MicOff, Plus, Sparkles, Trash2, Volume2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { formatFdi, type OdontogramData } from "@/app/clinical-data";
-import { createAudioTranscription, AUDIO_DICTATION_NOTICE } from "@/lib/dictation/audio-transcription";
+import { createAudioTranscription } from "@/lib/dictation/audio-transcription";
+import { speakTextNow } from "@/lib/dictation/speech";
+import { toothPrompt } from "@/lib/dictation/tooth-prompts";
 import { fdiToChile } from "@/lib/tooth-numbering";
-import { scopeToothProposal, toothDictationOperation, type ToothDictationOperation } from "@/lib/dictation/tooth-mode";
-import type { OdontogramChange, StructureOutcome } from "@/lib/dictation/proposal";
+import { confirmedCariesFaces, isProximalChange, scopeToothProposal, toothDiagnosisOperation, toothDictationOperation, toothPlanBudgetItem, type ToothDictationOperation } from "@/lib/dictation/tooth-mode";
+import type { focusedToothReview, OdontogramChange, StructureOutcome } from "@/lib/dictation/proposal";
+import type { BudgetItem } from "@/lib/budget-plans";
 
 type AudioStatus = "idle" | "starting" | "recording" | "transcribing";
-type Preview = { outcome: StructureOutcome; changes: OdontogramChange[]; otherTeeth: number[] };
+type FaceAnswer = "M" | "D" | "both" | "pending";
+type Step = "diagnosis" | "plan";
+type DiagnosisPreview = {
+  changes: OdontogramChange[];
+  otherTeeth: number[];
+  question: boolean;
+  answer?: FaceAnswer;
+};
+
+const faceChoices = [
+  ["M", "Mesial"], ["D", "Distal"], ["both", "Ambas"], ["pending", "Dejar pendiente"],
+] as const;
 
 const conditionLabel: Record<string, string> = {
   not_examined: "sin examinar",
@@ -40,18 +54,28 @@ function changeLabel(change: OdontogramChange, chart: OdontogramData) {
   return `Corona: ${current?.material || "sin material"} → ${change.material ?? "sin detalle"} ${foundation}${shade ? ` · ${change.shade ? "color" : "se conserva color"} ${shade}` : ""}`;
 }
 
+const cleanPlanText = (value: string, tooth: number) => value
+  .replace(new RegExp(`^\\s*FDI\\s+${formatFdi(tooth).replace(".", "\\.")}\\s*[.:,]?\\s*`, "i"), "")
+  .replace(/^\s*(?:plan(?:\s+de\s+tratamiento)?\s*:\s*)/i, "")
+  .trim();
+
 export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
   tooth: number;
   chart: OdontogramData;
   disabled?: boolean;
-  onApply?: (tooth: number, operations: ToothDictationOperation[]) => Promise<void>;
+  onApply?: (tooth: number, operations: ToothDictationOperation[], budgetTitle: string, budgetItems: BudgetItem[]) => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
-  const [transcript, setTranscript] = useState("");
+  const [step, setStep] = useState<Step>("diagnosis");
+  const [diagnosisText, setDiagnosisText] = useState("");
+  const [planText, setPlanText] = useState("");
   const [audioStatus, setAudioStatus] = useState<AudioStatus>("idle");
+  const [speaking, setSpeaking] = useState(false);
   const [speechError, setSpeechError] = useState("");
   const [analysisError, setAnalysisError] = useState("");
-  const [preview, setPreview] = useState<Preview | null>(null);
+  const [diagnosisPreview, setDiagnosisPreview] = useState<DiagnosisPreview | null>(null);
+  const [planItems, setPlanItems] = useState<BudgetItem[]>([]);
+  const [planOtherTeeth, setPlanOtherTeeth] = useState<number[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [analyzing, setAnalyzing] = useState(false);
   const [applying, setApplying] = useState(false);
@@ -59,27 +83,82 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
   const analysisController = useRef<AbortController | null>(null);
   if (engine.current === null) engine.current = createAudioTranscription();
 
-  useEffect(() => () => { engine.current?.abort(); analysisController.current?.abort(); }, []);
+  useEffect(() => () => {
+    engine.current?.abort();
+    analysisController.current?.abort();
+    if (typeof window !== "undefined" && "speechSynthesis" in window) window.speechSynthesis.cancel();
+  }, []);
+  const readQuestion = (text: string) => {
+    setSpeaking(true);
+    setSpeechError("");
+    const started = speakTextNow(text, {
+      onStart: () => setSpeaking(true),
+      onEnd: () => setSpeaking(false),
+      onError: error => {
+        setSpeaking(false);
+        if (error === "interrupted" || error === "canceled") return;
+        setSpeechError(error === "not-allowed"
+          ? "El navegador bloqueó la voz. Toca «Repetir pregunta» para intentarlo de nuevo y revisa el volumen."
+          : "No se pudo reproducir la pregunta. Toca «Repetir pregunta» para intentarlo de nuevo.");
+      },
+    });
+    if (!started) {
+      setSpeaking(false);
+      setSpeechError("Este navegador no puede reproducir la pregunta en voz alta. Puedes leerla y responder por voz o por escrito.");
+    }
+  };
+
+  const cancelQuestion = () => {
+    if (typeof window !== "undefined" && "speechSynthesis" in window) window.speechSynthesis.cancel();
+    setSpeaking(false);
+  };
+
+  const currentText = step === "diagnosis" ? diagnosisText : planText;
+  const setCurrentText = (value: string) => {
+    if (step === "diagnosis") {
+      setDiagnosisText(value);
+      setDiagnosisPreview(null);
+      setSelectedIds(new Set());
+    } else {
+      setPlanText(value);
+      setPlanItems([]);
+      setPlanOtherTeeth([]);
+    }
+    setAnalysisError("");
+  };
 
   const reset = () => {
     engine.current?.abort();
     analysisController.current?.abort();
     analysisController.current = null;
-    setTranscript("");
+    setStep("diagnosis");
+    setDiagnosisText("");
+    setPlanText("");
     setAudioStatus("idle");
-    setAnalyzing(false);
+    setSpeaking(false);
     setSpeechError("");
     setAnalysisError("");
-    setPreview(null);
+    setDiagnosisPreview(null);
+    setPlanItems([]);
+    setPlanOtherTeeth([]);
     setSelectedIds(new Set());
+    setAnalyzing(false);
+    setApplying(false);
   };
 
   const changeOpen = (next: boolean) => {
     setOpen(next);
-    if (!next) reset();
+    if (!next) { cancelQuestion(); reset(); }
+  };
+
+  const startGuidedEvaluation = () => {
+    reset();
+    setOpen(true);
+    readQuestion(toothPrompt("diagnosis", tooth));
   };
 
   const toggleRecording = () => {
+    if (speaking) return;
     if (audioStatus === "recording" || audioStatus === "starting") {
       engine.current?.stop();
       return;
@@ -90,26 +169,20 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
     }
     setSpeechError("");
     setAnalysisError("");
-    engine.current.start(transcript, {
+    engine.current.start(currentText, {
       onStatus: (status) => setAudioStatus(status === "recording" || status === "starting" || status === "transcribing" ? status : "idle"),
-      onTranscript: (text) => { setTranscript(text); setPreview(null); },
+      onTranscript: (text) => setCurrentText(text),
       onError: (message) => { setSpeechError(message); setAudioStatus("idle"); },
       onEnd: () => setAudioStatus("idle"),
     });
   };
 
-  const prepareProposal = async () => {
-    const text = transcript.trim();
-    if (text.length < 3) {
-      setAnalysisError("Dicta o escribe el hallazgo de esta pieza.");
-      return;
-    }
+  const runStructure = async (transcript: string) => {
     analysisController.current?.abort();
     const controller = new AbortController();
     analysisController.current = controller;
     setAnalyzing(true);
     setAnalysisError("");
-    setPreview(null);
     try {
       const chartTooth = {
         tooth,
@@ -120,17 +193,16 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
       const response = await fetch("/api/dictation/structure", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ transcript: `FDI ${formatFdi(tooth)}. ${text}`, chart: [chartTooth] }),
+        body: JSON.stringify({ transcript, chart: [chartTooth], focused: true }),
         signal: AbortSignal.any([controller.signal, AbortSignal.timeout(90_000)]),
       });
-      const data = await response.json() as StructureOutcome & { error?: string };
-      if (!response.ok || !data.proposal) throw new Error(data.error || "No se pudo preparar la propuesta.");
-      const scoped = scopeToothProposal(data.proposal.odontogram ?? [], tooth);
-      setPreview({ outcome: data, changes: scoped.changes, otherTeeth: scoped.otherTeeth });
-      setSelectedIds(new Set(scoped.changes.filter((change) => toothDictationOperation(change)).map((change) => change.id)));
+      const data = await response.json() as StructureOutcome & { error?: string; review?: ReturnType<typeof focusedToothReview> };
+      if (controller.signal.aborted) return null;
+      if (!response.ok || !data.proposal || !data.review) throw new Error(data.error || "No se pudo revisar esta pieza. Intenta de nuevo.");
+      return data;
     } catch (cause) {
-      if (controller.signal.aborted) return;
-      setAnalysisError(cause instanceof Error ? cause.message : "No se pudo preparar la propuesta. Revisa la conexión y vuelve a intentarlo.");
+      if (controller.signal.aborted) return null;
+      throw cause;
     } finally {
       if (analysisController.current === controller) {
         analysisController.current = null;
@@ -139,91 +211,194 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
     }
   };
 
+  const prepareDiagnosis = async () => {
+    const text = diagnosisText.trim();
+    if (text.length < 3) { setAnalysisError("Indica el diagnóstico o la hipótesis clínica de esta pieza."); return; }
+    setDiagnosisPreview(null);
+    try {
+      const data = await runStructure(`FDI ${formatFdi(tooth)}. Diagnóstico o hipótesis diagnóstica: ${text}`);
+      if (!data) return;
+      const scoped = scopeToothProposal(data.proposal.odontogram ?? [], tooth);
+      const question = data.review!.cariesFaceQuestion;
+      const changes = scoped.changes.filter(change => !question || !isProximalChange(change));
+      const eligible = changes.filter(change => toothDictationOperation(change));
+      setDiagnosisPreview({
+        changes: eligible,
+        otherTeeth: [...new Set([...data.review!.otherTeeth, ...scoped.otherTeeth])],
+        question,
+      });
+      setSelectedIds(new Set(eligible.map(change => change.id)));
+    } catch (cause) {
+      if (analysisController.current?.signal.aborted) return;
+      setAnalysisError(cause instanceof Error ? cause.message : "No se pudo revisar el diagnóstico. Revisa la conexión y vuelve a intentarlo.");
+    }
+  };
+
+  const preparePlan = async () => {
+    const text = planText.trim();
+    if (text.length < 3) { setAnalysisError("Indica el plan de tratamiento preliminar para esta pieza."); return; }
+    setPlanItems([]);
+    setPlanOtherTeeth([]);
+    try {
+      const data = await runStructure(`FDI ${formatFdi(tooth)}. Plan de tratamiento: ${text}`);
+      if (!data) return;
+      const plans = (data.proposal.items ?? []).filter(item => item.kind === "plan" && (item.tooth === tooth || item.tooth === null));
+      const unique = new Map<string, typeof plans[number]>();
+      for (const item of plans) {
+        const label = cleanPlanText(item.what || text, tooth);
+        const key = label.toLocaleLowerCase("es-CL");
+        if (label && !unique.has(key)) unique.set(key, item);
+      }
+      const rows: BudgetItem[] = [...unique.values()].map(item => toothPlanBudgetItem(cleanPlanText(item.what || text, tooth), tooth, item.arancel));
+      setPlanItems(rows.length ? rows : [toothPlanBudgetItem(text, tooth)]);
+      setPlanOtherTeeth([...new Set(data.review!.otherTeeth.filter(other => other !== tooth))]);
+    } catch (cause) {
+      if (analysisController.current?.signal.aborted) return;
+      setAnalysisError(cause instanceof Error ? cause.message : "No se pudo preparar el plan. Revisa la conexión y vuelve a intentarlo.");
+    }
+  };
+
+  const answer = diagnosisPreview?.answer;
+  const confirmedFaces = confirmedCariesFaces(
+    answer === "both" ? ["M", "D"] : answer === "M" || answer === "D" ? [answer] : [],
+    chart.surfaces[tooth],
+  );
+  const chartOperations = diagnosisPreview?.changes
+    .filter(change => selectedIds.has(change.id))
+    .map(toothDictationOperation)
+    .filter((operation): operation is ToothDictationOperation => operation !== null) ?? [];
+  const diagnosisOperation = toothDiagnosisOperation(diagnosisText);
+  const operations: ToothDictationOperation[] = [
+    ...chartOperations,
+    ...confirmedFaces,
+    ...(diagnosisOperation ? [diagnosisOperation] : []),
+  ];
+  const canContinue = Boolean(diagnosisPreview && diagnosisText.trim().length >= 3 && !diagnosisPreview.otherTeeth.length && (!diagnosisPreview.question || answer));
+  const validPlan = planItems.length > 0 && planItems.every(item => item.label.trim().length > 0 && Number.isSafeInteger(Number(item.amount)) && Number(item.amount) >= 0);
+  const budgetTitle = `Presupuesto preliminar · FDI ${formatFdi(tooth)} · Chile ${fdiToChile(tooth)}`;
+
   const applyProposal = async () => {
-    if (!preview || preview.otherTeeth.length || !onApply) return;
-    const operations = preview.changes
-      .filter((change) => selectedIds.has(change.id))
-      .map(toothDictationOperation)
-      .filter((operation): operation is ToothDictationOperation => operation !== null);
-    if (!operations.length) return;
+    if (!canContinue || !validPlan || planOtherTeeth.length || !onApply) return;
     setApplying(true);
     setAnalysisError("");
     try {
-      await onApply(tooth, operations);
+      await onApply(tooth, operations, budgetTitle, planItems.map(item => ({ ...item, label: item.label.trim(), amount: Number(item.amount), teeth: [tooth] })));
       changeOpen(false);
     } catch (cause) {
-      setAnalysisError(cause instanceof Error ? cause.message : "No se pudieron aplicar los cambios.");
+      setAnalysisError(cause instanceof Error ? cause.message : "No se pudieron guardar el diagnóstico y el plan.");
     } finally {
       setApplying(false);
     }
   };
 
-  const eligibleCount = preview?.changes.filter((change) => toothDictationOperation(change)).length ?? 0;
+  const updatePlanItem = (index: number, patch: Partial<BudgetItem>) => setPlanItems(previous => previous.map((item, at) => at === index ? { ...item, ...patch, teeth: [tooth] } : item));
 
   return <>
-    {onApply && <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={() => setOpen(true)} data-testid="dictate-selected-tooth">
+    {onApply && <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={startGuidedEvaluation} data-testid="dictate-selected-tooth">
       <Mic className="mr-2 size-4"/>Dictar esta pieza
     </Button>}
     <Dialog open={open} onOpenChange={changeOpen}>
       <DialogContent className="max-h-[calc(100dvh-2rem)] max-w-2xl overflow-y-auto border-[#dddbe6] bg-white p-5 sm:p-6">
         <DialogHeader>
-          <DialogTitle>Dictado de una pieza</DialogTitle>
-          <DialogDescription>FDI {formatFdi(tooth)} · Chile {fdiToChile(tooth)}. El modo se limita a esta pieza y solo guarda en el odontograma.</DialogDescription>
+          <DialogTitle>Evaluación guiada por pieza</DialogTitle>
+          <DialogDescription>FDI {formatFdi(tooth)} · Chile {fdiToChile(tooth)}. El profesional revisa y confirma cada dato antes de guardar.</DialogDescription>
         </DialogHeader>
-        <div className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-950">
-          Puedes nombrarla como <strong>FDI {formatFdi(tooth)}</strong> o <strong>chilena {fdiToChile(tooth)}</strong>. También puedes omitir el número: la pieza ya está seleccionada. Si mencionas otro número, se detendrá para revisar la pieza.
+
+        <div className="grid grid-cols-2 gap-2" aria-label="Etapas de la evaluación">
+          <div className={`rounded-lg border px-3 py-2 text-sm font-semibold ${step === "diagnosis" ? "border-[#473a6d] bg-violet-50 text-[#3b3355]" : "border-[#e6e4ee] text-[#615f73]"}`}>1 · Diagnóstico</div>
+          <div className={`rounded-lg border px-3 py-2 text-sm font-semibold ${step === "plan" ? "border-[#473a6d] bg-violet-50 text-[#3b3355]" : "border-[#e6e4ee] text-[#615f73]"}`}>2 · Plan</div>
         </div>
-        <label className="mt-3 block text-sm font-medium text-[#3b3355]" htmlFor={`tooth-dictation-${tooth}`}>Hallazgo clínico</label>
-        <Textarea id={`tooth-dictation-${tooth}`} value={transcript} onChange={(event) => { setTranscript(event.target.value); setPreview(null); setAnalysisError(""); }} disabled={analyzing || applying || audioStatus !== "idle"} rows={4} maxLength={8000} placeholder="Ej.: caries oclusal de dentina profunda; distal obturada con resina…" className="text-base" />
-        <p role="note" className="mt-2 rounded-lg bg-sky-50 p-3 text-xs leading-5 text-sky-950">{AUDIO_DICTATION_NOTICE}</p>
+
+        <section className="mt-3 rounded-xl bg-[#f7f6fa] p-4" aria-live="polite">
+          <p className="text-xs font-semibold uppercase tracking-wide text-[#625a7c]">{step === "diagnosis" ? "Pregunta 1 · hipótesis diagnóstica" : "Pregunta 2 · plan de tratamiento"}</p>
+          <h2 className="mt-2 text-2xl font-semibold leading-tight text-[#302747]">{toothPrompt(step, tooth)}</h2>
+          <Button type="button" variant="ghost" size="sm" className="mt-2 px-2" onClick={() => readQuestion(toothPrompt(step, tooth))}>
+            <Volume2 className="mr-2 size-4"/>Repetir pregunta
+          </Button>
+        </section>
+
+        <div className="mt-3 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-950">
+          Pieza seleccionada: FDI {formatFdi(tooth)} · Chile {fdiToChile(tooth)}. Puedes omitir el número; otra pieza detiene la revisión.
+        </div>
+
+        <label className="mt-3 block text-sm font-medium text-[#3b3355]" htmlFor={`tooth-dictation-${step}-${tooth}`}>
+          {step === "diagnosis" ? "Diagnóstico o hipótesis dictada" : "Plan preliminar dictado"}
+        </label>
+        <Textarea
+          id={`tooth-dictation-${step}-${tooth}`}
+          value={currentText}
+          onChange={event => setCurrentText(event.target.value)}
+          disabled={analyzing || applying || audioStatus !== "idle"}
+          rows={step === "diagnosis" ? 3 : 4}
+          maxLength={step === "diagnosis" ? 1000 : 4000}
+          placeholder={step === "diagnosis" ? "Ej.: caries distal en dentina profunda; hipótesis de fractura coronaria…" : "Ej.: restauración con resina compuesta; evaluar endodoncia si se confirma compromiso pulpar…"}
+          className="text-base"
+        />
+        <p role="note" className="mt-2 rounded-lg bg-sky-50 p-3 text-xs leading-5 text-sky-950">La voz se transcribe para preparar la propuesta. Nada se guarda hasta que confirmes.</p>
         <div className="mt-2 flex flex-wrap gap-2">
-          <Button type="button" variant="outline" onClick={toggleRecording} disabled={audioStatus === "transcribing" || analyzing || applying} aria-pressed={audioStatus === "recording"}>
-            {audioStatus === "recording" || audioStatus === "starting" ? <><MicOff className="mr-2 size-4"/>Detener dictado</> : <><Mic className="mr-2 size-4"/>{audioStatus === "transcribing" ? "Transcribiendo…" : "Dictar por voz"}</>}
+          <Button type="button" variant="outline" onClick={toggleRecording} disabled={speaking || audioStatus === "transcribing" || analyzing || applying} aria-pressed={audioStatus === "recording"}>
+            {audioStatus === "recording" || audioStatus === "starting" ? <><MicOff className="mr-2 size-4"/>Detener dictado</> : <><Mic className="mr-2 size-4"/>{audioStatus === "transcribing" ? "Transcribiendo…" : "Responder por voz"}</>}
           </Button>
-          <Button type="button" onClick={prepareProposal} disabled={analyzing || applying || audioStatus !== "idle" || transcript.trim().length < 3}>
-            <Sparkles className="mr-2 size-4"/>{analyzing ? "Preparando…" : "Preparar propuesta"}
+          <Button type="button" onClick={() => void (step === "diagnosis" ? prepareDiagnosis() : preparePlan())} disabled={analyzing || applying || audioStatus !== "idle" || currentText.trim().length < 3}>
+            <Sparkles className="mr-2 size-4"/>{analyzing ? "Revisando…" : step === "diagnosis" ? "Revisar diagnóstico" : "Preparar plan preliminar"}
           </Button>
-          {preview && <Button type="button" variant="ghost" onClick={() => { setPreview(null); setAnalysisError(""); }} disabled={analyzing || applying}>Editar dictado</Button>}
         </div>
+        {speaking && <p role="status" className="mt-2 text-xs text-[#615f73]">La aplicación está formulando la pregunta. El micrófono se habilita al terminar.</p>}
         {(audioStatus === "starting" || audioStatus === "recording" || audioStatus === "transcribing") && <p role="status" className="mt-2 text-xs text-[#615f73]">{audioStatus === "recording" ? "Grabando. Pulsa «Detener dictado» para transcribir." : audioStatus === "transcribing" ? "Transcribiendo el audio…" : "Preparando el micrófono…"}</p>}
         {speechError && <p role="alert" className="mt-2 text-sm text-rose-800">{speechError}</p>}
         {analysisError && <p role="alert" className="mt-2 text-sm text-rose-800">{analysisError}</p>}
 
-        {preview && <section className="mt-4 space-y-3 border-t border-[#ebe9f2] pt-4" aria-live="polite">
-          <div>
-            <h3 className="font-semibold text-[#3b3355]">Propuesta para FDI {formatFdi(tooth)} · Chile {fdiToChile(tooth)}</h3>
-            <p className="text-xs text-[#615f73]">{preview.outcome.engine === "reglas-locales" ? "Interpretada por reglas locales" : "Preparada con el sistema de dictado"}. Revisa cada cambio antes de aplicarlo.</p>
-          </div>
-          {preview.outcome.proposal.corrected?.text && preview.outcome.proposal.corrected.text !== transcript.trim() && <details className="rounded-lg border border-[#e6e4ee] p-3 text-sm">
-            <summary className="cursor-pointer font-medium text-[#473a6d]">Ver texto interpretado</summary>
-            <p className="mt-2 whitespace-pre-wrap">{preview.outcome.proposal.corrected.text}</p>
-          </details>}
-          {preview.otherTeeth.length > 0 ? <p role="alert" className="rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm text-rose-900">El dictado también identifica {preview.otherTeeth.map((other) => `FDI ${formatFdi(other)} · Chile ${fdiToChile(other)}`).join(", ")}. No se guardó ninguna pieza. Corrige el texto para dictar solo la seleccionada.</p> : preview.changes.length ? <ul className="space-y-2">
-            {preview.changes.map((change) => {
-              const operation = toothDictationOperation(change);
-              const blocked = !operation;
-              const checked = selectedIds.has(change.id);
-              return <li key={change.id} className={`rounded-lg border p-3 ${blocked ? "border-amber-200 bg-amber-50" : "border-[#e6e4ee] bg-white"}`}>
-                <label className="flex items-start gap-3">
-                  <input type="checkbox" className="mt-1 size-4 accent-[#473a6d]" checked={checked} disabled={blocked || applying} onChange={(event) => setSelectedIds((previous) => { const next = new Set(previous); if (event.target.checked) next.add(change.id); else next.delete(change.id); return next; })} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block font-medium text-[#3b3355]">{changeLabel(change, chart)}</span>
-                    <span className="mt-1 block text-xs text-[#615f73]">Mención: {change.numberingLabel}. {change.evidence || change.sourceText}</span>
-                    {blocked && <span className="mt-1 block text-xs font-medium text-amber-900">{change.conflict ? "Reglas e IA discrepan." : change.advisory ?? (change.coherence === "incoherente" ? "La propuesta no es coherente con el registro." : "Faltan datos para aplicar este cambio." )} No se puede aplicar desde aquí.</span>}
-                  </span>
-                </label>
-              </li>;
-            })}
-          </ul> : <p className="rounded-lg bg-[#f7f6fa] p-3 text-sm text-[#615f73]">No se detectaron hallazgos actuales para guardar en el odontograma de esta pieza.</p>}
-          {preview.outcome.proposal.clarifications?.length ? <details className="rounded-lg border border-amber-200 bg-amber-50/60 p-3 text-sm text-amber-950">
-            <summary className="cursor-pointer font-medium">Aclaraciones del dictado ({preview.outcome.proposal.clarifications.length})</summary>
-            <ul className="mt-2 list-disc space-y-1 pl-5">{preview.outcome.proposal.clarifications.slice(0, 6).map((question, index) => <li key={`${index}:${question}`}>{question}</li>)}</ul>
-          </details> : null}
-          <p className="text-xs text-[#615f73]">Los planes y las notas de evolución no se guardan en este modo. El odontograma registra caries por superficie y profundidad; no se reemplazan por ICDAS.</p>
-          {onApply && <div className="flex flex-wrap justify-end gap-2 border-t border-[#ebe9f2] pt-3">
+        {step === "diagnosis" && diagnosisPreview && <section className="mt-4 space-y-3 border-t border-[#ebe9f2] pt-4" aria-live="polite">
+          <h3 className="font-semibold text-[#3b3355]">Revisa la hipótesis antes de pasar al plan</h3>
+          {diagnosisPreview.otherTeeth.length > 0
+            ? <p role="alert" className="rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm text-rose-900">El dictado menciona también {diagnosisPreview.otherTeeth.map(other => `FDI ${formatFdi(other)} · Chile ${fdiToChile(other)}`).join(", ")}. Corrige esta respuesta para mantener una pieza por vez.</p>
+            : <>
+              {diagnosisPreview.question && <fieldset className="rounded-lg border border-amber-300 bg-amber-50 p-3">
+                <legend className="px-1 font-semibold text-amber-950">¿En qué cara está la caries?</legend>
+                <div className="flex flex-wrap gap-2">
+                  {faceChoices.map(([value, label]) => <Button key={value} type="button" size="sm" variant={answer === value ? "default" : "outline"} aria-pressed={answer === value} disabled={applying || audioStatus !== "idle"} onClick={() => { setDiagnosisPreview(current => current ? { ...current, answer: value } : current); setAnalysisError(""); }}>{label}</Button>)}
+                </div>
+              </fieldset>}
+              {diagnosisPreview.changes.length > 0 && <ul className="space-y-2">
+                {diagnosisPreview.changes.map(change => <li key={change.id} className="rounded-lg border border-[#e6e4ee] bg-white p-3">
+                  <label className="flex items-start gap-3">
+                    <input type="checkbox" className="mt-1 size-4 accent-[#473a6d]" checked={selectedIds.has(change.id)} disabled={applying} onChange={event => setSelectedIds(previous => { const next = new Set(previous); if (event.target.checked) next.add(change.id); else next.delete(change.id); return next; })}/>
+                    <span className="min-w-0 flex-1"><span className="block font-medium text-[#3b3355]">{changeLabel(change, chart)}</span></span>
+                  </label>
+                </li>)}
+              </ul>}
+              {!diagnosisPreview.changes.length && <p className="rounded-lg bg-[#f7f6fa] p-3 text-sm text-[#615f73]">No hay un cambio directo que representar en el odontograma. El texto dictado quedará en el historial de esta pieza.</p>}
+            </>}
+          <div className="flex flex-wrap justify-end gap-2 border-t border-[#ebe9f2] pt-3">
             <Button type="button" variant="outline" onClick={() => changeOpen(false)} disabled={applying}>Cancelar</Button>
-            <Button type="button" onClick={() => void applyProposal()} disabled={applying || analyzing || !eligibleCount || !selectedIds.size || Boolean(preview.otherTeeth.length)}>{applying ? "Aplicando…" : `Aplicar ${selectedIds.size} cambio${selectedIds.size === 1 ? "" : "s"}`}</Button>
-          </div>}
+            <Button type="button" onClick={() => { setStep("plan"); setAnalysisError(""); readQuestion(toothPrompt("plan", tooth)); }} disabled={!canContinue || analyzing || audioStatus !== "idle"}>Siguiente: plan de tratamiento</Button>
+          </div>
+        </section>}
+
+        {step === "plan" && planItems.length > 0 && <section className="mt-4 space-y-3 border-t border-[#ebe9f2] pt-4" aria-live="polite">
+          <div>
+            <h3 className="font-semibold text-[#3b3355]">Presupuesto preliminar · editable</h3>
+            <p className="mt-1 text-sm text-[#615f73]">Los valores quedan por definir hasta que los completes. El plan se guardará como borrador para esta pieza.</p>
+          </div>
+          {planOtherTeeth.length > 0 && <p role="alert" className="rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm text-rose-900">La respuesta también nombra {planOtherTeeth.map(other => `FDI ${formatFdi(other)}`).join(", ")}. Corrígela para guardar un plan por pieza.</p>}
+          <ul className="space-y-3">
+            {planItems.map((item, index) => <li key={`${index}-${item.code ?? ""}`} className="grid gap-2 rounded-lg border border-[#e6e4ee] bg-white p-3 sm:grid-cols-[1fr_10rem_auto] sm:items-end">
+              <label className="block text-sm font-medium text-[#3b3355]">Prestación<input type="text" value={item.label} maxLength={180} onChange={event => updatePlanItem(index, { label: event.target.value })} className="mt-1 h-10 w-full rounded-lg border border-[#d8d5e2] px-3 font-normal"/></label>
+              <label className="block text-sm font-medium text-[#3b3355]">Valor CLP<input type="number" min={0} max={1_000_000_000} step={1000} value={item.amount} onChange={event => updatePlanItem(index, { amount: event.target.value === "" ? 0 : Number(event.target.value) })} className="mt-1 h-10 w-full rounded-lg border border-[#d8d5e2] px-3 font-normal"/></label>
+              <Button type="button" variant="ghost" size="sm" aria-label={`Quitar prestación ${index + 1}`} disabled={planItems.length <= 1} onClick={() => setPlanItems(previous => previous.filter((_, at) => at !== index))}><Trash2 className="size-4"/></Button>
+            </li>)}
+          </ul>
+          <Button type="button" variant="outline" size="sm" onClick={() => setPlanItems(previous => [...previous, toothPlanBudgetItem("", tooth)])}><Plus className="mr-2 size-4"/>Agregar prestación</Button>
+          <div className="rounded-lg border border-violet-200 bg-violet-50 p-3 text-sm text-violet-950">
+            <p className="font-semibold">Resumen para FDI {formatFdi(tooth)} · Chile {fdiToChile(tooth)}</p>
+            <p className="mt-1"><strong>Diagnóstico / hipótesis:</strong> {diagnosisText.trim()}</p>
+            <p className="mt-1"><strong>Plan:</strong> {planItems.map(item => item.label || "prestación sin nombre").join("; ")}</p>
+          </div>
+          <div className="flex flex-wrap justify-end gap-2 border-t border-[#ebe9f2] pt-3">
+            <Button type="button" variant="outline" onClick={() => { setStep("diagnosis"); setAnalysisError(""); readQuestion(toothPrompt("diagnosis", tooth)); }} disabled={applying}>Editar diagnóstico</Button>
+            <Button type="button" variant="outline" onClick={() => changeOpen(false)} disabled={applying}>Cancelar</Button>
+            <Button type="button" onClick={() => void applyProposal()} disabled={applying || analyzing || audioStatus !== "idle" || !canContinue || !validPlan || Boolean(planOtherTeeth.length)}>{applying ? "Guardando…" : "Guardar diagnóstico y plan"}</Button>
+          </div>
         </section>}
       </DialogContent>
     </Dialog>

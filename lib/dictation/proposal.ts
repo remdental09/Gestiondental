@@ -4148,6 +4148,22 @@ const ITEM_TOOLS = {
   formatFdi: (tooth: number) => formatFdi(tooth),
 };
 
+/** Revisión del texto original, incluso si la propuesta solo conserva una de las dos caras. */
+export function focusedToothReview(transcript: string, tooth: number) {
+  const otherTeeth = [...new Set(ITEM_TOOLS.teethIn(spokenPunctuation(transcript)))].filter(value => value !== tooth);
+  const faces = new Set<string>();
+  for (const sentence of sentences(transcript)) {
+    if (isPlan(sentence)) continue;
+    const text = fold(sentence);
+    if (/\bcaries\s+(?:(?:en\s+)?(?:las\s+)?caras\s+)?(?:mesial\s+y\s+(?:caries\s+)?distal|distal\s+y\s+(?:caries\s+)?mesial)\b/.test(text)) continue;
+    for (const match of text.matchAll(/\bcaries\s+(?:en\s+(?:(?:la\s+)?cara\s+)?)?(mesial|distal)\b(?:\s+o\s+(mesial|distal)\b)?/g)) {
+      faces.add(match[1]!);
+      if (match[2]) faces.add(match[2]);
+    }
+  }
+  return { otherTeeth, cariesFaceQuestion: faces.has("mesial") && faces.has("distal") };
+}
+
 export async function proposeFromTranscript(
   input: StructureInput,
   model: ClinicalModel | null,

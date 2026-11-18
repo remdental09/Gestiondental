@@ -106,8 +106,8 @@ export function TodayPanel({ patients, events, budgets, payments, clinicName, no
           : <p className="mt-2 text-sm text-[#6b6a7c]">Sin coincidencias.</p>)}
       </div>
       {balances.length > 0 && <div className="surface fx-rise" style={{ animationDelay: "140ms" }} data-testid="today-balances">
-        <h3 className="flex items-center gap-2 text-sm font-semibold"><Wallet className="size-4" aria-hidden="true" />Saldos por cobrar</h3>
-        <p className="text-xs text-[#6b6a7c]">Presupuestos menos abonos registrados.</p>
+        <h3 className="flex items-center gap-2 text-sm font-semibold"><Wallet className="size-4" aria-hidden="true" />Deuda por prestaciones realizadas</h3>
+        <p className="text-xs text-[#6b6a7c]">Se excluyen presupuestos sin iniciar y pagos no asociados a un plan.</p>
         <ul className="mt-2 divide-y divide-[#ebeaf1]">{balances.map(({ patient, owed }) => <li key={patient.id}><button type="button" onClick={() => onOpenPatient(patient.id)} className="flex w-full items-center justify-between gap-3 py-2 text-left text-sm hover:text-[#473a6d]"><span className="truncate">{patient.name}</span><strong className="shrink-0 tabular-nums">{money(owed)}</strong></button></li>)}</ul>
       </div>}
     </div>

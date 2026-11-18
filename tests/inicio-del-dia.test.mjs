@@ -36,13 +36,24 @@ test("el paciente de la cita se reconoce por vínculo o por nombre completo, sin
   assert.equal(patientForEvent(ev(1, "", "", { title: "Ana" }), patients), null);
 });
 
-test("saldos pendientes: presupuestos principales menos abonos, de mayor a menor", () => {
+test("deuda por prestaciones realizadas: excluye presupuestos sin iniciar, alternativas y pagos de otros planes", () => {
   const out = pendingBalances(patients, [
-    { id: 1, patientId: 1, total: 500000, isAlternative: false },
-    { id: 2, patientId: 1, total: 900000, isAlternative: true },
-    { id: 3, patientId: 2, total: 100000, isAlternative: false },
-  ], [{ patientId: 1, amount: 200000 }, { patientId: 2, amount: 100000 }]);
-  assert.deepEqual(out.map(o => [o.patient.id, o.owed]), [[1, 300000]]);
+    { id: 1, patientId: 1, items: [
+      { label: "Prestación realizada", amount: 500000, doneOn: "2026-11-01" },
+      { label: "Prestación futura", amount: 500000 },
+    ], isAlternative: false },
+    { id: 2, patientId: 1, items: [{ label: "Alternativa realizada", amount: 900000, doneOn: "2026-11-01" }], isAlternative: true },
+    { id: 3, patientId: 2, items: [{ label: "Presupuesto sin iniciar", amount: 100000 }], isAlternative: false },
+    { id: 4, patientId: 2, items: [{ label: "Prestación realizada", amount: 80000, doneOn: "2026-11-02" }], isAlternative: false },
+    { id: 5, patientId: 3, items: [{ label: "Prestación pagada", amount: 100000, doneOn: "2026-11-03" }], isAlternative: false },
+  ], [
+    { patientId: 1, budgetId: 1, amount: 200000 },
+    { patientId: 1, budgetId: null, amount: 1000000 },
+    { patientId: 1, budgetId: 2, amount: 900000 },
+    { patientId: 2, budgetId: 3, amount: 100000 },
+    { patientId: 3, budgetId: 5, amount: 100000 },
+  ]);
+  assert.deepEqual(out.map(o => [o.patient.id, o.owed]), [[1, 300000], [2, 80000]]);
 });
 
 test("búsqueda rápida por nombre en cualquier orden, sin tildes, o por RUT", () => {

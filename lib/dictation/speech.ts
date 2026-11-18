@@ -27,6 +27,33 @@ export function unlockSpeech(): void {
   } catch { /* sin voz */ }
 }
 
+export type SpeechPlaybackHandlers = {
+  onStart?: () => void;
+  onEnd?: () => void;
+  onError?: (error: string) => void;
+};
+
+/** Reproduce una pregunta en la misma interacción del usuario que la solicita. */
+export function speakTextNow(text: string, handlers: SpeechPlaybackHandlers = {}): boolean {
+  if (typeof window === "undefined" || !("speechSynthesis" in window) || typeof SpeechSynthesisUtterance === "undefined" || !text.trim()) return false;
+  const synth = window.speechSynthesis;
+  try {
+    synth.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    const voice = pickLatinVoice(synth.getVoices());
+    if (voice) { utterance.voice = voice; utterance.lang = voice.lang; }
+    else utterance.lang = "es-CL";
+    utterance.onstart = () => handlers.onStart?.();
+    utterance.onend = () => handlers.onEnd?.();
+    utterance.onerror = event => handlers.onError?.(event.error);
+    synth.speak(utterance);
+    if (synth.paused) synth.resume();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Lee las frases con voz latinoamericana. Devuelve false si el navegador bloqueó o no puede hablar. */
 export function speakPhrases(phrases: string[], onBlocked?: () => void): boolean {
   if (typeof window === "undefined" || !("speechSynthesis" in window) || !phrases.length) return false;

@@ -1,11 +1,12 @@
 import { chileDay } from "./chile-day.ts";
+import { budgetProgress, type BudgetItem } from "./budget-plans.ts";
 
 export type TodayEvent = { id: number; title: string; startAt: string; endAt: string; status: string; allDay: boolean; patientId: number | null };
 export type TodayPatient = { id: number; name: string; rut?: string; phone?: string; email?: string };
 /** Contactos hallados en la descripción o los invitados de cada cita (celulares y correos ya extraídos; no se guarda el texto). */
 export type EventHints = Record<number, string>;
-export type TodayBudget = { id: number; patientId: number; total: number; isAlternative: boolean };
-export type TodayPayment = { patientId: number; amount: number };
+export type TodayBudget = { id: number; patientId: number; items: BudgetItem[]; isAlternative: boolean };
+export type TodayPayment = { patientId: number; budgetId: number | null; amount: number };
 
 export type TodayItem<E extends TodayEvent, P extends TodayPatient> = { event: E; patient: P | null; state: "pasada" | "ahora" | "siguiente" | "luego" };
 export type PendingBalance<P extends TodayPatient> = { patient: P; owed: number };
@@ -112,17 +113,29 @@ export function todayAgenda<E extends TodayEvent, P extends TodayPatient>(events
   });
 }
 
-/** Saldo estimado por paciente: presupuestos principales menos abonos registrados. Solo los que deben algo, de mayor a menor. */
+/** Deuda clínica estimada: solo prestaciones realizadas y no cubiertas, por plan principal. */
 export function pendingBalances<P extends TodayPatient>(patients: P[], budgets: TodayBudget[], payments: TodayPayment[], limit = 5): PendingBalance<P>[] {
-  const result: PendingBalance<P>[] = [];
-  for (const patient of patients) {
-    const planned = budgets.filter(b => b.patientId === patient.id && !b.isAlternative).reduce((sum, b) => sum + b.total, 0);
-    if (planned <= 0) continue;
-    const paid = payments.filter(p => p.patientId === patient.id).reduce((sum, p) => sum + p.amount, 0);
-    const owed = planned - paid;
-    if (owed > 0) result.push({ patient, owed });
+  const patientsById = new Map(patients.map(patient => [patient.id, patient]));
+  const budgetsById = new Map(budgets.map(budget => [budget.id, budget]));
+  const paidByBudget = new Map<number, number>();
+  for (const payment of payments) {
+    if (payment.budgetId === null) continue;
+    const budget = budgetsById.get(payment.budgetId);
+    if (!budget || budget.patientId !== payment.patientId || budget.isAlternative) continue;
+    paidByBudget.set(budget.id, (paidByBudget.get(budget.id) ?? 0) + payment.amount);
   }
-  return result.sort((a, b) => b.owed - a.owed).slice(0, limit);
+
+  const owedByPatient = new Map<number, number>();
+  for (const budget of budgets) {
+    if (budget.isAlternative || !patientsById.has(budget.patientId)) continue;
+    const owedForDone = budgetProgress(budget.items, paidByBudget.get(budget.id) ?? 0).owedForDone;
+    if (owedForDone > 0) owedByPatient.set(budget.patientId, (owedByPatient.get(budget.patientId) ?? 0) + owedForDone);
+  }
+
+  return [...owedByPatient]
+    .map(([patientId, owed]) => ({ patient: patientsById.get(patientId)!, owed }))
+    .sort((a, b) => b.owed - a.owed)
+    .slice(0, limit);
 }
 
 /** Búsqueda rápida por nombre (en cualquier orden) o RUT; sin tildes ni puntos. */
