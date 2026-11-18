@@ -3,9 +3,23 @@ import { isReasoningModel, OPENAI_CORRECTION_MODEL } from "./openai-structure.ts
 import { applyLexicon, applySelfCorrections } from "./spoken.ts";
 import type { ToothGuidedStep } from "./tooth-prompts.ts";
 import { formatFdiTooth } from "../tooth-numbering.ts";
+import { numberSignature } from "./spoken.ts";
 
 const CLINICAL_FACES = /\b(mesial|distal|palatin[ao]|lingual|vestibular|oclusal|incisal|cervical)\b/giu;
-const NUMBERS = /\d+(?:[.,]\d+)*/g;
+
+export class ToothAnswerNumericMismatchError extends Error {
+  readonly code = "numeric_mismatch";
+
+  constructor(readonly draft: string) {
+    super("La IA propuso una cifra distinta al dictado. Compara la propuesta y corrige el campo; no necesitas volver a dictar.");
+    this.name = "ToothAnswerNumericMismatchError";
+  }
+}
+
+function numericSignature(text: string): number[] {
+  // «dos por ciento» y «2%» expresan la misma cifra clínica.
+  return numberSignature(text.replace(/\bpor\s+ciento\b/giu, "%"));
+}
 
 /** El modelo redacta; el profesional conserva la decisión clínica. */
 export async function redraftToothAnswer(
@@ -44,8 +58,9 @@ export async function redraftToothAnswer(
   const text = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as { text?: unknown }).text : null;
   if (typeof text !== "string" || text.trim().length < 3 || text.length > (step === "diagnosis" ? 1_500 : 4_500)) throw new Error("El modelo no devolvió una redacción válida.");
   const draft = text.trim();
-  const sourceNumbers = new Set(source.match(NUMBERS) ?? []);
-  if ((draft.match(NUMBERS) ?? []).some(number => !sourceNumbers.has(number))) throw new Error("La redacción cambió una cifra; revisa y vuelve a dictar la respuesta.");
+  const sourceNumbers = numericSignature(source);
+  const draftNumbers = numericSignature(draft);
+  if (sourceNumbers.length !== draftNumbers.length || sourceNumbers.some((number, index) => number !== draftNumbers[index])) throw new ToothAnswerNumericMismatchError(draft);
   const sourceFaces = new Set([...source.matchAll(CLINICAL_FACES)].map(match => match[0].toLowerCase().replace(/a$/, "o")));
   if ([...draft.matchAll(CLINICAL_FACES)].some(match => !sourceFaces.has(match[0].toLowerCase().replace(/a$/, "o")))) throw new Error("La redacción añadió una cara dental no dictada; revisa la respuesta.");
   if (/(?<!\p{L})(?:analiza(?:r)? la respuesta|me equivoqu[eé]|quise decir|perd[oó]n)(?!\p{L})/iu.test(draft)) throw new Error("La redacción conservó una instrucción o rectificación; vuelve a intentarlo.");

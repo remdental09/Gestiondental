@@ -76,6 +76,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
   const [speechError, setSpeechError] = useState("");
   const [analysisError, setAnalysisError] = useState("");
   const [answerReady, setAnswerReady] = useState(false);
+  const [numericReviewDraft, setNumericReviewDraft] = useState<string | null>(null);
   const [redrafting, setRedrafting] = useState(false);
   const [rawAnswerText, setRawAnswerText] = useState("");
   const [listeningFor, setListeningFor] = useState<"answer" | "review" | "proposal" | null>(null);
@@ -155,6 +156,9 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
 
   const currentText = step === "diagnosis" ? diagnosisText : planText;
   const setCurrentText = (value: string) => {
+    aiReviewedRef.current[step] = false;
+    setAnswerReady(false);
+    setNumericReviewDraft(null);
     if (step === "diagnosis") {
       setDiagnosisText(value);
       answerTextRef.current.diagnosis = value;
@@ -189,6 +193,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
     setSpeechError("");
     setAnalysisError("");
     setAnswerReady(false);
+    setNumericReviewDraft(null);
     setRedrafting(false);
     setRawAnswerText("");
     setListeningFor(null);
@@ -216,6 +221,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
     setRawAnswerText(transcript);
     setRedrafting(true);
     setAnswerReady(false);
+    setNumericReviewDraft(null);
     setAnalysisError("");
     try {
       const response = await fetch("/api/dictation/tooth-answer", {
@@ -224,8 +230,13 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
         body: JSON.stringify({ step: answerStep, tooth, transcript }),
         signal: AbortSignal.any([controller.signal, AbortSignal.timeout(40_000)]),
       });
-      const data = await response.json() as { text?: string; otherTeeth?: number[]; provider?: string; error?: string };
+      const data = await response.json() as { text?: string; otherTeeth?: number[]; provider?: string; error?: string; code?: string; draft?: string };
       if (controller.signal.aborted || flowId.current !== currentFlow) return;
+      if (!response.ok && data.code === "numeric_mismatch" && typeof data.draft === "string") {
+        setNumericReviewDraft(data.draft);
+        setAnalysisError("La IA cambió una cifra. Tu dictado sigue en el campo de arriba; compara la propuesta, corrige el dato y pulsa «Ordenar con IA y escuchar». No necesitas volver a dictar todo.");
+        return;
+      }
       if (!response.ok || data.provider !== "openai" || typeof data.text !== "string" || data.text.trim().length < 3) throw new Error(data.error || "El modelo no devolvió una redacción válida.");
       const draft = data.text.trim();
       rawOtherTeethRef.current[answerStep] = Array.isArray(data.otherTeeth) ? data.otherTeeth.filter(value => Number.isInteger(value) && value !== tooth) : [];
@@ -364,6 +375,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
     setListeningFor(null);
     setStep(nextStep);
     setAnswerReady(false);
+    setNumericReviewDraft(null);
     setAnalysisError("");
     setSpeechError("");
     setProposalReady(false);
@@ -716,6 +728,11 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
         </section>}
         {speechError && <p role="alert" className="mt-2 text-sm text-rose-800">{speechError}</p>}
         {analysisError && <p role="alert" className="mt-2 text-sm text-rose-800">{analysisError}</p>}
+        {numericReviewDraft && <section className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3" role="alert" data-testid="tooth-answer-numeric-review">
+          <p className="font-semibold text-amber-950">Propuesta de la IA para comparar</p>
+          <p className="mt-1 text-base leading-relaxed text-amber-950">{numericReviewDraft}</p>
+          <p className="mt-1 text-sm text-amber-900">El texto dictado se conserva arriba. Corrige allí la cifra y vuelve a ordenar la respuesta; no tienes que grabar todo de nuevo.</p>
+        </section>}
 
         {proposalReady && diagnosisPreview && <section className="mt-4 space-y-3 border-t border-[#ebe9f2] pt-4" aria-live="polite">
           <h3 className="text-xl font-semibold text-[#3b3355] sm:text-2xl">Revisa la propuesta para el odontograma</h3>
