@@ -8,6 +8,7 @@ import { AgendaDigestSettings } from "@/components/agenda-digest-settings";
 import "@/lib/window-origin";
 import { endoMilestones, evolutionMilestones } from "@/lib/tooth-evolution-milestones";
 import { toothTreatments, treatmentAlerts } from "@/lib/tooth-treatments";
+import type { ToothDictationOperation } from "@/lib/dictation/tooth-mode";
 import { procedureSessions } from "@/lib/tooth-evolution-milestones";
 import { chileTodayIso } from "@/lib/dictation/voice-command";
 import { OdontogramDateBar } from "@/components/odontogram-date-bar";
@@ -591,6 +592,20 @@ export default function Home(){
     const data=await persist({action:"setToothSurface",patientId:selectedId,tooth,surface,finding});
     setToothStatuses(previous=>({...previous,[selectedId]:data.odontogram}));
   };
+  const applyToothDictation=async(tooth:number,operations:ToothDictationOperation[])=>{
+    const chart=toothStatuses[selectedId]??emptyOdontogram();
+    const conditionLabel:Record<string,string>={not_examined:"sin examinar",sound:"sin lesión visible",caries:"caries",restored:"obturación",sealant:"sellante",other_restoration:"otra restauración"};
+    const details=operations.map(operation=>{
+      if(operation.kind==="status")return `Pieza FDI ${formatFdi(tooth)}: ${chart.teeth[tooth]??"Sin hallazgos"} → ${operation.status}${operation.missingReason?` · causa ${operation.missingReason==="caries"?"caries":operation.missingReason==="other"?"otra":"sin registrar"}`:""}.`;
+      if(operation.kind==="surface")return `Pieza FDI ${formatFdi(tooth)}, cara ${operation.surface}: ${conditionLabel[operation.finding.condition]??operation.finding.condition}${operation.finding.condition==="caries"?` · ${cariesDetail(operation.finding)}`:""}${operation.finding.condition==="restored"&&operation.finding.restorationMaterial?` · ${operation.finding.restorationMaterial}`:""}.`;
+      const shade=operation.shade??chart.crowns?.[tooth]?.shade;
+      return `Pieza FDI ${formatFdi(tooth)}: corona de ${operation.material||"material sin consignar"} ${operation.foundation==="implant"?"sobre implante":"sobre diente natural"}${shade?`, color ${shade}${operation.shade?"":" (se conserva)"}`:""}.`;
+    });
+    if(!details.length)throw new Error("No hay cambios seleccionados para aplicar.");
+    if(!await reviewChange({patientId:selectedId,heading:"Dictado de una pieza · confirmar cambios",details}))throw new Error("Dictado cancelado; no se guardó ningún cambio.");
+    const result=await persist({action:"applyToothDictation",patientId:selectedId,tooth,changes:operations});
+    setToothStatuses(previous=>({...previous,[selectedId]:result.odontogram}));
+  };
   const savePerio=async(exam:PerioExam)=>{
     const rows=Object.entries(exam.teeth).sort(([a],[b])=>Number(a)-Number(b)).map(([tooth,record])=>{
       const sites=Object.entries(record.sites).filter(([,reading])=>reading&&(reading.depth!==null||reading.margin!==null||reading.bleeding||reading.suppuration)).map(([site,reading])=>`${site}: ${[reading?.depth!=null?`sondaje ${reading.depth} mm`:"",reading?.margin!=null?`margen ${reading.margin} mm`:"",reading?.bleeding?"sangrado":"",reading?.suppuration?"supuración":""].filter(Boolean).join(", ")}`);
@@ -871,7 +886,7 @@ export default function Home(){
   onEdit={editEvolution}
   onAnnul={note => setAnnulTarget(note)}
 /></div></TabsContent>
-            <TabsContent value="odontograma"><OdontogramDateBar dates={chartDates(toothStatuses[selectedId]??emptyOdontogram())} value={chartDate} onChange={setChartDate}/><Suspense fallback={<div className="min-h-[320px] rounded-xl bg-white p-5 text-sm text-[#6b6a7c]" role="status">Cargando odontograma…</div>}><Odontogram key={`${selectedId}-${chartDate??"hoy"}`} endo={endoMarks} onOpenEndo={tooth=>{setEndoFocus(tooth);setActiveTab("endodoncia")}} onSetPriorEndo={endoData?setPriorEndo:undefined} priorEndo={Object.fromEntries((endoData?.cases??[]).filter(c=>c.prior).map(c=>[c.tooth,c.priorYear??""]))} treatments={toothTreatmentMap} planned={plannedTeeth} onSetPlannedDone={setBudgetItemDone} onOpenPlan={()=>setActiveTab("presupuestos")} onDeleteEvent={deleteToothEvent} onEditEvent={editToothEvent} data={chartDate?chartAt(toothStatuses[selectedId]??emptyOdontogram(),chartDate):toothStatuses[selectedId]??emptyOdontogram()} evolutionEvents={toothEvolutionHistory} onSetStatus={chartDate?readOnlyChart:updateTooth} onRemoveLesion={chartDate?readOnlyChart:removeToothLesion} onSetMissingReason={chartDate?readOnlyChart:updateMissingReason} onSetSurface={chartDate?readOnlyChart:updateSurface} onSetCrownDetails={chartDate?readOnlyChart:updateCrownDetails}/></Suspense></TabsContent>
+            <TabsContent value="odontograma"><OdontogramDateBar dates={chartDates(toothStatuses[selectedId]??emptyOdontogram())} value={chartDate} onChange={setChartDate}/><Suspense fallback={<div className="min-h-[320px] rounded-xl bg-white p-5 text-sm text-[#6b6a7c]" role="status">Cargando odontograma…</div>}><Odontogram key={`${selectedId}-${chartDate??"hoy"}`} endo={endoMarks} onOpenEndo={tooth=>{setEndoFocus(tooth);setActiveTab("endodoncia")}} onSetPriorEndo={endoData?setPriorEndo:undefined} priorEndo={Object.fromEntries((endoData?.cases??[]).filter(c=>c.prior).map(c=>[c.tooth,c.priorYear??""]))} treatments={toothTreatmentMap} planned={plannedTeeth} onSetPlannedDone={setBudgetItemDone} onOpenPlan={()=>setActiveTab("presupuestos")} onDeleteEvent={deleteToothEvent} onEditEvent={editToothEvent} data={chartDate?chartAt(toothStatuses[selectedId]??emptyOdontogram(),chartDate):toothStatuses[selectedId]??emptyOdontogram()} evolutionEvents={toothEvolutionHistory} onSetStatus={chartDate?readOnlyChart:updateTooth} onRemoveLesion={chartDate?readOnlyChart:removeToothLesion} onSetMissingReason={chartDate?readOnlyChart:updateMissingReason} onSetSurface={chartDate?readOnlyChart:updateSurface} onSetCrownDetails={chartDate?readOnlyChart:updateCrownDetails} onApplyToothDictation={chartDate?undefined:applyToothDictation}/></Suspense></TabsContent>
             <TabsContent value="presupuestos"><div className="surface"><div className="flex justify-between gap-3"><div><h3 className="font-semibold">Planes de tratamiento y presupuestos</h3><p className="mt-1 text-sm text-[#615f73]">Organiza prestaciones por fases y revisa total, abonos y saldo en cada plan.</p></div><div className="flex gap-2"><Button variant="outline" size="sm" onClick={()=>setQuickBudgetOpen(true)}><Mic className="mr-1 size-4"/>Presupuesto rápido</Button><Button variant="outline" size="sm" onClick={startNewBudget}>Añadir plan</Button></div></div><div className="mt-5 space-y-4">{patientBudgets.length?<>
               {patientBudgets.filter(b=>!b.isAlternative).map(primary=>{
                 const paid=patientPayments.filter(payment=>payment.budgetId===primary.id).reduce((sum,payment)=>sum+payment.amount,0);

@@ -23,6 +23,7 @@ import type { OdontogramData, OdontogramSurface, SurfaceFinding } from "@/app/cl
 import { appendToothHistory, mergeRecentSurfaceEvent, toothHistorySnapshot } from "@/app/odontogram-history";
 import { revertEvolution } from "@/lib/odontogram-timeline";
 import { addLink, revertLinks, LINK_KINDS, type LinkKind } from "@/app/evolution-links-db";
+import { crownShadeAfterDictation } from "@/lib/dictation/tooth-mode";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -404,6 +405,145 @@ export async function POST(request: Request) {
     const historyAlreadyRecorded = (data: OdontogramData, metadata: ChartHistoryMetadata) =>
       metadata.source === "evolution" && Boolean(metadata.sourceActionId && data.history?.some(event =>
         event.sourceEvolutionId === metadata.sourceEvolutionId && event.sourceActionId === metadata.sourceActionId));
+
+    if (action === "applyToothDictation") {
+      const tooth = Number(input.tooth), rawChanges = input.changes;
+      if (!Number.isSafeInteger(tooth) || !allowedTeeth.has(tooth) || !Array.isArray(rawChanges) || rawChanges.length < 1 || rawChanges.length > 20) return error("La pieza o la propuesta de dictado no son válidas.");
+      type DictationOperation =
+        | { kind: "status"; status: string; missingReason?: "caries" | "other" | "unknown" }
+        | { kind: "surface"; surface: OdontogramSurface; finding: SurfaceFinding }
+        | { kind: "crown"; material: string; shade: string | null; foundation?: "tooth" | "implant" };
+      const operations: DictationOperation[] = [];
+      const uniqueKeys = new Set<string>();
+      for (const raw of rawChanges) {
+        if (!raw || typeof raw !== "object" || Array.isArray(raw)) return error("La propuesta de dictado contiene un cambio inválido.");
+        const change = raw as Record<string, unknown>, kind = string(change.kind, 16);
+        if (kind === "status") {
+          const status = string(change.status, 48), reason = change.missingReason == null ? "" : string(change.missingReason, 16);
+          if (!ALL_TOOTH_STATUSES.includes(status) || (reason && !["caries", "other", "unknown"].includes(reason))) return error("Estado dental o causa de ausencia inválidos.");
+          const key = "status";
+          if (uniqueKeys.has(key)) return error("La propuesta repite un estado para la misma pieza.");
+          uniqueKeys.add(key);
+          operations.push({ kind: "status", status, ...(reason ? { missingReason: reason as "caries" | "other" | "unknown" } : {}) });
+          continue;
+        }
+        if (kind === "surface") {
+          const surface = string(change.surface, 2), rawFinding = change.finding;
+          if (!surfaceKeys.has(surface) || !rawFinding || typeof rawFinding !== "object" || Array.isArray(rawFinding)) return error("La propuesta contiene una cara dental inválida.");
+          const finding = rawFinding as Record<string, unknown>, condition = string(finding.condition, 32);
+          if (!["not_examined", "sound", "caries", "restored", "sealant", "other_restoration"].includes(condition)) return error("Estado de superficie inválido.");
+          let normalized: SurfaceFinding;
+          if (condition === "caries") {
+            const depth = finding.depth, icdas = finding.icdas == null || finding.icdas === "" ? null : Number(finding.icdas), activity = finding.activity == null || finding.activity === "" ? null : string(finding.activity, 16);
+            if ((depth != null && depth !== "" && !isCariesDepth(depth)) || (icdas !== null && (!Number.isInteger(icdas) || icdas < 1 || icdas > 6)) || (activity !== null && !["active", "inactive", "uncertain"].includes(activity))) return error("Profundidad, actividad o registro anterior de caries inválidos.");
+            const restorationStage = activity === "inactive" ? string(finding.restorationStage, 20) : "";
+            const restorationMaterial = activity === "inactive" ? string(finding.restorationMaterial, 40) : "";
+            if ((restorationStage && !["provisional", "definitive"].includes(restorationStage)) || (restorationMaterial && !["Resina compuesta", "Vidrio ionómero", "Amalgama", "Cavit", "IRM", "Eugenato", "Otro"].includes(restorationMaterial))) return error("El material de restauración de la lesión es inválido.");
+            normalized = {
+              condition: "caries", depth: isCariesDepth(depth) ? depth : null, icdas: icdas as SurfaceFinding["icdas"], activity: activity as SurfaceFinding["activity"],
+              ...(restorationStage ? { restorationStage: restorationStage as SurfaceFinding["restorationStage"] } : {}),
+              ...(restorationMaterial ? { restorationMaterial: restorationMaterial as SurfaceFinding["restorationMaterial"] } : {}),
+            };
+          } else {
+            const restorationStage = condition === "restored" ? string(finding.restorationStage, 20) : "";
+            const restorationMaterial = condition === "restored" ? string(finding.restorationMaterial, 40) : "";
+            if ((restorationStage && !["provisional", "definitive"].includes(restorationStage)) || (restorationMaterial && !["Resina compuesta", "Vidrio ionómero", "Amalgama", "Cavit", "IRM", "Eugenato", "Otro"].includes(restorationMaterial))) return error("Material de restauración inválido.");
+            normalized = {
+              condition: condition as SurfaceFinding["condition"], depth: null, icdas: null, activity: null,
+              ...(condition === "restored" && restorationStage ? { restorationStage: restorationStage as SurfaceFinding["restorationStage"] } : {}),
+              ...(condition === "restored" && restorationMaterial ? { restorationMaterial: restorationMaterial as SurfaceFinding["restorationMaterial"] } : {}),
+            };
+          }
+          const key = `surface:${surface}`;
+          if (uniqueKeys.has(key)) return error("La propuesta repite una cara de esta pieza.");
+          uniqueKeys.add(key);
+          operations.push({ kind: "surface", surface: surface as OdontogramSurface, finding: normalized });
+          continue;
+        }
+        if (kind === "crown") {
+          const material = string(change.material, 60), shade = change.shade == null || change.shade === "" ? null : string(change.shade, 10);
+          const foundation = change.foundation === "implant" || change.foundation === "tooth" ? change.foundation : undefined;
+          if (!material || !["Zirconio", "Disilicato", "Metal cerámica", "Resina", "Otro"].includes(material) || (shade && !/^[A-D][1-4](?:\.5)?$/i.test(shade))) return error("Revisa el material o el color de la corona.");
+          if (uniqueKeys.has("crown")) return error("La propuesta repite los detalles de la corona.");
+          uniqueKeys.add("crown");
+          operations.push({ kind: "crown", material, shade, ...(foundation ? { foundation } : {}) });
+          continue;
+        }
+        return error("La propuesta incluye un tipo de cambio que no pertenece al odontograma de una pieza.");
+      }
+
+      const [old] = await db.select().from(toothStatuses).where(and(eq(toothStatuses.ownerId, ownerId), eq(toothStatuses.patientId, patientId))).limit(1);
+      const data = normalizeOdontogram(old ? JSON.parse(old.data) : {});
+      const statusOperation = operations.find((operation) => operation.kind === "status");
+      const statusCheck = { teeth: { ...data.teeth }, extras: Object.fromEntries(Object.entries(data.extras ?? {}).map(([key, items]) => [key, [...items]])) };
+      if (statusOperation?.kind === "status") applyStatusToChart(statusCheck, tooth, statusOperation.status);
+      const resultingStatus = statusCheck.teeth[tooth] ?? "Sin hallazgos";
+      if (statusOperation?.kind === "status" && statusOperation.missingReason && !["Ausente", "Indicación de exodoncia", "Implante", "Implante con pilar"].includes(resultingStatus)) return error("La causa de pérdida requiere una pieza ausente, indicada para exodoncia o con implante.");
+      if (operations.some((operation) => operation.kind === "surface") && ["Ausente", "Implante", "Implante con pilar"].includes(resultingStatus)) return error("No se registran superficies dentarias en dientes ausentes o implantes.");
+      if (operations.some((operation) => operation.kind === "surface" && operation.finding.condition === "sealant") && resultingStatus === "Corona") return error("Una pieza con corona no tiene superficie para sellar.");
+      const crownOperation = operations.find((operation) => operation.kind === "crown");
+      if (crownOperation?.kind === "crown") {
+        const foundation = crownOperation.foundation ?? (resultingStatus === "Implante" || resultingStatus === "Implante con pilar" ? "implant" : "tooth");
+        const currentStatus = data.teeth[tooth] ?? "Sin hallazgos";
+        if (foundation === "implant" && !["Implante", "Implante con pilar", "Corona"].includes(resultingStatus)) return error("Primero registra el implante en la pieza indicada.");
+        if (foundation === "tooth" && resultingStatus !== "Corona" && !["Implante", "Implante con pilar"].includes(currentStatus)) return error("Primero registra una corona en la pieza indicada.");
+      }
+
+      const appendManualHistory = async (fallbackTitle: string, eventType: "status" | "surface" | "crown", surface?: OdontogramSurface) => {
+        const historyMeta = { source: "manual" as const, title: fallbackTitle, clinicalDate: dateInChile() };
+        const before = toothHistorySnapshot(data, tooth), updatedAt = now(), historyBefore = data.history?.length ?? 0;
+        if (eventType === "status") {
+          const operation = statusOperation;
+          if (!operation || operation.kind !== "status") return { error: "Estado dental inválido." };
+          applyStatusToChart(data, tooth, operation.status);
+          const effective = isLesionStatus(operation.status) && data.teeth[tooth] ? data.teeth[tooth] : operation.status;
+          if (["Ausente", "Implante", "Implante con pilar"].includes(effective)) delete data.surfaces[tooth];
+          else if (effective !== "Indicación de exodoncia") delete data.missingReason[tooth];
+          if (effective === "Corona" && data.crowns?.[tooth]) data.crowns[tooth] = { ...data.crowns[tooth], foundation: "tooth" };
+          else if (!(effective === "Implante" && data.crowns?.[tooth]?.foundation === "implant") && !(effective === "Implante con pilar" && data.crowns?.[tooth])) delete data.crowns?.[tooth];
+          if (operation.missingReason) data.missingReason[tooth] = operation.missingReason;
+        } else if (eventType === "crown") {
+          if (!crownOperation || crownOperation.kind !== "crown") return { error: "Detalle de corona inválido." };
+          const foundation = crownOperation.foundation ?? (data.teeth[tooth] === "Implante" || data.teeth[tooth] === "Implante con pilar" ? "implant" : "tooth");
+          if (foundation === "tooth" && ["Implante", "Implante con pilar"].includes(data.teeth[tooth] ?? "")) data.teeth[tooth] = "Corona";
+          if (foundation === "implant" && ["Corona", "Implante con pilar"].includes(data.teeth[tooth] ?? "")) data.teeth[tooth] = "Implante";
+          pruneChartExtras(data);
+          if (foundation === "implant" && data.teeth[tooth] !== "Implante") return { error: "Primero registra el implante en la pieza indicada." };
+          if (foundation === "tooth" && data.teeth[tooth] !== "Corona") return { error: "Primero registra una corona en la pieza indicada." };
+          data.crowns![tooth] = { material: crownOperation.material || data.crowns?.[tooth]?.material || "", shade: crownShadeAfterDictation(crownOperation.shade, data.crowns?.[tooth]?.shade), source: historyMeta.source, clinicalDate: historyMeta.clinicalDate, foundation };
+        } else {
+          const operation = operations.find((item) => item.kind === "surface" && item.surface === surface);
+          if (!operation || operation.kind !== "surface" || !surface) return { error: "Cara dental inválida." };
+          const prior = data.surfaces[tooth]?.[surface];
+          const finding = operation.finding.condition === "restored" && prior?.condition === "restored"
+            ? { ...operation.finding, ...(!operation.finding.restorationStage && prior.restorationStage ? { restorationStage: prior.restorationStage } : {}), ...(!operation.finding.restorationMaterial && prior.restorationMaterial ? { restorationMaterial: prior.restorationMaterial } : {}) }
+            : operation.finding;
+          data.surfaces[tooth] = { ...(data.surfaces[tooth] ?? {}), [surface]: finding };
+        }
+        appendToothHistory(data, tooth, eventType, before, { recordedAt: updatedAt, ...historyMeta, ...(surface ? { surface } : {}), ...(eventType === "crown" ? { title: historyMeta.title || (crownOperation?.kind === "crown" && crownOperation.foundation === "implant" ? "Corona sobre implante" : "Corona sobre diente") } : {}) });
+        if (eventType === "surface" && surface && (data.history?.length ?? 0) > historyBefore) mergeRecentSurfaceEvent(data, tooth, surface);
+        return null;
+      };
+
+      for (const operation of operations.filter((item) => item.kind === "status")) {
+        const failure = await appendManualHistory(operation.kind === "status" ? `Estado actualizado: ${operation.status}` : "Estado actualizado", "status");
+        if (failure) return error(failure.error);
+      }
+      if (crownOperation) {
+        const foundation = crownOperation.kind === "crown" ? crownOperation.foundation ?? (resultingStatus === "Implante" || resultingStatus === "Implante con pilar" ? "implant" : "tooth") : "tooth";
+        const failure = await appendManualHistory(foundation === "implant" ? "Corona sobre implante" : "Corona sobre diente natural", "crown");
+        if (failure) return error(failure.error);
+      }
+      for (const operation of operations.filter((item): item is Extract<DictationOperation, { kind: "surface" }> => item.kind === "surface")) {
+        const failure = await appendManualHistory(`Hallazgo actualizado en cara ${operation.surface}`, "surface", operation.surface);
+        if (failure) return error(failure.error);
+      }
+      const updatedAt = now();
+      await db.insert(toothStatuses).values({ ownerId, patientId, data: JSON.stringify(data), updatedAt }).onConflictDoUpdate({ target: toothStatuses.patientId, set: { data: JSON.stringify(data), updatedAt } });
+      const [verified] = await db.select({ data: toothStatuses.data }).from(toothStatuses).where(and(eq(toothStatuses.ownerId, ownerId), eq(toothStatuses.patientId, patientId))).limit(1);
+      if (!verified) return error("No se pudo verificar el odontograma actualizado.", 503);
+      return Response.json({ odontogram: normalizeOdontogram(JSON.parse(verified.data)) });
+    }
 
     if (action === "updatePatient") {
       const nameInput = typeof input.name === "string" ? input.name.trim() : patient.name;
