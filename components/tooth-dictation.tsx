@@ -564,25 +564,98 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
 
   const updatePlanItem = (index: number, patch: Partial<BudgetItem>) => setPlanItems(previous => previous.map((item, at) => at === index ? { ...item, ...patch, teeth: [tooth] } : item));
 
+  const proposalReviewIssue = Boolean(diagnosisPreview?.otherTeeth.length || planOtherTeeth.length);
+  const liveActivityTitle = analysisError
+    ? "La respuesta necesita revisión"
+    : speechError
+      ? "Revisa el micrófono"
+      : proposalReady && proposalReviewIssue
+      ? "La propuesta necesita una corrección"
+      : applying
+        ? "Guardando diagnóstico y plan"
+        : audioStatus === "starting"
+          ? "Preparando el micrófono"
+          : audioStatus === "recording"
+            ? listeningFor === "answer" ? `Escuchando ${step === "diagnosis" ? "el diagnóstico" : "el plan"}` : listeningFor === "review" ? "Escuchando tu confirmación" : "Escuchando la orden para guardar"
+            : audioStatus === "transcribing"
+              ? "Transcribiendo el dictado"
+              : redrafting
+                ? `La IA está ordenando ${step === "diagnosis" ? "el diagnóstico" : "el plan"}`
+                : analyzing
+                  ? `La IA está preparando ${step === "diagnosis" ? "la propuesta diagnóstica" : "el plan preliminar"}`
+                  : speaking && proposalReady
+                    ? "SpeakDent está leyendo la propuesta"
+                    : speaking && speechPurpose === "readback"
+                      ? "SpeakDent está leyendo la respuesta de la IA"
+                      : speaking
+                        ? "SpeakDent está haciendo la pregunta"
+                        : proposalReady
+                          ? "Propuesta lista para revisar"
+                          : answerReady
+                            ? "Respuesta revisada por IA · confirma o corrige"
+                            : step === "diagnosis" ? "Paso 1 · hipótesis diagnóstica" : "Paso 2 · plan de tratamiento";
+  const liveActivityText = analysisError || speechError
+    ? analysisError || speechError
+    : audioStatus === "recording"
+      ? listeningFor === "answer"
+        ? `Te escucho. Habla con naturalidad; termina diciendo «terminar», guarda silencio 3 segundos o pulsa «Terminar respuesta».`
+        : listeningFor === "review"
+          ? `Di «${voiceReviewApprovalPhrase(step).toLowerCase()}», «rectificar» o «repetir».`
+          : "Di «guardar diagnóstico y plan», «rectificar» o «repetir»."
+      : audioStatus === "starting"
+        ? "Activando el micrófono para escuchar tu respuesta."
+        : audioStatus === "transcribing"
+          ? rawAnswerText || currentText || "Convirtiendo tu voz en texto para revisarlo."
+          : redrafting
+            ? rawAnswerText || currentText || "La IA está redactando una versión clara de tu respuesta."
+            : analyzing
+              ? currentText || "La IA está revisando la respuesta antes de preparar cambios."
+              : proposalReady && diagnosisPreview?.otherTeeth.length
+                ? `El diagnóstico también menciona ${diagnosisPreview.otherTeeth.map(other => `FDI ${formatFdi(other)} · Chile ${fdiToChile(other)}`).join(", ")}. Corrígelo para mantener una pieza por vez.`
+                : proposalReady && planOtherTeeth.length
+                  ? `El plan también menciona ${planOtherTeeth.map(other => `FDI ${formatFdi(other)} · Chile ${fdiToChile(other)}`).join(", ")}. Corrígelo para mantener una pieza por vez.`
+                  : proposalReady
+                ? `Diagnóstico: ${diagnosisText.trim() || "pendiente"}. Plan: ${planItems.map(item => `${item.label || "prestación sin nombre"}${item.amount > 0 ? ` · ${item.amount.toLocaleString("es-CL")} CLP` : " · valor por definir"}`).join("; ") || "pendiente"}.${diagnosisPreview?.question && !diagnosisPreview.answer ? " Falta confirmar la cara de la caries." : ""}`
+                : answerReady || currentText.trim()
+                  ? currentText
+                  : toothSpeechPrompt(step, tooth);
+
   return <>
     {onApply && <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={startGuidedEvaluation} data-testid="dictate-selected-tooth">
       <Mic className="mr-2 size-4"/>Dictar esta pieza
     </Button>}
     <Dialog open={open} onOpenChange={changeOpen}>
-      <DialogContent className="max-h-[calc(100dvh-2rem)] max-w-2xl overflow-y-auto border-[#dddbe6] bg-white p-5 sm:p-6">
-        <DialogHeader>
-          <DialogTitle>Evaluación guiada por pieza</DialogTitle>
+      <DialogContent className="flex h-[calc(100dvh-1rem)] max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[96vw] flex-col gap-0 overflow-hidden border-[#dddbe6] bg-white p-0 sm:max-w-[96vw] 2xl:max-w-[90rem]">
+        <div className="shrink-0 border-b border-[#ebe9f2] bg-white px-4 py-4 sm:px-7 sm:py-5">
+        <DialogHeader className="pr-10">
+          <DialogTitle className="text-xl sm:text-2xl">Evaluación guiada por pieza</DialogTitle>
           <DialogDescription>FDI {formatFdi(tooth)} · Chile {fdiToChile(tooth)}. El profesional revisa y confirma cada dato antes de guardar.</DialogDescription>
         </DialogHeader>
 
-        <div className="grid grid-cols-2 gap-2" aria-label="Etapas de la evaluación">
-          <div className={`rounded-lg border px-3 py-2 text-sm font-semibold ${step === "diagnosis" ? "border-[#473a6d] bg-violet-50 text-[#3b3355]" : "border-[#e6e4ee] text-[#615f73]"}`}>1 · Diagnóstico</div>
-          <div className={`rounded-lg border px-3 py-2 text-sm font-semibold ${step === "plan" ? "border-[#473a6d] bg-violet-50 text-[#3b3355]" : "border-[#e6e4ee] text-[#615f73]"}`}>2 · Plan</div>
+        <div className="mt-4 grid grid-cols-2 gap-2" aria-label="Etapas de la evaluación">
+          <div className={`rounded-lg border px-3 py-2.5 text-base font-semibold ${step === "diagnosis" ? "border-[#473a6d] bg-violet-50 text-[#3b3355]" : aiReviewedRef.current.diagnosis ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-[#e6e4ee] text-[#615f73]"}`}>{step !== "diagnosis" && aiReviewedRef.current.diagnosis ? "✓ 1 · Diagnóstico revisado" : "1 · Diagnóstico"}</div>
+          <div className={`rounded-lg border px-3 py-2.5 text-base font-semibold ${step === "plan" ? "border-[#473a6d] bg-violet-50 text-[#3b3355]" : "border-[#e6e4ee] text-[#615f73]"}`}>2 · Plan de tratamiento</div>
         </div>
 
-        <section className="mt-3 rounded-xl bg-[#f7f6fa] p-4" aria-live="polite">
+        <section className={`mt-3 rounded-xl border p-4 sm:p-5 ${analysisError || speechError || (proposalReady && proposalReviewIssue) ? "border-rose-300 bg-rose-50" : audioStatus === "recording" ? "border-rose-200 bg-rose-50" : redrafting || analyzing ? "border-sky-200 bg-sky-50" : "border-violet-200 bg-violet-50"}`} role="region" aria-label="Seguimiento en vivo de la revisión" data-testid="tooth-dictation-live-status">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wide text-[#625a7c]">Lo que SpeakDent está haciendo</p>
+              <h2 role="status" aria-live="polite" className="mt-1 text-lg font-bold leading-tight text-[#302747] sm:text-xl">{liveActivityTitle}</h2>
+            </div>
+            <span className="rounded-full border border-[#d8d3e3] bg-white px-3 py-1 text-xs font-bold uppercase tracking-wide text-[#473a6d]">{analysisError || speechError || (proposalReady && proposalReviewIssue) ? "Revisar" : audioStatus === "recording" ? "Escuchando" : audioStatus === "transcribing" ? "Transcribiendo" : redrafting || analyzing ? "Procesando" : applying ? "Guardando" : proposalReady ? "Propuesta" : answerReady ? "Revisada por IA" : "En curso"}</span>
+          </div>
+          {proposalReady && !analysisError && !speechError && !proposalReviewIssue ? <div className="mt-3 grid max-h-40 gap-3 overflow-y-auto border-t border-violet-200 pt-3 text-base leading-relaxed sm:grid-cols-2 sm:text-lg">
+            <p><strong className="block text-sm uppercase tracking-wide text-[#625a7c]">Diagnóstico / hipótesis</strong>{diagnosisText.trim() || "Pendiente"}</p>
+            <p><strong className="block text-sm uppercase tracking-wide text-[#625a7c]">Plan y presupuesto preliminar</strong>{planItems.map(item => `${item.label || "prestación sin nombre"}${item.amount > 0 ? ` · ${item.amount.toLocaleString("es-CL")} CLP` : " · valor por definir"}`).join("; ") || "Pendiente"}{diagnosisPreview?.question && !diagnosisPreview.answer ? <span className="mt-1 block font-semibold text-amber-900">Falta confirmar la cara de la caries.</span> : null}</p>
+          </div> : <p aria-live="off" className="mt-3 max-h-32 overflow-y-auto whitespace-pre-wrap border-t border-violet-200 pt-3 text-base leading-relaxed text-[#302747] sm:text-lg">{liveActivityText}</p>}
+        </section>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
+        <section className="rounded-xl bg-[#f7f6fa] p-4 sm:p-5" aria-live="polite">
           <p className="text-xs font-semibold uppercase tracking-wide text-[#625a7c]">{step === "diagnosis" ? "Pregunta 1 · hipótesis diagnóstica" : "Pregunta 2 · plan de tratamiento"}</p>
-          <h2 className="mt-2 text-2xl font-semibold leading-tight text-[#302747]">{toothPrompt(step, tooth)}</h2>
+          <h2 className="mt-2 text-3xl font-semibold leading-tight text-[#302747] sm:text-4xl">{toothPrompt(step, tooth)}</h2>
           <Button type="button" variant="ghost" size="sm" className="mt-2 px-2" disabled={redrafting || speaking || audioStatus !== "idle"} onClick={() => readQuestion(toothSpeechPrompt(step, tooth))}>
             <Volume2 className="mr-2 size-4"/>Repetir pregunta
           </Button>
@@ -600,13 +673,13 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
           value={currentText}
           onChange={event => setCurrentText(event.target.value)}
           disabled={redrafting || analyzing || applying || audioStatus !== "idle"}
-          rows={step === "diagnosis" ? 3 : 4}
+          rows={step === "diagnosis" ? 4 : 5}
           maxLength={step === "diagnosis" ? 1000 : 4000}
           placeholder={step === "diagnosis" ? "Ej.: caries distal en dentina profunda; hipótesis de fractura coronaria…" : "Ej.: restauración con resina compuesta; evaluar endodoncia si se confirma compromiso pulpar…"}
-          className="text-base"
+          className="text-lg leading-relaxed sm:text-xl"
         />
-        <p role="note" className="mt-2 rounded-lg bg-sky-50 p-3 text-xs leading-5 text-sky-950">Tras dictar, la IA ordena la respuesta y elimina instrucciones o rectificaciones habladas. SpeakDent leerá la redacción propuesta para que la apruebes o corrijas. La voz se reproduce a 1,25×.</p>
-        {redrafting && <p role="status" className="mt-2 text-sm font-medium text-[#3b3355]">La IA está redactando {step === "diagnosis" ? "la hipótesis diagnóstica" : "el plan preliminar"}…</p>}
+        <p role="note" className="mt-2 rounded-lg bg-sky-50 p-3 text-sm leading-6 text-sky-950">Tras dictar, la IA ordena la respuesta y elimina instrucciones o rectificaciones habladas. SpeakDent leerá la redacción propuesta para que la apruebes o corrijas. La voz se reproduce a 1,25×. Mira el seguimiento en vivo arriba para ver qué está escuchando y redactando.</p>
+        {redrafting && <p role="status" className="mt-2 text-lg font-semibold text-[#3b3355]">La IA está redactando {step === "diagnosis" ? "la hipótesis diagnóstica" : "el plan preliminar"}…</p>}
         {rawAnswerText && <details className="mt-2 rounded-lg border border-[#e6e4ee] bg-white p-3 text-sm"><summary className="cursor-pointer font-medium text-[#3b3355]">Ver texto enviado a la IA</summary><p className="mt-2 whitespace-pre-wrap text-[#615f73]">{rawAnswerText}</p></details>}
         <div className="mt-2 flex flex-wrap gap-2">
           {audioStatus === "recording" && <Button type="button" variant="outline" onClick={() => engine.current?.stop()} disabled={analyzing || applying} aria-pressed="true"><MicOff className="mr-2 size-4"/>{listeningFor === "answer" ? "Terminar respuesta" : "Terminar orden"}</Button>}
@@ -624,8 +697,8 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
         {audioStatus === "transcribing" && <p role="status" className="mt-2 text-xs text-[#615f73]">Transcribiendo tu respuesta…</p>}
         {answerReady && <section className="mt-3 rounded-lg border border-violet-200 bg-violet-50 p-3" aria-live="polite">
           <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[#473a6d]">Revisado por IA · confirma o corrige</p>
-          <h3 className="font-semibold text-[#3b3355]">¿Es correcta la redacción propuesta?</h3>
-          <p className="mt-1 text-sm text-[#3b3355]">{currentText}</p>
+          <h3 className="text-xl font-semibold text-[#3b3355]">¿Es correcta la redacción propuesta?</h3>
+          <p className="mt-2 text-lg leading-relaxed text-[#3b3355]">{currentText}</p>
           <Button type="button" variant="ghost" size="sm" className="mt-1 px-2" onClick={() => readAnswer(step, currentText)} disabled={speaking || audioStatus !== "idle"}><Volume2 className="mr-2 size-4"/>Repetir respuesta</Button>
           <p className="mt-1 text-xs text-[#615f73]">Di «{voiceReviewApprovalPhrase(step).toLowerCase()}», «rectificar» o «repetir».</p>
           <p className="mt-1 text-xs text-[#615f73]">Puedes corregir el texto antes de confirmar.</p>
@@ -634,7 +707,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
         {analysisError && <p role="alert" className="mt-2 text-sm text-rose-800">{analysisError}</p>}
 
         {proposalReady && diagnosisPreview && <section className="mt-4 space-y-3 border-t border-[#ebe9f2] pt-4" aria-live="polite">
-          <h3 className="font-semibold text-[#3b3355]">Revisa la propuesta para el odontograma</h3>
+          <h3 className="text-xl font-semibold text-[#3b3355] sm:text-2xl">Revisa la propuesta para el odontograma</h3>
           {diagnosisPreview.otherTeeth.length > 0
             ? <p role="alert" className="rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm text-rose-900">El dictado menciona también {diagnosisPreview.otherTeeth.map(other => `FDI ${formatFdi(other)} · Chile ${fdiToChile(other)}`).join(", ")}. Corrige esta respuesta para mantener una pieza por vez.</p>
             : <>
@@ -645,7 +718,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
                 </div>
               </fieldset>}
               {diagnosisPreview.changes.length > 0 && <ul className="space-y-2">
-                {diagnosisPreview.changes.map(change => <li key={change.id} className="rounded-lg border border-[#e6e4ee] bg-white p-3">
+                {diagnosisPreview.changes.map(change => <li key={change.id} className="rounded-lg border border-[#e6e4ee] bg-white p-3 text-lg">
                   <label className="flex items-start gap-3">
                     <input type="checkbox" className="mt-1 size-4 accent-[#473a6d]" checked={selectedIds.has(change.id)} disabled={applying} onChange={event => setSelectedIds(previous => { const next = new Set(previous); if (event.target.checked) next.add(change.id); else next.delete(change.id); return next; })}/>
                     <span className="min-w-0 flex-1"><span className="block font-medium text-[#3b3355]">{changeLabel(change, chart)}</span></span>
@@ -658,8 +731,8 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
 
         {proposalReady && step === "plan" && planItems.length > 0 && <section className="mt-4 space-y-3 border-t border-[#ebe9f2] pt-4" aria-live="polite">
           <div>
-            <h3 className="font-semibold text-[#3b3355]">Presupuesto preliminar · editable</h3>
-            <p className="mt-1 text-sm text-[#615f73]">Los valores quedan por definir hasta que los completes. El plan se guardará como borrador para esta pieza.</p>
+            <h3 className="text-xl font-semibold text-[#3b3355] sm:text-2xl">Presupuesto preliminar · editable</h3>
+            <p className="mt-1 text-base leading-relaxed text-[#615f73]">Los valores quedan por definir hasta que los completes. El plan se guardará como borrador para esta pieza.</p>
           </div>
           {planOtherTeeth.length > 0 && <p role="alert" className="rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm text-rose-900">La respuesta también nombra {planOtherTeeth.map(other => `FDI ${formatFdi(other)}`).join(", ")}. Corrígela para guardar un plan por pieza.</p>}
           <ul className="space-y-3">
@@ -670,7 +743,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
             </li>)}
           </ul>
           <Button type="button" variant="outline" size="sm" onClick={() => setPlanItems(previous => [...previous, toothPlanBudgetItem("", tooth)])}><Plus className="mr-2 size-4"/>Agregar prestación</Button>
-          <div className="rounded-lg border border-violet-200 bg-violet-50 p-3 text-sm text-violet-950">
+          <div className="rounded-lg border border-violet-200 bg-violet-50 p-4 text-base leading-relaxed text-violet-950 sm:text-lg">
             <p className="font-semibold">Resumen para FDI {formatFdi(tooth)} · Chile {fdiToChile(tooth)}</p>
             <p className="mt-1"><strong>Diagnóstico / hipótesis:</strong> {diagnosisText.trim()}</p>
             <p className="mt-1"><strong>Plan:</strong> {planItems.map(item => item.label || "prestación sin nombre").join("; ")}</p>
@@ -682,6 +755,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
             <Button type="button" onClick={() => void applyProposal()} disabled={applying || analyzing || audioStatus !== "idle" || !canContinue || !validPlan || Boolean(planOtherTeeth.length)}>{applying ? "Guardando…" : "Guardar diagnóstico y plan"}</Button>
           </div>
         </section>}
+        </div>
       </DialogContent>
     </Dialog>
   </>;
