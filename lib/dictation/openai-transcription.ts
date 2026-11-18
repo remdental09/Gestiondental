@@ -1,6 +1,7 @@
 import { TOOTH_NUMBERING_PROMPT } from "./clinical-writing.ts";
 import { DENTAL_SPEECH_HINTS } from "./dental-lexicon.ts";
 import { PERIO_TRANSCRIPTION_KEYWORDS, PERIO_TRANSCRIPTION_PROMPT } from "./perio-voice.ts";
+import { voiceReviewApprovalPhrase } from "./voice-answer.ts";
 
 export const AUDIO_TRANSCRIPTION_MODEL = "gpt-transcribe";
 /** Compatibilidad para cuentas que aún no exponen el modelo nuevo. Configuración explícita prevalece. */
@@ -8,8 +9,8 @@ export const AUDIO_COMPATIBILITY_MODEL = "gpt-4o-transcribe";
 export const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
 export const MAX_RECORDING_MS = 4 * 60 * 1000;
 const EXTENSIONS: Record<string, string> = { "audio/webm": "webm", "video/webm": "webm", "audio/mp4": "m4a", "video/mp4": "mp4", "audio/mpeg": "mp3", "audio/wav": "wav", "audio/x-wav": "wav" };
-const TOOTH_COMMAND_KEYWORDS = ["correcto", "correcto pasar al plan", "correcto preparar propuesta", "rectificar", "repetir", "mesial", "distal", "palatino", "oclusal", "incisal", "guardar diagnóstico y plan"];
-const TOOTH_COMMAND_PROMPT = "Orden breve de un odontólogo en español de Chile, después de escuchar una respuesta sobre una sola pieza dental. Transcribe literalmente una orden corta; puede ser «correcto», «correcto pasar al plan», «correcto preparar propuesta», «rectificar», «repetir», «mesial», «distal», «palatino», «oclusal», «incisal» o «guardar diagnóstico y plan». No completes ni deduzcas una orden que no se oiga. El silencio no es confirmación.";
+const TOOTH_COMMAND_KEYWORDS = ["correcto", voiceReviewApprovalPhrase("diagnosis").toLowerCase().replace(",", ""), "correcto pasar el plan", "correcto preguntar plan", "correcto preguntar plano", voiceReviewApprovalPhrase("plan").toLowerCase().replace(",", ""), "rectificar", "repetir", "mesial", "distal", "palatino", "oclusal", "incisal", "guardar diagnóstico y plan"];
+const TOOTH_COMMAND_PROMPT = `Orden breve de un odontólogo en español de Chile, después de escuchar una respuesta sobre una sola pieza dental. Transcribe literalmente una orden corta; las confirmaciones son «${voiceReviewApprovalPhrase("diagnosis").toLowerCase()}» y «${voiceReviewApprovalPhrase("plan").toLowerCase()}». También acepta la variante «correcto pasar el plan» o «correcto preguntar plan». Otras órdenes: «correcto», «rectificar», «repetir», «mesial», «distal», «palatino», «oclusal», «incisal» o «guardar diagnóstico y plan». No completes ni deduzcas una orden que no se oiga. El silencio no es confirmación.`;
 
 export function audioExtension(type: string): string | null {
   return EXTENSIONS[type.split(";")[0].trim().toLowerCase()] ?? null;

@@ -14,10 +14,13 @@ export function stripFinishCommand(text: string): string {
   return text.replace(/(?:\s*[,;:.!?]\s*|\s+|^)(?:terminar|termine|terminé|termino|termina)(?:\s+(?:la\s+)?respuesta)?\s*[.!?]*$/iu, "").trim();
 }
 
+export function voiceReviewApprovalPhrase(step: "diagnosis" | "plan"): string {
+  return step === "diagnosis" ? "Correcto, pasar al plan" : "Correcto, preparar propuesta";
+}
+
 export function voiceAnswerReadback(step: "diagnosis" | "plan", answer: string): string {
   const label = step === "diagnosis" ? "esta hipótesis diagnóstica" : "este plan de tratamiento";
-  const next = step === "diagnosis" ? "pasar al plan" : "preparar propuesta";
-  return `Redacté ${label}: ${answer.trim()} ¿Es correcto? Di correcto, ${next}; rectificar; o repetir.`;
+  return `Redacté ${label}: ${answer.trim()} ¿Es correcto? Di ${voiceReviewApprovalPhrase(step).toLowerCase()}; rectificar; o repetir.`;
 }
 
 export type VoiceReviewCommand = "accept" | "correct" | "repeat" | "save" | "mesial" | "distal" | "both" | "pending" | null;
@@ -35,6 +38,6 @@ export function parseVoiceReviewCommand(text: string, stage: "diagnosis" | "plan
     return null;
   }
   const approval = "(?:correcto|correcta|si correcto|si es correcto|es correcto|esta correcto|esta bien|perfecto|confirmo)";
-  if (stage === "diagnosis") return new RegExp(`^${approval}(?: pasar al plan| preguntar plan| preguntar plano| pasar al plano)?$`).test(normalized) ? "accept" : null;
+  if (stage === "diagnosis") return new RegExp(`^${approval}(?: pasar al plan| pasar el plan| preguntar plan| preguntar plano| pasar al plano)?$`).test(normalized) ? "accept" : null;
   return new RegExp(`^${approval}(?: preparar propuesta| preparar la propuesta| continuar)?$`).test(normalized) ? "accept" : null;
 }

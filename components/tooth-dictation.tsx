@@ -9,7 +9,7 @@ import { formatFdi, type OdontogramData } from "@/app/clinical-data";
 import { createAudioTranscription } from "@/lib/dictation/audio-transcription";
 import { dentalSpeechText, speakTextNow } from "@/lib/dictation/speech";
 import { toothPrompt } from "@/lib/dictation/tooth-prompts";
-import { parseVoiceReviewCommand, stripFinishCommand, TOOTH_ANSWER_SILENCE_MS, voiceAnswerReadback } from "@/lib/dictation/voice-answer";
+import { parseVoiceReviewCommand, stripFinishCommand, TOOTH_ANSWER_SILENCE_MS, voiceAnswerReadback, voiceReviewApprovalPhrase } from "@/lib/dictation/voice-answer";
 import { fdiToChile } from "@/lib/tooth-numbering";
 import { confirmedCariesFaces, isProximalChange, scopeToothProposal, toothDiagnosisOperation, toothDictationOperation, toothPlanBudgetItem, type ToothDictationOperation } from "@/lib/dictation/tooth-mode";
 import type { focusedToothReview, OdontogramChange, StructureOutcome } from "@/lib/dictation/proposal";
@@ -313,7 +313,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
         else if (command === "repeat") readAnswer(answerStep, answerTextRef.current[answerStep]);
         else {
           const currentFlow = flowId.current;
-          speak(`No entendí la orden. Di correcto, ${answerStep === "diagnosis" ? "pasar al plan" : "preparar propuesta"}; rectificar; o repetir.`, "question", () => {
+          speak(`No entendí la orden. Di ${voiceReviewApprovalPhrase(answerStep).toLowerCase()}; rectificar; o repetir.`, "question", () => {
             if (flowId.current === currentFlow) startVoiceReview(answerStep);
           });
         }
@@ -615,7 +615,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
           {audioStatus === "idle" && !proposalReady && <Button type="button" variant="outline" onClick={finishOrStartAnswer} disabled={redrafting || speaking || analyzing || applying}><Mic className="mr-2 size-4"/>{answerReady ? "Volver a dictar" : "Responder por voz"}</Button>}
           {audioStatus === "idle" && answerReady && !proposalReady && <Button type="button" variant="outline" onClick={() => startVoiceReview(step)} disabled={redrafting || speaking || analyzing || applying}><Mic className="mr-2 size-4"/>Responder confirmación por voz</Button>}
           {answerReady
-            ? <Button type="button" onClick={() => void confirmAnswer()} disabled={redrafting || speaking || analyzing || applying || currentText.trim().length < 3}><Sparkles className="mr-2 size-4"/>{analyzing ? "Preparando propuesta…" : step === "diagnosis" ? "Correcto, preguntar plan" : "Correcto, preparar propuesta"}</Button>
+            ? <Button type="button" onClick={() => void confirmAnswer()} disabled={redrafting || speaking || analyzing || applying || currentText.trim().length < 3}><Sparkles className="mr-2 size-4"/>{analyzing ? "Preparando propuesta…" : voiceReviewApprovalPhrase(step)}</Button>
             : currentText.trim().length >= 3 && audioStatus === "idle" && <Button type="button" onClick={listenAndReviewTypedAnswer} disabled={redrafting || speaking || analyzing || applying}><Sparkles className="mr-2 size-4"/>{redrafting ? "Redactando…" : "Ordenar con IA y escuchar"}</Button>}
         </div>
         {speaking && <p role="status" className="mt-2 text-xs text-[#615f73]">{speechPurpose === "readback" ? "La aplicación lee la respuesta. Confírmala o corrígela cuando termine." : "La aplicación formula la pregunta; al terminar activa el micrófono."}</p>}
@@ -627,7 +627,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
           <h3 className="font-semibold text-[#3b3355]">¿Es correcta la redacción propuesta?</h3>
           <p className="mt-1 text-sm text-[#3b3355]">{currentText}</p>
           <Button type="button" variant="ghost" size="sm" className="mt-1 px-2" onClick={() => readAnswer(step, currentText)} disabled={speaking || audioStatus !== "idle"}><Volume2 className="mr-2 size-4"/>Repetir respuesta</Button>
-          <p className="mt-1 text-xs text-[#615f73]">Di «correcto, {step === "diagnosis" ? "pasar al plan" : "preparar propuesta"}», «rectificar» o «repetir».</p>
+          <p className="mt-1 text-xs text-[#615f73]">Di «{voiceReviewApprovalPhrase(step).toLowerCase()}», «rectificar» o «repetir».</p>
           <p className="mt-1 text-xs text-[#615f73]">Puedes corregir el texto antes de confirmar.</p>
         </section>}
         {speechError && <p role="alert" className="mt-2 text-sm text-rose-800">{speechError}</p>}
