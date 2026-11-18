@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { formatFdi, type OdontogramData } from "@/app/clinical-data";
 import { createAudioTranscription } from "@/lib/dictation/audio-transcription";
 import { dentalSpeechText, speakTextNow } from "@/lib/dictation/speech";
-import { toothPrompt } from "@/lib/dictation/tooth-prompts";
+import { toothChileSpeechLabel, toothPrompt, toothSpeechPrompt } from "@/lib/dictation/tooth-prompts";
 import { parseVoiceReviewCommand, stripFinishCommand, TOOTH_ANSWER_SILENCE_MS, voiceAnswerReadback, voiceReviewApprovalPhrase } from "@/lib/dictation/voice-answer";
 import { fdiToChile } from "@/lib/tooth-numbering";
 import { confirmedCariesFaces, isProximalChange, scopeToothProposal, toothDiagnosisOperation, toothDictationOperation, toothPlanBudgetItem, type ToothDictationOperation } from "@/lib/dictation/tooth-mode";
@@ -383,7 +383,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
       setPlanOtherTeeth([]);
     }
     const currentFlow = flowId.current;
-    readQuestion(toothPrompt(nextStep, tooth), () => {
+    readQuestion(toothSpeechPrompt(nextStep, tooth), () => {
       if (flowId.current === currentFlow) startVoiceAnswer(nextStep);
     });
   };
@@ -558,7 +558,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
           ? "Antes de guardar, ¿en qué cara está la caries? Di mesial, distal, ambas o dejar pendiente."
           : !validPlan
             ? "Revisa las prestaciones y sus montos en pantalla antes de guardar. Puedes decir rectificar plan."
-            : `Propuesta preliminar para la pieza FDI ${formatFdi(tooth)}. Diagnóstico: ${diagnosisText.trim()}. Plan: ${planItems.map(item => `${item.label}, ${item.amount > 0 ? `${item.amount.toLocaleString("es-CL")} pesos` : "valor por definir"}`).join("; ")}. Esta es la confirmación final. Si estás de acuerdo, di guardar diagnóstico y plan. También puedes decir rectificar o repetir.`;
+            : `Propuesta preliminar para ${toothChileSpeechLabel(tooth)}. Diagnóstico: ${diagnosisText.trim()}. Plan: ${planItems.map(item => `${item.label}, ${item.amount > 0 ? `${item.amount.toLocaleString("es-CL")} pesos` : "valor por definir"}`).join("; ")}. Esta es la confirmación final. Si estás de acuerdo, di guardar diagnóstico y plan. También puedes decir rectificar o repetir.`;
     speak(prompt, "question", () => { if (flowId.current === currentFlow) startVoiceProposal(); });
   }, [proposalReady, proposalVoiceRound]);
 
@@ -583,7 +583,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
         <section className="mt-3 rounded-xl bg-[#f7f6fa] p-4" aria-live="polite">
           <p className="text-xs font-semibold uppercase tracking-wide text-[#625a7c]">{step === "diagnosis" ? "Pregunta 1 · hipótesis diagnóstica" : "Pregunta 2 · plan de tratamiento"}</p>
           <h2 className="mt-2 text-2xl font-semibold leading-tight text-[#302747]">{toothPrompt(step, tooth)}</h2>
-          <Button type="button" variant="ghost" size="sm" className="mt-2 px-2" disabled={redrafting || speaking || audioStatus !== "idle"} onClick={() => readQuestion(toothPrompt(step, tooth))}>
+          <Button type="button" variant="ghost" size="sm" className="mt-2 px-2" disabled={redrafting || speaking || audioStatus !== "idle"} onClick={() => readQuestion(toothSpeechPrompt(step, tooth))}>
             <Volume2 className="mr-2 size-4"/>Repetir pregunta
           </Button>
         </section>

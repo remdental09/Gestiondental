@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { confirmedCariesFaces, crownShadeAfterDictation, isProximalChange, scopeToothProposal, toothDiagnosisOperation, toothDictationOperation, toothPlanBudgetItem } from '../lib/dictation/tooth-mode.ts';
-import { toothPrompt } from '../lib/dictation/tooth-prompts.ts';
+import { toothChileSpeechLabel, toothPrompt, toothSpeechPrompt } from '../lib/dictation/tooth-prompts.ts';
 import { focusedToothReview, structureTranscript } from '../lib/dictation/proposal.ts';
 
 const surface = (tooth, fields = {}) => ({
@@ -24,9 +24,13 @@ test('el modo pieza deja pasar cambios de la pieza elegida y bloquea si el dicta
   assert.deepEqual(scopeToothProposal([intended, other], 36), { otherTeeth: [24], changes: [] });
 });
 
-test('la evaluación por pieza separa la pregunta hablada de diagnóstico y plan', () => {
-  assert.equal(toothPrompt('diagnosis', 11), '¿Cuál es el diagnóstico o hipótesis diagnóstica de la pieza FDI 1.1?');
-  assert.equal(toothPrompt('plan', 11), '¿Qué plan de tratamiento preliminar propones para la pieza FDI 1.1?');
+test('la pregunta visible conserva FDI y Chile, y la voz usa Chile 1–32', () => {
+  assert.equal(toothPrompt('diagnosis', 11), '¿Cuál es el diagnóstico o hipótesis diagnóstica de la pieza FDI 1.1 (Chile 8)?');
+  assert.equal(toothPrompt('plan', 11), '¿Qué plan de tratamiento preliminar propones para la pieza FDI 1.1 (Chile 8)?');
+  assert.equal(toothSpeechPrompt('diagnosis', 11), '¿Cuál es el diagnóstico o hipótesis diagnóstica de la pieza número 8?');
+  assert.equal(toothSpeechPrompt('plan', 11), '¿Qué plan de tratamiento preliminar propones para la pieza número 8?');
+  assert.equal(toothChileSpeechLabel(11), 'la pieza número 8');
+  assert.equal(toothChileSpeechLabel(53), 'la pieza chilena C');
 });
 
 test('el dictado enfocado acepta FDI o chilena y los dos resuelven la pieza seleccionada', () => {
