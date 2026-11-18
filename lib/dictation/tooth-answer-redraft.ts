@@ -9,10 +9,12 @@ const CLINICAL_FACES = /\b(mesial|distal|palatin[ao]|lingual|vestibular|oclusal|
 
 export class ToothAnswerNumericMismatchError extends Error {
   readonly code = "numeric_mismatch";
+  readonly draft: string;
 
-  constructor(readonly draft: string) {
+  constructor(draft: string) {
     super("La IA propuso una cifra distinta al dictado. Compara la propuesta y corrige el campo; no necesitas volver a dictar.");
     this.name = "ToothAnswerNumericMismatchError";
+    this.draft = draft;
   }
 }
 
