@@ -1,4 +1,6 @@
 export const TOOTH_ANSWER_SILENCE_MS = 3_000;
+/** Límite para las órdenes breves, por si el micrófono no detecta una pausa de silencio. */
+export const TOOTH_COMMAND_MAX_MS = 10_000;
 export const VOICE_ACTIVITY_THRESHOLD = 0.01;
 
 export type VoiceSilenceState = { lastVoiceAt: number | null };

@@ -148,7 +148,15 @@ export function createAudioTranscription(): TranscriptionEngine {
           };
           session.startedAt = Date.now();
           recorder.start(1000);
-          session.timer = setTimeout(() => { if (valid(session) && recorder.state !== "inactive") recorder.stop(); }, MAX_MS);
+          const requestedMaxMs = Number(options.maxDurationMs);
+          const captureLimitMs = Number.isFinite(requestedMaxMs) && requestedMaxMs > 0
+            ? Math.min(MAX_MS, Math.max(1_000, requestedMaxMs))
+            : MAX_MS;
+          session.timer = setTimeout(() => {
+            if (!valid(session) || recorder.state === "inactive") return;
+            try { recorder.stop(); }
+            catch { fail(session, new Error("No se pudo cerrar la escucha. Pulsa «Terminar orden» y vuelve a intentarlo.")); }
+          }, captureLimitMs);
           const stopOnSilenceMs = Number(options.stopOnSilenceMs);
           monitorSilence(session, stream, recorder, Number.isFinite(stopOnSilenceMs) && stopOnSilenceMs > 0 ? Math.max(500, Math.min(stopOnSilenceMs, TOOTH_ANSWER_SILENCE_MS * 3)) : 0);
           handlers.onStatus?.("recording");

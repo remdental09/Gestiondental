@@ -9,7 +9,7 @@ import { formatFdi, type OdontogramData } from "@/app/clinical-data";
 import { createAudioTranscription } from "@/lib/dictation/audio-transcription";
 import { dentalSpeechText, speakTextNow } from "@/lib/dictation/speech";
 import { toothChileSpeechLabel, toothPrompt, toothSpeechPrompt } from "@/lib/dictation/tooth-prompts";
-import { parseVoiceReviewCommand, stripFinishCommand, TOOTH_ANSWER_SILENCE_MS, voiceAnswerReadback, voiceReviewApprovalPhrase } from "@/lib/dictation/voice-answer";
+import { parseVoiceReviewCommand, stripFinishCommand, TOOTH_ANSWER_SILENCE_MS, TOOTH_COMMAND_MAX_MS, voiceAnswerReadback, voiceReviewApprovalPhrase } from "@/lib/dictation/voice-answer";
 import { fdiToChile } from "@/lib/tooth-numbering";
 import { confirmedCariesFaces, isProximalChange, scopeToothProposal, toothDiagnosisOperation, toothDictationOperation, toothPlanBudgetItem, type ToothDictationOperation } from "@/lib/dictation/tooth-mode";
 import type { focusedToothReview, OdontogramChange, StructureOutcome } from "@/lib/dictation/proposal";
@@ -320,7 +320,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
       },
       onError: message => { setSpeechError(message); setAudioStatus("idle"); setListeningFor(null); },
       onEnd: () => setAudioStatus("idle"),
-    }, { stopOnSilenceMs: TOOTH_ANSWER_SILENCE_MS, purpose: "tooth_command" });
+    }, { stopOnSilenceMs: TOOTH_ANSWER_SILENCE_MS, maxDurationMs: TOOTH_COMMAND_MAX_MS, purpose: "tooth_command" });
   };
 
   const startVoiceProposal = () => {
@@ -351,7 +351,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
       },
       onError: message => { setSpeechError(message); setAudioStatus("idle"); setListeningFor(null); },
       onEnd: () => setAudioStatus("idle"),
-    }, { stopOnSilenceMs: TOOTH_ANSWER_SILENCE_MS, purpose: "tooth_command" });
+    }, { stopOnSilenceMs: TOOTH_ANSWER_SILENCE_MS, maxDurationMs: TOOTH_COMMAND_MAX_MS, purpose: "tooth_command" });
   };
 
   const askStep = (nextStep: Step) => {
@@ -704,7 +704,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
         </div>
         {speaking && <p role="status" className="mt-2 text-xs text-[#615f73]">{speechPurpose === "readback" ? "La aplicación lee la respuesta. Confírmala o corrígela cuando termine." : "La aplicación formula la pregunta; al terminar activa el micrófono."}</p>}
         {audioStatus === "starting" && <p role="status" className="mt-2 text-xs text-[#615f73]">Preparando el micrófono…</p>}
-        {audioStatus === "recording" && <p role="status" className="mt-2 text-xs text-[#615f73]">{listeningFor === "answer" ? "Te escucho. Di «terminar», guarda silencio 3 segundos o pulsa «Terminar respuesta»." : "Te escucho. Di la orden y guarda silencio 3 segundos, o pulsa «Terminar orden»."}</p>}
+        {audioStatus === "recording" && <p role="status" className="mt-2 text-xs text-[#615f73]">{listeningFor === "answer" ? "Te escucho. Di «terminar», guarda silencio 3 segundos o pulsa «Terminar respuesta»." : "Te escucho. Di la orden; si no detecto el silencio, la procesaré en un máximo de 10 segundos. También puedes pulsar «Terminar orden»."}</p>}
         {audioStatus === "transcribing" && <p role="status" className="mt-2 text-xs text-[#615f73]">Transcribiendo tu respuesta…</p>}
         {answerReady && <section className="mt-3 rounded-lg border border-violet-200 bg-violet-50 p-3" aria-live="polite">
           <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[#473a6d]">Revisado por IA · confirma o corrige</p>
