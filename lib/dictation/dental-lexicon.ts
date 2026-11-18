@@ -186,6 +186,13 @@ const IMPLANT_SPEECH_HINTS = [...new Map(IMPLANT_BRAND_TERMS.filter((term) => te
 
 export const DENTAL_SPEECH_HINTS = [
   ...IMPLANT_SPEECH_HINTS,
+  { phrase: "mesial", boost: 9 },
+  { phrase: "distal", boost: 9 },
+  { phrase: "palatino", boost: 9 },
+  { phrase: "oclusal", boost: 9 },
+  { phrase: "incisal", boost: 9 },
+  { phrase: "vestibular", boost: 8 },
+  { phrase: "lingual", boost: 8 },
   { phrase: "RUN", boost: 8 },
   { phrase: "RUT", boost: 8 },
   { phrase: "dígito verificador", boost: 8 },

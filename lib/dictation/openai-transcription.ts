@@ -8,14 +8,17 @@ export const AUDIO_COMPATIBILITY_MODEL = "gpt-4o-transcribe";
 export const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
 export const MAX_RECORDING_MS = 4 * 60 * 1000;
 const EXTENSIONS: Record<string, string> = { "audio/webm": "webm", "video/webm": "webm", "audio/mp4": "m4a", "video/mp4": "mp4", "audio/mpeg": "mp3", "audio/wav": "wav", "audio/x-wav": "wav" };
+const TOOTH_COMMAND_KEYWORDS = ["correcto", "correcto pasar al plan", "correcto preparar propuesta", "rectificar", "repetir", "mesial", "distal", "palatino", "oclusal", "incisal", "guardar diagnóstico y plan"];
+const TOOTH_COMMAND_PROMPT = "Orden breve de un odontólogo en español de Chile, después de escuchar una respuesta sobre una sola pieza dental. Transcribe literalmente una orden corta; puede ser «correcto», «correcto pasar al plan», «correcto preparar propuesta», «rectificar», «repetir», «mesial», «distal», «palatino», «oclusal», «incisal» o «guardar diagnóstico y plan». No completes ni deduzcas una orden que no se oiga. El silencio no es confirmación.";
 
 export function audioExtension(type: string): string | null {
   return EXTENSIONS[type.split(";")[0].trim().toLowerCase()] ?? null;
 }
 
 /** Solo audio y vocabulario general: nunca se añade identidad ni ficha previa al contexto. */
-export async function transcribeDentalAudio(audio: Blob, apiKey: string, options: { model?: string; fetcher?: typeof fetch; signal?: AbortSignal; /** «perio»: respuesta corta del periodontograma (número 0–12 u orden); sesga el modelo a esos términos. */ purpose?: "perio" } = {}): Promise<{ text: string; model: string }> {
+export async function transcribeDentalAudio(audio: Blob, apiKey: string, options: { model?: string; fetcher?: typeof fetch; signal?: AbortSignal; /** Contexto opcional para respuestas breves del periodontograma o para órdenes de revisión de una pieza. */ purpose?: "perio" | "tooth_command" } = {}): Promise<{ text: string; model: string }> {
   const perio = options.purpose === "perio";
+  const toothCommand = options.purpose === "tooth_command";
   const extension = audioExtension(audio.type);
   if (!extension || !audio.size || audio.size > MAX_AUDIO_BYTES) throw new Error("Audio vacío, demasiado grande o en un formato no compatible.");
   const model = options.model?.trim() || AUDIO_TRANSCRIPTION_MODEL;
@@ -23,10 +26,10 @@ export async function transcribeDentalAudio(audio: Blob, apiKey: string, options
   form.append("file", audio, `dictado.${extension}`);
   form.append("model", model);
   form.append("response_format", "json");
-  form.append("prompt", perio ? PERIO_TRANSCRIPTION_PROMPT : TOOTH_NUMBERING_PROMPT + "\n\nConsulta odontológica en español de Chile. El dictado puede incluir procedimientos, hallazgos, piezas dentales, superficies, medidas, presupuestos, pagos y datos administrativos explícitos como RUN/RUT, dígito verificador, fecha de nacimiento, correo electrónico y teléfono. Transcribe cada nombre, cifra y cero en el orden pronunciado; no completes ni deduzcas identidades, números o datos de contacto. Terminología: destartraje, detartraje, tartrectomía, supragingival, subgingival, pulpa, encía, pulpectomía, pulpotomía, ligamento periodontal, sondaje, seis grupos periodontales, pulido coronario, cirugía bucal, flapless, colgajo mucoperióstico, odontosección, alveoloplastia, sutura Vicryl o poliglactina 910, Vicryl Rapide, Monocryl, PDS, Prolene, nylon, poliamida, seda quirúrgica, calibres 3-0 y 4-0, injerto óseo, membrana, hemostasia, tubos de anestesia, tubete anestésico, lidocaína, articaína, paciente abonó, dejó la mitad, 50 por ciento del presupuesto, monto pagado. Conserva nombres de materiales y cifras tal como se dictaron; no completes dosis ni calibres.");
+  form.append("prompt", perio ? PERIO_TRANSCRIPTION_PROMPT : toothCommand ? TOOTH_COMMAND_PROMPT : TOOTH_NUMBERING_PROMPT + "\n\nConsulta odontológica en español de Chile. El dictado puede incluir procedimientos, hallazgos, piezas dentales, superficies, medidas, presupuestos, pagos y datos administrativos explícitos como RUN/RUT, dígito verificador, fecha de nacimiento, correo electrónico y teléfono. Transcribe cada nombre, cifra y cero en el orden pronunciado; no completes ni deduzcas identidades, números o datos de contacto. Terminología: mesial, distal, palatino, lingual, vestibular, oclusal, incisal, cervical, destartraje, detartraje, tartrectomía, supragingival, subgingival, pulpa, encía, pulpectomía, pulpotomía, ligamento periodontal, sondaje, seis grupos periodontales, pulido coronario, cirugía bucal, flapless, colgajo mucoperióstico, odontosección, alveoloplastia, sutura Vicryl o poliglactina 910, Vicryl Rapide, Monocryl, PDS, Prolene, nylon, poliamida, seda quirúrgica, calibres 3-0 y 4-0, injerto óseo, membrana, hemostasia, tubos de anestesia, tubete anestésico, lidocaína, articaína, paciente abonó, dejó la mitad, 50 por ciento del presupuesto, monto pagado. Conserva nombres de materiales y cifras tal como se dictaron; no completes dosis ni calibres.");
   if (model === "gpt-transcribe") {
     form.append("languages[]", "es");
-    for (const phrase of perio ? PERIO_TRANSCRIPTION_KEYWORDS : DENTAL_SPEECH_HINTS.map(hint => hint.phrase)) form.append("keywords[]", phrase);
+    for (const phrase of perio ? PERIO_TRANSCRIPTION_KEYWORDS : toothCommand ? TOOTH_COMMAND_KEYWORDS : DENTAL_SPEECH_HINTS.map(hint => hint.phrase)) form.append("keywords[]", phrase);
   } else {
     form.append("language", "es");
   }

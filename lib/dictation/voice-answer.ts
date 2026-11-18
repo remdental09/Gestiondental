@@ -1,5 +1,5 @@
 export const TOOTH_ANSWER_SILENCE_MS = 3_000;
-export const VOICE_ACTIVITY_THRESHOLD = 0.018;
+export const VOICE_ACTIVITY_THRESHOLD = 0.01;
 
 export type VoiceSilenceState = { lastVoiceAt: number | null };
 
@@ -31,9 +31,10 @@ export function parseVoiceReviewCommand(text: string, stage: "diagnosis" | "plan
     if (/^(?:distal|cara distal)$/.test(normalized)) return "distal";
     if (/^(?:ambas|las dos|mesial y distal)$/.test(normalized)) return "both";
     if (/^(?:pendiente|dejar pendiente|no registrar cara)$/.test(normalized)) return "pending";
-    if (/^(?:guardar|guardar propuesta|guardar diagnostico y plan|confirmar y guardar|correcto guardar)$/.test(normalized)) return "save";
+    if (/^(?:guardar|si guardar|guardar propuesta|guardar diagnostico y plan|confirmar propuesta|confirmar y guardar|correcto guardar|correcto guardar propuesta)$/.test(normalized)) return "save";
     return null;
   }
-  if (stage === "diagnosis") return /^(?:correcto|si correcto|esta correcto)(?: pasar al plan| preguntar plan| preguntar plano| pasar al plano)?$/.test(normalized) ? "accept" : null;
-  return /^(?:correcto|si correcto|esta correcto)(?: preparar propuesta| preparar la propuesta| continuar)?$/.test(normalized) ? "accept" : null;
+  const approval = "(?:correcto|correcta|si correcto|si es correcto|es correcto|esta correcto|esta bien|perfecto|confirmo)";
+  if (stage === "diagnosis") return new RegExp(`^${approval}(?: pasar al plan| preguntar plan| preguntar plano| pasar al plano)?$`).test(normalized) ? "accept" : null;
+  return new RegExp(`^${approval}(?: preparar propuesta| preparar la propuesta| continuar)?$`).test(normalized) ? "accept" : null;
 }

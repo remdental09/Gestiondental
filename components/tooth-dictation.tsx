@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Textarea } from "@/components/ui/textarea";
 import { formatFdi, type OdontogramData } from "@/app/clinical-data";
 import { createAudioTranscription } from "@/lib/dictation/audio-transcription";
-import { speakTextNow } from "@/lib/dictation/speech";
+import { dentalSpeechText, speakTextNow } from "@/lib/dictation/speech";
 import { toothPrompt } from "@/lib/dictation/tooth-prompts";
 import { parseVoiceReviewCommand, stripFinishCommand, TOOTH_ANSWER_SILENCE_MS, voiceAnswerReadback } from "@/lib/dictation/voice-answer";
 import { fdiToChile } from "@/lib/tooth-numbering";
@@ -111,7 +111,8 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
     setSpeaking(true);
     setSpeechPurpose(purpose);
     setSpeechError("");
-    const started = speakTextNow(text, {
+    const started = speakTextNow(dentalSpeechText(text), {
+      rate: purpose === "readback" ? 0.88 : 0.94,
       onStart: () => setSpeaking(true),
       onEnd: complete,
       onError: error => {
@@ -260,7 +261,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
       },
       onError: message => { setSpeechError(message); setAudioStatus("idle"); setListeningFor(null); },
       onEnd: () => setAudioStatus("idle"),
-    }, { stopOnSilenceMs: TOOTH_ANSWER_SILENCE_MS });
+    }, { stopOnSilenceMs: TOOTH_ANSWER_SILENCE_MS, purpose: "tooth_command" });
   };
 
   const startVoiceProposal = () => {
@@ -291,7 +292,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
       },
       onError: message => { setSpeechError(message); setAudioStatus("idle"); setListeningFor(null); },
       onEnd: () => setAudioStatus("idle"),
-    }, { stopOnSilenceMs: TOOTH_ANSWER_SILENCE_MS });
+    }, { stopOnSilenceMs: TOOTH_ANSWER_SILENCE_MS, purpose: "tooth_command" });
   };
 
   const askStep = (nextStep: Step) => {
@@ -470,8 +471,10 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
     try {
       await onApply(tooth, operations, budgetTitle, planItems.map(item => ({ ...item, label: item.label.trim(), amount: Number(item.amount), teeth: [tooth] })));
       changeOpen(false);
+      speakTextNow("Diagnóstico y plan preliminar guardados.", { rate: 0.94 });
     } catch (cause) {
       setAnalysisError(cause instanceof Error ? cause.message : "No se pudieron guardar el diagnóstico y el plan.");
+      speakTextNow("No se pudieron guardar los cambios. Revisa el aviso en pantalla.", { rate: 0.94 });
     } finally {
       setApplying(false);
     }
@@ -489,7 +492,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
           ? "Antes de guardar, ¿en qué cara está la caries? Di mesial, distal, ambas o dejar pendiente."
           : !validPlan
             ? "Revisa las prestaciones y sus montos en pantalla antes de guardar. Puedes decir rectificar plan."
-            : `La propuesta para la pieza FDI ${formatFdi(tooth)} está lista. Diagnóstico: ${diagnosisText.trim()}. Plan preliminar: ${planItems.map(item => item.label).join("; ")}. Si estás de acuerdo, di guardar diagnóstico y plan. También puedes decir rectificar o repetir.`;
+            : `Propuesta preliminar para la pieza FDI ${formatFdi(tooth)}. Diagnóstico: ${diagnosisText.trim()}. Plan: ${planItems.map(item => `${item.label}, ${item.amount > 0 ? `${item.amount.toLocaleString("es-CL")} pesos` : "valor por definir"}`).join("; ")}. Esta es la confirmación final. Si estás de acuerdo, di guardar diagnóstico y plan. También puedes decir rectificar o repetir.`;
     speak(prompt, "question", () => { if (flowId.current === currentFlow) startVoiceProposal(); });
   }, [proposalReady, proposalVoiceRound]);
 

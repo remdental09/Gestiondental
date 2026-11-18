@@ -35,11 +35,16 @@ test('la lectura de regreso distingue hipótesis diagnóstica y plan', () => {
 test('las órdenes habladas aprueban cada etapa y exigen una orden explícita para guardar', () => {
   assert.equal(parseVoiceReviewCommand('Correcto, preguntar plano.', 'diagnosis'), 'accept');
   assert.equal(parseVoiceReviewCommand('Correcto pasar al plan', 'diagnosis'), 'accept');
+  assert.equal(parseVoiceReviewCommand('Correcto.', 'diagnosis'), 'accept');
+  assert.equal(parseVoiceReviewCommand('Sí, es correcto.', 'diagnosis'), 'accept');
   assert.equal(parseVoiceReviewCommand('Correcto, preparar propuesta', 'plan'), 'accept');
+  assert.equal(parseVoiceReviewCommand('Correcto.', 'plan'), 'accept');
   assert.equal(parseVoiceReviewCommand('Rectificar diagnóstico', 'proposal'), 'correct');
   assert.equal(parseVoiceReviewCommand('Guardar diagnóstico y plan', 'proposal'), 'save');
+  assert.equal(parseVoiceReviewCommand('Confirmar propuesta', 'proposal'), 'save');
   assert.equal(parseVoiceReviewCommand('Cara mesial', 'proposal'), 'mesial');
   assert.equal(parseVoiceReviewCommand('El diagnóstico correcto es caries mesial', 'diagnosis'), null);
   assert.equal(parseVoiceReviewCommand('Correcto', 'proposal'), null);
+  assert.equal(parseVoiceReviewCommand('No es correcto', 'diagnosis'), null);
   assert.equal(parseVoiceReviewCommand('Guardar', 'diagnosis'), null);
 });

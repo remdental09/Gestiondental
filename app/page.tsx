@@ -593,18 +593,6 @@ export default function Home(){
     setToothStatuses(previous=>({...previous,[selectedId]:data.odontogram}));
   };
   const applyToothDictation=async(tooth:number,operations:ToothDictationOperation[],budgetTitle:string,budgetItems:BudgetPlan["items"])=>{
-    const chart=toothStatuses[selectedId]??emptyOdontogram();
-    const conditionLabel:Record<string,string>={not_examined:"sin examinar",sound:"sin lesión visible",caries:"caries",restored:"obturación",sealant:"sellante",other_restoration:"otra restauración"};
-    const details=operations.map(operation=>{
-      if(operation.kind==="diagnosis")return `Pieza FDI ${formatFdi(tooth)} · ${operation.title}: ${operation.detail}.`;
-      if(operation.kind==="status")return `Pieza FDI ${formatFdi(tooth)}: ${chart.teeth[tooth]??"Sin hallazgos"} → ${operation.status}${operation.missingReason?` · causa ${operation.missingReason==="caries"?"caries":operation.missingReason==="other"?"otra":"sin registrar"}`:""}.`;
-      if(operation.kind==="surface")return `Pieza FDI ${formatFdi(tooth)}, cara ${operation.surface}: ${conditionLabel[operation.finding.condition]??operation.finding.condition}${operation.finding.condition==="caries"?` · ${cariesDetail(operation.finding)}`:""}${operation.finding.condition==="restored"&&operation.finding.restorationMaterial?` · ${operation.finding.restorationMaterial}`:""}.`;
-      const shade=operation.shade??chart.crowns?.[tooth]?.shade;
-      return `Pieza FDI ${formatFdi(tooth)}: corona de ${operation.material||"material sin consignar"} ${operation.foundation==="implant"?"sobre implante":"sobre diente natural"}${shade?`, color ${shade}${operation.shade?"":" (se conserva)"}`:""}.`;
-    });
-    details.push(`Presupuesto preliminar «${budgetTitle}»: ${budgetItems.map(item=>`${item.label} · ${item.amount>0?`$${item.amount.toLocaleString("es-CL")}`:"valor por definir"}`).join("; ")}.`);
-    if(!details.length)throw new Error("No hay cambios seleccionados para aplicar.");
-    if(!await reviewChange({patientId:selectedId,heading:"Dictado de una pieza · confirmar cambios",details}))throw new Error("Dictado cancelado; no se guardó ningún cambio.");
     const result=await persist({action:"applyToothDictation",patientId:selectedId,tooth,changes:operations,budgetTitle,budgetItems});
     setToothStatuses(previous=>({...previous,[selectedId]:result.odontogram}));
     if(result.budget)setBudgets(previous=>[result.budget!,...previous]);

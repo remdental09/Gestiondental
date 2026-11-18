@@ -31,7 +31,17 @@ export type SpeechPlaybackHandlers = {
   onStart?: () => void;
   onEnd?: () => void;
   onError?: (error: string) => void;
+  rate?: number;
 };
+
+/** Marca el acento de términos dentales únicamente en la lectura hablada. */
+export function dentalSpeechText(text: string): string {
+  const pronunciation: Record<string, string> = { mesial: "mesiál", distal: "distál", palatino: "palatíno", oclusal: "oclusál", incisal: "incisál" };
+  return text.replace(/\b(mesial|distal|palatino|oclusal|incisal)\b/gi, term => {
+    const spoken = pronunciation[term.toLowerCase()];
+    return term[0] === term[0].toUpperCase() ? spoken[0].toUpperCase() + spoken.slice(1) : spoken;
+  });
+}
 
 /** Reproduce una pregunta en la misma interacción del usuario que la solicita. */
 export function speakTextNow(text: string, handlers: SpeechPlaybackHandlers = {}): boolean {
@@ -40,6 +50,7 @@ export function speakTextNow(text: string, handlers: SpeechPlaybackHandlers = {}
   try {
     synth.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
+    if (handlers.rate) utterance.rate = handlers.rate;
     const voice = pickLatinVoice(synth.getVoices());
     if (voice) { utterance.voice = voice; utterance.lang = voice.lang; }
     else utterance.lang = "es-CL";

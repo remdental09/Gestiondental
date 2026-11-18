@@ -1,6 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { pickLatinVoice, speakTextNow } from "../lib/dictation/speech.ts";
+import { dentalSpeechText, pickLatinVoice, speakTextNow } from "../lib/dictation/speech.ts";
+
+test("los términos dentales se ajustan solo en la lectura y conservan el texto clínico", () => {
+  const clinical = "Caries mesial, distal, palatino, oclusal e incisal.";
+  assert.equal(dentalSpeechText(clinical), "Caries mesiál, distál, palatíno, oclusál e incisál.");
+  assert.equal(clinical, "Caries mesial, distal, palatino, oclusal e incisal.");
+});
 
 test("la voz de los avisos prefiere español de Chile o Latinoamérica y evita España", () => {
   const es = { lang: "es-ES", name: "España" }, mx = { lang: "es-MX", name: "México" }, cl = { lang: "es_CL", name: "Chile" }, en = { lang: "en-US" };
@@ -29,10 +35,11 @@ test("la pregunta guiada se encola de inmediato y expone bloqueo de reproducció
   Object.defineProperty(globalThis, "SpeechSynthesisUtterance", { configurable: true, value: FakeUtterance });
   try {
     const errors = [];
-    assert.equal(speakTextNow("¿Cuál es el diagnóstico de esta pieza?", { onError: error => errors.push(error) }), true);
+    assert.equal(speakTextNow("¿Cuál es el diagnóstico de esta pieza?", { onError: error => errors.push(error), rate: 0.88 }), true);
     assert.deepEqual(calls, ["cancel", "speak"]);
     assert.equal(utterances[0].text, "¿Cuál es el diagnóstico de esta pieza?");
     assert.equal(utterances[0].lang, "es-CL");
+    assert.equal(utterances[0].rate, 0.88);
     utterances[0].onerror({ error: "not-allowed" });
     assert.deepEqual(errors, ["not-allowed"]);
   } finally {

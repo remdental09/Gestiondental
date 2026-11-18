@@ -57,7 +57,8 @@ export async function POST(request: Request) {
     const form = await new Response(body, { headers: { "Content-Type": request.headers.get("content-type")! } }).formData();
     const audio = form.get("audio");
     if (!(audio instanceof File)) return json({ error: "No se recibió una grabación de audio." }, 400);
-    const result = await transcribeDentalAudio(audio, env.OPENAI_API_KEY.trim(), { model: env.OPENAI_TRANSCRIPTION_MODEL, signal: request.signal, purpose: form.get("purpose") === "perio" ? "perio" : undefined });
+    const purpose = form.get("purpose");
+    const result = await transcribeDentalAudio(audio, env.OPENAI_API_KEY.trim(), { model: env.OPENAI_TRANSCRIPTION_MODEL, signal: request.signal, purpose: purpose === "perio" || purpose === "tooth_command" ? purpose : undefined });
     return json({ ...result, provider: "openai" });
   } catch (cause) {
     return json({ error: cause instanceof Error && cause.name !== "AbortError" && cause.name !== "TimeoutError" ? cause.message : "La transcripción tardó demasiado. Reintenta la grabación." }, 502);

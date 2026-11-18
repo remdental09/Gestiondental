@@ -2,7 +2,7 @@ import type { DictationHandlers, TranscriptionEngine } from "./transcription.ts"
 import { TOOTH_ANSWER_SILENCE_MS, updateVoiceSilence, VOICE_ACTIVITY_THRESHOLD } from "./voice-answer.ts";
 
 type Session = {
-  handlers: DictationHandlers; base: string; cancelled: boolean; stream?: MediaStream;
+  handlers: DictationHandlers; base: string; purpose?: "tooth_command"; cancelled: boolean; stream?: MediaStream;
   recorder?: MediaRecorder; chunks: Blob[]; bytes: number; audio?: Blob;
   controller: AbortController; timer?: ReturnType<typeof setTimeout>; silenceTimer?: ReturnType<typeof setTimeout>;
   audioContext?: AudioContext; startedAt: number; uploading?: boolean; captureFailed?: boolean;
@@ -15,6 +15,7 @@ export const AUDIO_DICTATION_NOTICE = "El micrófono graba tu dictado y, al dete
 /** MediaRecorder en Chrome/Safari; conserva cada grabación solo en memoria hasta terminar o descartar. */
 export function createAudioTranscription(): TranscriptionEngine {
   let current: Session | null = null;
+  let configurationAvailable = false;
   const valid = (session: Session) => current === session && !session.cancelled;
   const cleanCapture = (session: Session) => {
     if (session.timer) clearTimeout(session.timer);
@@ -77,6 +78,7 @@ export function createAudioTranscription(): TranscriptionEngine {
       const form = new FormData();
       const extension = session.audio.type.includes("mp4") ? "m4a" : "webm";
       form.append("audio", session.audio, `dictado.${extension}`);
+      if (session.purpose) form.append("purpose", session.purpose);
       const response = await fetch("/api/audio-transcription", { method: "POST", body: form, signal: AbortSignal.any([session.controller.signal, AbortSignal.timeout(100_000)]) });
       const data = await response.json() as { text?: string; error?: string };
       if (!response.ok || typeof data.text !== "string" || !data.text.trim()) throw new Error(data.error || "No se recibió la transcripción. Reintenta el audio.");
@@ -107,14 +109,17 @@ export function createAudioTranscription(): TranscriptionEngine {
     unsupportedMessage: () => "Este navegador no permite grabar audio. Abre la aplicación en Safari o Chrome actualizado, o escribe el texto.",
     start(base, handlers, options = {}) {
       abort();
-      const session: Session = { handlers, base: base.trim(), cancelled: false, chunks: [], bytes: 0, controller: new AbortController(), startedAt: 0 };
+      const session: Session = { handlers, base: base.trim(), purpose: options.purpose, cancelled: false, chunks: [], bytes: 0, controller: new AbortController(), startedAt: 0 };
       current = session;
       handlers.onStatus?.("starting");
       void (async () => {
         try {
-          const response = await fetch("/api/audio-transcription", { cache: "no-store", signal: session.controller.signal });
-          const config = await response.json() as { available?: boolean; error?: string };
-          if (!response.ok || !config.available) throw new Error(config.error || "Falta configurar OPENAI_API_KEY en Cloudflare para activar la transcripción de audio.");
+          if (!configurationAvailable) {
+            const response = await fetch("/api/audio-transcription", { cache: "no-store", signal: session.controller.signal });
+            const config = await response.json() as { available?: boolean; error?: string };
+            if (!response.ok || !config.available) throw new Error(config.error || "Falta configurar OPENAI_API_KEY en Cloudflare para activar la transcripción de audio.");
+            configurationAvailable = true;
+          }
           if (!valid(session)) return;
           const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
           if (!valid(session)) { stream.getTracks().forEach((track) => track.stop()); return; }

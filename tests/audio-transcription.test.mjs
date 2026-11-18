@@ -18,6 +18,17 @@ test('server sends audio with dental context and Spanish hints, never the secret
   assert.equal(request.init.body.get('file').name, 'dictado.webm');
   assert.equal([...request.init.body.values()].some(v => String(v).includes('test-secret')), false);
 });
+test('short tooth commands use a narrow Spanish transcription context', async () => {
+  let form;
+  await transcribeDentalAudio(audio(), 'secret', { purpose: 'tooth_command', fetcher: async (_url, init) => {
+    form = init.body;
+    return Response.json({ text: 'Correcto.' });
+  } });
+  assert.match(form.get('prompt'), /Orden breve de un odontólogo en español de Chile/);
+  assert.ok(form.getAll('keywords[]').includes('correcto'));
+  assert.ok(form.getAll('keywords[]').includes('mesial'));
+  assert.equal(form.getAll('keywords[]').includes('dígito verificador'), false);
+});
 test('server rejects empty, oversized and unsupported files before calling the provider', async () => {
   const fetcher = () => { throw new Error('should not fetch'); };
   for (const blob of [new Blob([], { type: 'audio/webm' }), new Blob(['text'], { type: 'text/plain' }), new Blob([new Uint8Array(MAX_AUDIO_BYTES + 1)], { type: 'audio/webm' })]) {
@@ -115,5 +126,27 @@ test('auto-answer recording ends after voice followed by silence and submits onl
   for (let attempt = 0; attempt < 20 && !transcripts.includes('ended'); attempt++) await new Promise(resolve => setTimeout(resolve, 100));
   assert.deepEqual(transcripts, ['Caries distal, terminar.', 'ended']);
   assert.equal(requests.length, 1);
+  engine.abort();
+}));
+
+test('successive spoken commands reuse availability and send their narrow purpose', async () => environment(async () => {
+  let availabilityChecks = 0;
+  const purposes = [];
+  globalThis.fetch = async (_url, init) => {
+    if (!init.method) { availabilityChecks++; return Response.json({ available: true }); }
+    purposes.push(init.body.get('purpose'));
+    return Response.json({ text: 'Correcto.' });
+  };
+  const engine = createAudioTranscription();
+  const transcripts = [];
+  for (let index = 0; index < 2; index++) {
+    engine.start('', { onTranscript: text => transcripts.push(text), onError: error => transcripts.push(error), onEnd: () => transcripts.push('ended') }, { purpose: 'tooth_command' });
+    await tick();
+    engine.stop();
+    await tick();
+  }
+  assert.equal(availabilityChecks, 1);
+  assert.deepEqual(purposes, ['tooth_command', 'tooth_command']);
+  assert.deepEqual(transcripts, ['Correcto.', 'ended', 'Correcto.', 'ended']);
   engine.abort();
 }));

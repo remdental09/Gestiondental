@@ -17,7 +17,7 @@ export interface TranscriptionEngine {
   readonly id: string;
   isSupported(): boolean;
   unsupportedMessage(): string;
-  start(baseText: string, handlers: DictationHandlers, options?: { stopOnSilenceMs?: number }): void;
+  start(baseText: string, handlers: DictationHandlers, options?: { stopOnSilenceMs?: number; purpose?: "tooth_command" }): void;
   stop(): void;
   abort(): void;
   retry?(): void;
