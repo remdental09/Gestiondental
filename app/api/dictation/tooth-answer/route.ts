@@ -3,6 +3,7 @@ import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { redraftToothAnswer } from "@/lib/dictation/tooth-answer-redraft";
 import { isFdiTooth } from "@/lib/tooth-numbering";
 import { focusedToothReview } from "@/lib/dictation/proposal";
+import { OPENAI_CORRECTION_MODEL } from "@/lib/dictation/openai-structure";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -23,9 +24,10 @@ export async function POST(request: Request) {
   const transcript = value.transcript;
   if ((step !== "diagnosis" && step !== "plan") || typeof tooth !== "number" || !isFdiTooth(tooth) || typeof transcript !== "string" || transcript.trim().length < 3 || transcript.length > (step === "diagnosis" ? 1_000 : 4_000)) return error("Respuesta o pieza inválida.");
   try {
-    const text = await redraftToothAnswer(transcript, step, tooth, env.OPENAI_API_KEY.trim(), { model: env.OPENAI_TEXT_MODEL, signal: request.signal });
+    const model = env.OPENAI_TEXT_MODEL?.trim() || OPENAI_CORRECTION_MODEL;
+    const text = await redraftToothAnswer(transcript, step, tooth, env.OPENAI_API_KEY.trim(), { model, signal: request.signal });
     const otherTeeth = focusedToothReview(transcript, tooth).otherTeeth;
-    return Response.json({ text, otherTeeth }, { headers: { "Cache-Control": "no-store" } });
+    return Response.json({ text, otherTeeth, provider: "openai", model }, { headers: { "Cache-Control": "no-store" } });
   } catch (cause) {
     return error(cause instanceof Error ? cause.message : "No se pudo redactar la respuesta.", 502);
   }

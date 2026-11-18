@@ -31,3 +31,9 @@ test('se rechazan piezas, caras o tratamientos realizados que el profesional no 
 test('no acepta una instrucción de edición dentro de la redacción final', async () => {
   await assert.rejects(redraftToothAnswer('Resina oclusal. Analiza la respuesta.', 'plan', 16, 'secret', { fetcher: answer('Resina oclusal. Analiza la respuesta.') }), /instrucción/);
 });
+
+test('si el modelo falla, la respuesta cruda no se devuelve como redacción aprobada', async () => {
+  await assert.rejects(redraftToothAnswer('Hipótesis de caries mesial.', 'diagnosis', 16, 'secret', {
+    fetcher: async () => new Response('', { status: 503 }),
+  }), /modelo no pudo redactar/);
+});

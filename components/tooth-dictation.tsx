@@ -92,6 +92,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
   const redraftController = useRef<AbortController | null>(null);
   const flowId = useRef(0);
   const answerTextRef = useRef({ diagnosis: "", plan: "" });
+  const aiReviewedRef = useRef({ diagnosis: false, plan: false });
   const rawOtherTeethRef = useRef<{ diagnosis: number[]; plan: number[] }>({ diagnosis: [], plan: [] });
   const confirmAnswerRef = useRef<(answerStep: Step) => Promise<void>>(async () => {});
   const applyProposalRef = useRef<() => Promise<void>>(async () => {});
@@ -180,6 +181,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
     setDiagnosisText("");
     setPlanText("");
     answerTextRef.current = { diagnosis: "", plan: "" };
+    aiReviewedRef.current = { diagnosis: false, plan: false };
     rawOtherTeethRef.current = { diagnosis: [], plan: [] };
     setAudioStatus("idle");
     setSpeaking(false);
@@ -210,6 +212,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
     const controller = new AbortController();
     redraftController.current = controller;
     const currentFlow = flowId.current;
+    aiReviewedRef.current[answerStep] = false;
     setRawAnswerText(transcript);
     setRedrafting(true);
     setAnswerReady(false);
@@ -221,9 +224,9 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
         body: JSON.stringify({ step: answerStep, tooth, transcript }),
         signal: AbortSignal.any([controller.signal, AbortSignal.timeout(40_000)]),
       });
-      const data = await response.json() as { text?: string; otherTeeth?: number[]; error?: string };
+      const data = await response.json() as { text?: string; otherTeeth?: number[]; provider?: string; error?: string };
       if (controller.signal.aborted || flowId.current !== currentFlow) return;
-      if (!response.ok || typeof data.text !== "string" || data.text.trim().length < 3) throw new Error(data.error || "El modelo no devolvió una redacción válida.");
+      if (!response.ok || data.provider !== "openai" || typeof data.text !== "string" || data.text.trim().length < 3) throw new Error(data.error || "El modelo no devolvió una redacción válida.");
       const draft = data.text.trim();
       rawOtherTeethRef.current[answerStep] = Array.isArray(data.otherTeeth) ? data.otherTeeth.filter(value => Number.isInteger(value) && value !== tooth) : [];
       if (answerStep === "diagnosis") {
@@ -238,6 +241,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
         setPlanOtherTeeth([]);
       }
       setProposalReady(false);
+      aiReviewedRef.current[answerStep] = true;
       setAnswerReady(true);
       readAnswer(answerStep, draft);
     } catch (cause) {
@@ -366,12 +370,14 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
     if (nextStep === "diagnosis") {
       setDiagnosisText("");
       answerTextRef.current.diagnosis = "";
+      aiReviewedRef.current.diagnosis = false;
       rawOtherTeethRef.current.diagnosis = [];
       setDiagnosisPreview(null);
       setSelectedIds(new Set());
     } else {
       setPlanText("");
       answerTextRef.current.plan = "";
+      aiReviewedRef.current.plan = false;
       rawOtherTeethRef.current.plan = [];
       setPlanItems([]);
       setPlanOtherTeeth([]);
@@ -477,6 +483,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
   };
 
   const confirmAnswer = async (answerStep: Step = step) => {
+    if (!aiReviewedRef.current[answerStep]) { setAnalysisError("Esta respuesta aún no fue revisada por el modelo de IA."); return; }
     if (answerTextRef.current[answerStep].trim().length < 3) { setAnalysisError("Completa o corrige la respuesta antes de continuar."); return; }
     engine.current?.abort();
     setAudioStatus("idle");
@@ -515,13 +522,13 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
     ...confirmedFaces,
     ...(diagnosisOperation ? [diagnosisOperation] : []),
   ];
-  const canContinue = Boolean(diagnosisPreview && diagnosisText.trim().length >= 3 && !diagnosisPreview.otherTeeth.length && (!diagnosisPreview.question || answer));
+  const canContinue = Boolean(aiReviewedRef.current.diagnosis && aiReviewedRef.current.plan && diagnosisPreview && diagnosisText.trim().length >= 3 && !diagnosisPreview.otherTeeth.length && (!diagnosisPreview.question || answer));
   const validPlan = planItems.length > 0 && planItems.every(item => item.label.trim().length > 0 && Number.isSafeInteger(Number(item.amount)) && Number(item.amount) >= 0);
   canSaveRef.current = canContinue && validPlan && !planOtherTeeth.length;
   const budgetTitle = `Presupuesto preliminar · FDI ${formatFdi(tooth)} · Chile ${fdiToChile(tooth)}`;
 
   const applyProposal = async () => {
-    if (!canContinue || !validPlan || planOtherTeeth.length || !onApply) return;
+    if (!aiReviewedRef.current.diagnosis || !aiReviewedRef.current.plan || !canContinue || !validPlan || planOtherTeeth.length || !onApply) return;
     engine.current?.abort();
     setAudioStatus("idle");
     setListeningFor(null);
@@ -616,6 +623,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
         {audioStatus === "recording" && <p role="status" className="mt-2 text-xs text-[#615f73]">{listeningFor === "answer" ? "Te escucho. Di «terminar», guarda silencio 3 segundos o pulsa «Terminar respuesta»." : "Te escucho. Di la orden y guarda silencio 3 segundos, o pulsa «Terminar orden»."}</p>}
         {audioStatus === "transcribing" && <p role="status" className="mt-2 text-xs text-[#615f73]">Transcribiendo tu respuesta…</p>}
         {answerReady && <section className="mt-3 rounded-lg border border-violet-200 bg-violet-50 p-3" aria-live="polite">
+          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[#473a6d]">Revisado por IA · confirma o corrige</p>
           <h3 className="font-semibold text-[#3b3355]">¿Es correcta la redacción propuesta?</h3>
           <p className="mt-1 text-sm text-[#3b3355]">{currentText}</p>
           <Button type="button" variant="ghost" size="sm" className="mt-1 px-2" onClick={() => readAnswer(step, currentText)} disabled={speaking || audioStatus !== "idle"}><Volume2 className="mr-2 size-4"/>Repetir respuesta</Button>
