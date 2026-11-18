@@ -40,6 +40,7 @@ async function clinicLabel(clinicId: string) {
 async function state(user: ChatGPTUser, db: TeamDb, origin: string, entry: Entry) {
   const now = new Date();
   const personalId = personalIdOf(user);
+  const ownProfile = await loadProfile(personalId).catch(() => null);
   const role = spaceRoleOf(user);
   const mine = await membershipsOf(db, normalizeEmail(user.email));
   const active = mine.filter(m => m.status === "activa" && m.clinicId !== personalId);
@@ -51,6 +52,8 @@ async function state(user: ChatGPTUser, db: TeamDb, origin: string, entry: Entry
   return {
     // Puerta por la que se entró: la consulta personal y las clínicas no comparten selector.
     entry,
+    email: normalizeEmail(user.email),
+    profileComplete: Boolean(ownProfile),
     space: { name: spaceName, role, roleLabel: ROLE_LABEL[role], inClinic: personalId !== user.userId, manage },
     spaces: entry === "clinica"
       ? await Promise.all(active.map(async m => ({ id: m.clinicId, name: await clinicLabel(m.clinicId), current: m.clinicId === user.userId })))
@@ -60,9 +63,9 @@ async function state(user: ChatGPTUser, db: TeamDb, origin: string, entry: Entry
     team: {
       titular: titularName,
       // Quien no administra ve solo a los miembros activos; el administrador ve también invitaciones e historial.
-      members: members
+      members: await Promise.all(members
         .filter(m => manage || m.status === "activa")
-        .map(m => ({ email: m.email, name: m.name, role: m.role, roleLabel: ROLE_LABEL[m.role], status: visibleStatus(m, now), invitedAt: m.invitedAt, acceptedAt: m.acceptedAt, expiresAt: m.expiresAt, isMe: m.email === normalizeEmail(user.email) })),
+        .map(async m => ({ email: m.email, name: m.name, specialty: m.memberId ? (await loadProfile(m.memberId).catch(() => null))?.specialty || "" : "", role: m.role, roleLabel: ROLE_LABEL[m.role], status: visibleStatus(m, now), invitedAt: m.invitedAt, acceptedAt: m.acceptedAt, expiresAt: m.expiresAt, isMe: m.email === normalizeEmail(user.email) }))),
       message: manage ? inviteMessage(spaceName, await nameOf(personalId, user.displayName), origin) : "",
     },
   };
@@ -158,6 +161,8 @@ export async function POST(request: Request) {
       const invite = (await membershipsOf(db, myEmail)).find(m => m.clinicId === target && m.status === "invitada");
       if (!invite || target === personalId) return fail("No hay una invitación pendiente para este correo.", 404);
       if (action === "rechazar") { await declineInvite(db, target, myEmail); return done(); }
+      // Una invitación solo se activa cuando la identidad profesional del correo invitado está registrada.
+      if (!(await loadProfile(personalId).catch(() => null))) return fail("Completa tu perfil profesional antes de aceptar la invitación.", 409);
       if (isExpired(invite, now)) return fail("La invitación venció. Pide que te la reenvíen.", 410);
       const accepted = await acceptInvite(db, target, myEmail, personalId, await nameOf(personalId, user.displayName), stamp);
       if (!accepted) return fail("No se pudo aceptar la invitación. Pide que te la reenvíen.", 409);

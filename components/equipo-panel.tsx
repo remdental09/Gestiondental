@@ -3,12 +3,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { Building2, Check, Copy, LogOut, Mail, MessageCircle, RefreshCw, Stethoscope, UserPlus, Users, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ProfileDialog } from "@/components/profile-dialog";
+import type { ClinicianProfile } from "@/lib/clinician-profile";
 
 type Role = "admin" | "dentista";
-type Member = { email: string; name: string; role: Role; roleLabel: string; status: "invitada" | "activa" | "revocada" | "rechazada" | "vencida"; invitedAt: string; acceptedAt: string | null; expiresAt: string; isMe: boolean };
+type Member = { email: string; name: string; specialty: string; role: Role; roleLabel: string; status: "invitada" | "activa" | "revocada" | "rechazada" | "vencida"; invitedAt: string; acceptedAt: string | null; expiresAt: string; isMe: boolean };
 type TeamState = {
   /** Puerta por la que se entró desde la portada. */
   entry: "personal" | "clinica";
+  email: string;
+  profileComplete: boolean;
   hasClinics: boolean;
   space: { name: string; role: "titular" | Role; roleLabel: string; inClinic: boolean; manage: boolean };
   spaces: Array<{ id: string; name: string; current: boolean }>;
@@ -66,16 +70,20 @@ function useTeam() {
  * - «Entrar a mi consulta»: invitaciones recibidas y, si ya pertenece a alguna clínica, el acceso a esa otra puerta.
  */
 function InvitationCards({ state, busy, act }: { state: TeamState; busy: boolean; act: (body: Record<string, unknown>) => Promise<boolean> }) {
+  const [identify, setIdentify] = useState(false);
+  const [profileComplete, setProfileComplete] = useState(state.profileComplete);
   return <>{state.invitations.map(inv => (
     <section key={inv.clinicId} className="flex flex-wrap items-center gap-3 rounded-xl border border-[#c9c2e3] bg-[#efedf7] p-4" aria-label="Invitación a una clínica" data-testid="clinic-invitation">
       <Building2 className="size-5 shrink-0 text-[#473a6d]" aria-hidden="true"/>
       <p className="min-w-0 flex-1 text-sm text-[#2b2540]"><strong>{inv.invitedBy}</strong> te invitó a atender pacientes de <strong>{inv.clinicName}</strong> como {inv.roleLabel.toLowerCase()}. Vence el {day(inv.expiresAt)}.</p>
       <div className="flex gap-2">
-        <Button type="button" size="sm" disabled={busy} className="bg-[#473a6d] text-white hover:bg-[#3a2f5a]" onClick={() => act({ action: "aceptar", clinicId: inv.clinicId })} data-testid="accept-invitation"><Check className="mr-1.5 size-4"/>Aceptar</Button>
+        {!profileComplete
+          ? <Button type="button" size="sm" disabled={busy} className="bg-[#473a6d] text-white hover:bg-[#3a2f5a]" onClick={() => setIdentify(true)}>Identificarme</Button>
+          : <Button type="button" size="sm" disabled={busy} className="bg-[#473a6d] text-white hover:bg-[#3a2f5a]" onClick={() => act({ action: "aceptar", clinicId: inv.clinicId })} data-testid="accept-invitation"><Check className="mr-1.5 size-4"/>Aceptar</Button>}
         <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => act({ action: "rechazar", clinicId: inv.clinicId })}>Rechazar</Button>
       </div>
     </section>
-  ))}</>;
+  ))}{identify && <ProfileDialog email={state.email} onClose={() => setIdentify(false)} onSaved={(_profile: ClinicianProfile) => setProfileComplete(true)}/>}</>;
 }
 
 export function ClinicSpaceBar() {
@@ -178,7 +186,7 @@ export function EquipoPanel() {
         <li className="flex flex-wrap items-center justify-between gap-2 p-3 text-sm"><span><strong className="text-[#35343f]">{team.titular}</strong> <span className="text-[#6b6a7c]">· Titular</span></span></li>
         {visible.map(m => (
           <li key={m.email} className="flex flex-wrap items-center gap-2 p-3 text-sm" data-testid="team-member">
-            <span className="min-w-0 flex-1"><strong className="block truncate text-[#35343f]">{m.name || m.email}{m.isMe ? " (tú)" : ""}</strong><span className="block truncate text-xs text-[#6b6a7c]">{m.email} · {STATUS_LABEL[m.status]}{m.status === "invitada" ? ` hasta el ${day(m.expiresAt)}` : ""}</span></span>
+            <span className="min-w-0 flex-1"><strong className="block truncate text-[#35343f]">{m.name || m.email}{m.isMe ? " (tú)" : ""}</strong><span className="block truncate text-xs text-[#6b6a7c]">{m.email}{m.specialty ? ` · ${m.specialty}` : ""} · {STATUS_LABEL[m.status]}{m.status === "invitada" ? ` hasta el ${day(m.expiresAt)}` : ""}</span></span>
             {space.manage && !m.isMe ? (
               <span className="flex flex-wrap items-center gap-2">
                 <select aria-label={`Rol de ${m.email}`} className="min-h-9 rounded-lg border border-[#dddbe6] bg-white px-2 text-sm" disabled={busy || m.status === "vencida"} value={m.role} onChange={e => act({ action: "rol", email: m.email, role: e.target.value })}>

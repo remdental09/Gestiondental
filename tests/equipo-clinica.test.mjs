@@ -135,6 +135,12 @@ test("API de equipo: solo administradores invitan, revocan o cambian roles; acep
   assert.ok(equipo.includes('if (!manage) return fail("Solo un administrador puede cambiar el equipo.", 403)'));
   assert.ok(equipo.includes("membershipsOf(db, myEmail)") && equipo.includes("isExpired(invite, now)"));
   assert.ok(equipo.includes('m.status === "activa"') && equipo.includes("No perteneces a ese espacio."));
+  const accept = equipo.slice(equipo.indexOf('if (action === "aceptar" || action === "rechazar")'));
+  assert.ok(accept.indexOf('if (!(await loadProfile(personalId)') < accept.indexOf("acceptInvite("), "el servidor exige un perfil profesional antes de activar la membresía");
+  assert.ok(equipo.includes("specialty: m.memberId ? (await loadProfile(m.memberId)") , "el equipo obtiene la especialidad del perfil personal existente");
+  const panel = readFileSync(new URL("../components/equipo-panel.tsx", import.meta.url), "utf8");
+  assert.ok(panel.includes(">Identificarme<") && panel.includes("<ProfileDialog"), "el invitado puede completar su perfil antes de aceptar");
+  assert.ok(panel.includes("m.specialty ? ` · ${m.specialty}`"), "la clínica puede identificar la especialidad del miembro");
 });
 
 test("conexiones compartidas (Drive, calendarios, correo de citas, envío de agenda): solo titular o administrador las cambia", () => {
