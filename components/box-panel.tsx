@@ -63,7 +63,7 @@ export function BoxPanel() {
         <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-[#efeef4] text-[#473a6d]"><DoorOpen className="size-5" aria-hidden="true" /></span>
         <div className="min-w-0 flex-1"><p className="truncate font-medium">{box.name}{!box.enabled && <span className="ml-2 text-xs font-normal text-[#6b6a7c]">Deshabilitado</span>}</p>
           <p className="flex items-center gap-1 text-xs text-[#615f73]"><Users className="size-3.5" aria-hidden="true" />Todos los usuarios</p></div>
-        <button type="button" aria-label={`Editar ${box.name}`} className="rounded p-2 text-[#473a6d] hover:bg-[#efeef4]" disabled={busy} onClick={() => { setError(""); setEditing({ id: box.id, name: box.name }); }}><Pencil className="size-4" /></button>
+        <button type="button" aria-label={`Editar nombre de ${box.name}`} title="Editar nombre" className="inline-flex shrink-0 items-center gap-1 rounded px-2 py-2 text-xs font-medium text-[#473a6d] hover:bg-[#efeef4]" disabled={busy} onClick={() => { setError(""); setEditing({ id: box.id, name: box.name }); }}><Pencil className="size-4" /><span>Editar nombre</span></button>
         <button type="button" aria-label={box.enabled ? `Deshabilitar ${box.name}` : `Habilitar ${box.name}`} className={"rounded p-2 hover:bg-[#efeef4] " + (box.enabled ? "text-[#a43542]" : "text-emerald-700")} disabled={busy} onClick={() => void send({ action: "guardar", id: box.id, enabled: !box.enabled })}><Power className="size-4" /></button>
       </li>)}
       {boxes !== null && !visible.length && <li className="rounded-xl border border-dashed border-[#dddbe6] p-4 text-center text-sm text-[#6b6a7c]">No hay box para mostrar.</li>}
