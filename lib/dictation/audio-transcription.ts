@@ -1,9 +1,11 @@
 import type { DictationHandlers, TranscriptionEngine } from "./transcription.ts";
+import { TOOTH_ANSWER_SILENCE_MS, updateVoiceSilence, VOICE_ACTIVITY_THRESHOLD } from "./voice-answer.ts";
 
 type Session = {
   handlers: DictationHandlers; base: string; cancelled: boolean; stream?: MediaStream;
   recorder?: MediaRecorder; chunks: Blob[]; bytes: number; audio?: Blob;
-  controller: AbortController; timer?: ReturnType<typeof setTimeout>; startedAt: number; uploading?: boolean; captureFailed?: boolean;
+  controller: AbortController; timer?: ReturnType<typeof setTimeout>; silenceTimer?: ReturnType<typeof setTimeout>;
+  audioContext?: AudioContext; startedAt: number; uploading?: boolean; captureFailed?: boolean;
 };
 const LIMIT = 10 * 1024 * 1024;
 export const MAX_DICTATION_MS = 4 * 60 * 1000;
@@ -16,7 +18,49 @@ export function createAudioTranscription(): TranscriptionEngine {
   const valid = (session: Session) => current === session && !session.cancelled;
   const cleanCapture = (session: Session) => {
     if (session.timer) clearTimeout(session.timer);
+    if (session.silenceTimer) clearTimeout(session.silenceTimer);
+    const context = session.audioContext;
+    session.audioContext = undefined;
+    if (context && context.state !== "closed") void context.close().catch(() => {});
     session.stream?.getTracks().forEach((track) => track.stop());
+  };
+  const monitorSilence = (session: Session, stream: MediaStream, recorder: MediaRecorder, silenceMs: number) => {
+    if (silenceMs <= 0) return;
+    try {
+      const browserWindow = window as Window & { webkitAudioContext?: typeof AudioContext };
+      const AudioContextClass = typeof AudioContext !== "undefined" ? AudioContext : browserWindow.webkitAudioContext;
+      if (!AudioContextClass) return;
+      const context = new AudioContextClass();
+      session.audioContext = context;
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 1024;
+      context.createMediaStreamSource(stream).connect(analyser);
+      if (context.state === "suspended") void context.resume().catch(() => {});
+      const samples = new Float32Array(analyser.fftSize);
+      let state = { lastVoiceAt: null as number | null };
+      const check = () => {
+        if (!valid(session) || recorder.state === "inactive") return;
+        try {
+          analyser.getFloatTimeDomainData(samples);
+          let sum = 0;
+          for (const sample of samples) sum += sample * sample;
+          const rms = Math.sqrt(sum / samples.length);
+          const update = updateVoiceSilence(state, rms, Date.now(), silenceMs, VOICE_ACTIVITY_THRESHOLD);
+          state = update.state;
+          if (update.shouldStop) {
+            recorder.stop();
+            return;
+          }
+        } catch {
+          return; // Auto-stop is optional; «Terminar respuesta» remains available.
+        }
+        session.silenceTimer = setTimeout(check, 150);
+      };
+      session.silenceTimer = setTimeout(check, 150);
+    } catch {
+      // Some mobile browsers cannot create an analyser for a microphone stream.
+      // Recording still works and can be ended with the visible button.
+    }
   };
   const fail = (session: Session, cause: unknown) => {
     if (!valid(session)) return;
@@ -61,7 +105,7 @@ export function createAudioTranscription(): TranscriptionEngine {
     id: "openai-audio",
     isSupported: () => typeof window !== "undefined" && typeof MediaRecorder !== "undefined" && !!navigator.mediaDevices?.getUserMedia,
     unsupportedMessage: () => "Este navegador no permite grabar audio. Abre la aplicación en Safari o Chrome actualizado, o escribe el texto.",
-    start(base, handlers) {
+    start(base, handlers, options = {}) {
       abort();
       const session: Session = { handlers, base: base.trim(), cancelled: false, chunks: [], bytes: 0, controller: new AbortController(), startedAt: 0 };
       current = session;
@@ -100,6 +144,8 @@ export function createAudioTranscription(): TranscriptionEngine {
           session.startedAt = Date.now();
           recorder.start(1000);
           session.timer = setTimeout(() => { if (valid(session) && recorder.state !== "inactive") recorder.stop(); }, MAX_MS);
+          const stopOnSilenceMs = Number(options.stopOnSilenceMs);
+          monitorSilence(session, stream, recorder, Number.isFinite(stopOnSilenceMs) && stopOnSilenceMs > 0 ? Math.max(500, Math.min(stopOnSilenceMs, TOOTH_ANSWER_SILENCE_MS * 3)) : 0);
           handlers.onStatus?.("recording");
         } catch (cause) {
           const message = cause instanceof Error && (cause.name === "NotAllowedError" || cause.name === "SecurityError") ? new Error("Permite el micrófono para esta aplicación en Safari o Chrome y vuelve a intentar.") : cause;

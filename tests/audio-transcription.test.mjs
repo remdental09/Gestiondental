@@ -51,12 +51,12 @@ class Recorder {
 }
 const tick = () => new Promise(resolve => setImmediate(resolve));
 async function environment(callback) {
-  const original = { fetch: globalThis.fetch, navigator: Object.getOwnPropertyDescriptor(globalThis, 'navigator'), window: globalThis.window, MediaRecorder: globalThis.MediaRecorder, now: Date.now };
+  const original = { fetch: globalThis.fetch, navigator: Object.getOwnPropertyDescriptor(globalThis, 'navigator'), window: globalThis.window, MediaRecorder: globalThis.MediaRecorder, AudioContext: globalThis.AudioContext, now: Date.now };
   let stops = 0;
   Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { mediaDevices: { getUserMedia: async () => ({ getTracks: () => [{ stop() { stops++; } }] }) } } });
   globalThis.window = {}; globalThis.MediaRecorder = Recorder; Date.now = () => clock;
   try { await callback(() => stops); }
-  finally { globalThis.fetch = original.fetch; Object.defineProperty(globalThis, 'navigator', original.navigator); globalThis.window = original.window; globalThis.MediaRecorder = original.MediaRecorder; Date.now = original.now; }
+  finally { globalThis.fetch = original.fetch; Object.defineProperty(globalThis, 'navigator', original.navigator); globalThis.window = original.window; globalThis.MediaRecorder = original.MediaRecorder; globalThis.AudioContext = original.AudioContext; Date.now = original.now; }
 }
 test('recording waits for audio transcription before ending and preserves the existing text', async () => environment(async stops => {
   const events = []; let release;
@@ -89,4 +89,31 @@ test('missing configuration never opens the microphone', async () => environment
   globalThis.fetch = async () => Response.json({ available: false });
   const engine = createAudioTranscription(); engine.start('', { onTranscript: () => {}, onError: e => events.push(e), onEnd: () => events.push('ended') }); await tick();
   assert.equal(mediaCalls, 0); assert.match(events[0], /OPENAI_API_KEY/); assert.equal(engine.hasPendingAudio(), false); assert.equal(stops(), 0); engine.abort();
+}));
+
+test('auto-answer recording ends after voice followed by silence and submits only once', async () => environment(async () => {
+  class Analyzer {
+    checks = 0;
+    getFloatTimeDomainData(samples) { samples.fill(this.checks++ === 0 ? 0.05 : 0); clock += 300; }
+  }
+  class Context {
+    state = 'running';
+    createAnalyser() { this.analyser = new Analyzer(); return this.analyser; }
+    createMediaStreamSource() { return { connect() {} }; }
+    close() { this.state = 'closed'; return Promise.resolve(); }
+  }
+  globalThis.AudioContext = Context;
+  const requests = [];
+  const transcripts = [];
+  globalThis.fetch = async (_url, init) => {
+    if (!init.method) return Response.json({ available: true });
+    requests.push(init);
+    return Response.json({ text: 'Caries distal, terminar.' });
+  };
+  const engine = createAudioTranscription();
+  engine.start('', { onTranscript: text => transcripts.push(text), onError: error => transcripts.push(error), onEnd: () => transcripts.push('ended') }, { stopOnSilenceMs: 500 });
+  for (let attempt = 0; attempt < 20 && !transcripts.includes('ended'); attempt++) await new Promise(resolve => setTimeout(resolve, 100));
+  assert.deepEqual(transcripts, ['Caries distal, terminar.', 'ended']);
+  assert.equal(requests.length, 1);
+  engine.abort();
 }));
