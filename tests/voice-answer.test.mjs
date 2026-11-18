@@ -28,8 +28,8 @@ test('un nuevo fragmento de voz reinicia la cuenta del silencio', () => {
 });
 
 test('la lectura de regreso distingue hipótesis diagnóstica y plan', () => {
-  assert.equal(voiceAnswerReadback('diagnosis', 'Caries distal.'), 'Entendí esta hipótesis diagnóstica: Caries distal. ¿Es correcto? Di correcto, pasar al plan; rectificar; o repetir.');
-  assert.equal(voiceAnswerReadback('plan', 'Restaurar con resina.'), 'Entendí este plan de tratamiento: Restaurar con resina. ¿Es correcto? Di correcto, preparar propuesta; rectificar; o repetir.');
+  assert.equal(voiceAnswerReadback('diagnosis', 'Caries distal.'), 'Redacté esta hipótesis diagnóstica: Caries distal. ¿Es correcto? Di correcto, pasar al plan; rectificar; o repetir.');
+  assert.equal(voiceAnswerReadback('plan', 'Restaurar con resina.'), 'Redacté este plan de tratamiento: Restaurar con resina. ¿Es correcto? Di correcto, preparar propuesta; rectificar; o repetir.');
 });
 
 test('las órdenes habladas aprueban cada etapa y exigen una orden explícita para guardar', () => {

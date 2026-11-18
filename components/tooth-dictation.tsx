@@ -76,6 +76,8 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
   const [speechError, setSpeechError] = useState("");
   const [analysisError, setAnalysisError] = useState("");
   const [answerReady, setAnswerReady] = useState(false);
+  const [redrafting, setRedrafting] = useState(false);
+  const [rawAnswerText, setRawAnswerText] = useState("");
   const [listeningFor, setListeningFor] = useState<"answer" | "review" | "proposal" | null>(null);
   const [proposalVoiceRound, setProposalVoiceRound] = useState(0);
   const [proposalReady, setProposalReady] = useState(false);
@@ -87,8 +89,10 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
   const [applying, setApplying] = useState(false);
   const engine = useRef<ReturnType<typeof createAudioTranscription> | null>(null);
   const analysisController = useRef<AbortController | null>(null);
+  const redraftController = useRef<AbortController | null>(null);
   const flowId = useRef(0);
   const answerTextRef = useRef({ diagnosis: "", plan: "" });
+  const rawOtherTeethRef = useRef<{ diagnosis: number[]; plan: number[] }>({ diagnosis: [], plan: [] });
   const confirmAnswerRef = useRef<(answerStep: Step) => Promise<void>>(async () => {});
   const applyProposalRef = useRef<() => Promise<void>>(async () => {});
   const canSaveRef = useRef(false);
@@ -97,6 +101,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
   useEffect(() => () => {
     engine.current?.abort();
     analysisController.current?.abort();
+    redraftController.current?.abort();
     if (typeof window !== "undefined" && "speechSynthesis" in window) window.speechSynthesis.cancel();
   }, []);
   const speak = (text: string, purpose: "question" | "readback", afterSpeech?: () => void) => {
@@ -112,7 +117,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
     setSpeechPurpose(purpose);
     setSpeechError("");
     const started = speakTextNow(dentalSpeechText(text), {
-      rate: purpose === "readback" ? 0.88 : 0.94,
+      rate: 1.25,
       onStart: () => setSpeaking(true),
       onEnd: complete,
       onError: error => {
@@ -168,17 +173,22 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
     flowId.current += 1;
     engine.current?.abort();
     analysisController.current?.abort();
+    redraftController.current?.abort();
     analysisController.current = null;
+    redraftController.current = null;
     setStep("diagnosis");
     setDiagnosisText("");
     setPlanText("");
     answerTextRef.current = { diagnosis: "", plan: "" };
+    rawOtherTeethRef.current = { diagnosis: [], plan: [] };
     setAudioStatus("idle");
     setSpeaking(false);
     setSpeechPurpose(null);
     setSpeechError("");
     setAnalysisError("");
     setAnswerReady(false);
+    setRedrafting(false);
+    setRawAnswerText("");
     setListeningFor(null);
     setProposalVoiceRound(0);
     setProposalReady(false);
@@ -193,6 +203,53 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
   const changeOpen = (next: boolean) => {
     setOpen(next);
     if (!next) { cancelQuestion(); reset(); }
+  };
+
+  const redraftAnswer = async (answerStep: Step, transcript: string) => {
+    redraftController.current?.abort();
+    const controller = new AbortController();
+    redraftController.current = controller;
+    const currentFlow = flowId.current;
+    setRawAnswerText(transcript);
+    setRedrafting(true);
+    setAnswerReady(false);
+    setAnalysisError("");
+    try {
+      const response = await fetch("/api/dictation/tooth-answer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ step: answerStep, tooth, transcript }),
+        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(40_000)]),
+      });
+      const data = await response.json() as { text?: string; otherTeeth?: number[]; error?: string };
+      if (controller.signal.aborted || flowId.current !== currentFlow) return;
+      if (!response.ok || typeof data.text !== "string" || data.text.trim().length < 3) throw new Error(data.error || "El modelo no devolvió una redacción válida.");
+      const draft = data.text.trim();
+      rawOtherTeethRef.current[answerStep] = Array.isArray(data.otherTeeth) ? data.otherTeeth.filter(value => Number.isInteger(value) && value !== tooth) : [];
+      if (answerStep === "diagnosis") {
+        setDiagnosisText(draft);
+        answerTextRef.current.diagnosis = draft;
+        setDiagnosisPreview(null);
+        setSelectedIds(new Set());
+      } else {
+        setPlanText(draft);
+        answerTextRef.current.plan = draft;
+        setPlanItems([]);
+        setPlanOtherTeeth([]);
+      }
+      setProposalReady(false);
+      setAnswerReady(true);
+      readAnswer(answerStep, draft);
+    } catch (cause) {
+      if (!controller.signal.aborted && flowId.current === currentFlow) {
+        setAnalysisError(cause instanceof Error ? cause.message : "No se pudo redactar la respuesta. Reintenta o corrige el texto.");
+      }
+    } finally {
+      if (redraftController.current === controller) {
+        redraftController.current = null;
+        setRedrafting(false);
+      }
+    }
   };
 
   const startGuidedEvaluation = () => {
@@ -231,10 +288,8 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
           setPlanItems([]);
           setPlanOtherTeeth([]);
         }
-        setProposalReady(false);
-        setAnswerReady(true);
         setListeningFor(null);
-        readAnswer(answerStep, answerText);
+        void redraftAnswer(answerStep, answerText);
       },
       onError: message => { setSpeechError(message); setAudioStatus("idle"); setListeningFor(null); },
       onEnd: () => setAudioStatus("idle"),
@@ -297,7 +352,11 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
 
   const askStep = (nextStep: Step) => {
     engine.current?.abort();
+    redraftController.current?.abort();
+    redraftController.current = null;
     setAudioStatus("idle");
+    setRedrafting(false);
+    setRawAnswerText("");
     setListeningFor(null);
     setStep(nextStep);
     setAnswerReady(false);
@@ -307,11 +366,13 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
     if (nextStep === "diagnosis") {
       setDiagnosisText("");
       answerTextRef.current.diagnosis = "";
+      rawOtherTeethRef.current.diagnosis = [];
       setDiagnosisPreview(null);
       setSelectedIds(new Set());
     } else {
       setPlanText("");
       answerTextRef.current.plan = "";
+      rawOtherTeethRef.current.plan = [];
       setPlanItems([]);
       setPlanOtherTeeth([]);
     }
@@ -377,7 +438,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
       const eligible = changes.filter(change => toothDictationOperation(change));
       setDiagnosisPreview({
         changes: eligible,
-        otherTeeth: [...new Set([...data.review!.otherTeeth, ...scoped.otherTeeth])],
+        otherTeeth: [...new Set([...rawOtherTeethRef.current.diagnosis, ...data.review!.otherTeeth, ...scoped.otherTeeth])],
         question,
       });
       setSelectedIds(new Set(eligible.map(change => change.id)));
@@ -406,7 +467,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
       }
       const rows: BudgetItem[] = [...unique.values()].map(item => toothPlanBudgetItem(cleanPlanText(item.what || text, tooth), tooth, item.arancel));
       setPlanItems(rows.length ? rows : [toothPlanBudgetItem(text, tooth)]);
-      setPlanOtherTeeth([...new Set(data.review!.otherTeeth.filter(other => other !== tooth))]);
+      setPlanOtherTeeth([...new Set([...rawOtherTeethRef.current.plan, ...data.review!.otherTeeth.filter(other => other !== tooth)])]);
       return true;
     } catch (cause) {
       if (analysisController.current?.signal.aborted) return false;
@@ -436,9 +497,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
   const listenAndReviewTypedAnswer = () => {
     const text = currentText.trim();
     if (text.length < 3) { setAnalysisError("Indica una respuesta antes de continuar."); return; }
-    setAnswerReady(true);
-    setAnalysisError("");
-    readAnswer(step, text);
+    void redraftAnswer(step, text);
   };
 
   const answer = diagnosisPreview?.answer;
@@ -471,10 +530,10 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
     try {
       await onApply(tooth, operations, budgetTitle, planItems.map(item => ({ ...item, label: item.label.trim(), amount: Number(item.amount), teeth: [tooth] })));
       changeOpen(false);
-      speakTextNow("Diagnóstico y plan preliminar guardados.", { rate: 0.94 });
+      speakTextNow("Diagnóstico y plan preliminar guardados.", { rate: 1.25 });
     } catch (cause) {
       setAnalysisError(cause instanceof Error ? cause.message : "No se pudieron guardar el diagnóstico y el plan.");
-      speakTextNow("No se pudieron guardar los cambios. Revisa el aviso en pantalla.", { rate: 0.94 });
+      speakTextNow("No se pudieron guardar los cambios. Revisa el aviso en pantalla.", { rate: 1.25 });
     } finally {
       setApplying(false);
     }
@@ -517,7 +576,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
         <section className="mt-3 rounded-xl bg-[#f7f6fa] p-4" aria-live="polite">
           <p className="text-xs font-semibold uppercase tracking-wide text-[#625a7c]">{step === "diagnosis" ? "Pregunta 1 · hipótesis diagnóstica" : "Pregunta 2 · plan de tratamiento"}</p>
           <h2 className="mt-2 text-2xl font-semibold leading-tight text-[#302747]">{toothPrompt(step, tooth)}</h2>
-          <Button type="button" variant="ghost" size="sm" className="mt-2 px-2" disabled={speaking || audioStatus !== "idle"} onClick={() => readQuestion(toothPrompt(step, tooth))}>
+          <Button type="button" variant="ghost" size="sm" className="mt-2 px-2" disabled={redrafting || speaking || audioStatus !== "idle"} onClick={() => readQuestion(toothPrompt(step, tooth))}>
             <Volume2 className="mr-2 size-4"/>Repetir pregunta
           </Button>
         </section>
@@ -527,35 +586,37 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
         </div>
 
         <label className="mt-3 block text-sm font-medium text-[#3b3355]" htmlFor={`tooth-dictation-${step}-${tooth}`}>
-          {step === "diagnosis" ? "Diagnóstico o hipótesis dictada" : "Plan preliminar dictado"}
+          {step === "diagnosis" ? "Diagnóstico o hipótesis para revisar" : "Plan preliminar para revisar"}
         </label>
         <Textarea
           id={`tooth-dictation-${step}-${tooth}`}
           value={currentText}
           onChange={event => setCurrentText(event.target.value)}
-          disabled={analyzing || applying || audioStatus !== "idle"}
+          disabled={redrafting || analyzing || applying || audioStatus !== "idle"}
           rows={step === "diagnosis" ? 3 : 4}
           maxLength={step === "diagnosis" ? 1000 : 4000}
           placeholder={step === "diagnosis" ? "Ej.: caries distal en dentina profunda; hipótesis de fractura coronaria…" : "Ej.: restauración con resina compuesta; evaluar endodoncia si se confirma compromiso pulpar…"}
           className="text-base"
         />
-        <p role="note" className="mt-2 rounded-lg bg-sky-50 p-3 text-xs leading-5 text-sky-950">Después de cada pregunta el micrófono se activa automáticamente. Di «terminar», deja 3 segundos de silencio o pulsa «Terminar respuesta». SpeakDent leerá lo entendido y escuchará «correcto», «rectificar» o «repetir». También podrás confirmar el guardado por voz.</p>
+        <p role="note" className="mt-2 rounded-lg bg-sky-50 p-3 text-xs leading-5 text-sky-950">Tras dictar, la IA ordena la respuesta y elimina instrucciones o rectificaciones habladas. SpeakDent leerá la redacción propuesta para que la apruebes o corrijas. La voz se reproduce a 1,25×.</p>
+        {redrafting && <p role="status" className="mt-2 text-sm font-medium text-[#3b3355]">La IA está redactando {step === "diagnosis" ? "la hipótesis diagnóstica" : "el plan preliminar"}…</p>}
+        {rawAnswerText && <details className="mt-2 rounded-lg border border-[#e6e4ee] bg-white p-3 text-sm"><summary className="cursor-pointer font-medium text-[#3b3355]">Ver texto enviado a la IA</summary><p className="mt-2 whitespace-pre-wrap text-[#615f73]">{rawAnswerText}</p></details>}
         <div className="mt-2 flex flex-wrap gap-2">
           {audioStatus === "recording" && <Button type="button" variant="outline" onClick={() => engine.current?.stop()} disabled={analyzing || applying} aria-pressed="true"><MicOff className="mr-2 size-4"/>{listeningFor === "answer" ? "Terminar respuesta" : "Terminar orden"}</Button>}
           {audioStatus === "starting" && <Button type="button" variant="outline" disabled><Mic className="mr-2 size-4"/>Preparando micrófono…</Button>}
           {audioStatus === "transcribing" && <Button type="button" variant="outline" disabled><Mic className="mr-2 size-4"/>Transcribiendo…</Button>}
-          {audioStatus === "idle" && !proposalReady && <Button type="button" variant="outline" onClick={finishOrStartAnswer} disabled={speaking || analyzing || applying}><Mic className="mr-2 size-4"/>{answerReady ? "Volver a dictar" : "Responder por voz"}</Button>}
-          {audioStatus === "idle" && answerReady && !proposalReady && <Button type="button" variant="outline" onClick={() => startVoiceReview(step)} disabled={speaking || analyzing || applying}><Mic className="mr-2 size-4"/>Responder confirmación por voz</Button>}
+          {audioStatus === "idle" && !proposalReady && <Button type="button" variant="outline" onClick={finishOrStartAnswer} disabled={redrafting || speaking || analyzing || applying}><Mic className="mr-2 size-4"/>{answerReady ? "Volver a dictar" : "Responder por voz"}</Button>}
+          {audioStatus === "idle" && answerReady && !proposalReady && <Button type="button" variant="outline" onClick={() => startVoiceReview(step)} disabled={redrafting || speaking || analyzing || applying}><Mic className="mr-2 size-4"/>Responder confirmación por voz</Button>}
           {answerReady
-            ? <Button type="button" onClick={() => void confirmAnswer()} disabled={speaking || analyzing || applying || currentText.trim().length < 3}><Sparkles className="mr-2 size-4"/>{analyzing ? "Preparando propuesta…" : step === "diagnosis" ? "Correcto, preguntar plan" : "Correcto, preparar propuesta"}</Button>
-            : currentText.trim().length >= 3 && audioStatus === "idle" && <Button type="button" onClick={listenAndReviewTypedAnswer} disabled={speaking || analyzing || applying}><Volume2 className="mr-2 size-4"/>Leer y confirmar respuesta</Button>}
+            ? <Button type="button" onClick={() => void confirmAnswer()} disabled={redrafting || speaking || analyzing || applying || currentText.trim().length < 3}><Sparkles className="mr-2 size-4"/>{analyzing ? "Preparando propuesta…" : step === "diagnosis" ? "Correcto, preguntar plan" : "Correcto, preparar propuesta"}</Button>
+            : currentText.trim().length >= 3 && audioStatus === "idle" && <Button type="button" onClick={listenAndReviewTypedAnswer} disabled={redrafting || speaking || analyzing || applying}><Sparkles className="mr-2 size-4"/>{redrafting ? "Redactando…" : "Ordenar con IA y escuchar"}</Button>}
         </div>
         {speaking && <p role="status" className="mt-2 text-xs text-[#615f73]">{speechPurpose === "readback" ? "La aplicación lee la respuesta. Confírmala o corrígela cuando termine." : "La aplicación formula la pregunta; al terminar activa el micrófono."}</p>}
         {audioStatus === "starting" && <p role="status" className="mt-2 text-xs text-[#615f73]">Preparando el micrófono…</p>}
         {audioStatus === "recording" && <p role="status" className="mt-2 text-xs text-[#615f73]">{listeningFor === "answer" ? "Te escucho. Di «terminar», guarda silencio 3 segundos o pulsa «Terminar respuesta»." : "Te escucho. Di la orden y guarda silencio 3 segundos, o pulsa «Terminar orden»."}</p>}
         {audioStatus === "transcribing" && <p role="status" className="mt-2 text-xs text-[#615f73]">Transcribiendo tu respuesta…</p>}
         {answerReady && <section className="mt-3 rounded-lg border border-violet-200 bg-violet-50 p-3" aria-live="polite">
-          <h3 className="font-semibold text-[#3b3355]">¿Es correcto lo que entendió SpeakDent?</h3>
+          <h3 className="font-semibold text-[#3b3355]">¿Es correcta la redacción propuesta?</h3>
           <p className="mt-1 text-sm text-[#3b3355]">{currentText}</p>
           <Button type="button" variant="ghost" size="sm" className="mt-1 px-2" onClick={() => readAnswer(step, currentText)} disabled={speaking || audioStatus !== "idle"}><Volume2 className="mr-2 size-4"/>Repetir respuesta</Button>
           <p className="mt-1 text-xs text-[#615f73]">Di «correcto, {step === "diagnosis" ? "pasar al plan" : "preparar propuesta"}», «rectificar» o «repetir».</p>

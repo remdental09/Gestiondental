@@ -17,7 +17,7 @@ export function stripFinishCommand(text: string): string {
 export function voiceAnswerReadback(step: "diagnosis" | "plan", answer: string): string {
   const label = step === "diagnosis" ? "esta hipótesis diagnóstica" : "este plan de tratamiento";
   const next = step === "diagnosis" ? "pasar al plan" : "preparar propuesta";
-  return `Entendí ${label}: ${answer.trim()} ¿Es correcto? Di correcto, ${next}; rectificar; o repetir.`;
+  return `Redacté ${label}: ${answer.trim()} ¿Es correcto? Di correcto, ${next}; rectificar; o repetir.`;
 }
 
 export type VoiceReviewCommand = "accept" | "correct" | "repeat" | "save" | "mesial" | "distal" | "both" | "pending" | null;
