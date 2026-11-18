@@ -9,7 +9,7 @@ import { formatFdi, type OdontogramData } from "@/app/clinical-data";
 import { createAudioTranscription } from "@/lib/dictation/audio-transcription";
 import { speakTextNow } from "@/lib/dictation/speech";
 import { toothPrompt } from "@/lib/dictation/tooth-prompts";
-import { stripFinishCommand, TOOTH_ANSWER_SILENCE_MS, voiceAnswerReadback } from "@/lib/dictation/voice-answer";
+import { parseVoiceReviewCommand, stripFinishCommand, TOOTH_ANSWER_SILENCE_MS, voiceAnswerReadback } from "@/lib/dictation/voice-answer";
 import { fdiToChile } from "@/lib/tooth-numbering";
 import { confirmedCariesFaces, isProximalChange, scopeToothProposal, toothDiagnosisOperation, toothDictationOperation, toothPlanBudgetItem, type ToothDictationOperation } from "@/lib/dictation/tooth-mode";
 import type { focusedToothReview, OdontogramChange, StructureOutcome } from "@/lib/dictation/proposal";
@@ -76,6 +76,8 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
   const [speechError, setSpeechError] = useState("");
   const [analysisError, setAnalysisError] = useState("");
   const [answerReady, setAnswerReady] = useState(false);
+  const [listeningFor, setListeningFor] = useState<"answer" | "review" | "proposal" | null>(null);
+  const [proposalVoiceRound, setProposalVoiceRound] = useState(0);
   const [proposalReady, setProposalReady] = useState(false);
   const [diagnosisPreview, setDiagnosisPreview] = useState<DiagnosisPreview | null>(null);
   const [planItems, setPlanItems] = useState<BudgetItem[]>([]);
@@ -86,6 +88,10 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
   const engine = useRef<ReturnType<typeof createAudioTranscription> | null>(null);
   const analysisController = useRef<AbortController | null>(null);
   const flowId = useRef(0);
+  const answerTextRef = useRef({ diagnosis: "", plan: "" });
+  const confirmAnswerRef = useRef<(answerStep: Step) => Promise<void>>(async () => {});
+  const applyProposalRef = useRef<() => Promise<void>>(async () => {});
+  const canSaveRef = useRef(false);
   if (engine.current === null) engine.current = createAudioTranscription();
 
   useEffect(() => () => {
@@ -127,7 +133,12 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
   };
 
   const readQuestion = (text: string, afterSpeech?: () => void) => speak(text, "question", afterSpeech);
-  const readAnswer = (answerStep: Step, text: string) => speak(voiceAnswerReadback(answerStep, text), "readback");
+  const readAnswer = (answerStep: Step, text: string) => {
+    const currentFlow = flowId.current;
+    speak(voiceAnswerReadback(answerStep, text), "readback", () => {
+      if (flowId.current === currentFlow) startVoiceReview(answerStep);
+    });
+  };
 
   const cancelQuestion = () => {
     if (typeof window !== "undefined" && "speechSynthesis" in window) window.speechSynthesis.cancel();
@@ -139,10 +150,12 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
   const setCurrentText = (value: string) => {
     if (step === "diagnosis") {
       setDiagnosisText(value);
+      answerTextRef.current.diagnosis = value;
       setDiagnosisPreview(null);
       setSelectedIds(new Set());
     } else {
       setPlanText(value);
+      answerTextRef.current.plan = value;
       setPlanItems([]);
       setPlanOtherTeeth([]);
     }
@@ -158,12 +171,15 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
     setStep("diagnosis");
     setDiagnosisText("");
     setPlanText("");
+    answerTextRef.current = { diagnosis: "", plan: "" };
     setAudioStatus("idle");
     setSpeaking(false);
     setSpeechPurpose(null);
     setSpeechError("");
     setAnalysisError("");
     setAnswerReady(false);
+    setListeningFor(null);
+    setProposalVoiceRound(0);
     setProposalReady(false);
     setDiagnosisPreview(null);
     setPlanItems([]);
@@ -191,6 +207,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
     }
     setAnalysisError("");
     setAnswerReady(false);
+    setListeningFor("answer");
     setAudioStatus("starting");
     engine.current.start("", {
       onStatus: (status) => setAudioStatus(status === "recording" || status === "starting" || status === "transcribing" ? status : "idle"),
@@ -199,27 +216,88 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
         if (answerText.length < 3) {
           setSpeechError("No alcancé a captar una respuesta antes de terminar. Toca «Volver a dictar» o escríbela.");
           setAudioStatus("idle");
+          setListeningFor(null);
           return;
         }
         if (answerStep === "diagnosis") {
           setDiagnosisText(answerText);
+          answerTextRef.current.diagnosis = answerText;
           setDiagnosisPreview(null);
           setSelectedIds(new Set());
         } else {
           setPlanText(answerText);
+          answerTextRef.current.plan = answerText;
           setPlanItems([]);
           setPlanOtherTeeth([]);
         }
         setProposalReady(false);
         setAnswerReady(true);
+        setListeningFor(null);
         readAnswer(answerStep, answerText);
       },
-      onError: message => { setSpeechError(message); setAudioStatus("idle"); },
+      onError: message => { setSpeechError(message); setAudioStatus("idle"); setListeningFor(null); },
+      onEnd: () => setAudioStatus("idle"),
+    }, { stopOnSilenceMs: TOOTH_ANSWER_SILENCE_MS });
+  };
+
+  const startVoiceReview = (answerStep: Step) => {
+    if (!engine.current?.isSupported()) return;
+    setListeningFor("review");
+    engine.current.start("", {
+      onStatus: status => setAudioStatus(status === "recording" || status === "starting" || status === "transcribing" ? status : "idle"),
+      onTranscript: transcript => {
+        setListeningFor(null);
+        const command = parseVoiceReviewCommand(transcript, answerStep);
+        if (command === "accept") void confirmAnswerRef.current(answerStep);
+        else if (command === "correct") askStep(answerStep);
+        else if (command === "repeat") readAnswer(answerStep, answerTextRef.current[answerStep]);
+        else {
+          const currentFlow = flowId.current;
+          speak(`No entendí la orden. Di correcto, ${answerStep === "diagnosis" ? "pasar al plan" : "preparar propuesta"}; rectificar; o repetir.`, "question", () => {
+            if (flowId.current === currentFlow) startVoiceReview(answerStep);
+          });
+        }
+      },
+      onError: message => { setSpeechError(message); setAudioStatus("idle"); setListeningFor(null); },
+      onEnd: () => setAudioStatus("idle"),
+    }, { stopOnSilenceMs: TOOTH_ANSWER_SILENCE_MS });
+  };
+
+  const startVoiceProposal = () => {
+    if (!engine.current?.isSupported()) return;
+    setListeningFor("proposal");
+    engine.current.start("", {
+      onStatus: status => setAudioStatus(status === "recording" || status === "starting" || status === "transcribing" ? status : "idle"),
+      onTranscript: transcript => {
+        setListeningFor(null);
+        const command = parseVoiceReviewCommand(transcript, "proposal");
+        if (command === "save") {
+          if (canSaveRef.current) void applyProposalRef.current();
+          else speak("La propuesta necesita una aclaración antes de guardar. Escucha la pregunta y responde.", "question", () => setProposalVoiceRound(round => round + 1));
+        } else if (command === "mesial" || command === "distal" || command === "both" || command === "pending") {
+          const face = command === "mesial" ? "M" : command === "distal" ? "D" : command;
+          setDiagnosisPreview(current => current?.question ? { ...current, answer: face } : current);
+          setProposalVoiceRound(round => round + 1);
+        } else if (command === "correct") {
+          setProposalReady(false);
+          askStep(/diagn[oó]stic|hip[oó]tes/i.test(transcript) ? "diagnosis" : "plan");
+        } else if (command === "repeat") setProposalVoiceRound(round => round + 1);
+        else {
+          const currentFlow = flowId.current;
+          speak("No entendí la orden. Di guardar diagnóstico y plan, rectificar, o repetir.", "question", () => {
+            if (flowId.current === currentFlow) startVoiceProposal();
+          });
+        }
+      },
+      onError: message => { setSpeechError(message); setAudioStatus("idle"); setListeningFor(null); },
       onEnd: () => setAudioStatus("idle"),
     }, { stopOnSilenceMs: TOOTH_ANSWER_SILENCE_MS });
   };
 
   const askStep = (nextStep: Step) => {
+    engine.current?.abort();
+    setAudioStatus("idle");
+    setListeningFor(null);
     setStep(nextStep);
     setAnswerReady(false);
     setAnalysisError("");
@@ -227,10 +305,12 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
     setProposalReady(false);
     if (nextStep === "diagnosis") {
       setDiagnosisText("");
+      answerTextRef.current.diagnosis = "";
       setDiagnosisPreview(null);
       setSelectedIds(new Set());
     } else {
       setPlanText("");
+      answerTextRef.current.plan = "";
       setPlanItems([]);
       setPlanOtherTeeth([]);
     }
@@ -284,7 +364,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
   };
 
   const prepareDiagnosis = async (): Promise<boolean> => {
-    const text = diagnosisText.trim();
+    const text = answerTextRef.current.diagnosis.trim();
     if (text.length < 3) { setAnalysisError("Indica el diagnóstico o la hipótesis clínica de esta pieza."); return false; }
     setDiagnosisPreview(null);
     try {
@@ -309,7 +389,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
   };
 
   const preparePlan = async (): Promise<boolean> => {
-    const text = planText.trim();
+    const text = answerTextRef.current.plan.trim();
     if (text.length < 3) { setAnalysisError("Indica el plan de tratamiento preliminar para esta pieza."); return false; }
     setPlanItems([]);
     setPlanOtherTeeth([]);
@@ -334,11 +414,14 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
     }
   };
 
-  const confirmAnswer = async () => {
-    if (currentText.trim().length < 3) { setAnalysisError("Completa o corrige la respuesta antes de continuar."); return; }
+  const confirmAnswer = async (answerStep: Step = step) => {
+    if (answerTextRef.current[answerStep].trim().length < 3) { setAnalysisError("Completa o corrige la respuesta antes de continuar."); return; }
+    engine.current?.abort();
+    setAudioStatus("idle");
+    setListeningFor(null);
     setAnswerReady(false);
     setAnalysisError("");
-    if (step === "diagnosis") {
+    if (answerStep === "diagnosis") {
       askStep("plan");
       return;
     }
@@ -347,6 +430,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
     if (!await preparePlan()) return;
     setProposalReady(true);
   };
+  confirmAnswerRef.current = confirmAnswer;
 
   const listenAndReviewTypedAnswer = () => {
     const text = currentText.trim();
@@ -373,10 +457,14 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
   ];
   const canContinue = Boolean(diagnosisPreview && diagnosisText.trim().length >= 3 && !diagnosisPreview.otherTeeth.length && (!diagnosisPreview.question || answer));
   const validPlan = planItems.length > 0 && planItems.every(item => item.label.trim().length > 0 && Number.isSafeInteger(Number(item.amount)) && Number(item.amount) >= 0);
+  canSaveRef.current = canContinue && validPlan && !planOtherTeeth.length;
   const budgetTitle = `Presupuesto preliminar · FDI ${formatFdi(tooth)} · Chile ${fdiToChile(tooth)}`;
 
   const applyProposal = async () => {
     if (!canContinue || !validPlan || planOtherTeeth.length || !onApply) return;
+    engine.current?.abort();
+    setAudioStatus("idle");
+    setListeningFor(null);
     setApplying(true);
     setAnalysisError("");
     try {
@@ -388,6 +476,22 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
       setApplying(false);
     }
   };
+  applyProposalRef.current = applyProposal;
+
+  useEffect(() => {
+    if (!proposalReady) return;
+    const currentFlow = flowId.current;
+    const prompt = diagnosisPreview?.otherTeeth.length
+      ? "El diagnóstico menciona otra pieza. Di rectificar diagnóstico para volver a dictarlo."
+      : planOtherTeeth.length
+        ? "El plan menciona otra pieza. Di rectificar plan para volver a dictarlo."
+        : diagnosisPreview?.question && !diagnosisPreview.answer
+          ? "Antes de guardar, ¿en qué cara está la caries? Di mesial, distal, ambas o dejar pendiente."
+          : !validPlan
+            ? "Revisa las prestaciones y sus montos en pantalla antes de guardar. Puedes decir rectificar plan."
+            : `La propuesta para la pieza FDI ${formatFdi(tooth)} está lista. Diagnóstico: ${diagnosisText.trim()}. Plan preliminar: ${planItems.map(item => item.label).join("; ")}. Si estás de acuerdo, di guardar diagnóstico y plan. También puedes decir rectificar o repetir.`;
+    speak(prompt, "question", () => { if (flowId.current === currentFlow) startVoiceProposal(); });
+  }, [proposalReady, proposalVoiceRound]);
 
   const updatePlanItem = (index: number, patch: Partial<BudgetItem>) => setPlanItems(previous => previous.map((item, at) => at === index ? { ...item, ...patch, teeth: [tooth] } : item));
 
@@ -432,24 +536,26 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
           placeholder={step === "diagnosis" ? "Ej.: caries distal en dentina profunda; hipótesis de fractura coronaria…" : "Ej.: restauración con resina compuesta; evaluar endodoncia si se confirma compromiso pulpar…"}
           className="text-base"
         />
-        <p role="note" className="mt-2 rounded-lg bg-sky-50 p-3 text-xs leading-5 text-sky-950">Después de cada pregunta el micrófono se activa automáticamente. Di «terminar», deja 3 segundos de silencio o pulsa «Terminar respuesta». SpeakDent leerá lo que entendió para que lo confirmes o corrijas. Nada se guarda hasta la confirmación final.</p>
+        <p role="note" className="mt-2 rounded-lg bg-sky-50 p-3 text-xs leading-5 text-sky-950">Después de cada pregunta el micrófono se activa automáticamente. Di «terminar», deja 3 segundos de silencio o pulsa «Terminar respuesta». SpeakDent leerá lo entendido y escuchará «correcto», «rectificar» o «repetir». También podrás confirmar el guardado por voz.</p>
         <div className="mt-2 flex flex-wrap gap-2">
-          {audioStatus === "recording" && <Button type="button" variant="outline" onClick={() => engine.current?.stop()} disabled={analyzing || applying} aria-pressed="true"><MicOff className="mr-2 size-4"/>Terminar respuesta</Button>}
+          {audioStatus === "recording" && <Button type="button" variant="outline" onClick={() => engine.current?.stop()} disabled={analyzing || applying} aria-pressed="true"><MicOff className="mr-2 size-4"/>{listeningFor === "answer" ? "Terminar respuesta" : "Terminar orden"}</Button>}
           {audioStatus === "starting" && <Button type="button" variant="outline" disabled><Mic className="mr-2 size-4"/>Preparando micrófono…</Button>}
           {audioStatus === "transcribing" && <Button type="button" variant="outline" disabled><Mic className="mr-2 size-4"/>Transcribiendo…</Button>}
-          {audioStatus === "idle" && <Button type="button" variant="outline" onClick={finishOrStartAnswer} disabled={speaking || analyzing || applying}><Mic className="mr-2 size-4"/>{answerReady ? "Volver a dictar" : "Responder por voz"}</Button>}
+          {audioStatus === "idle" && !proposalReady && <Button type="button" variant="outline" onClick={finishOrStartAnswer} disabled={speaking || analyzing || applying}><Mic className="mr-2 size-4"/>{answerReady ? "Volver a dictar" : "Responder por voz"}</Button>}
+          {audioStatus === "idle" && answerReady && !proposalReady && <Button type="button" variant="outline" onClick={() => startVoiceReview(step)} disabled={speaking || analyzing || applying}><Mic className="mr-2 size-4"/>Responder confirmación por voz</Button>}
           {answerReady
             ? <Button type="button" onClick={() => void confirmAnswer()} disabled={speaking || analyzing || applying || currentText.trim().length < 3}><Sparkles className="mr-2 size-4"/>{analyzing ? "Preparando propuesta…" : step === "diagnosis" ? "Correcto, preguntar plan" : "Correcto, preparar propuesta"}</Button>
             : currentText.trim().length >= 3 && audioStatus === "idle" && <Button type="button" onClick={listenAndReviewTypedAnswer} disabled={speaking || analyzing || applying}><Volume2 className="mr-2 size-4"/>Leer y confirmar respuesta</Button>}
         </div>
         {speaking && <p role="status" className="mt-2 text-xs text-[#615f73]">{speechPurpose === "readback" ? "La aplicación lee la respuesta. Confírmala o corrígela cuando termine." : "La aplicación formula la pregunta; al terminar activa el micrófono."}</p>}
         {audioStatus === "starting" && <p role="status" className="mt-2 text-xs text-[#615f73]">Preparando el micrófono…</p>}
-        {audioStatus === "recording" && <p role="status" className="mt-2 text-xs text-[#615f73]">Te escucho. Al terminar de hablar, di «terminar», guarda silencio 3 segundos o pulsa «Terminar respuesta».</p>}
+        {audioStatus === "recording" && <p role="status" className="mt-2 text-xs text-[#615f73]">{listeningFor === "answer" ? "Te escucho. Di «terminar», guarda silencio 3 segundos o pulsa «Terminar respuesta»." : "Te escucho. Di la orden y guarda silencio 3 segundos, o pulsa «Terminar orden»."}</p>}
         {audioStatus === "transcribing" && <p role="status" className="mt-2 text-xs text-[#615f73]">Transcribiendo tu respuesta…</p>}
         {answerReady && <section className="mt-3 rounded-lg border border-violet-200 bg-violet-50 p-3" aria-live="polite">
           <h3 className="font-semibold text-[#3b3355]">¿Es correcto lo que entendió SpeakDent?</h3>
           <p className="mt-1 text-sm text-[#3b3355]">{currentText}</p>
           <Button type="button" variant="ghost" size="sm" className="mt-1 px-2" onClick={() => readAnswer(step, currentText)} disabled={speaking || audioStatus !== "idle"}><Volume2 className="mr-2 size-4"/>Repetir respuesta</Button>
+          <p className="mt-1 text-xs text-[#615f73]">Di «correcto, {step === "diagnosis" ? "pasar al plan" : "preparar propuesta"}», «rectificar» o «repetir».</p>
           <p className="mt-1 text-xs text-[#615f73]">Puedes corregir el texto antes de confirmar.</p>
         </section>}
         {speechError && <p role="alert" className="mt-2 text-sm text-rose-800">{speechError}</p>}
@@ -496,6 +602,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
             <p className="font-semibold">Resumen para FDI {formatFdi(tooth)} · Chile {fdiToChile(tooth)}</p>
             <p className="mt-1"><strong>Diagnóstico / hipótesis:</strong> {diagnosisText.trim()}</p>
             <p className="mt-1"><strong>Plan:</strong> {planItems.map(item => item.label || "prestación sin nombre").join("; ")}</p>
+            <p className="mt-2">Para confirmar por voz, di «guardar diagnóstico y plan». También puedes decir «rectificar» o «repetir».</p>
           </div>
           <div className="flex flex-wrap justify-end gap-2 border-t border-[#ebe9f2] pt-3">
             <Button type="button" variant="outline" onClick={() => { setProposalReady(false); askStep("diagnosis"); }} disabled={applying}>Volver a responder el diagnóstico</Button>
