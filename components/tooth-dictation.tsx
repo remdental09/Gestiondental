@@ -64,7 +64,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
   tooth: number;
   chart: OdontogramData;
   disabled?: boolean;
-  onApply?: (tooth: number, operations: ToothDictationOperation[], budgetTitle: string, budgetItems: BudgetItem[]) => Promise<void>;
+  onApply?: (tooth: number, operations: ToothDictationOperation[], budgetTitle: string, budgetItems: BudgetItem[], evolution: { title: string; body: string }) => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<Step>("diagnosis");
@@ -118,7 +118,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
     setSpeechPurpose(purpose);
     setSpeechError("");
     const started = speakTextNow(dentalSpeechText(text), {
-      rate: 1.25,
+      rate: 1.3,
       onStart: () => setSpeaking(true),
       onEnd: complete,
       onError: error => {
@@ -344,7 +344,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
         } else if (command === "repeat") setProposalVoiceRound(round => round + 1);
         else {
           const currentFlow = flowId.current;
-          speak("No entendí la orden. Di guardar diagnóstico y plan, rectificar, o repetir.", "question", () => {
+          speak("No entendí la orden. Di correcto para guardar el diagnóstico y el plan, rectificar o repetir.", "question", () => {
             if (flowId.current === currentFlow) startVoiceProposal();
           });
         }
@@ -516,7 +516,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
     .filter(change => selectedIds.has(change.id))
     .map(toothDictationOperation)
     .filter((operation): operation is ToothDictationOperation => operation !== null) ?? [];
-  const diagnosisOperation = toothDiagnosisOperation(diagnosisText);
+  const diagnosisOperation = toothDiagnosisOperation(diagnosisText, planText);
   const operations: ToothDictationOperation[] = [
     ...chartOperations,
     ...confirmedFaces,
@@ -535,12 +535,23 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
     setApplying(true);
     setAnalysisError("");
     try {
-      await onApply(tooth, operations, budgetTitle, planItems.map(item => ({ ...item, label: item.label.trim(), amount: Number(item.amount), teeth: [tooth] })));
+      const finalItems = planItems.map(item => ({ ...item, label: item.label.trim(), amount: Number(item.amount), teeth: [tooth] }));
+      const itemSummary = finalItems.map(item => `${item.label}${item.amount > 0 ? `: ${item.amount.toLocaleString("es-CL")} CLP` : ": valor por definir"}`).join("; ");
+      const evolution = {
+        title: `Evolución clínica · pieza chilena ${fdiToChile(tooth)} (FDI ${formatFdi(tooth)})`,
+        body: [
+          `Diagnóstico / hipótesis diagnóstica, revisada con IA: ${diagnosisText.trim()}`,
+          `Plan de tratamiento preliminar, revisado con IA: ${planText.trim()}`,
+          `Prestaciones del presupuesto preliminar editable: ${itemSummary}`,
+          "Registro presuntivo: el plan no confirma que se hayan realizado los procedimientos.",
+        ].join("\n\n"),
+      };
+      await onApply(tooth, operations, budgetTitle, finalItems, evolution);
       changeOpen(false);
-      speakTextNow("Diagnóstico y plan preliminar guardados.", { rate: 1.25 });
+      speakTextNow("Diagnóstico y plan preliminar guardados en la evolución del paciente.", { rate: 1.3 });
     } catch (cause) {
       setAnalysisError(cause instanceof Error ? cause.message : "No se pudieron guardar el diagnóstico y el plan.");
-      speakTextNow("No se pudieron guardar los cambios. Revisa el aviso en pantalla.", { rate: 1.25 });
+      speakTextNow("No se pudieron guardar los cambios. Revisa el aviso en pantalla.", { rate: 1.3 });
     } finally {
       setApplying(false);
     }
@@ -558,7 +569,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
           ? "Antes de guardar, ¿en qué cara está la caries? Di mesial, distal, ambas o dejar pendiente."
           : !validPlan
             ? "Revisa las prestaciones y sus montos en pantalla antes de guardar. Puedes decir rectificar plan."
-            : `Propuesta preliminar para ${toothChileSpeechLabel(tooth)}. Diagnóstico: ${diagnosisText.trim()}. Plan: ${planItems.map(item => `${item.label}, ${item.amount > 0 ? `${item.amount.toLocaleString("es-CL")} pesos` : "valor por definir"}`).join("; ")}. Esta es la confirmación final. Si estás de acuerdo, di guardar diagnóstico y plan. También puedes decir rectificar o repetir.`;
+            : `Propuesta preliminar para ${toothChileSpeechLabel(tooth)}. Diagnóstico: ${diagnosisText.trim()}. Plan: ${planText.trim()}. Prestaciones: ${planItems.map(item => `${item.label}, ${item.amount > 0 ? `${item.amount.toLocaleString("es-CL")} pesos` : "valor por definir"}`).join("; ")}. Esta es la confirmación final. Si estás de acuerdo, di correcto. También puedes decir rectificar o repetir.`;
     speak(prompt, "question", () => { if (flowId.current === currentFlow) startVoiceProposal(); });
   }, [proposalReady, proposalVoiceRound]);
 
@@ -601,7 +612,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
         ? `Te escucho. Habla con naturalidad; termina diciendo «terminar», guarda silencio 3 segundos o pulsa «Terminar respuesta».`
         : listeningFor === "review"
           ? `Di «${voiceReviewApprovalPhrase(step).toLowerCase()}», «rectificar» o «repetir».`
-          : "Di «guardar diagnóstico y plan», «rectificar» o «repetir»."
+          : "Di «correcto» para guardar el diagnóstico y el plan, «rectificar» o «repetir»."
       : audioStatus === "starting"
         ? "Activando el micrófono para escuchar tu respuesta."
         : audioStatus === "transcribing"
@@ -615,7 +626,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
                 : proposalReady && planOtherTeeth.length
                   ? `El plan también menciona ${planOtherTeeth.map(other => `FDI ${formatFdi(other)} · Chile ${fdiToChile(other)}`).join(", ")}. Corrígelo para mantener una pieza por vez.`
                   : proposalReady
-                ? `Diagnóstico: ${diagnosisText.trim() || "pendiente"}. Plan: ${planItems.map(item => `${item.label || "prestación sin nombre"}${item.amount > 0 ? ` · ${item.amount.toLocaleString("es-CL")} CLP` : " · valor por definir"}`).join("; ") || "pendiente"}.${diagnosisPreview?.question && !diagnosisPreview.answer ? " Falta confirmar la cara de la caries." : ""}`
+                ? `Diagnóstico: ${diagnosisText.trim() || "pendiente"}. Plan de tratamiento: ${planText.trim() || "pendiente"}. Prestaciones presupuestadas: ${planItems.map(item => `${item.label || "prestación sin nombre"}${item.amount > 0 ? ` · ${item.amount.toLocaleString("es-CL")} CLP` : " · valor por definir"}`).join("; ") || "pendiente"}.${diagnosisPreview?.question && !diagnosisPreview.answer ? " Falta confirmar la cara de la caries." : ""}`
                 : answerReady || currentText.trim()
                   ? currentText
                   : toothSpeechPrompt(step, tooth);
@@ -647,7 +658,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
           </div>
           {proposalReady && !analysisError && !speechError && !proposalReviewIssue ? <div className="mt-3 grid max-h-40 gap-3 overflow-y-auto border-t border-violet-200 pt-3 text-base leading-relaxed sm:grid-cols-2 sm:text-lg">
             <p><strong className="block text-sm uppercase tracking-wide text-[#625a7c]">Diagnóstico / hipótesis</strong>{diagnosisText.trim() || "Pendiente"}</p>
-            <p><strong className="block text-sm uppercase tracking-wide text-[#625a7c]">Plan y presupuesto preliminar</strong>{planItems.map(item => `${item.label || "prestación sin nombre"}${item.amount > 0 ? ` · ${item.amount.toLocaleString("es-CL")} CLP` : " · valor por definir"}`).join("; ") || "Pendiente"}{diagnosisPreview?.question && !diagnosisPreview.answer ? <span className="mt-1 block font-semibold text-amber-900">Falta confirmar la cara de la caries.</span> : null}</p>
+            <div><p className="text-sm font-bold uppercase tracking-wide text-[#625a7c]">Plan de tratamiento</p><p>{planText.trim() || "Pendiente"}</p><p className="mt-2 text-sm font-bold uppercase tracking-wide text-[#625a7c]">Presupuesto preliminar</p><p>{planItems.map(item => `${item.label || "prestación sin nombre"}${item.amount > 0 ? ` · ${item.amount.toLocaleString("es-CL")} CLP` : " · valor por definir"}`).join("; ") || "Pendiente"}</p>{diagnosisPreview?.question && !diagnosisPreview.answer ? <span className="mt-1 block font-semibold text-amber-900">Falta confirmar la cara de la caries.</span> : null}</div>
           </div> : <p aria-live="off" className="mt-3 max-h-32 overflow-y-auto whitespace-pre-wrap border-t border-violet-200 pt-3 text-base leading-relaxed text-[#302747] sm:text-lg">{liveActivityText}</p>}
         </section>
         </div>
@@ -746,8 +757,9 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
           <div className="rounded-lg border border-violet-200 bg-violet-50 p-4 text-base leading-relaxed text-violet-950 sm:text-lg">
             <p className="font-semibold">Resumen para FDI {formatFdi(tooth)} · Chile {fdiToChile(tooth)}</p>
             <p className="mt-1"><strong>Diagnóstico / hipótesis:</strong> {diagnosisText.trim()}</p>
-            <p className="mt-1"><strong>Plan:</strong> {planItems.map(item => item.label || "prestación sin nombre").join("; ")}</p>
-            <p className="mt-2">Para confirmar por voz, di «guardar diagnóstico y plan». También puedes decir «rectificar» o «repetir».</p>
+            <p className="mt-1"><strong>Plan de tratamiento:</strong> {planText.trim()}</p>
+            <p className="mt-1"><strong>Prestaciones del presupuesto preliminar:</strong> {planItems.map(item => `${item.label || "prestación sin nombre"}${item.amount > 0 ? ` · ${item.amount.toLocaleString("es-CL")} CLP` : " · valor por definir"}`).join("; ")}</p>
+            <p className="mt-2">Para confirmar por voz, di «correcto». También puedes decir «rectificar» o «repetir».</p>
           </div>
           <div className="flex flex-wrap justify-end gap-2 border-t border-[#ebe9f2] pt-3">
             <Button type="button" variant="outline" onClick={() => { setProposalReady(false); askStep("diagnosis"); }} disabled={applying}>Volver a responder el diagnóstico</Button>

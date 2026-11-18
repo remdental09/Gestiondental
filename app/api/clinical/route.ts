@@ -414,6 +414,9 @@ export async function POST(request: Request) {
       const normalizedBudget = hasBudget ? normalizeBudgetItems(input.budgetItems, true) : null;
       if (hasBudget && (!budgetTitle || !normalizedBudget)) return error("Revisa el título y las prestaciones del presupuesto preliminar.");
       if (normalizedBudget?.some(item => item.zone || item.teeth?.some(itemTooth => itemTooth !== tooth))) return error("El presupuesto de este dictado debe corresponder solo a la pieza seleccionada.");
+      const rawEvolution = input.evolution && typeof input.evolution === "object" && !Array.isArray(input.evolution) ? input.evolution as Record<string, unknown> : null;
+      const evolutionTitle = string(rawEvolution?.title, 180), evolutionBody = string(rawEvolution?.body, 30000), evolutionRequestId = string(rawEvolution?.requestId, 80);
+      if (!evolutionTitle || !evolutionBody || !evolutionRequestId) return error("El diagnóstico y el plan deben guardarse juntos en la evolución general del paciente.");
       type DictationOperation =
         | { kind: "status"; status: string; missingReason?: "caries" | "other" | "unknown" }
         | { kind: "surface"; surface: OdontogramSurface; finding: SurfaceFinding }
@@ -564,15 +567,27 @@ export async function POST(request: Request) {
       const chartWrite = db.insert(toothStatuses).values({ ownerId, patientId, data: JSON.stringify(data), updatedAt })
         .onConflictDoUpdate({ target: toothStatuses.patientId, set: { data: JSON.stringify(data), updatedAt } });
       let savedBudget: typeof budgets.$inferSelect | undefined;
+      let savedNote: typeof evolutions.$inferSelect | undefined;
+      const clinicalDate = dateInChile();
+      const noteAuthor = await currentAuthor();
+      const evolutionWrite = db.insert(evolutions).values({ ownerId, patientId, clinicalDate, recordedAt: updatedAt, title: evolutionTitle, body: evolutionBody, requestId: evolutionRequestId, backupStatus: "not_configured" }).returning();
+      const evolutionAuthorWrite = db.insert(evolutionAuthors).values({ ownerId, evolutionId: sql`last_insert_rowid()`, ...noteAuthor });
       if (normalizedBudget) {
         const itemsData = encodeBudgetData(normalizedBudget.map(item => ({ ...item, teeth: [tooth] })), { isAlternative: false, parentBudgetId: null });
-        const [, inserted] = await db.batch([
+        const budgetAuthor = await budgetAuthorStatement(db, ownerId);
+        const [, inserted, , insertedNote] = await db.batch([
           chartWrite,
           db.insert(budgets).values({ ownerId, patientId, title: budgetTitle, items: itemsData, status: "Borrador", createdAt: updatedAt }).returning(),
-          (await budgetAuthorStatement(db, ownerId)).statement,
+          budgetAuthor.statement,
+          evolutionWrite,
+          evolutionAuthorWrite,
         ]);
         savedBudget = inserted[0];
-      } else await chartWrite;
+        savedNote = insertedNote[0];
+      } else {
+        const [, insertedNote] = await db.batch([chartWrite, evolutionWrite, evolutionAuthorWrite]);
+        savedNote = insertedNote[0];
+      }
       const [verified] = await db.select({ data: toothStatuses.data }).from(toothStatuses).where(and(eq(toothStatuses.ownerId, ownerId), eq(toothStatuses.patientId, patientId))).limit(1);
       if (!verified) return error("No se pudo verificar el odontograma actualizado.", 503);
       if (normalizedBudget) {
@@ -580,9 +595,14 @@ export async function POST(request: Request) {
         if (!verifiedBudget) return error("El odontograma se guardó, pero no se pudo verificar el presupuesto preliminar.", 503);
         savedBudget = verifiedBudget;
       }
+      const [verifiedNote] = savedNote
+        ? await db.select().from(evolutions).where(and(eq(evolutions.id, savedNote.id), eq(evolutions.ownerId, ownerId), eq(evolutions.patientId, patientId))).limit(1)
+        : [];
+      if (!verifiedNote) return error("El odontograma se guardó, pero no se pudo verificar la evolución clínica.", 503);
       return Response.json({
         odontogram: normalizeOdontogram(JSON.parse(verified.data)),
         ...(savedBudget ? { budget: await budgetViewWithAuthor(savedBudget, ownerId) } : {}),
+        note: { id: verifiedNote.id, patientId, date: displayDate(verifiedNote.clinicalDate), clinicalDate: verifiedNote.clinicalDate, recordedAt: verifiedNote.recordedAt, title: verifiedNote.title, body: verifiedNote.body, backupStatus: verifiedNote.backupStatus, status: verifiedNote.status, authorName: noteAuthor.authorName, authorEmail: noteAuthor.authorEmail, mine: true },
       });
     }
 

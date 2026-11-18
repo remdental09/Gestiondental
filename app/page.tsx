@@ -592,10 +592,12 @@ export default function Home(){
     const data=await persist({action:"setToothSurface",patientId:selectedId,tooth,surface,finding});
     setToothStatuses(previous=>({...previous,[selectedId]:data.odontogram}));
   };
-  const applyToothDictation=async(tooth:number,operations:ToothDictationOperation[],budgetTitle:string,budgetItems:BudgetPlan["items"])=>{
-    const result=await persist({action:"applyToothDictation",patientId:selectedId,tooth,changes:operations,budgetTitle,budgetItems});
+  const applyToothDictation=async(tooth:number,operations:ToothDictationOperation[],budgetTitle:string,budgetItems:BudgetPlan["items"],evolution:{title:string;body:string})=>{
+    const result=await persist({action:"applyToothDictation",patientId:selectedId,tooth,changes:operations,budgetTitle,budgetItems,evolution:{...evolution,requestId:crypto.randomUUID()}});
     setToothStatuses(previous=>({...previous,[selectedId]:result.odontogram}));
     if(result.budget)setBudgets(previous=>[result.budget!,...previous]);
+    if(result.note)setNotes(previous=>[result.note,...previous.filter(note=>note.id!==result.note.id)]);
+    requestDriveBackup(selectedId);
   };
   const savePerio=async(exam:PerioExam)=>{
     const rows=Object.entries(exam.teeth).sort(([a],[b])=>Number(a)-Number(b)).map(([tooth,record])=>{

@@ -14,13 +14,13 @@ export function stripFinishCommand(text: string): string {
   return text.replace(/(?:\s*[,;:.!?]\s*|\s+|^)(?:terminar|termine|terminé|termino|termina)(?:\s+(?:la\s+)?respuesta)?\s*[.!?]*$/iu, "").trim();
 }
 
-export function voiceReviewApprovalPhrase(step: "diagnosis" | "plan"): string {
-  return step === "diagnosis" ? "Correcto, pasar al plan" : "Correcto, preparar propuesta";
+export function voiceReviewApprovalPhrase(_step: "diagnosis" | "plan"): string {
+  return "Correcto";
 }
 
 export function voiceAnswerReadback(step: "diagnosis" | "plan", answer: string): string {
   const label = step === "diagnosis" ? "esta hipótesis diagnóstica" : "este plan de tratamiento";
-  return `Redacté ${label}: ${answer.trim()} ¿Es correcto? Di ${voiceReviewApprovalPhrase(step).toLowerCase()}; rectificar; o repetir.`;
+  return `Redacté ${label}: ${answer.trim()} ¿Es correcto? Di correcto para continuar; rectificar; o repetir.`;
 }
 
 export type VoiceReviewCommand = "accept" | "correct" | "repeat" | "save" | "mesial" | "distal" | "both" | "pending" | null;
@@ -34,7 +34,7 @@ export function parseVoiceReviewCommand(text: string, stage: "diagnosis" | "plan
     if (/^(?:distal|cara distal)$/.test(normalized)) return "distal";
     if (/^(?:ambas|las dos|mesial y distal)$/.test(normalized)) return "both";
     if (/^(?:pendiente|dejar pendiente|no registrar cara)$/.test(normalized)) return "pending";
-    if (/^(?:guardar|si guardar|guardar propuesta|guardar diagnostico y plan|confirmar propuesta|confirmar y guardar|correcto guardar|correcto guardar propuesta)$/.test(normalized)) return "save";
+    if (/^(?:correcto|correcta|si correcto|es correcto|esta correcto|correcto guardar|correcto guardar propuesta|guardar|si guardar|guardar propuesta|guardar diagnostico y plan|confirmar propuesta|confirmar y guardar)$/.test(normalized)) return "save";
     return null;
   }
   const approval = "(?:correcto|correcta|si correcto|si es correcto|es correcto|esta correcto|esta bien|perfecto|confirmo)";

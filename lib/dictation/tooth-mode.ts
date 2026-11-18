@@ -8,9 +8,14 @@ export type ToothDictationOperation =
   | { kind: "crown"; material: string; shade?: string | null; foundation?: "tooth" | "implant" }
   | { kind: "diagnosis"; title: string; detail: string };
 
-export function toothDiagnosisOperation(transcript: string): Extract<ToothDictationOperation, { kind: "diagnosis" }> | null {
-  const detail = transcript.replace(/\s+/g, " ").trim().slice(0, 1000);
-  return detail ? { kind: "diagnosis", title: "Diagnóstico / hipótesis (dictado)", detail } : null;
+export function toothDiagnosisOperation(transcript: string, plan?: string): Extract<ToothDictationOperation, { kind: "diagnosis" }> | null {
+  const diagnosis = transcript.replace(/\s+/g, " ").trim();
+  const treatmentPlan = plan?.replace(/\s+/g, " ").trim();
+  if (!diagnosis) return null;
+  const detail = treatmentPlan
+    ? `Diagnóstico / hipótesis: ${diagnosis.slice(0, 440)}. Plan de tratamiento preliminar: ${treatmentPlan.slice(0, 440)}.`.slice(0, 1000)
+    : diagnosis.slice(0, 1000);
+  return { kind: "diagnosis", title: treatmentPlan ? "Diagnóstico / hipótesis y plan preliminar" : "Diagnóstico / hipótesis (dictado)", detail };
 }
 
 /** A guided plan is always a draft: leave the fee undefined and bind the row to the selected tooth. */
