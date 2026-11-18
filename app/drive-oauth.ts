@@ -1069,7 +1069,7 @@ export async function sendMailWithSender(sender: MailSender, raw: string): Promi
 
 
 export type CalendarPushStatus = "ok" | "sin-conexion" | "solo-lectura" | "error";
-type AppointmentForGoogle = { id: number; day: string; time: string; reason: string };
+type AppointmentForGoogle = { id: number; day: string; time: string; reason: string; box?: string };
 
 /** Crea la cita agendada en la ficha dentro del calendario principal de Google del profesional (si dio permiso de escritura). */
 export async function pushAppointmentToGoogle(ownerId: string, appointment: AppointmentForGoogle, patientName: string, patientId?: number): Promise<CalendarPushStatus> {
@@ -1087,11 +1087,11 @@ export async function pushAppointmentToGoogle(ownerId: string, appointment: Appo
     const endIso = new Date(new Date(startIso).getTime() + 30 * 60000).toISOString();
     const user: ChatGPTUser = { userId: row.owner_id, displayName: "", email: row.google_email, fullName: null };
     const token = await getAccessToken(user, row as unknown as DriveConnection, config.clientSecret);
-    const summary = [patientName, appointment.reason].filter(Boolean).join(" · ").slice(0, 300);
+    const summary = [patientName, appointment.reason, appointment.box].filter(Boolean).join(" · ").slice(0, 300);
     const wall = (iso: string) => new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Santiago", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).format(new Date(iso)).replace(" ", "T");
     const created = await googleApi<{ id?: string; organizer?: { email?: string } }>(token, "https://www.googleapis.com/calendar/v3/calendars/primary/events?fields=id,organizer(email)", {
       method: "POST",
-      body: JSON.stringify({ summary, start: { dateTime: wall(startIso), timeZone: "America/Santiago" }, end: { dateTime: wall(endIso), timeZone: "America/Santiago" } }),
+      body: JSON.stringify({ summary, ...(appointment.box ? { location: appointment.box } : {}), start: { dateTime: wall(startIso), timeZone: "America/Santiago" }, end: { dateTime: wall(endIso), timeZone: "America/Santiago" } }),
     });
     if (!created.id) return "error";
     const calendarId = "g:" + row.google_sub + ":" + (created.organizer?.email || row.google_email);
