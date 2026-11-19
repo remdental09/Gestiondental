@@ -43,3 +43,10 @@ test("solo el consentimiento informado lleva firma del paciente", () => {
   assert.match(panel, /activeDocument\.kind === "consentimiento" && <div className="flex min-h-28 flex-col justify-end">/);
   assert.doesNotMatch(panel, /activeDocument\.kind !== "receta" && <div/);
 });
+
+test("los borradores se pueden borrar y los emitidos no", () => {
+  const route = readFileSync(new URL("../app/api/documentos/borrar/route.ts", import.meta.url), "utf8");
+  assert.match(route, /doc\.status !== "borrador"[\s\S]*409/);
+  assert.match(route, /eq\(patientDocuments\.status, "borrador"\)/);
+  assert.match(panel, /data-testid="documentation-delete-draft"/);
+});

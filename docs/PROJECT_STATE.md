@@ -429,3 +429,4 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 - La vista previa muestra «Guardar en PDF» e «Imprimir» (mismo diálogo de impresión); en un borrador se emite primero con confirmación. La vista previa va sobre las tarjetas de habilitación y firma.
 - La firma/timbre en el documento se muestra más grande (hasta ~128 px de alto) para que sea legible al imprimir.
 - Solo el consentimiento informado muestra firma del paciente; recetas, órdenes y certificados llevan únicamente la firma/timbre del profesional.
+- Los borradores de documentos se pueden borrar (POST /api/documentos/borrar, solo estado borrador); los emitidos nunca se borran, se anulan.
