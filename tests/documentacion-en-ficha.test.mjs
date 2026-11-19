@@ -38,3 +38,8 @@ test("la vista previa tiene Guardar en PDF e Imprimir, también para borradores,
   assert.match(panel, /const printDocument/);
   assert.ok(panel.indexOf('aria-label="Vista previa del documento"') < panel.indexOf('className="grid items-start gap-6 xl:grid-cols-'));
 });
+
+test("solo el consentimiento informado lleva firma del paciente", () => {
+  assert.match(panel, /activeDocument\.kind === "consentimiento" && <div className="flex min-h-28 flex-col justify-end">/);
+  assert.doesNotMatch(panel, /activeDocument\.kind !== "receta" && <div/);
+});
