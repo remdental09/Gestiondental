@@ -427,3 +427,4 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 - Documentación también está en el menú lateral: barra de búsqueda de paciente por nombre o RUT (sin listado desplegable) y luego el menú de tarjetas.
 - Al abrir «Documentación» en la ficha se muestra un menú de tarjetas (receta médica, receta magistral, orden médica, certificado médico, consentimiento); cada una abre su formulario con flecha para volver. Receta magistral usa el mismo diseño y la misma exigencia de habilitación que la receta (`isPrescriptionKind`).
 - La vista previa muestra «Guardar en PDF» e «Imprimir» (mismo diálogo de impresión); en un borrador se emite primero con confirmación. La vista previa va sobre las tarjetas de habilitación y firma.
+- La firma/timbre en el documento se muestra más grande (hasta ~128 px de alto) para que sea legible al imprimir.
