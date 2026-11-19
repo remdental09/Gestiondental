@@ -31,3 +31,10 @@ test("el menú ofrece receta médica, receta magistral, orden médica, certifica
   assert.match(panel, /data-testid="documentation-menu"/);
   assert.match(lib, /isPrescriptionKind[\s\S]*receta_magistral/);
 });
+
+test("la vista previa tiene Guardar en PDF e Imprimir, también para borradores, y aparece arriba", () => {
+  assert.match(panel, /data-testid="documentation-save-pdf"/);
+  assert.match(panel, /data-testid="documentation-print-button"/);
+  assert.match(panel, /const printDocument/);
+  assert.ok(panel.indexOf('aria-label="Vista previa del documento"') < panel.indexOf('className="grid items-start gap-6 xl:grid-cols-'));
+});
