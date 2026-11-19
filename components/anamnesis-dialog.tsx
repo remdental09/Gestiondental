@@ -252,7 +252,7 @@ function AnamnesisDialog({ patientId, patientName, initial, onClose, onSaved }: 
         </details>}
       </div>
 
-      {alerts.length > 0 && <div role="status" className="rounded-xl border border-[#d62839] bg-[#fff0f1] p-3 text-sm text-[#8f1a27]"><p className="font-semibold">Ten presente</p><ul className="list-disc pl-5">{alerts.map(a => <li key={a}>{a}</li>)}</ul></div>}
+      {alerts.length > 0 && <div role="status" className="rounded-xl border border-[#d62839] bg-[#fff0f1] p-3 text-sm text-[#8f1a27]"><p className="font-semibold">Ten presente <span className="font-normal">· al guardar se muestra en «Alertas médicas», arriba en la ficha</span></p><ul className="list-disc pl-5">{alerts.map(a => <li key={a}>{a}</li>)}</ul></div>}
 
       <div className="grid gap-4 sm:grid-cols-2">
         <L label="Alergias (fármacos, látex, anestesia, alimentos)" doubt={doubt("allergies")}><Textarea rows={2} value={form.allergies} onChange={e => set("allergies", e.target.value)} placeholder="Ej. Penicilina; niega otras" /></L>
