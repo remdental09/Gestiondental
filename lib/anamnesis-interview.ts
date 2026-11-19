@@ -1,4 +1,5 @@
 import { emptyAnamnesis, normalizeAnamnesis, type Anamnesis, type ConditionId } from "./anamnesis.ts";
+import { extractMedications } from "./anamnesis-drugs.ts";
 
 /** Campos del formulario que la IA puede marcar como dudosos (se destacan en ámbar para que el clínico los revise). */
 export const ANAMNESIS_FIELDS = Object.keys(emptyAnamnesis()) as Array<keyof Anamnesis>;
@@ -93,6 +94,8 @@ export function localAnamnesisFromText(text: string): InterviewResult {
     if (/ortodonc|brackets|frenillos/.test(s) && !neg) add("dentalHistory", cap(raw.replace(/^(s[ií],?\s*)/i, "")));
     if (/ultima vez (que fui )?al dentista|fui al dentista hace/.test(s)) a.lastDentalVisit = raw.match(/hace\s+[^.,;]+/i)?.[0] ?? a.lastDentalVisit;
   }
+  // Fármacos nombrados (con o sin dosis en mg): el detector por nombre cubre lo que la regla de dosis no ve.
+  for (const entry of extractMedications(text)) add("medications", entry);
   const anamnesis = normalizeAnamnesis(a);
   const doubtful = ANAMNESIS_FIELDS.filter(f => { const v = anamnesis[f]; return f !== "updatedAt" && (Array.isArray(v) ? v.length > 0 : !!v); });
   return { anamnesis, doubtful, turns: [], fallback: true };

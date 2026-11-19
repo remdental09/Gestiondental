@@ -11,6 +11,7 @@ conditions (arreglo con ids de: ${CONDITIONS.map(([id, l]) => `${id}=${l}`).join
 otherConditions (otras enfermedades no listadas), surgeries (cirugías previas), hospitalizations, anesthesiaReactions,
 pregnancy ("no" | "embarazada" | "lactancia" | "no-aplica" | ""), smoking, alcohol, bruxism ("si"|"no"|""), gumBleeding ("si"|"no"|""),
 lastDentalVisit, dentalHistory (trauma, ortodoncia, cirugías orales, sensibilidad, molestias), observations (lo demás relevante).
+Todo fármaco nombrado como de uso habitual va en medications, uno por entrada, con dosis y frecuencia si se dijeron y entre paréntesis para qué lo usa si se dijo (p. ej. "Metotrexato 6 dosis una vez por semana (artritis reumatoide)"); no lo dejes solo en observations.
 Un "niega X" para una enfermedad listada NO la agrega a conditions.`;
 
 /** Para armar la anamnesis desde el historial de evoluciones: solo lo escrito de forma explícita; los tratamientos no son antecedentes. */
@@ -37,7 +38,8 @@ conditions (arreglo con ids de: ${CONDITIONS.map(([id, l]) => `${id}=${l}`).join
 otherConditions (otras enfermedades no listadas), surgeries (cirugías previas), hospitalizations, anesthesiaReactions,
 pregnancy ("no" | "embarazada" | "lactancia" | "no-aplica" | ""), smoking (tabaco: cantidad si se dijo), alcohol, bruxism ("si"|"no"|""), gumBleeding ("si"|"no"|""),
 lastDentalVisit, dentalHistory (trauma, ortodoncia, cirugías orales, extracciones, sensibilidad, molestias, motivo dental relevante), observations (lo demás relevante para la atención que dijo el paciente).
-Una enfermedad negada NO va en conditions. Una alergia a un fármaco (p. ej. salbutamol) va en allergies, no en medications.`;
+Una enfermedad negada NO va en conditions. Una alergia a un fármaco (p. ej. salbutamol) va en allergies, no en medications.
+6) FÁRMACOS: si el dentista pregunta qué toma o para qué, y el paciente responde con el nombre de un fármaco (aunque sea una sola palabra: "Metotrexato."), ese fármaco ES un medicamento de uso habitual: agrégalo a medications con la dosis y frecuencia que se dijeron (también si la dosis se dijo en otra frase) y entre paréntesis la indicación ("para la ansiedad" → "(ansiedad)"). Incluye TODOS los fármacos nombrados, incluso los de uso para bajar de peso o de venta libre. Las enfermedades que motivan esos fármacos (artritis reumatoide, ansiedad) también van en conditions u otherConditions si el paciente las confirmó.`;
 
 export async function structureInterview(transcript: string, apiKey: string, options: { model?: string; fetcher?: typeof fetch } = {}): Promise<InterviewResult> {
   const content = await askOpenAI(INTERVIEW_PROMPT, transcript, apiKey, options, 60_000, 6000);
