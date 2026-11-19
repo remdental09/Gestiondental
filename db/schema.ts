@@ -73,6 +73,27 @@ export const budgets = sqliteTable("budgets", {
   createdAt: text("created_at").notNull(),
 }, table => [index("budgets_patient_idx").on(table.patientId)]);
 
+/** Recetas, certificados y consentimientos guardados por paciente como borradores imprimibles. */
+export const patientDocuments = sqliteTable("patient_documents", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  ownerId: text("owner_id").notNull(),
+  patientId: integer("patient_id").notNull().references(() => patients.id),
+  kind: text("kind").notNull(),
+  title: text("title").notNull(),
+  content: text("content").notNull(),
+  status: text("status").notNull().default("borrador"),
+  createdBy: text("created_by").notNull(),
+  createdByName: text("created_by_name").notNull().default(""),
+  createdAt: text("created_at").notNull(),
+}, table => [index("patient_documents_owner_patient_idx").on(table.ownerId, table.patientId, table.id)]);
+
+/** Firma/timbre gráfico personal; cada documento y presupuesto usa la imagen de su autor. */
+export const professionalDocumentSettings = sqliteTable("professional_document_settings", {
+  professionalId: text("professional_id").primaryKey(),
+  documentMark: text("document_mark").notNull().default(""),
+  updatedAt: text("updated_at").notNull(),
+});
+
 export const appointments = sqliteTable("appointments", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   ownerId: text("owner_id").notNull(),

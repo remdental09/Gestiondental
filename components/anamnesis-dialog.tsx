@@ -27,6 +27,10 @@ export function AnamnesisButton({ patientId, patientName }: { patientId: number;
   const [touch, setTouch] = useState(false);
   const [saved, setSaved] = useState<Anamnesis | null>(null);
   useEffect(() => { let live = true; setSaved(null); req(`/api/anamnesis?patientId=${patientId}`).then(a => { if (live) setSaved(a); }).catch(() => undefined); return () => { live = false; }; }, [patientId]);
+  const saveToSummary = (anamnesis: Anamnesis) => {
+    setSaved(anamnesis);
+    window.dispatchEvent(new CustomEvent("patient-anamnesis-saved", { detail: { patientId, anamnesis } }));
+  };
   // Celular o tableta: no hay «pasar el mouse», así que un toque despliega el resumen y desde ahí se edita.
   useEffect(() => { const q = window.matchMedia("(hover: none)"); const sync = () => setTouch(q.matches); sync(); q.addEventListener("change", sync); return () => q.removeEventListener("change", sync); }, []);
   const alerts = saved ? anamnesisAlerts(saved) : [];
@@ -52,7 +56,7 @@ export function AnamnesisButton({ patientId, patientName }: { patientId: number;
           </HoverCardContent>
         </HoverCard>}
     {peek && <AnamnesisReveal patientName={patientName} saved={saved} origin={origin} onClose={() => setPeek(false)} onAdd={() => { setPeek(false); setOpen(true); }} />}
-    {open && <AnamnesisDialog patientId={patientId} patientName={patientName} initial={saved} onClose={() => setOpen(false)} onSaved={setSaved} />}
+    {open && <AnamnesisDialog patientId={patientId} patientName={patientName} initial={saved} onClose={() => setOpen(false)} onSaved={saveToSummary} />}
   </>;
 }
 

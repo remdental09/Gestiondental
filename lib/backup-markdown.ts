@@ -16,6 +16,7 @@ export type MarkdownRecord = {
   periodontalExams: Array<{ recordedAt: string; data: unknown }>;
   odontogram: { teeth?: Record<string, string>; surfaces?: Record<string, Record<string, { condition?: string; depth?: string | null; restorationMaterial?: string | null } | null>>; crowns?: Record<string, { material?: string; foundation?: string } | null>; missingReason?: Record<string, string> } | null;
   imageMetadata: Array<{ name: string; driveFile?: string; kind?: string | null; note?: string | null; addedAt?: string | null }>;
+  documents?: Array<{ title: string; kind?: string; content: string; status?: string; createdAt?: string; createdByName?: string }>;
 };
 
 const fdi = (tooth: string | number) => { const n = Number(tooth); return `${Math.floor(n / 10)}.${n % 10}`; };
@@ -94,6 +95,17 @@ export function fichaMarkdown(record: MarkdownRecord, generatedAt = ""): string 
   }
 
   if (record.appointments.length) out.push("## Citas", "", ...record.appointments.map(v => `- ${day(v.day)} ${v.time} · ${v.reason}`), "");
+  if (record.documents?.length) {
+    out.push("## Documentos clínicos", "", "_Documentos guardados como borradores en la aplicación._", "");
+    for (const document of record.documents) {
+      let values: Record<string, unknown> = {};
+      try { values = JSON.parse(document.content) as Record<string, unknown>; } catch { /* el contenido original queda además en el JSON estructurado */ }
+      out.push(`### ${document.title} · ${day(document.createdAt)} · ${clean(document.status)}`, "");
+      if (document.createdByName) out.push(`- **Profesional:** ${cell(document.createdByName)}`);
+      for (const [key, value] of Object.entries(values)) if (typeof value === "string" && value.trim()) out.push(`- **${cell(key)}:** ${value.trim().replace(/\n/g, "\n  ")}`);
+      out.push("");
+    }
+  }
   if (record.imageMetadata.length) out.push("## Imágenes y documentos", "", "_Cada archivo se respalda en esta misma carpeta de Drive con el nombre indicado._", "",
     ...record.imageMetadata.map(i => `- ${i.driveFile || i.name}${i.kind ? ` (${i.kind})` : ""}${i.addedAt ? ` · ${day(i.addedAt)}` : ""}${i.note ? ` · ${i.note.replace(/\n/g, " ")}` : ""}`), "");
   return out.join("\n").replace(/\n{3,}/g, "\n\n").trim() + "\n";

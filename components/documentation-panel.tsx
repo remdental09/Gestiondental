@@ -1,0 +1,247 @@
+"use client";
+
+import { useEffect, useMemo, useRef, useState } from "react";
+import { BadgeCheck, FileCheck2, FilePlus2, FileText, ImagePlus, LoaderCircle, Pencil, Printer, ScrollText, Trash2 } from "lucide-react";
+import Image from "next/image";
+import { CLINICAL_DOCUMENT_KINDS, CLINICAL_DOCUMENT_LABEL, type ClinicalDocumentContent, type ClinicalDocumentKind } from "@/lib/clinical-documents";
+
+type Patient = { id: number; name: string; birthDate: string; rut: string; phone: string; email: string };
+type SavedDocument = { id: number; patientId: number; kind: ClinicalDocumentKind; title: string; content: string; status: string; createdBy: string; createdByName: string; createdAt: string; documentMark: string };
+type ClinicInfo = { clinicName: string; address: string; city: string; phone: string; email: string; logo: string };
+type Field = { key: string; label: string; hint: string; rows?: number };
+const fields: Record<ClinicalDocumentKind, Field[]> = {
+  receta: [
+    { key: "indicacion", label: "Indicación o motivo", hint: "Completar según evaluación profesional" },
+    { key: "prescripcion", label: "Prescripción", hint: "Medicamento, presentación y pauta indicada", rows: 4 },
+    { key: "instrucciones", label: "Instrucciones al paciente", hint: "Indicaciones complementarias", rows: 3 },
+  ],
+  certificado: [
+    { key: "motivo", label: "Motivo del certificado", hint: "Escribe el motivo que corresponde certificar" },
+    { key: "observaciones", label: "Observaciones", hint: "Antecedentes que el profesional deja consignados", rows: 4 },
+    { key: "vigencia", label: "Fecha o vigencia", hint: "Solo si corresponde" },
+  ],
+  consentimiento: [
+    { key: "procedimiento", label: "Procedimiento propuesto", hint: "Nombre del tratamiento que se explicará" },
+    { key: "descripcion", label: "Descripción y alcance", hint: "Qué se realizará y qué queda fuera", rows: 4 },
+    { key: "riesgos", label: "Riesgos y posibles complicaciones", hint: "Completar individualmente y explicar al paciente", rows: 4 },
+    { key: "alternativas", label: "Alternativas y consecuencias de no tratar", hint: "Completar según el caso", rows: 3 },
+    { key: "declaracion", label: "Declaraciones o acuerdos específicos", hint: "Preguntas, dudas o acuerdos que se quieran dejar escritos", rows: 3 },
+  ],
+};
+const blankContent = (): ClinicalDocumentContent => ({ indicacion: "", prescripcion: "", instrucciones: "", motivo: "", observaciones: "", vigencia: "", procedimiento: "", descripcion: "", riesgos: "", alternativas: "", declaracion: "" });
+const cardClass = "rounded-xl border border-[#e6e4ee] bg-white p-4";
+const inputClass = "mt-1 min-h-11 w-full rounded-lg border border-[#d2d4df] bg-white px-3 py-2 text-sm text-[#35343f] outline-none focus:border-[#75669d] focus:ring-2 focus:ring-[#473a6d]/15";
+const formatDate = (iso: string) => {
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? "Fecha sin registrar" : new Intl.DateTimeFormat("es-CL", { dateStyle: "long", timeZone: "America/Santiago" }).format(date);
+};
+
+export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets }: {
+  patients: Patient[];
+  budgetCounts: Record<number, number>;
+  onOpenBudgets: (patientId: number) => void;
+}) {
+  const [requestedPatientId, setPatientId] = useState(0);
+  const patientId = patients.some(item => item.id === requestedPatientId) ? requestedPatientId : patients[0]?.id ?? 0;
+  const patient = patients.find(item => item.id === patientId) ?? null;
+  const [kind, setKind] = useState<ClinicalDocumentKind>("receta");
+  const [content, setContent] = useState<ClinicalDocumentContent>(blankContent);
+  const [documentsState, setDocumentsState] = useState<{ patientId: number; documents: SavedDocument[]; error: string }>({ patientId: 0, documents: [], error: "" });
+  const [activeDocumentId, setActiveDocumentId] = useState<number | null>(null);
+  const [clinic, setClinic] = useState<ClinicInfo | null>(null);
+  const [documentMark, setDocumentMark] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+
+  const documents = documentsState.patientId === patientId ? documentsState.documents : [];
+  const activeDocument = documents.find(item => item.id === activeDocumentId) ?? null;
+  const documentLoading = Boolean(patientId) && documentsState.patientId !== patientId;
+  const documentLoadError = documentsState.patientId === patientId ? documentsState.error : "";
+
+  useEffect(() => {
+    let active = true;
+    void fetch("/api/clinica", { cache: "no-store" }).then(async response => {
+      const data = await response.json() as { clinic?: ClinicInfo; error?: string };
+      if (!response.ok || !data.clinic) throw new Error(data.error || "No se cargó el perfil de la clínica.");
+      if (active) setClinic(data.clinic);
+    }).catch(reason => { if (active) setError(reason instanceof Error ? reason.message : "No se cargó el perfil de la clínica."); });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    void fetch("/api/documentos/imagen", { cache: "no-store" }).then(async response => {
+      const data = await response.json() as { documentMark?: string; error?: string };
+      if (!response.ok) throw new Error(data.error || "No se pudo leer tu imagen de firma o timbre.");
+      if (active) setDocumentMark(data.documentMark ?? "");
+    }).catch(reason => { if (active) setError(reason instanceof Error ? reason.message : "No se pudo leer tu imagen de firma o timbre."); });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!patientId) return;
+    const controller = new AbortController();
+    void fetch(`/api/documentos?patientId=${patientId}`, { cache: "no-store", signal: controller.signal }).then(async response => {
+      const data = await response.json() as { documents?: SavedDocument[]; error?: string };
+      if (!response.ok || !data.documents) throw new Error(data.error || "No se pudieron cargar los documentos.");
+      setDocumentsState({ patientId, documents: data.documents, error: "" });
+    }).catch(reason => { if (!controller.signal.aborted) setDocumentsState({ patientId, documents: [], error: reason instanceof Error ? reason.message : "No se pudieron cargar los documentos." }); });
+    return () => controller.abort();
+  }, [patientId]);
+
+  const hasContent = fields[kind].some(field => content[field.key]?.trim());
+  const saveDraft = async () => {
+    if (!patient || !hasContent || saving) return;
+    setSaving(true); setError(""); setNotice("");
+    try {
+      const response = await fetch("/api/documentos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ patientId: patient.id, kind, content }) });
+      const data = await response.json() as { document?: SavedDocument; error?: string };
+      if (!response.ok || !data.document) throw new Error(data.error || "No se pudo guardar el borrador.");
+      setDocumentsState(previous => ({ patientId: patient.id, documents: [data.document!, ...(previous.patientId === patient.id ? previous.documents : [])], error: "" }));
+      setActiveDocumentId(data.document.id);
+      setContent(blankContent());
+      setNotice("Borrador guardado en la ficha del paciente. Revísalo antes de imprimir.");
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo guardar el borrador."); }
+    finally { setSaving(false); }
+  };
+
+  const activeContent = useMemo(() => {
+    if (!activeDocument) return null;
+    try { return JSON.parse(activeDocument.content) as ClinicalDocumentContent; } catch { return {}; }
+  }, [activeDocument]);
+
+  return <div className="space-y-6" data-testid="documentation-panel">
+    <section className="surface">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div><h2 className="text-lg font-semibold text-[#35343f]">Documentos del paciente</h2><p className="mt-1 max-w-3xl text-sm text-[#615f73]">Prepara recetas, certificados y consentimientos editables. Se guardan como borradores en la ficha elegida; puedes revisarlos e imprimirlos.</p></div>
+        {patient && <button type="button" onClick={() => onOpenBudgets(patient.id)} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-[#b9b1ce] px-3 text-sm font-semibold text-[#473a6d] hover:bg-[#f3f1f7]"><FileText className="size-4"/>Presupuestos ({budgetCounts[patient.id] ?? 0})</button>}
+      </div>
+      <label className="mt-5 block max-w-xl text-sm font-semibold text-[#35343f]">Paciente
+        <select value={patientId || ""} onChange={event => { setPatientId(Number(event.target.value)); setActiveDocumentId(null); setContent(blankContent()); setNotice(""); }} className={inputClass} aria-label="Elegir paciente">
+          {!patients.length && <option value="">No hay pacientes registrados</option>}
+          {patients.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+        </select>
+      </label>
+      {!patients.length && <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-950">Registra o importa un paciente para crear documentos en su ficha.</p>}
+    </section>
+
+    {patient && <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(320px,.82fr)]">
+      <section className="surface min-w-0">
+        <div className="flex items-start gap-3"><span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[#eae8f0] text-[#473a6d]"><FilePlus2 className="size-5"/></span><div><h2 className="text-lg font-semibold">Crear documento</h2><p className="text-sm text-[#615f73]">Completa solo los datos que correspondan y guarda para abrir la vista de impresión.</p></div></div>
+        <div className="mt-5 grid gap-2 sm:grid-cols-3" role="tablist" aria-label="Tipo de documento">
+          {CLINICAL_DOCUMENT_KINDS.map(value => <button key={value} type="button" role="tab" aria-selected={kind === value} onClick={() => { setKind(value); setNotice(""); }} className={`min-h-11 rounded-lg border px-3 text-sm font-semibold ${kind === value ? "border-[#6a5b91] bg-[#eeebf3] text-[#3f345e]" : "border-[#e6e4ee] bg-white text-[#615f73] hover:bg-[#f7f6fa]"}`}>{CLINICAL_DOCUMENT_LABEL[value]}</button>)}
+        </div>
+        <div className="mt-4 space-y-3">
+          {fields[kind].map(field => <label key={field.key} className="block text-sm font-semibold text-[#35343f]">{field.label}
+            {field.rows ? <textarea rows={field.rows} value={content[field.key] ?? ""} onChange={event => setContent(previous => ({ ...previous, [field.key]: event.target.value }))} placeholder={field.hint} className={inputClass + " resize-y"}/> : <input value={content[field.key] ?? ""} onChange={event => setContent(previous => ({ ...previous, [field.key]: event.target.value }))} placeholder={field.hint} className={inputClass}/>}
+          </label>)}
+        </div>
+        {kind === "consentimiento" && <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">Borrador editable. Revisa riesgos y alternativas con el paciente, adapta el contenido al procedimiento y obtén la firma correspondiente. La aplicación no valida legalmente el texto ni firma por el paciente.</p>}
+        {error && <p role="alert" className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-800">{error}</p>}
+        {notice && !error && <p role="status" className="mt-4 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-900">{notice}</p>}
+        <button type="button" onClick={() => void saveDraft()} disabled={!hasContent || saving} className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-lg bg-[#473a6d] px-4 text-sm font-semibold text-white hover:bg-[#3a2f5a] disabled:cursor-not-allowed disabled:opacity-50">
+          {saving ? <LoaderCircle className="size-4 animate-spin"/> : <FileCheck2 className="size-4"/>}{saving ? "Guardando…" : "Guardar borrador"}
+        </button>
+      </section>
+
+      <div className="min-w-0 space-y-6">
+        <section className={cardClass}>
+          <div className="flex items-center gap-2"><ScrollText className="size-5 text-[#473a6d]"/><h2 className="font-semibold">Documentos guardados</h2></div>
+          {documentLoading ? <p className="mt-3 text-sm text-[#615f73]" role="status">Cargando documentos…</p> : documentLoadError ? <p role="alert" className="mt-3 text-sm text-rose-800">{documentLoadError}</p> : documents.length ? <ul className="mt-3 space-y-2">{documents.map(document => <li key={document.id}><button type="button" onClick={() => { setActiveDocumentId(document.id); setNotice(""); }} aria-pressed={activeDocument?.id === document.id} className={`w-full rounded-lg border p-3 text-left ${activeDocument?.id === document.id ? "border-[#9b8cba] bg-[#f4f2f7]" : "border-[#e6e4ee] bg-white hover:bg-[#f8f7fa]"}`}><span className="flex items-center justify-between gap-2"><strong className="text-sm">{document.title}</strong><span className="rounded-full bg-[#eeebf3] px-2 py-0.5 text-[11px] font-semibold text-[#473a6d]">Borrador</span></span><span className="mt-1 block text-xs text-[#615f73]">{formatDate(document.createdAt)}{document.createdByName ? ` · ${document.createdByName}` : ""}</span></button></li>)}</ul> : <p className="mt-3 rounded-lg bg-[#f7f6fa] p-3 text-sm text-[#615f73]">Todavía no hay documentos en esta ficha.</p>}
+        </section>
+
+        <DocumentMarkEditor mark={documentMark} onSaved={setDocumentMark}/>
+      </div>
+    </div>}
+
+    {patient && activeDocument && activeContent && <section className="surface" aria-label="Vista previa del documento">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 print:hidden"><div><p className="text-xs font-semibold uppercase tracking-wide text-[#6b5d8e]">Vista previa · borrador</p><h2 className="mt-1 text-lg font-semibold">{activeDocument.title}</h2></div><div className="flex flex-wrap gap-2"><button type="button" onClick={() => { setKind(activeDocument.kind); setContent({ ...blankContent(), ...activeContent }); setNotice("Se cargó el texto para crear una nueva versión; el borrador anterior se conserva."); window.scrollTo({ top: 0, behavior: "smooth" }); }} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-[#b9b1ce] px-4 text-sm font-semibold text-[#473a6d] hover:bg-[#f3f1f7]"><Pencil className="size-4"/>Editar una copia</button><button type="button" onClick={() => window.print()} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-[#473a6d] px-4 text-sm font-semibold text-white hover:bg-[#3a2f5a]"><Printer className="size-4"/>Imprimir o guardar como PDF</button></div></div>
+      <article id="documentation-print" className="mx-auto max-w-[800px] bg-white px-7 py-8 text-[#272533]">
+        <header className="border-b-2 border-[#473a6d] pb-4">
+          <div className="flex items-start justify-between gap-4"><div><p className="text-xs font-semibold uppercase tracking-widest text-[#6b5d8e]">{clinic?.clinicName || "Clínica"}</p><h2 className="mt-2 text-2xl font-bold">{activeDocument.title}</h2></div>{clinic?.logo && <Image src={clinic.logo} alt="Logo de la clínica" width={200} height={200} unoptimized className="max-h-20 max-w-28 object-contain"/>}</div>
+          {(clinic?.address || clinic?.city || clinic?.phone || clinic?.email) && <p className="mt-2 text-xs text-[#615f73]">{[clinic.address, clinic.city, clinic.phone, clinic.email].filter(Boolean).join(" · ")}</p>}
+        </header>
+        <section className="mt-5 grid gap-1 text-sm sm:grid-cols-2"><p><strong>Paciente:</strong> {patient.name}</p><p><strong>Identificación:</strong> {patient.rut || "Sin registrar"}</p><p><strong>Fecha:</strong> {formatDate(activeDocument.createdAt)}</p><p><strong>Profesional:</strong> {activeDocument.createdByName || "Sin registrar"}</p></section>
+        <div className="mt-5 space-y-4">{fields[activeDocument.kind].map(field => <section key={field.key}><h3 className="text-sm font-bold">{field.label}</h3><p className="mt-1 min-h-5 whitespace-pre-wrap text-sm leading-relaxed">{activeContent[field.key]?.trim() || "—"}</p></section>)}</div>
+        {activeDocument.kind === "consentimiento" && <p className="mt-6 rounded-lg border border-[#dddbe6] p-3 text-sm leading-relaxed">Borrador para revisión clínica. Este texto no sustituye la conversación con el paciente ni la verificación del contenido aplicable al procedimiento y sus circunstancias.</p>}
+        <footer className="mt-12 grid grid-cols-2 gap-10 text-center text-xs"><div className="flex min-h-28 flex-col items-center justify-end">{activeDocument.documentMark && <Image src={activeDocument.documentMark} alt="Imagen de firma o timbre" width={200} height={200} unoptimized className="mb-2 max-h-14 max-w-44 object-contain"/>}<div className="w-full border-t border-[#777] pt-2">Firma / timbre profesional<br/>{activeDocument.createdByName}</div></div><div className="flex min-h-28 flex-col justify-end"><div className="w-full border-t border-[#777] pt-2">Firma del paciente<br/>{patient.name}</div></div></footer>
+      </article>
+    </section>}
+  </div>;
+}
+
+function DocumentMarkEditor({ mark, onSaved }: { mark: string; onSaved: (mark: string) => void }) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const fileRef = useRef<HTMLInputElement | null>(null);
+  const drawing = useRef(false);
+  const [hasImage, setHasImage] = useState(Boolean(mark));
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !mark) return;
+    const image = new window.Image();
+    image.onload = () => { const ctx = canvas.getContext("2d"); if (!ctx) return; ctx.clearRect(0, 0, canvas.width, canvas.height); const scale = Math.min((canvas.width - 24) / image.width, (canvas.height - 24) / image.height); const width = image.width * scale, height = image.height * scale; ctx.drawImage(image, (canvas.width - width) / 2, (canvas.height - height) / 2, width, height); setHasImage(true); setDirty(false); };
+    image.src = mark;
+  }, [mark]);
+
+  const point = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    return { x: (event.clientX - rect.left) * event.currentTarget.width / rect.width, y: (event.clientY - rect.top) * event.currentTarget.height / rect.height };
+  };
+  const start = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const canvas = event.currentTarget, ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    canvas.setPointerCapture(event.pointerId); drawing.current = true;
+    const at = point(event); ctx.beginPath(); ctx.moveTo(at.x, at.y); ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.strokeStyle = "#252239"; ctx.lineWidth = 5; ctx.lineTo(at.x + .01, at.y + .01); ctx.stroke();
+    setHasImage(true); setDirty(true); setError(""); setNotice("");
+  };
+  const move = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!drawing.current) return;
+    const ctx = event.currentTarget.getContext("2d"); if (!ctx) return;
+    const at = point(event); ctx.lineTo(at.x, at.y); ctx.stroke();
+  };
+  const stop = () => { drawing.current = false; };
+  const pickFile = async (file?: File) => {
+    if (!file) return;
+    if (!/^image\/(png|jpeg|webp)$/.test(file.type) || file.size > 5 * 1024 * 1024) { setError("Elige una imagen PNG, JPG o WebP de hasta 5 MB."); return; }
+    try {
+      const image = await createImageBitmap(file), canvas = canvasRef.current, ctx = canvas?.getContext("2d");
+      if (!canvas || !ctx) throw new Error("No se pudo abrir el cuadro de dibujo.");
+      ctx.clearRect(0, 0, canvas.width, canvas.height); const scale = Math.min((canvas.width - 24) / image.width, (canvas.height - 24) / image.height); const width = image.width * scale, height = image.height * scale;
+      ctx.drawImage(image, (canvas.width - width) / 2, (canvas.height - height) / 2, width, height); image.close(); setHasImage(true); setDirty(true); setError(""); setNotice("");
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo leer la imagen."); }
+  };
+  const clear = () => { const canvas = canvasRef.current; canvas?.getContext("2d")?.clearRect(0, 0, canvas.width, canvas.height); setHasImage(false); setDirty(true); setError(""); setNotice(""); };
+  const save = async () => {
+    const canvas = canvasRef.current;
+    if (!canvas || saving) return;
+    setSaving(true); setError(""); setNotice("");
+    try {
+      let documentMark = "";
+      if (hasImage) {
+        const small = document.createElement("canvas"); small.width = 200; small.height = 200;
+        const ctx = small.getContext("2d"); if (!ctx) throw new Error("No se pudo preparar la imagen.");
+        const scale = Math.min(188 / canvas.width, 188 / canvas.height); const width = canvas.width * scale, height = canvas.height * scale;
+        ctx.drawImage(canvas, (200 - width) / 2, (200 - height) / 2, width, height); documentMark = small.toDataURL("image/png");
+        if (documentMark.length > 80_000) throw new Error("La imagen tiene demasiados detalles. Dibuja una firma más simple o sube una imagen más pequeña.");
+      }
+      const response = await fetch("/api/documentos/imagen", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ documentMark }) });
+      const result = await response.json() as { documentMark?: string; error?: string };
+      if (!response.ok || typeof result.documentMark !== "string") throw new Error(result.error || "No se pudo guardar la imagen.");
+      onSaved(result.documentMark); setDirty(false); setNotice(result.documentMark ? "Tu imagen queda disponible en tus documentos y presupuestos." : "Imagen quitada de tus documentos nuevos.");
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo guardar la imagen."); }
+    finally { setSaving(false); }
+  };
+
+  return <section className={cardClass}>
+    <div className="flex items-start gap-3"><span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#eeebf3] text-[#473a6d]"><Pencil className="size-4"/></span><div><h2 className="font-semibold">Mi firma o timbre</h2><p className="mt-1 text-sm text-[#615f73]">Dibújalo aquí o sube una imagen; tus documentos y presupuestos la usarán junto a tu nombre.</p></div></div>
+    <canvas ref={canvasRef} width={600} height={180} aria-label="Cuadro para dibujar la firma o el timbre" onPointerDown={start} onPointerMove={move} onPointerUp={stop} onPointerCancel={stop} className="mt-4 h-32 w-full touch-none cursor-crosshair rounded-lg border border-dashed border-[#bcb5cc] bg-white"/>
+    <><div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => fileRef.current?.click()} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-[#473a6d] px-3 text-sm font-semibold text-[#473a6d] hover:bg-[#f3f1f7]"><ImagePlus className="size-4"/>Subir imagen</button><button type="button" onClick={clear} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-[#dddbe6] px-3 text-sm font-semibold text-[#615f73] hover:bg-[#f7f6fa]"><Trash2 className="size-4"/>Limpiar</button><button type="button" disabled={!dirty || saving} onClick={() => void save()} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-[#473a6d] px-3 text-sm font-semibold text-white hover:bg-[#3a2f5a] disabled:opacity-50">{saving ? <LoaderCircle className="size-4 animate-spin"/> : <BadgeCheck className="size-4"/>}{saving ? "Guardando…" : "Guardar imagen"}</button></div><input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={event => { void pickFile(event.target.files?.[0]); event.target.value = ""; }}/><p className="mt-2 text-xs text-[#615f73]">Se guarda como imagen para documentos; no firma electrónicamente ni reemplaza una firma manuscrita cuando corresponda. Cada profesional configura la suya.</p></>
+    {error && <p role="alert" className="mt-3 text-sm text-rose-800">{error}</p>}{notice && !error && <p role="status" className="mt-3 text-sm text-emerald-900">{notice}</p>}
+  </section>;
+}

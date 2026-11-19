@@ -7,7 +7,7 @@ import { chileDay } from "@/lib/chile-day";
 import { decodeBudgetData } from "@/lib/budget-plans";
 import { loadAddresses } from "@/app/patient-address-db";
 import { loadAnamnesis } from "@/app/anamnesis-db";
-import { appointments, budgets, clinicalImages, driveBackups, evolutions, patients, payments, periodontalExams, toothStatuses } from "@/db/schema";
+import { appointments, budgets, clinicalImages, driveBackups, evolutions, patientDocuments, patients, payments, periodontalExams, toothStatuses } from "@/db/schema";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -29,7 +29,7 @@ export async function GET(request: Request) {
 
   try {
     const db = getDb();
-    const [patientRows, allEvolutionRows, budgetRows, appointmentRows, perioRows, toothRows, imageRows, backupRows, paymentRows] = await Promise.all([
+    const [patientRows, allEvolutionRows, budgetRows, appointmentRows, perioRows, toothRows, imageRows, backupRows, paymentRows, documentRows] = await Promise.all([
       db.select().from(patients).where(eq(patients.ownerId, ownerId)).orderBy(patients.name),
       db.select().from(evolutions).where(eq(evolutions.ownerId, ownerId)).orderBy(desc(evolutions.clinicalDate), desc(evolutions.recordedAt)),
       db.select().from(budgets).where(eq(budgets.ownerId, ownerId)).orderBy(desc(budgets.id)),
@@ -39,6 +39,7 @@ export async function GET(request: Request) {
       db.select().from(clinicalImages).where(eq(clinicalImages.ownerId, ownerId)).orderBy(desc(clinicalImages.id)),
       db.select().from(driveBackups).where(eq(driveBackups.ownerId, ownerId)),
       db.select().from(payments).where(eq(payments.ownerId, ownerId)).orderBy(desc(payments.paidOn)),
+      db.select().from(patientDocuments).where(eq(patientDocuments.ownerId, ownerId)).orderBy(desc(patientDocuments.id)).catch(() => [] as (typeof patientDocuments.$inferSelect)[]),
     ]);
 
     // Las evoluciones anuladas no salen en la descarga; se conservan en la base y en el respaldo de Drive (marcadas).
@@ -61,6 +62,7 @@ export async function GET(request: Request) {
           periodontalExams: perioRows.filter((row) => row.patientId === patient.id).map((row) => ({ recordedAt: row.recordedAt, data: null })),
           odontogram: tooth ? JSON.parse(tooth.data) : null,
           imageMetadata: imageRows.filter((row) => row.patientId === patient.id),
+          documents: documentRows.filter(row => row.patientId === patient.id),
         }, new Date().toISOString());
       }));
       const header = `# Fichas clínicas · Gestión Dental\n\n_${patientRows.length} ${patientRows.length === 1 ? "paciente" : "pacientes"} · descargado ${chileDay(new Date().toISOString()).split("-").reverse().join("-")}${annulledEvolutionsOmitted ? ` · ${annulledEvolutionsOmitted} evoluciones anuladas omitidas (se conservan en la app y en Drive)` : ""}_\n\n---\n\n`;
@@ -91,6 +93,7 @@ export async function GET(request: Request) {
         periodontalExams: perioRows,
         toothStatuses: toothRows,
         clinicalImages: images,
+        patientDocuments: documentRows,
         driveBackups: backupRows,
       },
       counts: {
@@ -103,6 +106,7 @@ export async function GET(request: Request) {
         periodontalExams: perioRows.length,
         toothStatuses: toothRows.length,
         clinicalImages: images.length,
+        patientDocuments: documentRows.length,
         unavailableImageFiles: images.filter((image) => !image.contentAvailable).length,
         driveBackups: backupRows.length,
       },

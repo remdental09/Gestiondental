@@ -2,6 +2,7 @@ import { getChatGPTUser, personalIdOf } from "@/app/chatgpt-auth";
 import { loadBudgetFormat, saveBudgetFormat } from "@/app/budget-format-db";
 import { loadProfile } from "@/app/clinician-profile-db";
 import { loadClinic } from "@/app/clinic-profile-db";
+import { loadDocumentMark } from "@/app/document-mark-db";
 import { checkBudgetFormat } from "@/lib/budget-format";
 import { buildBudgetPdf } from "@/lib/budget-pdf";
 import { displayName } from "@/lib/clinician-profile";
@@ -46,9 +47,10 @@ export async function POST(request: Request) {
       return Response.json({ format: checked.format }, { headers });
     }
     if (body.action === "vista") {
-      const [profile, clinic, space] = await Promise.all([
+      const [profile, clinic, space, documentMark] = await Promise.all([
         loadProfile(personalId).catch(() => null), loadClinic(user.userId).catch(() => null),
         personalId === user.userId ? Promise.resolve(null) : loadProfile(user.userId).catch(() => null),
+        loadDocumentMark(personalId).catch(() => ""),
       ]);
       const bytes = await buildBudgetPdf({
         budget: { id: 123, title: "Plan de ejemplo (vista previa)", date: "17 nov 2026", items: [
@@ -61,7 +63,7 @@ export async function POST(request: Request) {
         professionalName: profile ? displayName(profile) : "Dr(a). Nombre Apellido", professionalSpecialty: profile?.specialty, professionalDocument: profile?.rut,
         professionalTitles: profile?.extraTitles || undefined,
         clinicName: (personalId === user.userId ? profile?.clinicName : space?.clinicName) || undefined,
-        format: checked.format, logo: clinic?.logo || undefined,
+        format: checked.format, logo: clinic?.logo || undefined, documentMark: documentMark || undefined,
       });
       return new Response(bytes as BodyInit, { headers: { "Content-Type": "application/pdf", "Content-Disposition": 'inline; filename="vista-previa-presupuesto.pdf"', "Cache-Control": "no-store" } });
     }

@@ -57,6 +57,20 @@
       "when": 1795046741399,
       "tag": "0007_long_white_tiger",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1795048788559,
+      "tag": "0008_awesome_whirlwind",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1795049765376,
+      "tag": "0009_windy_jackal",
+      "breakpoints": true
     }
   ]
 }
