@@ -6,7 +6,7 @@ export type AppView = { section: string; patientId: number; tab: string };
 export type ParsedAppUrl = { section: string; patientId: number | null; tab: string; invalidPatient: boolean };
 
 export const FICHA = "Ficha clínica";
-const SECTION_SLUG: Record<string, string> = { Resumen: "resumen", Pacientes: "pacientes", Agenda: "agenda", Presupuestos: "presupuestos" };
+const SECTION_SLUG: Record<string, string> = { Resumen: "resumen", Pacientes: "pacientes", Agenda: "agenda", Presupuestos: "presupuestos", Controles: "controles" };
 const TAB_SLUG: Record<string, string> = { evoluciones: "evolucion", odontograma: "odontograma", periodontograma: "periodontograma", imagenes: "imagenes", presupuestos: "presupuesto" };
 const fromSlug = <T extends Record<string, string>>(map: T, slug: string) => Object.keys(map).find((key) => map[key] === slug) ?? null;
 

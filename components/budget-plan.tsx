@@ -15,6 +15,7 @@ export type BudgetPlan = {
   items: BudgetItem[];
   status: string;
   date: string;
+  createdOn?: string;
   isAlternative: boolean;
   parentBudgetId: number | null;
   /** Quién lo armó; en una clínica puede ser el colega (p. ej. el ortodoncista). `mine: false` = lo armó otro profesional. */

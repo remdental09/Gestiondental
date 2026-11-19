@@ -14,6 +14,8 @@ import { ageFrom, inferSexFromName } from "@/lib/dictation/clinical-items";
 import { WordDiffView } from "@/components/text-correction";
 import { VoiceCommandCard, type AnnulHandler } from "@/components/evolution-annul";
 import { chileTodayIso, parseVoiceCommand, type CommandNote } from "@/lib/dictation/voice-command";
+import { parseControlFromText, type ControlSuggestion } from "@/lib/next-control";
+import { saveControl } from "@/components/next-controls";
 import {
   answerLines,
   buildDictatedPerio,
@@ -269,6 +271,8 @@ export function ClinicalDictation({
   const [classItem, setClassItem] = useState<(PerioClassificationChange & { decision: Decided }) | null>(null);
   const [paymentItems, setPaymentItems] = useState<ReviewPayment[]>([]);
   const [appointmentItems, setAppointmentItems] = useState<ReviewAppointment[]>([]);
+  // «Control en 6 meses», «citar en 2 semanas»: se sugiere sin marcar; el profesional lo confirma en la revisión.
+  const [controlItem, setControlItem] = useState<(ControlSuggestion & { note: string; decision: "accepted" | "rejected" }) | null>(null);
   const [priorEndoItems, setPriorEndoItems] = useState<ReviewPriorEndo[]>([]);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [answering, setAnswering] = useState<string | null>(null);
@@ -332,6 +336,7 @@ export function ClinicalDictation({
     setRecessionItems([]);
     setPaymentItems([]);
     setAppointmentItems([]);
+    setControlItem(null);
     setPriorEndoItems([]);
     setDxItems([]);
     setDxSearch("");
@@ -495,6 +500,8 @@ export function ClinicalDictation({
     setAnsweredDxPrompts([]);
       setDismissedNotices(new Set());
       setAppointmentItems((data.proposal.appointments ?? []).map((item) => ({ ...item, decision: item.day && item.time && !item.timeDoubt ? "accepted" : "rejected", dayValue: item.day ?? "", timeValue: item.time ?? "" })));
+      const control = parseControlFromText(text, chileTodayIso());
+      setControlItem(control ? { ...control, note: "", decision: "rejected" } : null);
     } catch (cause) {
       setOutcome(null);
       setFormError(`No se pudo corregir con IA: ${cause instanceof Error && !/failed to fetch|load failed|network/i.test(cause.message) ? cause.message : "sin conexión con el servidor"}. Nada se guardó.`);
@@ -661,6 +668,11 @@ export function ClinicalDictation({
       }
       acceptedAppointments.push({ key: `cita:${item.id}:${item.dayValue}:${item.timeValue}`, day: item.dayValue, time: item.timeValue, reason: item.reason.trim() });
     }
+    let acceptedControl: { dueOn: string; reason: string; note: string } | null = null;
+    if (controlItem?.decision === "accepted") {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(controlItem.dueOn)) reviewWarnings.push(`Próximo control «${controlItem.said}»: revisa la fecha; no se programó.`);
+      else acceptedControl = { dueOn: controlItem.dueOn, reason: controlItem.reason.trim() || "Control", note: controlItem.note.trim() };
+    }
     const perioReadings: { tooth: number; site: PerioSite; depth: number; bleeding: boolean; suppuration: boolean }[] = [];
     for (const item of perioItems) {
       if (item.decision !== "accepted") continue;
@@ -801,6 +813,11 @@ export function ClinicalDictation({
         const savedId = await once(item.key, async () => (await persist({ action: "addAppointment", patientId, day: item.day, time: item.time, reason: item.reason })).appointment?.id);
         savedAppointments.push({ day: item.day, time: item.time, reason: item.reason, savedId });
       }
+      let controlId: number | undefined;
+      if (acceptedControl) {
+        const control = acceptedControl;
+        controlId = await once(`control:${control.dueOn}:${control.reason}`, async () => (await saveControl({ patientId, dueOn: control.dueOn, reason: control.reason, note: control.note, evolutionId: savedNote?.id ?? null })).id);
+      }
       if (acceptedPriorEndo.length && onPriorEndo) {
         await once(`endo-previa:${acceptedPriorEndo.map((item) => `${item.tooth}/${item.year.trim()}`).join(",")}`, async () => { await onPriorEndo(acceptedPriorEndo.map((item) => ({ tooth: item.tooth, year: item.year.trim() }))); return undefined; });
       }
@@ -841,6 +858,9 @@ export function ClinicalDictation({
         if (!reread || reread.allergies !== fichaUpdate.allergies || reread.history !== fichaUpdate.history) check = { ok: false, messages: [...check.messages, "Alergias o antecedentes releídos no coinciden con lo aceptado."] };
         else check = { ...check, messages: [...check.messages, "Alergias y antecedentes de la ficha actualizados y releídos."] };
       }
+      if (acceptedControl) check = controlId
+        ? { ...check, messages: [...check.messages, `Próximo control programado para el ${acceptedControl.dueOn.split("-").reverse().join("-")} (${acceptedControl.reason}).`] }
+        : { ok: false, messages: [...check.messages, "No se pudo confirmar el próximo control."] };
       if (reviewWarnings.length) check = { ...check, messages: [...check.messages, `${saveEvolution ? "La evolución" : "La ficha"} quedó guardada; algunos campos opcionales siguen pendientes de revisión.`] };
       onApplied(finalRead);
       savedSinceOpen.current = true;
@@ -854,6 +874,7 @@ export function ClinicalDictation({
         ...perioItems.filter((item) => item.decision !== "accepted").map((item) => `Sondaje FDI ${item.toothText}${item.site ? ` ${item.site}` : ""}${item.depthText ? ` ${item.depthText} mm` : ""} — ${item.pending ? "incompleto, no se guardó" : "rechazado"}.`),
         ...paymentItems.filter((item) => item.decision !== "accepted").map((item) => `Pago $${Number(item.amountText || 0).toLocaleString("es-CL")} — no se registró.`),
         ...appointmentItems.filter((item) => item.decision !== "accepted").map((item) => `Cita «${item.said || item.evidence}» — no se agendó.`),
+        ...(controlItem && controlItem.decision !== "accepted" ? [`Próximo control «${controlItem.said}» — no se programó.`] : []),
         ...dxItems.filter((item) => item.decision !== "accepted").map((item) => `Diagnóstico ${item.code || "sin código"} ${item.title}${item.toothText ? ` (FDI ${item.toothText})` : ""} — ${item.suggested ? "sugerencia no confirmada" : "rechazado"}.`),
         ...(!saveEvolution && dxPlan?.tags.length ? ["Los diagnósticos aceptados no se guardaron porque no se generó evolución."] : []),
         ...outcome.proposal.clarifications.filter((question) => !DEPTH_QUESTION.test(question)),
@@ -1322,6 +1343,23 @@ export function ClinicalDictation({
                 </div>}
               </article>)}
             </section>
+            {controlItem && <section className="space-y-3">
+              <h3 className="font-semibold">Próximo control</h3>
+              <article className={`rounded-xl border p-4 ${controlItem.decision === "accepted" ? "border-emerald-200" : "border-[#e6e4ee]"}`} data-testid="dictation-control">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <p><span className="text-[#6b6a7c]">Control: </span><span className="font-medium">{/^\d{4}-\d{2}-\d{2}$/.test(controlItem.dueOn) ? new Intl.DateTimeFormat("es-CL", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${controlItem.dueOn}T12:00:00Z`)) : "fecha pendiente"}</span></p>
+                    <p className="mt-1 text-xs text-[#6b6a7c]">Dicho como «{controlItem.said}». Queda en «Próximos controles» para citarlo; márcalo si corresponde.</p>
+                  </div>
+                  <Decision value={controlItem.decision} onChange={(decision) => setControlItem((current) => current ? { ...current, decision } : current)} />
+                </div>
+                {controlItem.decision === "accepted" && <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                  <label className="space-y-1">Fecha<input type="date" className="flex h-10 w-full rounded-md border px-3 text-base sm:h-9 sm:text-sm" value={controlItem.dueOn} onChange={(event) => setControlItem((current) => current ? { ...current, dueOn: event.target.value } : current)} /></label>
+                  <label className="space-y-1">Motivo<input className="flex h-10 w-full rounded-md border px-3 text-base sm:h-9 sm:text-sm" maxLength={140} value={controlItem.reason} onChange={(event) => setControlItem((current) => current ? { ...current, reason: event.target.value } : current)} /></label>
+                  <label className="space-y-1">Nota<input className="flex h-10 w-full rounded-md border px-3 text-base sm:h-9 sm:text-sm" maxLength={600} value={controlItem.note} onChange={(event) => setControlItem((current) => current ? { ...current, note: event.target.value } : current)} /></label>
+                </div>}
+              </article>
+            </section>}
             <section className="space-y-3">
               <h3 className="font-semibold">Periodontograma</h3>
               <p className="text-xs leading-5 text-[#615f73]">Lo aceptado se guarda como un examen nuevo con solo los sitios dictados; no reemplaza el examen completo ni infiere margen, furcación, EPB ni clasificación.</p>

@@ -204,6 +204,7 @@ function budgetView(b: typeof budgets.$inferSelect) {
     id: b.id,
     patientId: b.patientId,
     date: displayDate(b.createdAt.slice(0, 10)),
+    createdOn: b.createdAt.slice(0, 10),
     title: b.title,
     status: b.status,
     items: data.items,
@@ -848,6 +849,16 @@ export async function POST(request: Request) {
         if (updatedTotal < paid) return error("El total del plan no puede quedar por debajo de los pagos ya registrados. Revisa los abonos antes de reducirlo.", 409);
       }
       const [b] = await db.update(budgets).set({ title, items: encodeBudgetData(items, relationship) }).where(and(eq(budgets.id, budgetId), eq(budgets.patientId, patientId), eq(budgets.ownerId, ownerId))).returning();
+      return Response.json({ budget: await budgetViewWithAuthor(b, ownerId) });
+    }
+    if (action === "setBudgetStatus") {
+      // «Alta» es la única marca manual del estado del plan; el resto (sin iniciar, en tratamiento, terminado, expirado) se calcula.
+      const budgetId = Number(input.budgetId), alta = input.alta === true;
+      if (!Number.isSafeInteger(budgetId) || budgetId < 1) return error("Presupuesto inválido.");
+      const [existing] = await db.select().from(budgets).where(and(eq(budgets.id, budgetId), eq(budgets.patientId, patientId), eq(budgets.ownerId, ownerId)));
+      if (!existing) return error("Presupuesto no encontrado.", 404);
+      if (!(await budgetAccess(ownerId, budgetId)).editable) return error(NOT_BUDGET_OWNER, 403);
+      const [b] = await db.update(budgets).set({ status: alta ? "Alta" : "Borrador" }).where(and(eq(budgets.id, budgetId), eq(budgets.patientId, patientId), eq(budgets.ownerId, ownerId))).returning();
       return Response.json({ budget: await budgetViewWithAuthor(b, ownerId) });
     }
     if (action === "setBudgetItemDone") {
