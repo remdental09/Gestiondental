@@ -21,7 +21,7 @@ export function CalendarSources({ onChanged }: { onChanged: () => void }) {
     if (outcome === "calendar-connected") { setNotice("Calendario conectado. Tus citas ya aparecen en la agenda."); changed.current(); }
     if (outcome === "calendar-scope-missing") setError("Google no dio permiso para ver el calendario. Vuelve a conectar y deja marcada la casilla del calendario.");
     if (outcome === "denied") setError("No se autorizó el calendario.");
-    fetch("/api/calendar", { cache: "no-store" }).then(r => r.ok ? r.json() as Promise<{ accounts: Account[]; calendars?: Choice[] }> : null).then(r => { setAccounts(r?.accounts ?? []); setChoices(r?.calendars ?? []); }).catch(() => setAccounts([]));
+    fetch("/api/calendar", { cache: "no-store" }).then(r => r.ok ? r.json() as Promise<{ accounts: Account[]; calendars?: Choice[]; agendaSynced?: number }> : null).then(r => { setAccounts(r?.accounts ?? []); setChoices(r?.calendars ?? []); if (r?.agendaSynced) changed.current(); }).catch(() => setAccounts([]));
   }, []);
 
   const call = async (body: Record<string, unknown>, kind: string) => {

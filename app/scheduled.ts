@@ -17,7 +17,9 @@ export async function runScheduled(cron: string, env: CalendarSyncEnv) {
     return result;
   }
   if (cron === AGENDA_CHANGES_CRON) {
-    const { syncGoogleCalendars } = await import("./drive-oauth");
+    const { syncGoogleCalendars, syncAppEventsFromGoogle } = await import("./drive-oauth");
+    // Ida y vuelta: lo que se movió o borró directo en Google Calendar vuelve a la app (citas y próximos controles).
+    console.log("google-two-way", JSON.stringify(await syncAppEventsFromGoogle().catch(error => [{ ok: false, detail: String(error) }])));
     console.log("google-calendars", JSON.stringify(await syncGoogleCalendars().catch(error => [{ ok: false, detail: String(error) }])));
     const { runAgendaChangeAlerts } = await import("./agenda-digest");
     const result = await runAgendaChangeAlerts().catch(error => [{ ok: false, detail: String(error) }]);

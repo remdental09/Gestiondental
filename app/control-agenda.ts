@@ -68,6 +68,29 @@ export async function completeControlAppointment(ownerId: string, control: Contr
   if (linked) await setAttendance(ownerId, "cal", linked.id, "atendida").catch(() => false);
 }
 
+/**
+ * Control descartado porque su evento se borró en Google Calendar (la cita quedó «Cancelada», no se borró):
+ * al reabrirlo, la cita vuelve a «Agendada» con la fecha del control y se crea de nuevo en Google si hay permiso.
+ */
+export async function restoreCancelledControl(ownerId: string, control: Control, time?: string): Promise<CalendarPushStatus | "sin-cita"> {
+  if (!control.appointmentId) return "sin-cita";
+  const appointment = await database().prepare("SELECT id, day, time, reason FROM appointments WHERE id = ? AND owner_id = ?").bind(control.appointmentId, ownerId).first<{ id: number; day: string; time: string; reason: string }>();
+  if (!appointment) {
+    await database().prepare("UPDATE patient_controls SET appointment_id = NULL WHERE id = ? AND owner_id = ?").bind(control.id, ownerId).run();
+    return (await scheduleControl(ownerId, control.id, time)).calendar;
+  }
+  const hour = time && isClockTime(time) ? time : appointment.time;
+  const reason = controlAppointmentReason(control.reason);
+  await database().prepare("UPDATE appointments SET day = ?, time = ?, reason = ? WHERE id = ? AND owner_id = ?").bind(control.dueOn, hour, reason, appointment.id, ownerId).run();
+  const { setAttendance } = await import("@/app/attendance-db");
+  await setAttendance(ownerId, "app", appointment.id, "agendada").catch(() => false);
+  await linkControlAppointment(ownerId, control.id, appointment.id);
+  const linked = await database().prepare("SELECT event_id FROM appointment_google_events WHERE owner_id = ? AND appointment_id = ?").bind(ownerId, appointment.id).first<{ event_id: string }>().catch(() => null);
+  if (linked) return moveControlAppointment(ownerId, { ...control, appointmentId: appointment.id }, { day: control.dueOn, time: hour, reason: control.reason });
+  const { pushAppointmentToGoogle } = await import("@/app/drive-oauth");
+  return pushAppointmentToGoogle(ownerId, { id: appointment.id, day: control.dueOn, time: hour, reason }, await patientName(ownerId, control.patientId), control.patientId).catch(() => "error" as const);
+}
+
 /** Vuelve a permitir agendar un control al que se le quitó la cita y la crea. */
 export async function rescheduleRemovedControl(ownerId: string, controlId: number, time?: string) {
   await allowReschedule(ownerId, controlId);

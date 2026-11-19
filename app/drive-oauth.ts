@@ -1089,7 +1089,7 @@ export async function pushAppointmentToGoogle(ownerId: string, appointment: Appo
     const token = await getAccessToken(user, row as unknown as DriveConnection, config.clientSecret);
     const summary = [patientName, appointment.reason, appointment.box].filter(Boolean).join(" · ").slice(0, 300);
     const wall = (iso: string) => new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Santiago", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).format(new Date(iso)).replace(" ", "T");
-    const created = await googleApi<{ id?: string; organizer?: { email?: string } }>(token, "https://www.googleapis.com/calendar/v3/calendars/primary/events?fields=id,organizer(email)", {
+    const created = await googleApi<{ id?: string; updated?: string; organizer?: { email?: string } }>(token, "https://www.googleapis.com/calendar/v3/calendars/primary/events?fields=id,updated,organizer(email)", {
       method: "POST",
       body: JSON.stringify({ summary, ...(appointment.box ? { location: appointment.box } : {}), start: { dateTime: wall(startIso), timeZone: "America/Santiago" }, end: { dateTime: wall(endIso), timeZone: "America/Santiago" } }),
     });
@@ -1099,6 +1099,7 @@ export async function pushAppointmentToGoogle(ownerId: string, appointment: Appo
     await database().prepare(UPSERT_EVENT).bind(ownerId, calendarId, created.id, summary, startIso, endIso, "America/Santiago", "confirmed", 0, now(), null).run();
     if (patientId) await database().prepare("UPDATE calendar_events SET patient_id = ? WHERE owner_id = ? AND calendar_id = ? AND google_event_id = ?").bind(patientId, ownerId, calendarId, created.id).run();
     await database().prepare("INSERT OR REPLACE INTO appointment_google_events (owner_id, appointment_id, google_sub, calendar_id, event_id) VALUES (?, ?, ?, ?, ?)").bind(ownerId, appointment.id, row.google_sub, calendarId, created.id).run();
+    await noteAppWrite(ownerId, appointment.id, created.updated);
     return "ok";
   } catch { return "error"; }
 }
@@ -1116,7 +1117,8 @@ export async function updateAppointmentInGoogle(ownerId: string, appointmentId: 
     const user: ChatGPTUser = { userId: row.owner_id, displayName: "", email: row.google_email, fullName: null };
     const token = await getAccessToken(user, row as unknown as DriveConnection, config.clientSecret);
     const summary = [patientName, reason].filter(Boolean).join(" · ").slice(0, 300);
-    await googleApi(token, "https://www.googleapis.com/calendar/v3/calendars/primary/events/" + encodeURIComponent(link.event_id) + "?fields=id", { method: "PATCH", body: JSON.stringify({ summary }) });
+    const patched = await googleApi<{ updated?: string }>(token, "https://www.googleapis.com/calendar/v3/calendars/primary/events/" + encodeURIComponent(link.event_id) + "?fields=id,updated", { method: "PATCH", body: JSON.stringify({ summary }) });
+    await noteAppWrite(ownerId, appointmentId, patched.updated);
     await database().prepare("UPDATE calendar_events SET title = ? WHERE owner_id = ? AND calendar_id = ? AND google_event_id = ?").bind(summary, ownerId, link.calendar_id, link.event_id).run();
     return "ok";
   } catch { return "error"; }
@@ -1138,6 +1140,9 @@ async function writableGoogleEvent(ownerId: string, eventId: number): Promise<{ 
 }
 
 /** Borra una cita de la agenda: en Google (si hay permiso) y, si venía de «Agendar control», también de la ficha. */
+const markAppChanged = (ownerId: string, appointmentId: number) => import("@/app/calendar-two-way").then(m => m.markAppChanged(ownerId, appointmentId)).catch(() => undefined);
+const noteAppWrite = (ownerId: string, appointmentId: number, updated: string | null | undefined) => import("@/app/calendar-two-way").then(m => m.noteAppWrite(ownerId, appointmentId, updated)).catch(() => undefined);
+
 /** La cita de un próximo control se movió o se borró en la agenda: el control la sigue (nunca bloquea la agenda). */
 const followControl = (ownerId: string, appointmentId: number, change: { day: string } | { deleted: true }) =>
   import("@/app/followup-db").then(m => m.controlFollowsAppointment(ownerId, appointmentId, change)).catch(() => undefined);
@@ -1186,20 +1191,24 @@ export async function updateAgendaEvent(ownerId: string, eventId: number, change
   const found = await writableGoogleEvent(ownerId, eventId);
   if ("error" in found) return { ok: false, error: found.error };
   const duration = Math.max(15 * 60000, new Date(found.ev.end_at).getTime() - new Date(found.ev.start_at).getTime());
+  let googleUpdated: string | undefined;
   const endIso = new Date(new Date(startIso).getTime() + duration).toISOString();
   const wall = (iso: string) => new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Santiago", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).format(new Date(iso)).replace(" ", "T");
   try {
     const user: ChatGPTUser = { userId: found.row.owner_id, displayName: "", email: found.row.google_email, fullName: null };
     const token = await getAccessToken(user, found.row as unknown as DriveConnection, config.clientSecret);
-    await googleApi(token, "https://www.googleapis.com/calendar/v3/calendars/" + encodeURIComponent(found.calendar) + "/events/" + encodeURIComponent(found.ev.google_event_id) + "?fields=id", {
+    const linkedBefore = await database().prepare("SELECT appointment_id FROM appointment_google_events WHERE owner_id = ? AND calendar_id = ? AND event_id = ?").bind(ownerId, found.ev.calendar_id, found.ev.google_event_id).first<{ appointment_id: number }>();
+    if (linkedBefore) await markAppChanged(ownerId, linkedBefore.appointment_id);
+    googleUpdated = (await googleApi<{ updated?: string }>(token, "https://www.googleapis.com/calendar/v3/calendars/" + encodeURIComponent(found.calendar) + "/events/" + encodeURIComponent(found.ev.google_event_id) + "?fields=id,updated", {
       method: "PATCH", body: JSON.stringify({ summary: title, start: { dateTime: wall(startIso), timeZone: "America/Santiago" }, end: { dateTime: wall(endIso), timeZone: "America/Santiago" } }),
-    });
+    })).updated;
   } catch (error) { return { ok: false, error: error instanceof Error ? error.message : "No se pudo cambiar en Google." }; }
   await database().prepare("UPDATE calendar_events SET title = ?, start_at = ?, end_at = ?, all_day = 0, imported_at = ? WHERE owner_id = ? AND id = ?").bind(title, startIso, endIso, now(), ownerId, eventId).run();
   const link = await database().prepare("SELECT appointment_id FROM appointment_google_events WHERE owner_id = ? AND calendar_id = ? AND event_id = ?").bind(ownerId, found.ev.calendar_id, found.ev.google_event_id).first<{ appointment_id: number }>();
   if (link) {
     await database().prepare("UPDATE appointments SET day = ?, time = ?, reason = ? WHERE owner_id = ? AND id = ?").bind(isoDay, change.time, splitReason(title).slice(0, 500), ownerId, link.appointment_id).run();
     await followControl(ownerId, link.appointment_id, { day: isoDay });
+    await noteAppWrite(ownerId, link.appointment_id, googleUpdated);
   }
   return { ok: true };
 }
@@ -1244,6 +1253,7 @@ async function agendaEventForAppointment(ownerId: string, appointmentId: number)
 
 /** Cambia fecha, hora y motivo de una cita de la ficha también en Google Calendar (si está allá). */
 export async function rescheduleAppointmentInGoogle(ownerId: string, appointmentId: number, change: { day: string; time: string; title: string }): Promise<CalendarPushStatus> {
+  await markAppChanged(ownerId, appointmentId); // la app cambió la cita: si Google trae algo más viejo, gana la app
   const eventId = await agendaEventForAppointment(ownerId, appointmentId).catch(() => null);
   if (!eventId) return "sin-conexion";
   const result = await updateAgendaEvent(ownerId, eventId, change).catch(() => ({ ok: false as const, error: "error" }));
@@ -1261,4 +1271,62 @@ export async function deleteAppointmentEverywhere(ownerId: string, appointmentId
   await database().prepare("DELETE FROM appointments WHERE owner_id = ? AND id = ?").bind(ownerId, appointmentId).run();
   await followControl(ownerId, appointmentId, { deleted: true });
   return status;
+}
+
+/**
+ * Vuelta desde Google Calendar (ida y vuelta): lee con syncToken (solo lo que cambió, incluidos los borrados) el calendario
+ * principal de cada cuenta con permiso de escritura y aplica a la app los cambios de los eventos que la app creó.
+ * Primera vez: lectura completa por páginas (se retoma en la siguiente pasada si es larga). HTTP 410 → se empieza de nuevo.
+ * onDemand: al abrir agenda/controles, como máximo una vez cada 2 minutos por cuenta.
+ */
+export async function syncAppEventsFromGoogle(ownerId?: string, options: { onDemand?: boolean } = {}) {
+  const config = configuration();
+  if (!config.configured) return [];
+  await ensureCalendarTable();
+  const twoWay = await import("@/app/calendar-two-way");
+  await twoWay.ensureTwoWay();
+  const { shouldSyncNow } = await import("@/lib/calendar-two-way");
+  const query = ownerId
+    ? database().prepare("SELECT * FROM google_calendar_connections WHERE owner_id = ? AND can_write = 1").bind(ownerId)
+    : database().prepare("SELECT * FROM google_calendar_connections WHERE can_write = 1").bind();
+  const { results } = await query.all<CalendarConnection>();
+  const out: Array<{ ok: boolean; moved: number; cancelled: number; detail: string }> = [];
+  for (const row of results.slice(0, 20)) {
+    const state = await twoWay.readSyncState(row.owner_id, row.google_sub);
+    if (options.onDemand && !shouldSyncNow(state.last_run_at, new Date())) continue;
+    await twoWay.writeSyncState(row.owner_id, row.google_sub, { last_run_at: now() });
+    const summary = { ok: false, moved: 0, cancelled: 0, detail: "" };
+    try {
+      const user: ChatGPTUser = { userId: row.owner_id, displayName: "", email: row.google_email, fullName: null };
+      const token = await getAccessToken(user, row as unknown as DriveConnection, config.clientSecret);
+      let syncToken = state.sync_token, pageToken = state.page_token, restarted = false, pages = 0, finished = false;
+      while (pages < (options.onDemand ? 3 : 8)) {
+        const params = new URLSearchParams({ showDeleted: "true", maxResults: syncToken ? "250" : "2500", fields: "items(id,status,updated,start,end),nextPageToken,nextSyncToken" });
+        if (syncToken) params.set("syncToken", syncToken);
+        if (pageToken) params.set("pageToken", pageToken);
+        const response = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events?" + params.toString(), { headers: { Authorization: "Bearer " + token } });
+        pages++;
+        if (response.status === 410 && !restarted) { // token vencido: lectura completa de nuevo
+          restarted = true; syncToken = null; pageToken = null;
+          await twoWay.writeSyncState(row.owner_id, row.google_sub, { sync_token: null, page_token: null });
+          continue;
+        }
+        if (!response.ok) throw new Error("Google Calendar respondió HTTP " + response.status);
+        const data = await response.json() as { items?: Array<{ id?: string; status?: string; updated?: string; start?: { dateTime?: string; date?: string }; end?: { dateTime?: string; date?: string } }>; nextPageToken?: string; nextSyncToken?: string };
+        const applied = await twoWay.applyGoogleEvents(row.owner_id, row.google_sub, (data.items ?? []).filter((e): e is typeof e & { id: string } => !!e.id));
+        summary.moved += applied.moved; summary.cancelled += applied.cancelled;
+        if (data.nextPageToken) { pageToken = data.nextPageToken; await twoWay.writeSyncState(row.owner_id, row.google_sub, { page_token: pageToken }); continue; }
+        if (data.nextSyncToken) { syncToken = data.nextSyncToken; pageToken = null; await twoWay.writeSyncState(row.owner_id, row.google_sub, { sync_token: syncToken, page_token: null }); }
+        finished = true;
+        break;
+      }
+      summary.ok = true;
+      summary.detail = finished ? "al día" : "lectura parcial; sigue en la próxima pasada";
+    } catch (error) {
+      summary.detail = (error instanceof Error ? error.message : "error").replace(/[A-Za-z0-9_-]{40,}/g, "…").slice(0, 160);
+    }
+    await twoWay.writeSyncState(row.owner_id, row.google_sub, { last_result: `${summary.ok ? "ok" : "error"}: ${summary.detail} (movidas ${summary.moved}, canceladas ${summary.cancelled})` });
+    out.push(summary);
+  }
+  return out;
 }
