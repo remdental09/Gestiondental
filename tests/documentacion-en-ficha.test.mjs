@@ -11,9 +11,12 @@ test("la ficha tiene un botón Documentación junto a Anamnesis que despliega el
   assert.ok(page.indexOf('data-testid="documentation-button"') < page.indexOf("<AnamnesisButton"));
 });
 
-test("la documentación ya no es una sección suelta del menú", () => {
-  assert.doesNotMatch(page, /\{name:"Documentación"/);
-  assert.doesNotMatch(page, /section==="Documentación"&&/);
+test("Documentación también está en el menú lateral y busca al paciente por nombre o RUT", () => {
+  assert.match(page, /\{name:"Documentación"/);
+  assert.match(page, /section==="Documentación"&&<Suspense/);
+  assert.match(panel, /data-testid="documentation-patient-search"/);
+  assert.match(panel, /Buscar paciente por nombre o RUT/);
+  assert.doesNotMatch(panel, /aria-label="Elegir paciente"/);
 });
 
 test("el panel embebido no muestra selector de paciente", () => {
