@@ -85,7 +85,17 @@ export const patientDocuments = sqliteTable("patient_documents", {
   createdBy: text("created_by").notNull(),
   createdByName: text("created_by_name").notNull().default(""),
   createdAt: text("created_at").notNull(),
-}, table => [index("patient_documents_owner_patient_idx").on(table.ownerId, table.patientId, table.id)]);
+  /** Emisión: al emitir el documento queda bloqueado, con código secreto para el QR y huella de su contenido. */
+  verifyToken: text("verify_token"),
+  contentHash: text("content_hash").notNull().default(""),
+  issuedAt: text("issued_at").notNull().default(""),
+  revokedAt: text("revoked_at").notNull().default(""),
+  revokedReason: text("revoked_reason").notNull().default(""),
+  replacesId: integer("replaces_id"),
+}, table => [
+  index("patient_documents_owner_patient_idx").on(table.ownerId, table.patientId, table.id),
+  uniqueIndex("patient_documents_verify_token_idx").on(table.verifyToken),
+]);
 
 /** Firma/timbre gráfico personal; cada documento y presupuesto usa la imagen de su autor. */
 export const professionalDocumentSettings = sqliteTable("professional_document_settings", {

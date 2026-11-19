@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BadgeCheck, FileCheck2, FilePlus2, FileText, ImagePlus, LoaderCircle, Pencil, Printer, ScrollText, Trash2 } from "lucide-react";
+import { BadgeCheck, FileCheck2, FilePlus2, FileText, ImagePlus, LoaderCircle, Pencil, Printer, ScrollText, ShieldCheck, Trash2 } from "lucide-react";
 import Image from "next/image";
+import qrcode from "qrcode-generator";
 import { ageFromBirthDate, splitPrescriptionLines, CLINICAL_DOCUMENT_KINDS, CLINICAL_DOCUMENT_LABEL, type ClinicalDocumentContent, type ClinicalDocumentKind } from "@/lib/clinical-documents";
+import { shortCode, verificationUrl } from "@/lib/document-verification";
 
 type Patient = { id: number; name: string; birthDate: string; rut: string; phone: string; email: string };
-type SavedDocument = { id: number; patientId: number; kind: ClinicalDocumentKind; title: string; content: string; status: string; createdBy: string; createdByName: string; createdAt: string; documentMark: string };
+type SavedDocument = { id: number; patientId: number; kind: ClinicalDocumentKind; title: string; content: string; status: string; createdBy: string; createdByName: string; createdAt: string; documentMark: string; verifyToken?: string | null; contentHash?: string; issuedAt?: string; revokedAt?: string; revokedReason?: string; replacesId?: number | null };
 type ClinicInfo = { clinicName: string; address: string; city: string; phone: string; email: string; logo: string };
 type Field = { key: string; label: string; hint: string; rows?: number };
 const fields: Record<ClinicalDocumentKind, Field[]> = {
@@ -36,6 +38,10 @@ const formatDate = (iso: string) => {
   return Number.isNaN(date.getTime()) ? "Fecha sin registrar" : new Intl.DateTimeFormat("es-CL", { dateStyle: "long", timeZone: "America/Santiago" }).format(date);
 };
 
+const STATUS_LABEL: Record<string, string> = { borrador: "Borrador", emitido: "Emitido", anulado: "Anulado", reemplazado: "Reemplazado" };
+const isIssued = (doc: { status: string }) => doc.status !== "borrador";
+const qrSvg = (url: string) => { const qr = qrcode(0, "M"); qr.addData(url); qr.make(); return qr.createSvgTag({ cellSize: 3, margin: 0, scalable: true }); };
+
 export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets }: {
   patients: Patient[];
   budgetCounts: Record<number, number>;
@@ -51,6 +57,8 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets }: {
   const [clinic, setClinic] = useState<ClinicInfo | null>(null);
   const [documentMark, setDocumentMark] = useState("");
   const [saving, setSaving] = useState(false);
+  const [replacingId, setReplacingId] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
@@ -90,18 +98,33 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets }: {
     return () => controller.abort();
   }, [patientId]);
 
+
+  const patchDocument = (updated: SavedDocument, previousId?: number | null) => setDocumentsState(previous => ({ ...previous, documents: previous.documents.map(item => item.id === updated.id ? { ...item, ...updated, documentMark: item.documentMark } : item.id === previousId ? { ...item, status: "reemplazado", revokedReason: "reemplazado", revokedAt: updated.issuedAt ?? "" } : item) }));
+  const act = async (path: string, doc: SavedDocument, done: string) => {
+    if (busy) return;
+    setBusy(true); setError(""); setNotice("");
+    try {
+      const response = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: doc.id }) });
+      const data = await response.json() as { document?: SavedDocument; replacedId?: number | null; error?: string };
+      if (!response.ok || !data.document) throw new Error(data.error || "No se pudo completar la acción.");
+      patchDocument(data.document, data.replacedId); setNotice(done);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo completar la acción."); }
+    finally { setBusy(false); }
+  };
+  const issue = (doc: SavedDocument) => { if (window.confirm("¿Desea emitir este documento? Quedará bloqueado y con un QR de verificación. Para cambiarlo deberá crear una versión nueva.")) void act("/api/documentos/emitir", doc, "Documento emitido con QR de verificación. Ya puedes imprimirlo."); };
+  const annul = (doc: SavedDocument) => { if (window.confirm("¿Desea anular este documento? Nunca se borra, pero la verificación por QR lo mostrará como anulado y no podrá deshacerse.")) void act("/api/documentos/anular", doc, "Documento anulado. La verificación por QR lo muestra como anulado."); };
   const hasContent = fields[kind].some(field => content[field.key]?.trim());
   const saveDraft = async () => {
     if (!patient || !hasContent || saving) return;
     setSaving(true); setError(""); setNotice("");
     try {
-      const response = await fetch("/api/documentos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ patientId: patient.id, kind, content }) });
+      const response = await fetch("/api/documentos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ patientId: patient.id, kind, content, replacesId: replacingId }) });
       const data = await response.json() as { document?: SavedDocument; error?: string };
       if (!response.ok || !data.document) throw new Error(data.error || "No se pudo guardar el borrador.");
       setDocumentsState(previous => ({ patientId: patient.id, documents: [data.document!, ...(previous.patientId === patient.id ? previous.documents : [])], error: "" }));
       setActiveDocumentId(data.document.id);
-      setContent(blankContent());
-      setNotice("Borrador guardado en la ficha del paciente. Revísalo antes de imprimir.");
+      setContent(blankContent()); setReplacingId(null);
+      setNotice("Borrador guardado. Revísalo y pulsa «Emitir» para generar el QR de verificación e imprimir.");
     } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo guardar el borrador."); }
     finally { setSaving(false); }
   };
@@ -150,7 +173,7 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets }: {
       <div className="min-w-0 space-y-6">
         <section className={cardClass}>
           <div className="flex items-center gap-2"><ScrollText className="size-5 text-[#473a6d]"/><h2 className="font-semibold">Documentos guardados</h2></div>
-          {documentLoading ? <p className="mt-3 text-sm text-[#615f73]" role="status">Cargando documentos…</p> : documentLoadError ? <p role="alert" className="mt-3 text-sm text-rose-800">{documentLoadError}</p> : documents.length ? <ul className="mt-3 space-y-2">{documents.map(document => <li key={document.id}><button type="button" onClick={() => { setActiveDocumentId(document.id); setNotice(""); }} aria-pressed={activeDocument?.id === document.id} className={`w-full rounded-lg border p-3 text-left ${activeDocument?.id === document.id ? "border-[#9b8cba] bg-[#f4f2f7]" : "border-[#e6e4ee] bg-white hover:bg-[#f8f7fa]"}`}><span className="flex items-center justify-between gap-2"><strong className="text-sm">{document.title}</strong><span className="rounded-full bg-[#eeebf3] px-2 py-0.5 text-[11px] font-semibold text-[#473a6d]">Borrador</span></span><span className="mt-1 block text-xs text-[#615f73]">{formatDate(document.createdAt)}{document.createdByName ? ` · ${document.createdByName}` : ""}</span></button></li>)}</ul> : <p className="mt-3 rounded-lg bg-[#f7f6fa] p-3 text-sm text-[#615f73]">Todavía no hay documentos en esta ficha.</p>}
+          {documentLoading ? <p className="mt-3 text-sm text-[#615f73]" role="status">Cargando documentos…</p> : documentLoadError ? <p role="alert" className="mt-3 text-sm text-rose-800">{documentLoadError}</p> : documents.length ? <ul className="mt-3 space-y-2">{documents.map(document => <li key={document.id}><button type="button" onClick={() => { setActiveDocumentId(document.id); setNotice(""); }} aria-pressed={activeDocument?.id === document.id} className={`w-full rounded-lg border p-3 text-left ${activeDocument?.id === document.id ? "border-[#9b8cba] bg-[#f4f2f7]" : "border-[#e6e4ee] bg-white hover:bg-[#f8f7fa]"}`}><span className="flex items-center justify-between gap-2"><strong className="text-sm">{document.title}</strong><span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${document.status === "emitido" ? "bg-emerald-100 text-emerald-900" : document.status === "anulado" ? "bg-rose-100 text-rose-900" : document.status === "reemplazado" ? "bg-orange-100 text-orange-900" : "bg-[#eeebf3] text-[#473a6d]"}`}>{STATUS_LABEL[document.status] ?? document.status}</span></span><span className="mt-1 block text-xs text-[#615f73]">{formatDate(document.createdAt)}{document.createdByName ? ` · ${document.createdByName}` : ""}</span></button></li>)}</ul> : <p className="mt-3 rounded-lg bg-[#f7f6fa] p-3 text-sm text-[#615f73]">Todavía no hay documentos en esta ficha.</p>}
         </section>
 
         <DocumentMarkEditor mark={documentMark} onSaved={setDocumentMark}/>
@@ -158,7 +181,13 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets }: {
     </div>}
 
     {patient && activeDocument && activeContent && <section className="surface" aria-label="Vista previa del documento">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 print:hidden"><div><p className="text-xs font-semibold uppercase tracking-wide text-[#6b5d8e]">Vista previa · borrador</p><h2 className="mt-1 text-lg font-semibold">{activeDocument.title}</h2></div><div className="flex flex-wrap gap-2"><button type="button" onClick={() => { setKind(activeDocument.kind); setContent({ ...blankContent(), ...activeContent }); setNotice("Se cargó el texto para crear una nueva versión; el borrador anterior se conserva."); window.scrollTo({ top: 0, behavior: "smooth" }); }} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-[#b9b1ce] px-4 text-sm font-semibold text-[#473a6d] hover:bg-[#f3f1f7]"><Pencil className="size-4"/>Editar una copia</button><button type="button" onClick={() => window.print()} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-[#473a6d] px-4 text-sm font-semibold text-white hover:bg-[#3a2f5a]"><Printer className="size-4"/>Imprimir o guardar como PDF</button></div></div>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 print:hidden"><div><p className="text-xs font-semibold uppercase tracking-wide text-[#6b5d8e]">Vista previa · {(STATUS_LABEL[activeDocument.status] ?? activeDocument.status).toLowerCase()}</p><h2 className="mt-1 text-lg font-semibold">{activeDocument.title}</h2></div><div className="flex flex-wrap gap-2">
+        <button type="button" onClick={() => { setKind(activeDocument.kind); setContent({ ...blankContent(), ...activeContent }); setReplacingId(activeDocument.status === "emitido" ? activeDocument.id : null); setNotice(activeDocument.status === "emitido" ? "Se cargó el texto para crear una versión nueva. Al emitirla, la versión anterior quedará como reemplazada." : "Se cargó el texto para crear una nueva versión; el borrador anterior se conserva."); window.scrollTo({ top: 0, behavior: "smooth" }); }} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-[#b9b1ce] px-4 text-sm font-semibold text-[#473a6d] hover:bg-[#f3f1f7]"><Pencil className="size-4"/>{isIssued(activeDocument) ? "Crear versión nueva" : "Editar una copia"}</button>
+        {activeDocument.status === "borrador" && <button type="button" disabled={busy} onClick={() => issue(activeDocument)} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-[#473a6d] px-4 text-sm font-semibold text-white hover:bg-[#3a2f5a] disabled:opacity-50">{busy ? <LoaderCircle className="size-4 animate-spin"/> : <ShieldCheck className="size-4"/>}Emitir con QR</button>}
+        {activeDocument.status === "emitido" && <><button type="button" onClick={() => window.print()} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-[#473a6d] px-4 text-sm font-semibold text-white hover:bg-[#3a2f5a]"><Printer className="size-4"/>Imprimir o guardar como PDF</button><button type="button" disabled={busy} onClick={() => annul(activeDocument)} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-rose-300 px-4 text-sm font-semibold text-rose-800 hover:bg-rose-50 disabled:opacity-50"><Trash2 className="size-4"/>Anular</button></>}
+      </div></div>
+      {(error || notice) && <p role={error ? "alert" : "status"} className={`mb-4 rounded-lg p-3 text-sm print:hidden ${error ? "bg-rose-50 text-rose-800" : "bg-emerald-50 text-emerald-900"}`}>{error || notice}</p>}
+      {activeDocument.status === "borrador" && <p className="mb-4 rounded-lg bg-[#f3f1f7] p-3 text-sm text-[#473a6d] print:hidden">Este documento es un borrador. Pulsa «Emitir con QR» para bloquearlo y habilitar la impresión con su código de verificación.</p>}
       <article id="documentation-print" className="mx-auto max-w-[800px] overflow-hidden rounded-xl border border-[#e6e4ee] bg-white text-[#272533] shadow-sm print:rounded-none print:border-0 print:shadow-none [print-color-adjust:exact] [-webkit-print-color-adjust:exact]">
         <header className="bg-gradient-to-r from-[#473a6d] to-[#6b5d8e] px-7 py-6 text-white">
           <div className="flex items-start justify-between gap-4">
@@ -173,6 +202,9 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets }: {
             </div>
           </div>
         </header>
+        {activeDocument.status === "anulado" && <p className="bg-rose-100 px-7 py-2 text-center text-sm font-bold uppercase tracking-widest text-rose-900">Documento anulado</p>}
+        {activeDocument.status === "reemplazado" && <p className="bg-orange-100 px-7 py-2 text-center text-sm font-bold uppercase tracking-widest text-orange-900">Documento reemplazado por una versión nueva</p>}
+        {activeDocument.status === "borrador" && <p className="bg-[#f3f1f7] px-7 py-2 text-center text-xs font-semibold uppercase tracking-widest text-[#615f73]">Borrador · sin verificación</p>}
         <div className="px-7 pb-8 pt-6">
           <section className="grid gap-x-8 gap-y-2 rounded-lg border border-[#e6e4ee] bg-[#faf9fc] p-4 text-sm sm:grid-cols-2">
             <p><span className="block text-[11px] font-semibold uppercase tracking-wider text-[#6b5d8e]">Paciente</span><span className="font-semibold">{patient.name}</span></p>
@@ -194,6 +226,10 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets }: {
             <div className={`flex min-h-28 flex-col items-center justify-end ${activeDocument.kind === "receta" ? "w-full max-w-[320px]" : ""}`}>{activeDocument.documentMark && <Image src={activeDocument.documentMark} alt="Imagen de firma o timbre" width={200} height={200} unoptimized className="mb-2 max-h-16 max-w-44 object-contain"/>}<div className="w-full border-t border-[#777] pt-2"><span className="font-semibold">{activeDocument.createdByName}</span><br/>Firma / timbre profesional</div></div>
             {activeDocument.kind !== "receta" && <div className="flex min-h-28 flex-col justify-end"><div className="w-full border-t border-[#777] pt-2"><span className="font-semibold">{patient.name}</span><br/>Firma del paciente</div></div>}
           </footer>
+          {activeDocument.verifyToken && activeDocument.contentHash && <aside className="mt-10 flex items-center gap-4 rounded-lg border border-[#e6e4ee] bg-[#faf9fc] p-3 text-left [break-inside:avoid]">
+            <div className="size-24 shrink-0 bg-white p-1 [&_svg]:size-full" role="img" aria-label="Código QR de verificación del documento" dangerouslySetInnerHTML={{ __html: qrSvg(verificationUrl(window.location.origin, activeDocument.verifyToken)) }}/>
+            <div className="min-w-0 text-[11px] leading-relaxed text-[#44425a]"><p className="text-xs font-bold uppercase tracking-wider text-[#473a6d]">Verificación de documento</p><p className="mt-1">Escanee el código para confirmar que fue emitido desde Gestión Dental y que está vigente.</p><p className="mt-1">Código: <span className="font-mono font-semibold">{shortCode(activeDocument.contentHash)}</span> · Emitido {formatDate(activeDocument.issuedAt || activeDocument.createdAt)}</p><p className="mt-1 text-[#6b6a7c]">No es firma electrónica avanzada.</p></div>
+          </aside>}
         </div>
       </article>
     </section>}

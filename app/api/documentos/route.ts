@@ -33,7 +33,7 @@ export async function POST(request: Request) {
   const user = await getChatGPTUser();
   if (!user?.userId) return fail("Inicia sesión para guardar documentos.", 401);
   if (request.headers.get("origin") !== new URL(request.url).origin) return fail("Origen no permitido.", 403);
-  const body = await request.json().catch(() => null) as { patientId?: unknown; kind?: unknown; content?: unknown } | null;
+  const body = await request.json().catch(() => null) as { patientId?: unknown; kind?: unknown; content?: unknown; replacesId?: unknown } | null;
   const patientId = Number(body?.patientId);
   if (!Number.isSafeInteger(patientId) || patientId < 1 || !isClinicalDocumentKind(body?.kind)) return fail("Revisa el paciente y el tipo de documento.");
   const kind: ClinicalDocumentKind = body.kind;
@@ -46,9 +46,16 @@ export async function POST(request: Request) {
     const db = getDb();
     const [patient] = await db.select({ id: patients.id }).from(patients).where(and(eq(patients.id, patientId), eq(patients.ownerId, user.userId))).limit(1);
     if (!patient) return fail("Paciente no encontrado.", 404);
+    // Una nueva versión puede reemplazar un documento ya emitido del mismo paciente; se anula solo al emitir la nueva.
+    const replacesId = Number(body?.replacesId);
+    let replaces: number | null = null;
+    if (Number.isSafeInteger(replacesId) && replacesId > 0) {
+      const [previous] = await db.select({ id: patientDocuments.id }).from(patientDocuments).where(and(eq(patientDocuments.id, replacesId), eq(patientDocuments.ownerId, user.userId), eq(patientDocuments.patientId, patientId), eq(patientDocuments.status, "emitido"))).limit(1);
+      replaces = previous?.id ?? null;
+    }
     const [document] = await db.insert(patientDocuments).values({
       ownerId: user.userId, patientId, kind, title, content: JSON.stringify(content), status: "borrador",
-      createdBy: personalId, createdByName: authorName, createdAt: new Date().toISOString(),
+      createdBy: personalId, createdByName: authorName, createdAt: new Date().toISOString(), replacesId: replaces,
     }).returning();
     const documentMark = await loadDocumentMark(personalId).catch(() => "");
     return Response.json({ document: { ...document, documentMark } }, { status: 201, headers: { "Cache-Control": "no-store" } });

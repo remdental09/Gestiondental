@@ -454,8 +454,8 @@ const oauthProvider = new OAuthProvider<OAuthEnv>({
           headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "public, max-age=300", "X-Content-Type-Options": "nosniff" },
         });
       }
-      // Confirmación de cita desde el correo del paciente: pública, sin sesión. Solo esta ruta; cada enlace lleva un código secreto de un solo uso.
-      if (path === "/api/confirmar" && (request.method === "GET" || request.method === "HEAD" || request.method === "POST")) {
+      // Confirmación de cita desde el correo del paciente y verificación de documentos por QR: públicas, sin sesión. Solo estas rutas; cada enlace lleva un código secreto.
+      if ((path === "/api/confirmar" && (request.method === "GET" || request.method === "HEAD" || request.method === "POST")) || (path === "/api/verificar" && (request.method === "GET" || request.method === "HEAD"))) {
         const headers = new Headers(request.headers);
         for (const name of [ACCESS_EMAIL_HEADER, ACCESS_OWNER_ID_HEADER, ACCESS_NAME_HEADER, PERSONAL_ID_HEADER, SPACE_ROLE_HEADER, USER_ID_HEADER, USER_EMAIL_HEADER, USER_FULL_NAME_HEADER, USER_FULL_NAME_ENCODING_HEADER]) headers.delete(name);
         return app.fetch(new Request(request, { headers }), env, context);
