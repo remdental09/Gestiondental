@@ -1,4 +1,4 @@
-import { integer, sqliteTable, text, uniqueIndex, index } from "drizzle-orm/sqlite-core";
+import { integer, primaryKey, sqliteTable, text, uniqueIndex, index } from "drizzle-orm/sqlite-core";
 
 export const patients = sqliteTable("patients", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -154,4 +154,19 @@ export const calendarEvents = sqliteTable("calendar_events", {
 }, table => [
   uniqueIndex("calendar_events_owner_source_unique").on(table.ownerId, table.calendarId, table.googleEventId),
   index("calendar_events_owner_start_idx").on(table.ownerId, table.startAt),
+]);
+
+/** Aggregates diarios técnicos del dictado guiado; no contiene audio ni texto clínico. */
+export const dictationHealthDaily = sqliteTable("dictation_health_daily", {
+  ownerId: text("owner_id").notNull(),
+  day: text("day").notNull(),
+  stage: text("stage").notNull(),
+  event: text("event").notNull(),
+  platform: text("platform").notNull(),
+  errorCode: text("error_code").notNull().default("none"),
+  durationBucket: text("duration_bucket").notNull().default("none"),
+  count: integer("count").notNull().default(0),
+}, table => [
+  primaryKey({ name: "dictation_health_daily_pk", columns: [table.ownerId, table.day, table.stage, table.event, table.platform, table.errorCode, table.durationBucket] }),
+  index("dictation_health_daily_day_idx").on(table.day),
 ]);

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { FlaskConical, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DictationHealthPanel } from "@/components/dictation-health-panel";
 
 type Group = { category: string; label: string; total: number; corrected: number; ignored: number; rate: number; top: Array<{ kind: string; rejected: number; edited: number; added: number; ignored: number }> };
 type Clinician = { owner_id: string; label: string; fichas: number; evoluciones: number; evoluciones30d: number; dictados: number; ultima: string | null; aceptacion: number | null; groups: Group[]; aprendido: string[] };
@@ -55,6 +56,8 @@ export function ImprovementPanel() {
       <Button type="button" variant="outline" size="sm" disabled={running || !data.iaDisponible} onClick={() => void evaluate()} data-testid="improvement-evaluate">
         {running ? <Loader2 className="mr-1 size-4 animate-spin" /> : <FlaskConical className="mr-1 size-4" />}Probar comprensión con la IA real ({data.casos} casos)</Button>
     </div>
+
+    <DictationHealthPanel />
 
     {(running || results.length > 0 || error) && <div className="mt-4 rounded-lg border border-[#e6e4ee] bg-[#f7f6fa] p-3 text-sm" data-testid="improvement-results">
       <p className="font-medium">{running ? `Evaluando… ${results.length} de ${data.casos}` : `Resultado: ${passed} de ${results.length} casos correctos con la IA real.`}</p>

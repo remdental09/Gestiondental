@@ -11,6 +11,7 @@ import { dentalSpeechText, speakTextNow } from "@/lib/dictation/speech";
 import { toothChileSpeechLabel, toothPrompt, toothSpeechPrompt } from "@/lib/dictation/tooth-prompts";
 import { parseVoiceReviewCommand, stripFinishCommand, TOOTH_ANSWER_SILENCE_MS, TOOTH_COMMAND_MAX_MS, voiceAnswerReadback, voiceReviewApprovalPhrase } from "@/lib/dictation/voice-answer";
 import { fdiToChile } from "@/lib/tooth-numbering";
+import { dictationHealthErrorCode, recordDictationHealthEvent } from "@/lib/dictation/health-client";
 import { confirmedCariesFaces, isProximalChange, scopeToothProposal, toothDiagnosisOperation, toothDictationOperation, toothPlanBudgetItem, type ToothDictationOperation } from "@/lib/dictation/tooth-mode";
 import type { focusedToothReview, OdontogramChange, StructureOutcome } from "@/lib/dictation/proposal";
 import type { BudgetItem } from "@/lib/budget-plans";
@@ -98,9 +99,17 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
   const confirmAnswerRef = useRef<(answerStep: Step) => Promise<void>>(async () => {});
   const applyProposalRef = useRef<() => Promise<void>>(async () => {});
   const canSaveRef = useRef(false);
+  const telemetryFlowActive = useRef(false);
+  const telemetryFlowCompleted = useRef(false);
+  const telemetryTranscribingAt = useRef<number | null>(null);
+  const telemetrySaveStartedAt = useRef<number | null>(null);
   if (engine.current === null) engine.current = createAudioTranscription();
 
   useEffect(() => () => {
+    if (telemetryFlowActive.current && !telemetryFlowCompleted.current) {
+      recordDictationHealthEvent("flow_abandoned", "flow");
+      telemetryFlowActive.current = false;
+    }
     engine.current?.abort();
     analysisController.current?.abort();
     redraftController.current?.abort();
@@ -108,11 +117,14 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
   }, []);
   const speak = (text: string, purpose: "question" | "readback", afterSpeech?: () => void) => {
     let completed = false;
-    const complete = () => {
+    const healthStage = proposalReady ? "proposal" : step;
+    recordDictationHealthEvent("tts_started", healthStage);
+    const complete = (success = true) => {
       if (completed) return;
       completed = true;
       setSpeaking(false);
       setSpeechPurpose(null);
+      if (success) recordDictationHealthEvent("tts_succeeded", healthStage);
       afterSpeech?.();
     };
     setSpeaking(true);
@@ -125,18 +137,20 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
       onError: error => {
         setSpeaking(false);
         setSpeechPurpose(null);
-        if (error === "interrupted" || error === "canceled") { complete(); return; }
+        if (error === "interrupted" || error === "canceled") { complete(false); return; }
+        recordDictationHealthEvent("tts_error", healthStage, { errorCode: dictationHealthErrorCode(error, "tts") });
         setSpeechError(error === "not-allowed"
           ? "El navegador bloqueó la voz. Toca «Repetir pregunta» para intentarlo de nuevo y revisa el volumen."
           : "No se pudo reproducir el audio. Puedes leer la respuesta en pantalla y continuar.");
-        complete();
+        complete(false);
       },
     });
     if (!started) {
       setSpeaking(false);
       setSpeechPurpose(null);
       setSpeechError("Este navegador no puede reproducir el audio en voz alta. Puedes leerlo y continuar.");
-      afterSpeech?.();
+      recordDictationHealthEvent("tts_error", healthStage, { errorCode: "unsupported" });
+      complete(false);
     }
   };
 
@@ -205,9 +219,17 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
     setSelectedIds(new Set());
     setAnalyzing(false);
     setApplying(false);
+    telemetryFlowActive.current = false;
+    telemetryFlowCompleted.current = false;
+    telemetryTranscribingAt.current = null;
+    telemetrySaveStartedAt.current = null;
   };
 
   const changeOpen = (next: boolean) => {
+    if (!next && telemetryFlowActive.current && !telemetryFlowCompleted.current) {
+      recordDictationHealthEvent("flow_abandoned", "flow");
+      telemetryFlowActive.current = false;
+    }
     setOpen(next);
     if (!next) { cancelQuestion(); reset(); }
   };
@@ -217,6 +239,8 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
     const controller = new AbortController();
     redraftController.current = controller;
     const currentFlow = flowId.current;
+    const redraftStartedAt = Date.now();
+    recordDictationHealthEvent("redraft_started", answerStep);
     aiReviewedRef.current[answerStep] = false;
     setRawAnswerText(transcript);
     setRedrafting(true);
@@ -233,12 +257,14 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
       const data = await response.json() as { text?: string; otherTeeth?: number[]; provider?: string; error?: string; code?: string; draft?: string };
       if (controller.signal.aborted || flowId.current !== currentFlow) return;
       if (!response.ok && data.code === "numeric_mismatch" && typeof data.draft === "string") {
+        recordDictationHealthEvent("numeric_mismatch", answerStep, { errorCode: "numeric_mismatch", durationMs: Date.now() - redraftStartedAt });
         setNumericReviewDraft(data.draft);
         setAnalysisError("La IA cambió una cifra. Tu dictado sigue en el campo de arriba; compara la propuesta, corrige el dato y pulsa «Ordenar con IA y escuchar». No necesitas volver a dictar todo.");
         return;
       }
       if (!response.ok || data.provider !== "openai" || typeof data.text !== "string" || data.text.trim().length < 3) throw new Error(data.error || "El modelo no devolvió una redacción válida.");
       const draft = data.text.trim();
+      recordDictationHealthEvent("redraft_succeeded", answerStep, { durationMs: Date.now() - redraftStartedAt });
       rawOtherTeethRef.current[answerStep] = Array.isArray(data.otherTeeth) ? data.otherTeeth.filter(value => Number.isInteger(value) && value !== tooth) : [];
       if (answerStep === "diagnosis") {
         setDiagnosisText(draft);
@@ -257,6 +283,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
       readAnswer(answerStep, draft);
     } catch (cause) {
       if (!controller.signal.aborted && flowId.current === currentFlow) {
+        recordDictationHealthEvent("redraft_error", answerStep, { errorCode: dictationHealthErrorCode(cause instanceof Error ? cause.message : "", "redraft"), durationMs: Date.now() - redraftStartedAt });
         setAnalysisError(cause instanceof Error ? cause.message : "No se pudo redactar la respuesta. Reintenta o corrige el texto.");
       }
     } finally {
@@ -269,6 +296,9 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
 
   const startGuidedEvaluation = () => {
     reset();
+    telemetryFlowActive.current = true;
+    telemetryFlowCompleted.current = false;
+    recordDictationHealthEvent("flow_started", "flow");
     setOpen(true);
     askStep("diagnosis");
   };
@@ -276,17 +306,30 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
   const startVoiceAnswer = (answerStep: Step) => {
     if (!engine.current?.isSupported()) {
       setSpeechError(engine.current?.unsupportedMessage() ?? "El micrófono no está disponible en este navegador.");
+      recordDictationHealthEvent("audio_error", answerStep, { errorCode: "unsupported" });
       return;
     }
+    telemetryTranscribingAt.current = null;
+    let recordingStarted = false;
     setAnalysisError("");
     setAnswerReady(false);
     setListeningFor("answer");
     setAudioStatus("starting");
     engine.current.start("", {
-      onStatus: (status) => setAudioStatus(status === "recording" || status === "starting" || status === "transcribing" ? status : "idle"),
+      onStatus: (status) => {
+        if (status === "recording" && !recordingStarted) {
+          recordingStarted = true;
+          recordDictationHealthEvent("audio_started", answerStep);
+        }
+        if (status === "transcribing" && telemetryTranscribingAt.current === null) telemetryTranscribingAt.current = Date.now();
+        setAudioStatus(status === "recording" || status === "starting" || status === "transcribing" ? status : "idle");
+      },
       onTranscript: transcript => {
+        recordDictationHealthEvent("transcription_succeeded", answerStep, { durationMs: telemetryTranscribingAt.current === null ? undefined : Date.now() - telemetryTranscribingAt.current });
+        telemetryTranscribingAt.current = null;
         const answerText = stripFinishCommand(transcript);
         if (answerText.length < 3) {
+          recordDictationHealthEvent("transcription_error", answerStep, { errorCode: "audio_empty" });
           setSpeechError("No alcancé a captar una respuesta antes de terminar. Toca «Volver a dictar» o escríbela.");
           setAudioStatus("idle");
           setListeningFor(null);
@@ -306,19 +349,41 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
         setListeningFor(null);
         void redraftAnswer(answerStep, answerText);
       },
-      onError: message => { setSpeechError(message); setAudioStatus("idle"); setListeningFor(null); },
+      onError: message => {
+        const transcriptionFailed = telemetryTranscribingAt.current !== null;
+        const errorCode = dictationHealthErrorCode(message, transcriptionFailed ? "transcription" : "audio");
+        recordDictationHealthEvent(transcriptionFailed ? "transcription_error" : "audio_error", answerStep, { errorCode, durationMs: transcriptionFailed ? Date.now() - telemetryTranscribingAt.current! : undefined });
+        telemetryTranscribingAt.current = null;
+        setSpeechError(message); setAudioStatus("idle"); setListeningFor(null);
+      },
       onEnd: () => setAudioStatus("idle"),
     }, { stopOnSilenceMs: TOOTH_ANSWER_SILENCE_MS });
   };
 
   const startVoiceReview = (answerStep: Step) => {
-    if (!engine.current?.isSupported()) return;
+    if (!engine.current?.isSupported()) {
+      setSpeechError(engine.current?.unsupportedMessage() ?? "El micrófono no está disponible en este navegador.");
+      recordDictationHealthEvent("audio_error", answerStep, { errorCode: "unsupported" });
+      return;
+    }
+    telemetryTranscribingAt.current = null;
+    let recordingStarted = false;
     setListeningFor("review");
     engine.current.start("", {
-      onStatus: status => setAudioStatus(status === "recording" || status === "starting" || status === "transcribing" ? status : "idle"),
+      onStatus: status => {
+        if (status === "recording" && !recordingStarted) {
+          recordingStarted = true;
+          recordDictationHealthEvent("audio_started", answerStep);
+        }
+        if (status === "transcribing" && telemetryTranscribingAt.current === null) telemetryTranscribingAt.current = Date.now();
+        setAudioStatus(status === "recording" || status === "starting" || status === "transcribing" ? status : "idle");
+      },
       onTranscript: transcript => {
+        recordDictationHealthEvent("transcription_succeeded", answerStep, { durationMs: telemetryTranscribingAt.current === null ? undefined : Date.now() - telemetryTranscribingAt.current });
+        telemetryTranscribingAt.current = null;
         setListeningFor(null);
         const command = parseVoiceReviewCommand(transcript, answerStep);
+        recordDictationHealthEvent(command ? "voice_command" : "voice_unrecognized", answerStep);
         if (command === "accept") void confirmAnswerRef.current(answerStep);
         else if (command === "correct") askStep(answerStep);
         else if (command === "repeat") readAnswer(answerStep, answerTextRef.current[answerStep]);
@@ -329,19 +394,41 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
           });
         }
       },
-      onError: message => { setSpeechError(message); setAudioStatus("idle"); setListeningFor(null); },
+      onError: message => {
+        const transcriptionFailed = telemetryTranscribingAt.current !== null;
+        const errorCode = dictationHealthErrorCode(message, transcriptionFailed ? "transcription" : "audio");
+        recordDictationHealthEvent(transcriptionFailed ? "transcription_error" : "audio_error", answerStep, { errorCode, durationMs: transcriptionFailed ? Date.now() - telemetryTranscribingAt.current! : undefined });
+        telemetryTranscribingAt.current = null;
+        setSpeechError(message); setAudioStatus("idle"); setListeningFor(null);
+      },
       onEnd: () => setAudioStatus("idle"),
     }, { stopOnSilenceMs: TOOTH_ANSWER_SILENCE_MS, maxDurationMs: TOOTH_COMMAND_MAX_MS, purpose: "tooth_command" });
   };
 
   const startVoiceProposal = () => {
-    if (!engine.current?.isSupported()) return;
+    if (!engine.current?.isSupported()) {
+      setSpeechError(engine.current?.unsupportedMessage() ?? "El micrófono no está disponible en este navegador.");
+      recordDictationHealthEvent("audio_error", "proposal", { errorCode: "unsupported" });
+      return;
+    }
+    telemetryTranscribingAt.current = null;
+    let recordingStarted = false;
     setListeningFor("proposal");
     engine.current.start("", {
-      onStatus: status => setAudioStatus(status === "recording" || status === "starting" || status === "transcribing" ? status : "idle"),
+      onStatus: status => {
+        if (status === "recording" && !recordingStarted) {
+          recordingStarted = true;
+          recordDictationHealthEvent("audio_started", "proposal");
+        }
+        if (status === "transcribing" && telemetryTranscribingAt.current === null) telemetryTranscribingAt.current = Date.now();
+        setAudioStatus(status === "recording" || status === "starting" || status === "transcribing" ? status : "idle");
+      },
       onTranscript: transcript => {
+        recordDictationHealthEvent("transcription_succeeded", "proposal", { durationMs: telemetryTranscribingAt.current === null ? undefined : Date.now() - telemetryTranscribingAt.current });
+        telemetryTranscribingAt.current = null;
         setListeningFor(null);
         const command = parseVoiceReviewCommand(transcript, "proposal");
+        recordDictationHealthEvent(command ? "voice_command" : "voice_unrecognized", "proposal");
         if (command === "save") {
           if (canSaveRef.current) void applyProposalRef.current();
           else speak("La propuesta necesita una aclaración antes de guardar. Escucha la pregunta y responde.", "question", () => setProposalVoiceRound(round => round + 1));
@@ -360,7 +447,13 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
           });
         }
       },
-      onError: message => { setSpeechError(message); setAudioStatus("idle"); setListeningFor(null); },
+      onError: message => {
+        const transcriptionFailed = telemetryTranscribingAt.current !== null;
+        const errorCode = dictationHealthErrorCode(message, transcriptionFailed ? "transcription" : "audio");
+        recordDictationHealthEvent(transcriptionFailed ? "transcription_error" : "audio_error", "proposal", { errorCode, durationMs: transcriptionFailed ? Date.now() - telemetryTranscribingAt.current! : undefined });
+        telemetryTranscribingAt.current = null;
+        setSpeechError(message); setAudioStatus("idle"); setListeningFor(null);
+      },
       onEnd: () => setAudioStatus("idle"),
     }, { stopOnSilenceMs: TOOTH_ANSWER_SILENCE_MS, maxDurationMs: TOOTH_COMMAND_MAX_MS, purpose: "tooth_command" });
   };
@@ -413,6 +506,8 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
     analysisController.current?.abort();
     const controller = new AbortController();
     analysisController.current = controller;
+    const reviewStartedAt = Date.now();
+    recordDictationHealthEvent("proposal_review_started", "proposal");
     setAnalyzing(true);
     setAnalysisError("");
     try {
@@ -431,9 +526,11 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
       const data = await response.json() as StructureOutcome & { error?: string; review?: ReturnType<typeof focusedToothReview> };
       if (controller.signal.aborted) return null;
       if (!response.ok || !data.proposal || !data.review) throw new Error(data.error || "No se pudo revisar esta pieza. Intenta de nuevo.");
+      recordDictationHealthEvent("proposal_review_succeeded", "proposal", { durationMs: Date.now() - reviewStartedAt });
       return data;
     } catch (cause) {
       if (controller.signal.aborted) return null;
+      recordDictationHealthEvent("proposal_review_error", "proposal", { errorCode: dictationHealthErrorCode(cause instanceof Error ? cause.message : "", "redraft"), durationMs: Date.now() - reviewStartedAt });
       throw cause;
     } finally {
       if (analysisController.current === controller) {
@@ -502,6 +599,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
     setListeningFor(null);
     setAnswerReady(false);
     setAnalysisError("");
+    recordDictationHealthEvent("answer_confirmed", answerStep);
     if (answerStep === "diagnosis") {
       askStep("plan");
       return;
@@ -510,6 +608,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
     if (!await prepareDiagnosis()) return;
     if (!await preparePlan()) return;
     setProposalReady(true);
+    recordDictationHealthEvent("proposal_ready", "proposal");
   };
   confirmAnswerRef.current = confirmAnswer;
 
@@ -546,6 +645,8 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
     setListeningFor(null);
     setApplying(true);
     setAnalysisError("");
+    telemetrySaveStartedAt.current = Date.now();
+    recordDictationHealthEvent("save_started", "save");
     try {
       const finalItems = planItems.map(item => ({ ...item, label: item.label.trim(), amount: Number(item.amount), teeth: [tooth] }));
       const itemSummary = finalItems.map(item => `${item.label}${item.amount > 0 ? `: ${item.amount.toLocaleString("es-CL")} CLP` : ": valor por definir"}`).join("; ");
@@ -559,9 +660,14 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
         ].join("\n\n"),
       };
       await onApply(tooth, operations, budgetTitle, finalItems, evolution);
+      recordDictationHealthEvent("save_succeeded", "save", { durationMs: Date.now() - (telemetrySaveStartedAt.current ?? Date.now()) });
+      telemetryFlowCompleted.current = true;
+      telemetryFlowActive.current = false;
+      recordDictationHealthEvent("flow_completed", "flow");
       changeOpen(false);
       speakTextNow("Diagnóstico y plan preliminar guardados en la evolución del paciente.", { rate: 1.3 });
     } catch (cause) {
+      recordDictationHealthEvent("save_error", "save", { errorCode: dictationHealthErrorCode(cause instanceof Error ? cause.message : "", "save"), durationMs: Date.now() - (telemetrySaveStartedAt.current ?? Date.now()) });
       setAnalysisError(cause instanceof Error ? cause.message : "No se pudieron guardar el diagnóstico y el plan.");
       speakTextNow("No se pudieron guardar los cambios. Revisa el aviso en pantalla.", { rate: 1.3 });
     } finally {
@@ -701,7 +807,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
           placeholder={step === "diagnosis" ? "Ej.: caries distal en dentina profunda; hipótesis de fractura coronaria…" : "Ej.: restauración con resina compuesta; evaluar endodoncia si se confirma compromiso pulpar…"}
           className="text-lg leading-relaxed sm:text-xl"
         />
-        <p role="note" className="mt-2 rounded-lg bg-sky-50 p-3 text-sm leading-6 text-sky-950">Tras dictar, la IA ordena la respuesta y elimina instrucciones o rectificaciones habladas. SpeakDent leerá la redacción propuesta para que la apruebes o corrijas. La voz se reproduce a 1,25×. Mira el seguimiento en vivo arriba para ver qué está escuchando y redactando.</p>
+        <p role="note" className="mt-2 rounded-lg bg-sky-50 p-3 text-sm leading-6 text-sky-950">Tras dictar, la IA ordena la respuesta y elimina instrucciones o rectificaciones habladas. SpeakDent leerá la redacción propuesta para que la apruebes o corrijas. La voz se reproduce a 1,3×. Mira el seguimiento en vivo arriba para ver qué está escuchando y redactando.</p>
         {redrafting && <p role="status" className="mt-2 text-lg font-semibold text-[#3b3355]">La IA está redactando {step === "diagnosis" ? "la hipótesis diagnóstica" : "el plan preliminar"}…</p>}
         {rawAnswerText && <details className="mt-2 rounded-lg border border-[#e6e4ee] bg-white p-3 text-sm"><summary className="cursor-pointer font-medium text-[#3b3355]">Ver texto enviado a la IA</summary><p className="mt-2 whitespace-pre-wrap text-[#615f73]">{rawAnswerText}</p></details>}
         <div className="mt-2 flex flex-wrap gap-2">
