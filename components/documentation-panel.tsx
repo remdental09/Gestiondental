@@ -163,6 +163,19 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
     if (!window.confirm("Para imprimir o guardar en PDF el documento se emite primero: quedará bloqueado y con un QR de verificación. ¿Desea continuar?")) return;
     if (await act("/api/documentos/emitir", doc, "Documento emitido con QR de verificación.")) window.setTimeout(() => window.print(), 400);
   };
+  const removeDraft = async (doc: SavedDocument) => {
+    if (busy || doc.status !== "borrador") return;
+    if (!window.confirm("¿Desea borrar este borrador? Se eliminará definitivamente. Los documentos emitidos no se borran, solo se anulan.")) return;
+    setBusy(true); setError(""); setNotice("");
+    try {
+      const response = await fetch("/api/documentos/borrar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: doc.id }) });
+      const data = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(data.error || "No se pudo borrar el borrador.");
+      setDocumentsState(previous => ({ ...previous, documents: previous.documents.filter(item => item.id !== doc.id) }));
+      setActiveDocumentId(null); setNotice("Borrador borrado.");
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo borrar el borrador."); }
+    finally { setBusy(false); }
+  };
   const annul = (doc: SavedDocument) => { if (window.confirm("¿Desea anular este documento? Nunca se borra, pero la verificación por QR lo mostrará como anulado y no podrá deshacerse.")) void act("/api/documentos/anular", doc, "Documento anulado. La verificación por QR lo muestra como anulado."); };
   useEffect(() => {
     let active = true;
@@ -250,6 +263,7 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
           {activeDocument.status === "borrador" && <button type="button" disabled={busy || (isPrescriptionKind(activeDocument.kind) && !canIssueReceta)} title={isPrescriptionKind(activeDocument.kind) && !canIssueReceta ? "Sube y espera la aprobación de tu certificado de inscripción para emitir recetas" : undefined} onClick={() => issue(activeDocument)} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-[#473a6d] px-4 text-sm font-semibold text-[#473a6d] hover:bg-[#f3f1f7] disabled:opacity-50">{busy ? <LoaderCircle className="size-4 animate-spin"/> : <ShieldCheck className="size-4"/>}Emitir con QR</button>}
           <button type="button" data-testid="documentation-save-pdf" disabled={busy || (activeDocument.status === "borrador" && isPrescriptionKind(activeDocument.kind) && !canIssueReceta)} onClick={() => void printDocument(activeDocument)} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-[#473a6d] px-4 text-sm font-semibold text-white hover:bg-[#3a2f5a] disabled:opacity-50"><FileDown className="size-4"/>Guardar en PDF</button>
           <button type="button" data-testid="documentation-print-button" disabled={busy || (activeDocument.status === "borrador" && isPrescriptionKind(activeDocument.kind) && !canIssueReceta)} onClick={() => void printDocument(activeDocument)} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-[#473a6d] px-4 text-sm font-semibold text-white hover:bg-[#3a2f5a] disabled:opacity-50"><Printer className="size-4"/>Imprimir</button>
+          {activeDocument.status === "borrador" && <button type="button" data-testid="documentation-delete-draft" disabled={busy} onClick={() => void removeDraft(activeDocument)} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-rose-300 px-4 text-sm font-semibold text-rose-800 hover:bg-rose-50 disabled:opacity-50"><Trash2 className="size-4"/>Borrar</button>}
           {activeDocument.status === "emitido" && <button type="button" disabled={busy} onClick={() => annul(activeDocument)} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-rose-300 px-4 text-sm font-semibold text-rose-800 hover:bg-rose-50 disabled:opacity-50"><Trash2 className="size-4"/>Anular</button>}
         </>}
       </div></div>
