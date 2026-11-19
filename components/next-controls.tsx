@@ -11,6 +11,8 @@ export type ControlView = { id: number; patientId: number; dueOn: string; reason
 export type ControlCalendarStatus = "ok" | "sin-conexion" | "solo-lectura" | "error" | "sin-cita";
 export const CONTROLS_CHANGED = "gd-controls-changed";
 export const AGENDA_CHANGED = "gd-agenda-changed";
+/** Llegaron cambios desde Google Calendar (citas movidas o borradas allá): la agenda se recarga. */
+export const AGENDA_SYNCED = "gd-agenda-synced";
 export const announceControlsChanged = () => window.dispatchEvent(new Event(CONTROLS_CHANGED));
 
 const longDate = (iso: string) => new Intl.DateTimeFormat("es-CL", { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(`${iso}T12:00:00Z`));
@@ -63,8 +65,8 @@ export function useControls(patientId?: number) {
     let active = true;
     const controller = new AbortController();
     fetch(patientId ? `/api/controles?patientId=${patientId}` : "/api/controles", { cache: "no-store", signal: controller.signal })
-      .then(async response => { if (!response.ok) throw new Error(); return response.json() as Promise<{ controls: ControlView[] }>; })
-      .then(data => { if (active) setState({ key, controls: data.controls, error: "" }); })
+      .then(async response => { if (!response.ok) throw new Error(); return response.json() as Promise<{ controls: ControlView[]; agendaSynced?: number }>; })
+      .then(data => { if (active) setState({ key, controls: data.controls, error: "" }); if (data.agendaSynced) window.dispatchEvent(new Event(AGENDA_SYNCED)); })
       .catch(() => { if (active && !controller.signal.aborted) setState(previous => ({ key, controls: previous?.key === key ? previous.controls : [], error: "No se pudieron leer los controles." })); });
     return () => { active = false; controller.abort(); };
   }, [patientId, key, tick]);
