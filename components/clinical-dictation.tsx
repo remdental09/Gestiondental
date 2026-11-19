@@ -15,7 +15,7 @@ import { WordDiffView } from "@/components/text-correction";
 import { VoiceCommandCard, type AnnulHandler } from "@/components/evolution-annul";
 import { chileTodayIso, parseVoiceCommand, type CommandNote } from "@/lib/dictation/voice-command";
 import { parseControlFromText, type ControlSuggestion } from "@/lib/next-control";
-import { saveControl } from "@/components/next-controls";
+import { saveControl, WeekendHint } from "@/components/next-controls";
 import {
   answerLines,
   buildDictatedPerio,
@@ -859,7 +859,7 @@ export function ClinicalDictation({
         else check = { ...check, messages: [...check.messages, "Alergias y antecedentes de la ficha actualizados y releídos."] };
       }
       if (acceptedControl) check = controlId
-        ? { ...check, messages: [...check.messages, `Próximo control programado para el ${acceptedControl.dueOn.split("-").reverse().join("-")} (${acceptedControl.reason}).`] }
+        ? { ...check, messages: [...check.messages, `Próximo control programado y agendado para el ${acceptedControl.dueOn.split("-").reverse().join("-")} a las 09:00 (${acceptedControl.reason}).`] }
         : { ok: false, messages: [...check.messages, "No se pudo confirmar el próximo control."] };
       if (reviewWarnings.length) check = { ...check, messages: [...check.messages, `${saveEvolution ? "La evolución" : "La ficha"} quedó guardada; algunos campos opcionales siguen pendientes de revisión.`] };
       onApplied(finalRead);
@@ -1348,8 +1348,8 @@ export function ClinicalDictation({
               <article className={`rounded-xl border p-4 ${controlItem.decision === "accepted" ? "border-emerald-200" : "border-[#e6e4ee]"}`} data-testid="dictation-control">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
-                    <p><span className="text-[#6b6a7c]">Control: </span><span className="font-medium">{/^\d{4}-\d{2}-\d{2}$/.test(controlItem.dueOn) ? new Intl.DateTimeFormat("es-CL", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${controlItem.dueOn}T12:00:00Z`)) : "fecha pendiente"}</span></p>
-                    <p className="mt-1 text-xs text-[#6b6a7c]">Dicho como «{controlItem.said}». Queda en «Próximos controles» para citarlo; márcalo si corresponde.</p>
+                    <p><span className="text-[#6b6a7c]">Control: </span><span className="font-medium">{/^\d{4}-\d{2}-\d{2}$/.test(controlItem.dueOn) ? new Intl.DateTimeFormat("es-CL", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${controlItem.dueOn}T12:00:00Z`)) : "fecha pendiente"}</span> <WeekendHint day={controlItem.dueOn}/></p>
+                    <p className="mt-1 text-xs text-[#6b6a7c]">Dicho como «{controlItem.said}». Al aceptarlo queda en «Próximos controles» y se agenda solo a las 09:00 (puedes cambiar la hora en la agenda).</p>
                   </div>
                   <Decision value={controlItem.decision} onChange={(decision) => setControlItem((current) => current ? { ...current, decision } : current)} />
                 </div>
