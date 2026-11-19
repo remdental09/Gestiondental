@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Download, RefreshCw, Search, ShieldCheck } from "lucide-react";
+import { PrestadoresReview } from "@/components/prestadores-review";
 import { dentistsCsv, type DashboardSummary, type DentistRow } from "@/lib/developer-dashboard";
 
 type Payload = { dentists: DentistRow[]; summary: DashboardSummary; generatedAt: string };
@@ -103,6 +104,8 @@ export default function PanelDesarrollador() {
             <Tile label="Pacientes" value={s.patients} hint="fichas en total" />
           </section>
         )}
+
+        <PrestadoresReview/>
 
         {data && (
           <section className="rounded-xl border border-[#dddbe6] bg-white">

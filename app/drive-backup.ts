@@ -1,4 +1,5 @@
 import { and, asc, eq, gt, type AnyColumn } from "drizzle-orm";
+import { ensureDocumentIssuanceColumns } from "@/app/document-issuance-db";
 import { fichaMarkdown } from "@/lib/backup-markdown";
 import { loadAnamnesis } from "@/app/anamnesis-db";
 import { loadAddresses } from "@/app/patient-address-db";
@@ -28,7 +29,7 @@ export async function getDriveSnapshot(ownerId: string, patientId: number, conne
     db.select().from(periodontalExams).where(filter(periodontalExams.ownerId, periodontalExams.patientId)).orderBy(asc(periodontalExams.id)),
     db.select().from(toothStatuses).where(filter(toothStatuses.ownerId, toothStatuses.patientId)).limit(1),
     db.select().from(clinicalImages).where(filter(clinicalImages.ownerId, clinicalImages.patientId)).orderBy(asc(clinicalImages.id)),
-    Promise.resolve(db.select().from(patientDocuments).where(filter(patientDocuments.ownerId, patientDocuments.patientId)).orderBy(asc(patientDocuments.id)))
+    ensureDocumentIssuanceColumns().then(() => db.select().from(patientDocuments).where(filter(patientDocuments.ownerId, patientDocuments.patientId)).orderBy(asc(patientDocuments.id)))
       .catch(() => [] as (typeof patientDocuments.$inferSelect)[]),
     db.select().from(driveBackups).where(filter(driveBackups.ownerId, driveBackups.patientId)).limit(1),
   ]);

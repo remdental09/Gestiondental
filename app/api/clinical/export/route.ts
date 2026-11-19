@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { ensureDocumentIssuanceColumns } from "@/app/document-issuance-db";
 import { desc, eq } from "drizzle-orm";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { getDb } from "@/db";
@@ -39,7 +40,7 @@ export async function GET(request: Request) {
       db.select().from(clinicalImages).where(eq(clinicalImages.ownerId, ownerId)).orderBy(desc(clinicalImages.id)),
       db.select().from(driveBackups).where(eq(driveBackups.ownerId, ownerId)),
       db.select().from(payments).where(eq(payments.ownerId, ownerId)).orderBy(desc(payments.paidOn)),
-      db.select().from(patientDocuments).where(eq(patientDocuments.ownerId, ownerId)).orderBy(desc(patientDocuments.id)).catch(() => [] as (typeof patientDocuments.$inferSelect)[]),
+      ensureDocumentIssuanceColumns().then(() => db.select().from(patientDocuments).where(eq(patientDocuments.ownerId, ownerId)).orderBy(desc(patientDocuments.id))).catch(() => [] as (typeof patientDocuments.$inferSelect)[]),
     ]);
 
     // Las evoluciones anuladas no salen en la descarga; se conservan en la base y en el respaldo de Drive (marcadas).
