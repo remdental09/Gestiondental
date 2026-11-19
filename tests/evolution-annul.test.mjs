@@ -10,7 +10,7 @@ test('migración 0006: solo ALTER ADD', () => {
   assert.match(sql, /DEFAULT 'vigente' NOT NULL/);
   assert.doesNotMatch(sql, /DROP|DELETE|UPDATE/i);
   const journal = JSON.parse(read('drizzle/meta/_journal.json'));
-  assert.equal(journal.entries.at(-1).tag, '0006_evolution_annulment');
+  assert.equal(journal.entries.find(entry => entry.tag === '0006_evolution_annulment')?.idx, 6);
 });
 
 const actionBlock = (route, name) => {
