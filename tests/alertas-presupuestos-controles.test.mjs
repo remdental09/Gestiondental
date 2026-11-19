@@ -111,7 +111,8 @@ test('integración: barra de alertas, tarjetas, controles y aislamiento por espa
   assert.match(page, /<ControlsHomeCard onOpen=/);
   const db = readFileSync(new URL('../app/followup-db.ts', import.meta.url), 'utf8');
   for (const sql of db.match(/"(SELECT|UPDATE|DELETE)[^"]*"|`(SELECT|UPDATE|DELETE)[^`]*`/g)) assert.match(sql, /owner_id = \?/, sql);
-  assert.doesNotMatch(db, /DROP |ALTER /);
+  assert.doesNotMatch(db, /DROP /);
+  assert.doesNotMatch(db.replace(/ALTER TABLE patient_controls ADD COLUMN appointment_id INTEGER/g, ''), /ALTER /, 'solo cambios aditivos');
   for (const route of ['alertas', 'controles', 'preferencias']) {
     const src = readFileSync(new URL(`../app/api/${route}/route.ts`, import.meta.url), 'utf8');
     assert.match(src, /getChatGPTUser/);

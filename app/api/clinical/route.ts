@@ -968,6 +968,8 @@ export async function POST(request: Request) {
       if (!Number.isSafeInteger(appointmentId) || appointmentId < 1 || !validDate(day) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time) || !reason) return error("Revisa fecha, hora y motivo.");
       const [a] = await db.update(appointments).set({ day, time, reason }).where(and(eq(appointments.id, appointmentId), eq(appointments.patientId, patientId), eq(appointments.ownerId, ownerId))).returning();
       if (!a) return error("Cita no encontrada en esta ficha.", 404);
+      // Si la cita es la de un próximo control, el control sigue la nueva fecha.
+      await import("@/app/followup-db").then(m => m.controlFollowsAppointment(ownerId, a.id, { day: a.day })).catch(() => undefined);
       const [who] = await db.select({ name: patients.name }).from(patients).where(and(eq(patients.id, patientId), eq(patients.ownerId, ownerId)));
       const { rescheduleAppointmentInGoogle } = await import("@/app/drive-oauth");
       const calendar = await rescheduleAppointmentInGoogle(ownerId, a.id, { day, time, title: [who?.name || "", reason].filter(Boolean).join(" · ") }).catch(() => "error" as const);
