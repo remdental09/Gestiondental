@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, BadgeCheck, ChevronRight, ClipboardCheck, ClipboardList, FlaskConical, Pill, FileCheck2, FilePlus2, FileText, ImagePlus, LoaderCircle, Pencil, Printer, ScrollText, ShieldCheck, Trash2 } from "lucide-react";
+import { Search, ArrowLeft, BadgeCheck, ChevronRight, ClipboardCheck, ClipboardList, FlaskConical, Pill, FileCheck2, FilePlus2, FileText, ImagePlus, LoaderCircle, Pencil, Printer, ScrollText, ShieldCheck, Trash2 } from "lucide-react";
 import Image from "next/image";
 import qrcode from "qrcode-generator";
 import { ageFromBirthDate, splitPrescriptionLines, isPrescriptionKind, CLINICAL_DOCUMENT_KINDS, CLINICAL_DOCUMENT_LABEL, type ClinicalDocumentContent, type ClinicalDocumentKind } from "@/lib/clinical-documents";
@@ -51,6 +51,18 @@ const KIND_MENU: Record<ClinicalDocumentKind, { icon: typeof Pill; bar: string; 
   certificado: { icon: ClipboardCheck, bar: "bg-[#6e56f0]", tint: "bg-[#e1dcfa]", color: "text-[#6e56f0]" },
   consentimiento: { icon: ScrollText, bar: "bg-[#e9a23b]", tint: "bg-[#fbeed5]", color: "text-[#d68a1c]" },
 };
+const normalizeSearch = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[.\-\s]+/g, " ").trim();
+const compactRut = (value: string) => value.replace(/[^0-9kK]/g, "").toLowerCase();
+function searchPatients(list: Patient[], query: string): Patient[] {
+  const text = normalizeSearch(query);
+  const rut = compactRut(query);
+  if (!text) return [];
+  const words = text.split(" ");
+  return list.filter(item => {
+    const name = normalizeSearch(item.name);
+    return words.every(word => name.includes(word)) || (rut.length >= 3 && compactRut(item.rut).includes(rut));
+  }).slice(0, 8);
+}
 const cardClass = "rounded-xl border border-[#e6e4ee] bg-white p-4";
 const inputClass = "mt-1 min-h-11 w-full rounded-lg border border-[#d2d4df] bg-white px-3 py-2 text-sm text-[#35343f] outline-none focus:border-[#75669d] focus:ring-2 focus:ring-[#473a6d]/15";
 const formatDate = (iso: string) => {
@@ -71,7 +83,9 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
 }) {
   const embedded = embeddedPatientId !== undefined;
   const [requestedPatientId, setPatientId] = useState(embeddedPatientId ?? 0);
-  const patientId = embedded ? (patients.some(item => item.id === embeddedPatientId) ? embeddedPatientId : 0) : patients.some(item => item.id === requestedPatientId) ? requestedPatientId : patients[0]?.id ?? 0;
+  const patientId = embedded ? (patients.some(item => item.id === embeddedPatientId) ? embeddedPatientId : 0) : patients.some(item => item.id === requestedPatientId) ? requestedPatientId : 0;
+  const [query, setQuery] = useState("");
+  const searchResults = useMemo(() => searchPatients(patients, query), [patients, query]);
   const patient = patients.find(item => item.id === patientId) ?? null;
   const [kind, setKind] = useState<ClinicalDocumentKind>("receta");
   const [composing, setComposing] = useState(false);
@@ -203,13 +217,20 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
         <div><h2 className="text-lg font-semibold text-[#35343f]">Documentos del paciente</h2><p className="mt-1 max-w-3xl text-sm text-[#615f73]">Prepara recetas, certificados y consentimientos editables. Se guardan como borradores en la ficha elegida; puedes revisarlos e imprimirlos.</p></div>
         {patient && <button type="button" onClick={() => onOpenBudgets(patient.id)} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-[#b9b1ce] px-3 text-sm font-semibold text-[#473a6d] hover:bg-[#f3f1f7]"><FileText className="size-4"/>Presupuestos ({budgetCounts[patient.id] ?? 0})</button>}
       </div>
-      <label className="mt-5 block max-w-xl text-sm font-semibold text-[#35343f]">Paciente
-        <select value={patientId || ""} onChange={event => { setPatientId(Number(event.target.value)); setActiveDocumentId(null); setContent(blankContent()); setNotice(""); }} className={inputClass} aria-label="Elegir paciente">
-          {!patients.length && <option value="">No hay pacientes registrados</option>}
-          {patients.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-        </select>
-      </label>
+      <div className="mt-5 max-w-xl text-sm font-semibold text-[#35343f]">
+        <label htmlFor="documentation-patient-search">Buscar paciente por nombre o RUT</label>
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 mt-0.5 size-4 -translate-y-1/2 text-[#6b6a7c]"/>
+          <input id="documentation-patient-search" type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="Ej.: Ana Pérez o 12.345.678-5" autoComplete="off" className={inputClass + " pl-9"} data-testid="documentation-patient-search"/>
+        </div>
+        {patient && !query.trim() && <p className="mt-2 flex items-center justify-between gap-3 rounded-lg bg-[#f3f1f7] px-3 py-2 font-normal text-[#473a6d]"><span>Paciente: <strong className="font-semibold">{patient.name}</strong>{patient.rut ? ` · ${patient.rut}` : ""}</span><button type="button" onClick={() => { setPatientId(0); setActiveDocumentId(null); setContent(blankContent()); setComposing(false); setNotice(""); }} className="font-semibold underline">Cambiar</button></p>}
+        {query.trim() && <ul className="mt-2 max-h-72 divide-y divide-[#eceaf2] overflow-auto rounded-lg border border-[#e6e4ee] bg-white font-normal" role="listbox" aria-label="Resultados">
+          {searchResults.map(item => <li key={item.id}><button type="button" role="option" aria-selected={item.id === patientId} onClick={() => { setPatientId(item.id); setQuery(""); setActiveDocumentId(null); setContent(blankContent()); setComposing(false); setNotice(""); }} className="flex min-h-11 w-full flex-col items-start px-3 py-2 text-left hover:bg-[#f7f6fa]"><span className="font-semibold text-[#35343f]">{item.name}</span><span className="text-xs text-[#6b6a7c]">{item.rut || "Sin RUT"}</span></button></li>)}
+          {!searchResults.length && <li className="px-3 py-3 text-[#6b6a7c]">Sin resultados para esa búsqueda.</li>}
+        </ul>}
+      </div>
       {!patients.length && <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-950">Registra o importa un paciente para crear documentos en su ficha.</p>}
+      {!!patients.length && !patient && !query.trim() && <p className="mt-3 text-sm text-[#615f73]">Escribe el nombre o el RUT para abrir los documentos del paciente.</p>}
     </section>}
 
     {patient && <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(320px,.82fr)]">
