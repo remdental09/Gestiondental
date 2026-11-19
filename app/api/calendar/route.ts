@@ -1,5 +1,5 @@
 import { SPACE_ADMIN_ONLY, getChatGPTUser, managesSpace } from "@/app/chatgpt-auth";
-import { createAgendaEvent, deleteAgendaEvent, updateAgendaEvent, listCalendarChoices, listCalendarConnections, removeCalendarConnection, setCalendarChoice, syncGoogleCalendars } from "@/app/drive-oauth";
+import { syncAppEventsFromGoogle, createAgendaEvent, deleteAgendaEvent, updateAgendaEvent, listCalendarChoices, listCalendarConnections, removeCalendarConnection, setCalendarChoice, syncGoogleCalendars } from "@/app/drive-oauth";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -8,7 +8,10 @@ const json = (data: unknown, status = 200) => Response.json(data, { status, head
 export async function GET() {
   const user = await getChatGPTUser();
   if (!user?.userId) return json({ error: "Inicia sesión." }, 401);
-  return json({ accounts: await listCalendarConnections(user.userId), calendars: await listCalendarChoices(user.userId) });
+  // Al abrir la agenda: trae lo que se movió o borró en Google (como máximo cada 2 minutos).
+  const back = await syncAppEventsFromGoogle(user.userId, { onDemand: true }).catch(() => []);
+  const agendaSynced = back.reduce((sum, item) => sum + item.moved + item.cancelled, 0);
+  return json({ accounts: await listCalendarConnections(user.userId), calendars: await listCalendarChoices(user.userId), agendaSynced });
 }
 
 /** {action:"sync"} actualiza ahora; {action:"remove", id} desconecta una cuenta. Conectar se hace con /api/drive/connect?calendar=1. */
@@ -18,7 +21,7 @@ export async function POST(request: Request) {
   if (request.headers.get("origin") !== new URL(request.url).origin) return json({ error: "Origen no permitido." }, 403);
   const body = await request.json().catch(() => null) as { action?: unknown; id?: unknown; calendarId?: unknown; enabled?: unknown; eventId?: unknown; title?: unknown; day?: unknown; time?: unknown; minutes?: unknown } | null;
   try {
-    if (body?.action === "sync") { const results = await syncGoogleCalendars(user.userId); return json({ results, accounts: await listCalendarConnections(user.userId), calendars: await listCalendarChoices(user.userId) }); }
+    if (body?.action === "sync") { await syncAppEventsFromGoogle(user.userId).catch(() => []); const results = await syncGoogleCalendars(user.userId); return json({ results, accounts: await listCalendarConnections(user.userId), calendars: await listCalendarChoices(user.userId) }); }
     // Elegir o quitar calendarios cambia la agenda de toda la clínica; las citas sí las mueve cualquier dentista del equipo.
     if ((body?.action === "setCalendar" || body?.action === "remove") && !managesSpace(user)) return json({ error: SPACE_ADMIN_ONLY }, 403);
     if (body?.action === "setCalendar" && typeof body.id === "string" && typeof body.calendarId === "string" && typeof body.enabled === "boolean") {

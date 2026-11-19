@@ -1,6 +1,6 @@
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { addControl, deleteControl, getControl, listControls, updateControl } from "@/app/followup-db";
-import { backfillControlAppointments, cancelControlAppointment, completeControlAppointment, moveControlAppointment, rescheduleRemovedControl, scheduleControl } from "@/app/control-agenda";
+import { backfillControlAppointments, cancelControlAppointment, completeControlAppointment, moveControlAppointment, rescheduleRemovedControl, restoreCancelledControl, scheduleControl } from "@/app/control-agenda";
 import { isIsoDay, json, ownedPatient, positiveId, sameOrigin, shortText } from "@/app/followup-http";
 import { DEFAULT_CONTROL_TIME, isClockTime, isControlStatus, weekendName } from "@/lib/next-control";
 
@@ -20,9 +20,13 @@ export async function GET(request: Request) {
     if (!owned) return json({ error: "Paciente no encontrado." }, 404);
     patientId = owned;
   }
+  // Ida y vuelta: lo movido o borrado directo en Google Calendar se aplica antes de listar (como máximo cada 2 minutos).
+  const { syncAppEventsFromGoogle } = await import("@/app/drive-oauth");
+  const back = await syncAppEventsFromGoogle(user.userId, { onDemand: true }).catch(() => []);
+  const agendaSynced = back.reduce((sum, item) => sum + item.moved + item.cancelled, 0);
   // Controles pendientes creados antes de que existiera la cita automática: se agendan una sola vez.
   await backfillControlAppointments(user.userId, todayInChile()).catch(() => 0);
-  try { return json({ controls: await listControls(user.userId, patientId) }); }
+  try { return json({ controls: await listControls(user.userId, patientId), agendaSynced }); }
   catch { return json({ error: "No se pudieron leer los controles." }, 500); }
 }
 
@@ -75,6 +79,7 @@ export async function PATCH(request: Request) {
     const linked = { ...control, appointmentId: before.appointmentId };
     if (patch.status === "descartado") calendar = await cancelControlAppointment(ownerId, linked);
     else if (patch.status === "realizado") await completeControlAppointment(ownerId, linked);
+    else if (linked.appointmentId && before.status === "descartado" && control.status !== "descartado") calendar = await restoreCancelledControl(ownerId, { ...control, appointmentId: linked.appointmentId }, time);
     else if (linked.appointmentId && (patch.dueOn !== undefined || time !== undefined || patch.reason !== undefined)) calendar = await moveControlAppointment(ownerId, linked, { day: control.dueOn, time, reason: control.reason });
     else if (!linked.appointmentId && control.status !== "realizado" && (patch.status === "agendado" || before.status === "descartado" || before.status === "realizado")) calendar = (await rescheduleRemovedControl(ownerId, id, time)).calendar;
     control = (await getControl(ownerId, id)) ?? control;
