@@ -28,6 +28,8 @@ export type BudgetPdfInput = {
   professionalTitles?: string;
   /** Logo de la clínica como data URL PNG o JPEG (WebP no se puede incrustar y se omite). */
   logo?: string;
+  /** Firma o timbre dibujado/subido desde Documentación, incrustado junto a la firma profesional. */
+  documentMark?: string;
 };
 
 const PAGE_W = 595.28, PAGE_H = 841.89, M = 40, R = PAGE_W - M, FOOT = 52, BAND = 84;
@@ -155,6 +157,16 @@ export async function buildBudgetPdf(input: BudgetPdfInput): Promise<Uint8Array>
         const bytes = Uint8Array.from(atob(match[2]), ch => ch.charCodeAt(0));
         logoImage = match[1] === "png" ? await pdf.embedPng(bytes) : await pdf.embedJpg(bytes);
       } catch { /* logo dañado: se omite sin impedir el presupuesto */ }
+    }
+  }
+  let documentMark: Awaited<ReturnType<PDFDocument["embedPng"]>> | null = null;
+  if (input.documentMark) {
+    const match = /^data:image\/(png|jpeg);base64,([A-Za-z0-9+/=]+)$/.exec(input.documentMark);
+    if (match) {
+      try {
+        const bytes = Uint8Array.from(atob(match[2]), ch => ch.charCodeAt(0));
+        documentMark = match[1] === "png" ? await pdf.embedPng(bytes) : await pdf.embedJpg(bytes);
+      } catch { /* una imagen inválida no debe impedir emitir el presupuesto */ }
     }
   }
   const LOGO_BOX = 56;
@@ -327,6 +339,12 @@ export async function buildBudgetPdf(input: BudgetPdfInput): Promise<Uint8Array>
   ensure(signH);
   y -= 40;
   const signTop = y;
+  if (documentMark) {
+    const maxW = 92, maxH = 42;
+    const scale = Math.min(maxW / documentMark.width, maxH / documentMark.height, 1);
+    const width = documentMark.width * scale, height = documentMark.height * scale;
+    page.drawImage(documentMark, { x: sx + (R - sx - width) / 2, y: signTop - 54, width, height });
+  }
   y = signTop - 62; rule(sx, R);
   const signName = pdfSafe(nameInSignature && input.professionalName ? input.professionalName : nameInSignature ? "Profesional tratante" : "Firma del profesional tratante");
   let signSize = 9.5;

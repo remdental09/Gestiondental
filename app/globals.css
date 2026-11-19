@@ -13,9 +13,11 @@ button,a,label,select,summary,[role=button],[role=tab]{touch-action:manipulation
   body{background:#fff!important}
   body *{visibility:hidden!important}
   [data-budget-print-dialog],[data-budget-print-dialog] *{visibility:visible!important}
+  #documentation-print,#documentation-print *{visibility:visible!important}
   [data-budget-print-dialog]{position:static!important;inset:auto!important;transform:none!important;width:100%!important;max-width:none!important;max-height:none!important;overflow:visible!important;margin:0!important;padding:0!important;border:0!important;box-shadow:none!important;background:#fff!important}
   [data-budget-print-controls]{display:none!important}
   #budget-print-document{page:budget-document;display:block!important;position:static!important;width:100%!important;margin:0!important;padding:0!important;border:0!important;box-shadow:none!important;background:#fff!important}
+  #documentation-print{page:budget-document;display:block!important;position:static!important;width:100%!important;max-width:none!important;margin:0!important;padding:8mm!important;border:0!important;box-shadow:none!important;background:#fff!important}
   [data-slot="dialog-overlay"]{display:none!important}
 }
 

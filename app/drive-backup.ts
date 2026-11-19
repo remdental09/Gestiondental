@@ -5,7 +5,7 @@ import { loadAddresses } from "@/app/patient-address-db";
 import { getDb } from "@/db";
 import {
   appointments, budgets, clinicalImages, driveBackups, evolutions,
-  patients, periodontalExams, toothStatuses,
+  patientDocuments, patients, periodontalExams, toothStatuses,
 } from "@/db/schema";
 import { decodeBudgetData } from "@/lib/budget-plans";
 import { attachmentFileName } from "@/lib/attachment-name";
@@ -21,13 +21,15 @@ export async function getDriveSnapshot(ownerId: string, patientId: number, conne
 
   const filter = (ownerColumn: AnyColumn, patientColumn: AnyColumn) =>
     and(eq(ownerColumn, ownerId), eq(patientColumn, patientId));
-  const [notes, plans, visits, exams, teeth, images, backups] = await Promise.all([
+  const [notes, plans, visits, exams, teeth, images, documents, backups] = await Promise.all([
     db.select().from(evolutions).where(filter(evolutions.ownerId, evolutions.patientId)).orderBy(asc(evolutions.id)),
     db.select().from(budgets).where(filter(budgets.ownerId, budgets.patientId)).orderBy(asc(budgets.id)),
     db.select().from(appointments).where(filter(appointments.ownerId, appointments.patientId)).orderBy(asc(appointments.id)),
     db.select().from(periodontalExams).where(filter(periodontalExams.ownerId, periodontalExams.patientId)).orderBy(asc(periodontalExams.id)),
     db.select().from(toothStatuses).where(filter(toothStatuses.ownerId, toothStatuses.patientId)).limit(1),
     db.select().from(clinicalImages).where(filter(clinicalImages.ownerId, clinicalImages.patientId)).orderBy(asc(clinicalImages.id)),
+    Promise.resolve(db.select().from(patientDocuments).where(filter(patientDocuments.ownerId, patientDocuments.patientId)).orderBy(asc(patientDocuments.id)))
+      .catch(() => [] as (typeof patientDocuments.$inferSelect)[]),
     db.select().from(driveBackups).where(filter(driveBackups.ownerId, driveBackups.patientId)).limit(1),
   ]);
 
@@ -63,6 +65,10 @@ export async function getDriveSnapshot(ownerId: string, patientId: number, conne
         status: b.status, createdAt: b.createdAt,
       };
     }),
+    documents: documents.map(document => ({
+      id: document.id, kind: document.kind, title: document.title, content: document.content,
+      status: document.status, createdByName: document.createdByName, createdAt: document.createdAt,
+    })),
     appointments: visits.map(v => ({
       id: v.id, day: v.day, time: v.time, reason: v.reason,
       createdAt: v.createdAt,
