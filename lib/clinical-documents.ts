@@ -1,9 +1,11 @@
-export const CLINICAL_DOCUMENT_KINDS = ["receta", "certificado", "consentimiento"] as const;
+export const CLINICAL_DOCUMENT_KINDS = ["receta", "receta_magistral", "orden", "certificado", "consentimiento"] as const;
 export type ClinicalDocumentKind = typeof CLINICAL_DOCUMENT_KINDS[number];
 export type ClinicalDocumentContent = Record<string, string>;
 
 const FIELDS: Record<ClinicalDocumentKind, Record<string, number>> = {
   receta: { indicacion: 800, prescripcion: 3000, instrucciones: 1800 },
+  receta_magistral: { indicacion: 800, prescripcion: 3000, instrucciones: 1800 },
+  orden: { diagnostico: 800, examenes: 3000, observaciones: 1800 },
   certificado: { motivo: 800, observaciones: 1800, vigencia: 300 },
   consentimiento: { procedimiento: 800, descripcion: 2500, riesgos: 3000, alternativas: 2000, declaracion: 1500 },
 };
@@ -19,8 +21,11 @@ export function cleanClinicalDocumentContent(kind: ClinicalDocumentKind, input: 
 }
 
 export const CLINICAL_DOCUMENT_LABEL: Record<ClinicalDocumentKind, string> = {
-  receta: "Receta", certificado: "Certificado", consentimiento: "Consentimiento informado",
+  receta: "Receta médica", receta_magistral: "Receta magistral", orden: "Orden médica", certificado: "Certificado médico", consentimiento: "Consentimiento informado",
 };
+
+/** Las recetas (común y magistral) comparten diseño y exigen la habilitación del prestador para emitirse. */
+export const isPrescriptionKind = (kind: string): boolean => kind === "receta" || kind === "receta_magistral";
 
 export type PrescriptionLine = { name: string; detail: string };
 

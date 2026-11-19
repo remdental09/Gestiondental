@@ -3,6 +3,7 @@ import { ensureDocumentIssuanceColumns } from "@/app/document-issuance-db";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { getDb } from "@/db";
 import { patientDocuments } from "@/db/schema";
+import { isPrescriptionKind } from "@/lib/clinical-documents";
 import { documentHash, newVerifyToken } from "@/lib/document-verification";
 import { loadRegistration } from "@/app/prestador-db";
 
@@ -25,7 +26,7 @@ export async function POST(request: Request) {
     if (!doc) return fail("Documento no encontrado.", 404);
     if (doc.verifyToken && doc.issuedAt) return Response.json({ document: doc }, { headers: { "Cache-Control": "no-store" } });
     // Una receta solo la emite un prestador individual verificado (certificado de la Superintendencia aprobado).
-    if (doc.kind === "receta" && (await loadRegistration(doc.createdBy).catch(() => null))?.status !== "aprobado") {
+    if (isPrescriptionKind(doc.kind) && (await loadRegistration(doc.createdBy).catch(() => null))?.status !== "aprobado") {
       return fail("Para emitir recetas, sube tu certificado de inscripción de la Superintendencia de Salud y espera su aprobación.", 403);
     }
     const issuedAt = new Date().toISOString();

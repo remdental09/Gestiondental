@@ -7,7 +7,7 @@ import { getDb } from "@/db";
 import { patientDocuments, patients, professionalDocumentSettings } from "@/db/schema";
 import { loadDocumentMark } from "@/app/document-mark-db";
 import { loadApprovedRegistrations } from "@/app/prestador-db";
-import { cleanClinicalDocumentContent, isClinicalDocumentKind, type ClinicalDocumentKind } from "@/lib/clinical-documents";
+import { CLINICAL_DOCUMENT_LABEL, cleanClinicalDocumentContent, isClinicalDocumentKind, type ClinicalDocumentKind } from "@/lib/clinical-documents";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -46,7 +46,7 @@ export async function POST(request: Request) {
   const personalId = personalIdOf(user);
   const profile = await loadProfile(personalId).catch(() => null);
   const authorName = (profile ? displayName(profile) : user.displayName).trim().slice(0, 120);
-  const title = kind === "consentimiento" ? "Consentimiento informado" : kind === "receta" ? "Receta" : "Certificado";
+  const title = CLINICAL_DOCUMENT_LABEL[kind];
   try {
     const db = getDb();
     const [patient] = await db.select({ id: patients.id }).from(patients).where(and(eq(patients.id, patientId), eq(patients.ownerId, user.userId))).limit(1);

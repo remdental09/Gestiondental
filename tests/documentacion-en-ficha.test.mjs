@@ -20,3 +20,11 @@ test("el panel embebido no muestra selector de paciente", () => {
   assert.match(panel, /embeddedPatientId/);
   assert.match(panel, /\{!embedded && <section className="surface">/);
 });
+
+test("el menú ofrece receta médica, receta magistral, orden médica, certificado y consentimiento", async () => {
+  const lib = readFileSync(new URL("../lib/clinical-documents.ts", import.meta.url), "utf8");
+  for (const kind of ["receta", "receta_magistral", "orden", "certificado", "consentimiento"]) assert.match(lib, new RegExp(`"${kind}"`));
+  for (const label of ["Receta médica", "Receta magistral", "Orden médica", "Certificado médico"]) assert.match(lib, new RegExp(label));
+  assert.match(panel, /data-testid="documentation-menu"/);
+  assert.match(lib, /isPrescriptionKind[\s\S]*receta_magistral/);
+});
