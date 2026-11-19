@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Search, ArrowLeft, BadgeCheck, ChevronRight, ClipboardCheck, ClipboardList, FlaskConical, Pill, FileCheck2, FilePlus2, FileText, ImagePlus, LoaderCircle, Pencil, Printer, ScrollText, ShieldCheck, Trash2 } from "lucide-react";
+import { FileDown, Search, ArrowLeft, BadgeCheck, ChevronRight, ClipboardCheck, ClipboardList, FlaskConical, Pill, FileCheck2, FilePlus2, FileText, ImagePlus, LoaderCircle, Pencil, Printer, ScrollText, ShieldCheck, Trash2 } from "lucide-react";
 import Image from "next/image";
 import qrcode from "qrcode-generator";
 import { ageFromBirthDate, splitPrescriptionLines, isPrescriptionKind, CLINICAL_DOCUMENT_KINDS, CLINICAL_DOCUMENT_LABEL, type ClinicalDocumentContent, type ClinicalDocumentKind } from "@/lib/clinical-documents";
@@ -89,6 +89,7 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
   const patient = patients.find(item => item.id === patientId) ?? null;
   const [kind, setKind] = useState<ClinicalDocumentKind>("receta");
   const [composing, setComposing] = useState(false);
+  const previewRef = useRef<HTMLElement | null>(null);
   const [content, setContent] = useState<ClinicalDocumentContent>(blankContent);
   const [documentsState, setDocumentsState] = useState<{ patientId: number; documents: SavedDocument[]; error: string }>({ patientId: 0, documents: [], error: "" });
   const [activeDocumentId, setActiveDocumentId] = useState<number | null>(null);
@@ -143,17 +144,25 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
 
   const patchDocument = (updated: SavedDocument, previousId?: number | null) => setDocumentsState(previous => ({ ...previous, documents: previous.documents.map(item => item.id === updated.id ? { ...item, ...updated, documentMark: item.documentMark } : item.id === previousId ? { ...item, status: "reemplazado", revokedReason: "reemplazado", revokedAt: updated.issuedAt ?? "" } : item) }));
   const act = async (path: string, doc: SavedDocument, done: string) => {
-    if (busy) return;
+    if (busy) return false;
     setBusy(true); setError(""); setNotice("");
     try {
       const response = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: doc.id }) });
       const data = await response.json() as { document?: SavedDocument; replacedId?: number | null; error?: string };
       if (!response.ok || !data.document) throw new Error(data.error || "No se pudo completar la acción.");
-      patchDocument(data.document, data.replacedId); setNotice(done);
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo completar la acción."); }
+      patchDocument(data.document, data.replacedId); setNotice(done); return true;
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo completar la acción."); return false; }
     finally { setBusy(false); }
   };
   const issue = (doc: SavedDocument) => { if (window.confirm("¿Desea emitir este documento? Quedará bloqueado y con un QR de verificación. Para cambiarlo deberá crear una versión nueva.")) void act("/api/documentos/emitir", doc, "Documento emitido con QR de verificación. Ya puedes imprimirlo."); };
+  // Imprimir y «Guardar en PDF» usan el mismo diálogo de impresión del dispositivo (allí se elige «Guardar como PDF»).
+  // Un borrador se emite primero (con confirmación) para que el documento impreso lleve su QR de verificación.
+  const printDocument = async (doc: SavedDocument) => {
+    if (doc.status === "emitido") { window.print(); return; }
+    if (doc.status !== "borrador" || busy) return;
+    if (!window.confirm("Para imprimir o guardar en PDF el documento se emite primero: quedará bloqueado y con un QR de verificación. ¿Desea continuar?")) return;
+    if (await act("/api/documentos/emitir", doc, "Documento emitido con QR de verificación.")) window.setTimeout(() => window.print(), 400);
+  };
   const annul = (doc: SavedDocument) => { if (window.confirm("¿Desea anular este documento? Nunca se borra, pero la verificación por QR lo mostrará como anulado y no podrá deshacerse.")) void act("/api/documentos/anular", doc, "Documento anulado. La verificación por QR lo muestra como anulado."); };
   useEffect(() => {
     let active = true;
@@ -199,7 +208,8 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
       setDocumentsState(previous => ({ patientId: patient.id, documents: [data.document!, ...(previous.patientId === patient.id ? previous.documents : [])], error: "" }));
       setActiveDocumentId(data.document.id);
       setContent(blankContent()); setReplacingId(null); setComposing(false);
-      setNotice("Borrador guardado. Revísalo y pulsa «Emitir» para generar el QR de verificación e imprimir.");
+      window.setTimeout(() => previewRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
+      setNotice("Borrador guardado. Revísalo; puedes emitirlo con QR, guardarlo en PDF o imprimirlo.");
     } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo guardar el borrador."); }
     finally { setSaving(false); }
   };
@@ -233,57 +243,18 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
       {!!patients.length && !patient && !query.trim() && <p className="mt-3 text-sm text-[#615f73]">Escribe el nombre o el RUT para abrir los documentos del paciente.</p>}
     </section>}
 
-    {patient && <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(320px,.82fr)]">
-      <section className="surface min-w-0">
-        {!composing ? <div data-testid="documentation-menu">
-          <h2 className="text-lg font-semibold">Nuevo documento</h2>
-          <p className="text-sm text-[#615f73]">Elige el tipo de documento que necesitas para este paciente.</p>
-          <ul className="mt-4 space-y-3">
-            {CLINICAL_DOCUMENT_KINDS.map(value => { const meta = KIND_MENU[value]; const Icon = meta.icon; return <li key={value}>
-              <button type="button" onClick={() => { setKind(value); setComposing(true); setNotice(""); setError(""); }} data-testid={`documentation-kind-${value}`} className="flex min-h-20 w-full items-center gap-4 overflow-hidden rounded-xl bg-white pr-4 text-left shadow-[0_2px_10px_rgba(0,0,0,.08)] hover:bg-[#faf9fc]">
-                <span className={`self-stretch w-2 shrink-0 ${meta.bar}`}/>
-                <span className={`flex size-12 shrink-0 items-center justify-center rounded-full ${meta.tint} ${meta.color}`}><Icon className="size-6"/></span>
-                <span className="flex-1 text-base font-semibold text-[#1b1a2e]">{CLINICAL_DOCUMENT_LABEL[value]}</span>
-                <ChevronRight className="size-5 text-[#44425a]"/>
-              </button>
-            </li>; })}
-          </ul>
-        </div> : <>
-        <div className="flex items-center gap-3"><button type="button" onClick={() => { setComposing(false); setReplacingId(null); setError(""); }} aria-label="Volver a tipos de documento" className="flex size-10 shrink-0 items-center justify-center rounded-full hover:bg-[#f3f1f7]"><ArrowLeft className="size-5"/></button><div><h2 className="text-lg font-semibold">{CLINICAL_DOCUMENT_LABEL[kind]}</h2><p className="text-sm text-[#615f73]">Completa solo los datos que correspondan y guarda para abrir la vista de impresión.</p></div></div>
-        <div className="mt-4 space-y-3">
-          {fields[kind].map(field => <label key={field.key} className="block text-sm font-semibold text-[#35343f]">{field.label}
-            {field.rows ? <textarea rows={field.rows} value={content[field.key] ?? ""} onChange={event => setContent(previous => ({ ...previous, [field.key]: event.target.value }))} placeholder={field.hint} className={inputClass + " resize-y"}/> : <input value={content[field.key] ?? ""} onChange={event => setContent(previous => ({ ...previous, [field.key]: event.target.value }))} placeholder={field.hint} className={inputClass}/>}
-          </label>)}
-        </div>
-        {kind === "consentimiento" && <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">Borrador editable. Revisa riesgos y alternativas con el paciente, adapta el contenido al procedimiento y obtén la firma correspondiente. La aplicación no valida legalmente el texto ni firma por el paciente.</p>}
-        {error && <p role="alert" className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-800">{error}</p>}
-        {notice && !error && <p role="status" className="mt-4 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-900">{notice}</p>}
-        <button type="button" onClick={() => void saveDraft()} disabled={!hasContent || saving} className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-lg bg-[#473a6d] px-4 text-sm font-semibold text-white hover:bg-[#3a2f5a] disabled:cursor-not-allowed disabled:opacity-50">
-          {saving ? <LoaderCircle className="size-4 animate-spin"/> : <FileCheck2 className="size-4"/>}{saving ? "Guardando…" : "Guardar borrador"}
-        </button>
-        </>}
-      </section>
-
-      <div className="min-w-0 space-y-6">
-        <section className={cardClass}>
-          <div className="flex items-center gap-2"><ScrollText className="size-5 text-[#473a6d]"/><h2 className="font-semibold">Documentos guardados</h2></div>
-          {documentLoading ? <p className="mt-3 text-sm text-[#615f73]" role="status">Cargando documentos…</p> : documentLoadError ? <p role="alert" className="mt-3 text-sm text-rose-800">{documentLoadError}</p> : documents.length ? <ul className="mt-3 space-y-2">{documents.map(document => <li key={document.id}><button type="button" onClick={() => { setActiveDocumentId(document.id); setNotice(""); }} aria-pressed={activeDocument?.id === document.id} className={`w-full rounded-lg border p-3 text-left ${activeDocument?.id === document.id ? "border-[#9b8cba] bg-[#f4f2f7]" : "border-[#e6e4ee] bg-white hover:bg-[#f8f7fa]"}`}><span className="flex items-center justify-between gap-2"><strong className="text-sm">{document.title}</strong><span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${document.status === "emitido" ? "bg-emerald-100 text-emerald-900" : document.status === "anulado" ? "bg-rose-100 text-rose-900" : document.status === "reemplazado" ? "bg-orange-100 text-orange-900" : "bg-[#eeebf3] text-[#473a6d]"}`}>{STATUS_LABEL[document.status] ?? document.status}</span></span><span className="mt-1 block text-xs text-[#615f73]">{formatDate(document.createdAt)}{document.createdByName ? ` · ${document.createdByName}` : ""}</span></button></li>)}</ul> : <p className="mt-3 rounded-lg bg-[#f7f6fa] p-3 text-sm text-[#615f73]">Todavía no hay documentos en esta ficha.</p>}
-        </section>
-
-        <PrestadorCard registration={registration} loading={registrationLoading} uploading={registrationUploading} error={registrationError} onUpload={file => void uploadCertificate(file)} onPasteText={text => void sendCertificateText(text)}/>
-
-        <DocumentMarkEditor mark={documentMark} onSaved={setDocumentMark}/>
-      </div>
-    </div>}
-
-    {patient && activeDocument && activeContent && <section className="surface" aria-label="Vista previa del documento">
+    {patient && activeDocument && activeContent && <section className="surface" aria-label="Vista previa del documento" ref={previewRef}>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3 print:hidden"><div><p className="text-xs font-semibold uppercase tracking-wide text-[#6b5d8e]">Vista previa · {(STATUS_LABEL[activeDocument.status] ?? activeDocument.status).toLowerCase()}</p><h2 className="mt-1 text-lg font-semibold">{activeDocument.title}</h2></div><div className="flex flex-wrap gap-2">
         <button type="button" onClick={() => { setKind(activeDocument.kind); setComposing(true); setContent({ ...blankContent(), ...activeContent }); setReplacingId(activeDocument.status === "emitido" ? activeDocument.id : null); setNotice(activeDocument.status === "emitido" ? "Se cargó el texto para crear una versión nueva. Al emitirla, la versión anterior quedará como reemplazada." : "Se cargó el texto para crear una nueva versión; el borrador anterior se conserva."); window.scrollTo({ top: 0, behavior: "smooth" }); }} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-[#b9b1ce] px-4 text-sm font-semibold text-[#473a6d] hover:bg-[#f3f1f7]"><Pencil className="size-4"/>{isIssued(activeDocument) ? "Crear versión nueva" : "Editar una copia"}</button>
-        {activeDocument.status === "borrador" && <button type="button" disabled={busy || (isPrescriptionKind(activeDocument.kind) && !canIssueReceta)} title={isPrescriptionKind(activeDocument.kind) && !canIssueReceta ? "Sube y espera la aprobación de tu certificado de inscripción para emitir recetas" : undefined} onClick={() => issue(activeDocument)} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-[#473a6d] px-4 text-sm font-semibold text-white hover:bg-[#3a2f5a] disabled:opacity-50">{busy ? <LoaderCircle className="size-4 animate-spin"/> : <ShieldCheck className="size-4"/>}Emitir con QR</button>}
-        {activeDocument.status === "emitido" && <><button type="button" onClick={() => window.print()} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-[#473a6d] px-4 text-sm font-semibold text-white hover:bg-[#3a2f5a]"><Printer className="size-4"/>Imprimir o guardar como PDF</button><button type="button" disabled={busy} onClick={() => annul(activeDocument)} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-rose-300 px-4 text-sm font-semibold text-rose-800 hover:bg-rose-50 disabled:opacity-50"><Trash2 className="size-4"/>Anular</button></>}
+        {(activeDocument.status === "borrador" || activeDocument.status === "emitido") && <>
+          {activeDocument.status === "borrador" && <button type="button" disabled={busy || (isPrescriptionKind(activeDocument.kind) && !canIssueReceta)} title={isPrescriptionKind(activeDocument.kind) && !canIssueReceta ? "Sube y espera la aprobación de tu certificado de inscripción para emitir recetas" : undefined} onClick={() => issue(activeDocument)} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-[#473a6d] px-4 text-sm font-semibold text-[#473a6d] hover:bg-[#f3f1f7] disabled:opacity-50">{busy ? <LoaderCircle className="size-4 animate-spin"/> : <ShieldCheck className="size-4"/>}Emitir con QR</button>}
+          <button type="button" data-testid="documentation-save-pdf" disabled={busy || (activeDocument.status === "borrador" && isPrescriptionKind(activeDocument.kind) && !canIssueReceta)} onClick={() => void printDocument(activeDocument)} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-[#473a6d] px-4 text-sm font-semibold text-white hover:bg-[#3a2f5a] disabled:opacity-50"><FileDown className="size-4"/>Guardar en PDF</button>
+          <button type="button" data-testid="documentation-print-button" disabled={busy || (activeDocument.status === "borrador" && isPrescriptionKind(activeDocument.kind) && !canIssueReceta)} onClick={() => void printDocument(activeDocument)} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-[#473a6d] px-4 text-sm font-semibold text-white hover:bg-[#3a2f5a] disabled:opacity-50"><Printer className="size-4"/>Imprimir</button>
+          {activeDocument.status === "emitido" && <button type="button" disabled={busy} onClick={() => annul(activeDocument)} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-rose-300 px-4 text-sm font-semibold text-rose-800 hover:bg-rose-50 disabled:opacity-50"><Trash2 className="size-4"/>Anular</button>}
+        </>}
       </div></div>
       {(error || notice) && <p role={error ? "alert" : "status"} className={`mb-4 rounded-lg p-3 text-sm print:hidden ${error ? "bg-rose-50 text-rose-800" : "bg-emerald-50 text-emerald-900"}`}>{error || notice}</p>}
-      {activeDocument.status === "borrador" && <p className="mb-4 rounded-lg bg-[#f3f1f7] p-3 text-sm text-[#473a6d] print:hidden">Este documento es un borrador. Pulsa «Emitir con QR» para bloquearlo y habilitar la impresión con su código de verificación.{isPrescriptionKind(activeDocument.kind) && !canIssueReceta && " Para emitir recetas primero debes subir tu certificado de inscripción (tarjeta «Habilitación para emitir recetas») y esperar su aprobación."}</p>}
+      {activeDocument.status === "borrador" && <p className="mb-4 rounded-lg bg-[#f3f1f7] p-3 text-sm text-[#473a6d] print:hidden">Este documento es un borrador. Al imprimir o guardar en PDF se emite primero con su código de verificación QR (o pulsa «Emitir con QR»).{isPrescriptionKind(activeDocument.kind) && !canIssueReceta && " Para emitir recetas primero debes subir tu certificado de inscripción (tarjeta «Habilitación para emitir recetas») y esperar su aprobación."}</p>}
       <article id="documentation-print" className="mx-auto max-w-[800px] overflow-hidden rounded-xl border border-[#e6e4ee] bg-white text-[#272533] shadow-sm print:rounded-none print:border-0 print:shadow-none [print-color-adjust:exact] [-webkit-print-color-adjust:exact]">
         <header className="bg-gradient-to-r from-[#473a6d] to-[#6b5d8e] px-7 py-6 text-white">
           <div className="flex items-start justify-between gap-4">
@@ -331,6 +302,51 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
         </div>
       </article>
     </section>}
+
+    {patient && <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(320px,.82fr)]">
+      <section className="surface min-w-0">
+        {!composing ? <div data-testid="documentation-menu">
+          <h2 className="text-lg font-semibold">Nuevo documento</h2>
+          <p className="text-sm text-[#615f73]">Elige el tipo de documento que necesitas para este paciente.</p>
+          <ul className="mt-4 space-y-3">
+            {CLINICAL_DOCUMENT_KINDS.map(value => { const meta = KIND_MENU[value]; const Icon = meta.icon; return <li key={value}>
+              <button type="button" onClick={() => { setKind(value); setComposing(true); setNotice(""); setError(""); }} data-testid={`documentation-kind-${value}`} className="flex min-h-20 w-full items-center gap-4 overflow-hidden rounded-xl bg-white pr-4 text-left shadow-[0_2px_10px_rgba(0,0,0,.08)] hover:bg-[#faf9fc]">
+                <span className={`self-stretch w-2 shrink-0 ${meta.bar}`}/>
+                <span className={`flex size-12 shrink-0 items-center justify-center rounded-full ${meta.tint} ${meta.color}`}><Icon className="size-6"/></span>
+                <span className="flex-1 text-base font-semibold text-[#1b1a2e]">{CLINICAL_DOCUMENT_LABEL[value]}</span>
+                <ChevronRight className="size-5 text-[#44425a]"/>
+              </button>
+            </li>; })}
+          </ul>
+        </div> : <>
+        <div className="flex items-center gap-3"><button type="button" onClick={() => { setComposing(false); setReplacingId(null); setError(""); }} aria-label="Volver a tipos de documento" className="flex size-10 shrink-0 items-center justify-center rounded-full hover:bg-[#f3f1f7]"><ArrowLeft className="size-5"/></button><div><h2 className="text-lg font-semibold">{CLINICAL_DOCUMENT_LABEL[kind]}</h2><p className="text-sm text-[#615f73]">Completa solo los datos que correspondan y guarda para abrir la vista de impresión.</p></div></div>
+        <div className="mt-4 space-y-3">
+          {fields[kind].map(field => <label key={field.key} className="block text-sm font-semibold text-[#35343f]">{field.label}
+            {field.rows ? <textarea rows={field.rows} value={content[field.key] ?? ""} onChange={event => setContent(previous => ({ ...previous, [field.key]: event.target.value }))} placeholder={field.hint} className={inputClass + " resize-y"}/> : <input value={content[field.key] ?? ""} onChange={event => setContent(previous => ({ ...previous, [field.key]: event.target.value }))} placeholder={field.hint} className={inputClass}/>}
+          </label>)}
+        </div>
+        {kind === "consentimiento" && <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">Borrador editable. Revisa riesgos y alternativas con el paciente, adapta el contenido al procedimiento y obtén la firma correspondiente. La aplicación no valida legalmente el texto ni firma por el paciente.</p>}
+        {error && <p role="alert" className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-800">{error}</p>}
+        {notice && !error && <p role="status" className="mt-4 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-900">{notice}</p>}
+        <button type="button" onClick={() => void saveDraft()} disabled={!hasContent || saving} className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-lg bg-[#473a6d] px-4 text-sm font-semibold text-white hover:bg-[#3a2f5a] disabled:cursor-not-allowed disabled:opacity-50">
+          {saving ? <LoaderCircle className="size-4 animate-spin"/> : <FileCheck2 className="size-4"/>}{saving ? "Guardando…" : "Guardar borrador"}
+        </button>
+        </>}
+      </section>
+
+      <div className="min-w-0 space-y-6">
+        <section className={cardClass}>
+          <div className="flex items-center gap-2"><ScrollText className="size-5 text-[#473a6d]"/><h2 className="font-semibold">Documentos guardados</h2></div>
+          {documentLoading ? <p className="mt-3 text-sm text-[#615f73]" role="status">Cargando documentos…</p> : documentLoadError ? <p role="alert" className="mt-3 text-sm text-rose-800">{documentLoadError}</p> : documents.length ? <ul className="mt-3 space-y-2">{documents.map(document => <li key={document.id}><button type="button" onClick={() => { setActiveDocumentId(document.id); setNotice(""); }} aria-pressed={activeDocument?.id === document.id} className={`w-full rounded-lg border p-3 text-left ${activeDocument?.id === document.id ? "border-[#9b8cba] bg-[#f4f2f7]" : "border-[#e6e4ee] bg-white hover:bg-[#f8f7fa]"}`}><span className="flex items-center justify-between gap-2"><strong className="text-sm">{document.title}</strong><span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${document.status === "emitido" ? "bg-emerald-100 text-emerald-900" : document.status === "anulado" ? "bg-rose-100 text-rose-900" : document.status === "reemplazado" ? "bg-orange-100 text-orange-900" : "bg-[#eeebf3] text-[#473a6d]"}`}>{STATUS_LABEL[document.status] ?? document.status}</span></span><span className="mt-1 block text-xs text-[#615f73]">{formatDate(document.createdAt)}{document.createdByName ? ` · ${document.createdByName}` : ""}</span></button></li>)}</ul> : <p className="mt-3 rounded-lg bg-[#f7f6fa] p-3 text-sm text-[#615f73]">Todavía no hay documentos en esta ficha.</p>}
+        </section>
+
+        <PrestadorCard registration={registration} loading={registrationLoading} uploading={registrationUploading} error={registrationError} onUpload={file => void uploadCertificate(file)} onPasteText={text => void sendCertificateText(text)}/>
+
+        <DocumentMarkEditor mark={documentMark} onSaved={setDocumentMark}/>
+      </div>
+    </div>}
+
+
   </div>;
 }
 
