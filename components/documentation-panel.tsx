@@ -7,7 +7,7 @@ import qrcode from "qrcode-generator";
 import { ageFromBirthDate, splitPrescriptionLines, CLINICAL_DOCUMENT_KINDS, CLINICAL_DOCUMENT_LABEL, type ClinicalDocumentContent, type ClinicalDocumentKind } from "@/lib/clinical-documents";
 import { shortCode, verificationUrl } from "@/lib/document-verification";
 import { formatAddress, type PatientAddress } from "@/lib/patient-address";
-import { VALIDATION_SITE, registrationLine, type PublicRegistration } from "@/lib/prestador-certificate";
+import { RNPI_SITE, VALIDATION_SITE, registrationLine, type PublicRegistration } from "@/lib/prestador-certificate";
 import { PrestadorCard, type MyRegistration } from "@/components/prestador-card";
 
 type Patient = { id: number; name: string; birthDate: string; rut: string; phone: string; email: string; address?: PatientAddress };
@@ -130,6 +130,16 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets }: {
       .finally(() => { if (active) setRegistrationLoading(false); });
     return () => { active = false; };
   }, []);
+  const sendCertificateText = async (texto: string) => {
+    setRegistrationUploading(true); setRegistrationError("");
+    try {
+      const response = await fetch("/api/prestador", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ texto }) });
+      const data = await response.json() as { registration?: MyRegistration; error?: string };
+      if (!response.ok || !data.registration) throw new Error(data.error || "No se pudo leer el certificado.");
+      setRegistration(data.registration);
+    } catch (reason) { setRegistrationError(reason instanceof Error ? reason.message : "No se pudo leer el certificado."); }
+    finally { setRegistrationUploading(false); }
+  };
   const uploadCertificate = async (file: File) => {
     setRegistrationUploading(true); setRegistrationError("");
     try {
@@ -206,7 +216,7 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets }: {
           {documentLoading ? <p className="mt-3 text-sm text-[#615f73]" role="status">Cargando documentos…</p> : documentLoadError ? <p role="alert" className="mt-3 text-sm text-rose-800">{documentLoadError}</p> : documents.length ? <ul className="mt-3 space-y-2">{documents.map(document => <li key={document.id}><button type="button" onClick={() => { setActiveDocumentId(document.id); setNotice(""); }} aria-pressed={activeDocument?.id === document.id} className={`w-full rounded-lg border p-3 text-left ${activeDocument?.id === document.id ? "border-[#9b8cba] bg-[#f4f2f7]" : "border-[#e6e4ee] bg-white hover:bg-[#f8f7fa]"}`}><span className="flex items-center justify-between gap-2"><strong className="text-sm">{document.title}</strong><span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${document.status === "emitido" ? "bg-emerald-100 text-emerald-900" : document.status === "anulado" ? "bg-rose-100 text-rose-900" : document.status === "reemplazado" ? "bg-orange-100 text-orange-900" : "bg-[#eeebf3] text-[#473a6d]"}`}>{STATUS_LABEL[document.status] ?? document.status}</span></span><span className="mt-1 block text-xs text-[#615f73]">{formatDate(document.createdAt)}{document.createdByName ? ` · ${document.createdByName}` : ""}</span></button></li>)}</ul> : <p className="mt-3 rounded-lg bg-[#f7f6fa] p-3 text-sm text-[#615f73]">Todavía no hay documentos en esta ficha.</p>}
         </section>
 
-        <PrestadorCard registration={registration} loading={registrationLoading} uploading={registrationUploading} error={registrationError} onUpload={file => void uploadCertificate(file)}/>
+        <PrestadorCard registration={registration} loading={registrationLoading} uploading={registrationUploading} error={registrationError} onUpload={file => void uploadCertificate(file)} onPasteText={text => void sendCertificateText(text)}/>
 
         <DocumentMarkEditor mark={documentMark} onSaved={setDocumentMark}/>
       </div>
@@ -259,7 +269,7 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets }: {
             <div className={`flex min-h-28 flex-col items-center justify-end ${activeDocument.kind === "receta" ? "w-full max-w-[320px]" : ""}`}>{activeDocument.documentMark && <Image src={activeDocument.documentMark} alt="Imagen de firma o timbre" width={200} height={200} unoptimized className="mb-2 max-h-16 max-w-44 object-contain"/>}<div className="w-full border-t border-[#777] pt-2"><span className="font-semibold">{activeDocument.createdByName}</span><br/>Firma / timbre profesional</div></div>
             {activeDocument.kind !== "receta" && <div className="flex min-h-28 flex-col justify-end"><div className="w-full border-t border-[#777] pt-2"><span className="font-semibold">{patient.name}</span><br/>Firma del paciente</div></div>}
           </footer>
-          {activeDocument.registration && <p className="mt-8 text-[11px] leading-relaxed text-[#6b6a7c]">Habilitación del profesional: inscrito en el Registro Nacional de Prestadores Individuales de Salud. Verifíquelo en {VALIDATION_SITE} con el código de validación <span className="font-mono font-semibold">{activeDocument.registration.validationCode}</span> (certificado del {activeDocument.registration.issuedOn.split("-").reverse().join("/")}). Esto acredita al profesional; no valida esta receta.</p>}
+          {activeDocument.registration && <p className="mt-8 text-[11px] leading-relaxed text-[#6b6a7c]">Habilitación del profesional: inscrito en el Registro Nacional de Prestadores Individuales de Salud. {activeDocument.registration.validationCode ? <>Verifíquelo en {VALIDATION_SITE} con el código de validación <span className="font-mono font-semibold">{activeDocument.registration.validationCode}</span> (certificado del {activeDocument.registration.issuedOn.split("-").reverse().join("/")}).</> : <>Consulte al profesional en {RNPI_SITE}.</>} Esto acredita al profesional; no valida esta receta.</p>}
           {activeDocument.verifyToken && activeDocument.contentHash && <aside className="mt-10 flex items-center gap-4 rounded-lg border border-[#e6e4ee] bg-[#faf9fc] p-3 text-left [break-inside:avoid]">
             <div className="size-24 shrink-0 bg-white p-1 [&_svg]:size-full" role="img" aria-label="Código QR de verificación del documento" dangerouslySetInnerHTML={{ __html: qrSvg(verificationUrl(window.location.origin, activeDocument.verifyToken)) }}/>
             <div className="min-w-0 text-[11px] leading-relaxed text-[#44425a]"><p className="text-xs font-bold uppercase tracking-wider text-[#473a6d]">Verificación de documento</p><p className="mt-1">Escanee el código para confirmar que fue emitido desde Gestión Dental y que está vigente.</p><p className="mt-1">Código: <span className="font-mono font-semibold">{shortCode(activeDocument.contentHash)}</span> · Emitido {formatDate(activeDocument.issuedAt || activeDocument.createdAt)}</p><p className="mt-1 text-[#6b6a7c]">No es firma electrónica avanzada.</p></div>
