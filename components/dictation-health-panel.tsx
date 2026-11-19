@@ -41,6 +41,11 @@ const PLATFORM_LABEL: Record<Platform, string> = {
   unknown: "Navegador no identificado",
 };
 const DURATION_LABEL: Record<string, string> = { lt_1s: "<1 s", "1_3s": "1–3 s", "3_10s": "3–10 s", "10_30s": "10–30 s", "30_60s": "30–60 s", gte_60s: "≥60 s" };
+const chileDay = (date: Date) => {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Santiago", year: "numeric", month: "2-digit", day: "2-digit" })
+    .formatToParts(date).reduce<Record<string, string>>((result, part) => { result[part.type] = part.value; return result; }, {});
+  return `${parts.year}-${parts.month}-${parts.day}`;
+};
 const eventCount = (stages: StageSummary[], event: string) => stages.flatMap(stage => stage.byEvent).filter(row => row.event === event).reduce((sum, row) => sum + row.count, 0);
 const errorCounts = (stages: StageSummary[]) => {
   const totals = new Map<string, number>();
@@ -88,7 +93,11 @@ export function DictationHealthPanel() {
   }, new Map<Platform, { events: number; failures: number }>());
   const errors = errorCounts(stages);
   const slowDurations = data?.totals.durationBuckets.filter(row => row.bucket === "10_30s" || row.bucket === "30_60s" || row.bucket === "gte_60s").reduce((sum, row) => sum + row.count, 0) ?? 0;
-  const recentDays = data?.days.slice(0, 7) ?? [];
+  const chileToday = chileDay(new Date());
+  const weekStart = new Date(`${chileToday}T00:00:00Z`);
+  weekStart.setUTCDate(weekStart.getUTCDate() - 6);
+  const recentCutoff = weekStart.toISOString().slice(0, 10);
+  const recentDays = data?.days.filter(day => day.day >= recentCutoff && day.day <= chileToday) ?? [];
   const recentFailures = recentDays.reduce((sum, day) => sum + day.failures, 0);
 
   return <section className="mt-4 rounded-xl border border-[#dcd8e8] bg-[#faf9fc] p-4" aria-label="Vigilancia técnica del dictado por pieza" data-testid="dictation-health-panel">

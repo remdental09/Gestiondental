@@ -53,7 +53,9 @@ async function ensureTelemetrySchema(db: Db): Promise<void> {
 }
 
 function santiagoDay(date: Date): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Santiago", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Santiago", year: "numeric", month: "2-digit", day: "2-digit" })
+    .formatToParts(date).reduce<Record<string, string>>((result, part) => { result[part.type] = part.value; return result; }, {});
+  return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
 function retentionCutoff(today: string): string {
