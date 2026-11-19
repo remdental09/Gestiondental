@@ -104,3 +104,20 @@ export function whatsappLink(phone: string, text: string): string | null {
   if (digits.length < 10) return null;
   return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
 }
+
+/** Hora por defecto de la cita que se crea para un control (editable). */
+export const DEFAULT_CONTROL_TIME = "09:00";
+export const isClockTime = (value: unknown): value is string => typeof value === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
+/** «sábado» o «domingo» si la fecha cae en fin de semana (se mantiene la fecha, solo se avisa). */
+export function weekendName(day: string): "sábado" | "domingo" | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  const weekday = new Date(`${day}T12:00:00Z`).getUTCDay();
+  return weekday === 6 ? "sábado" : weekday === 0 ? "domingo" : null;
+}
+/** Motivo de la cita de agenda: «Control: <motivo>» (sin repetir «Control» si el motivo ya lo dice). */
+export function controlAppointmentReason(reason: string): string {
+  const r = reason.replace(/\s+/g, " ").trim();
+  if (!r || /^control$/i.test(r)) return "Control";
+  if (/^control\b/i.test(r)) return r.slice(0, 500);
+  return `Control: ${r}`.slice(0, 500);
+}
