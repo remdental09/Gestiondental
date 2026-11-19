@@ -70,6 +70,7 @@ function fixture() {
       '@/lib/attachment-name': { attachmentFileName: (id, name) => 'Adjunto ' + id + ' - ' + name },
       '@/app/anamnesis-db': { loadAnamnesis: async () => null },
       '@/app/patient-address-db': { loadAddresses: async () => new Map() },
+      '@/app/document-issuance-db': { ensureDocumentIssuanceColumns: async () => undefined },
     })[name],
     crypto, TextEncoder, Date, Uint8Array, ArrayBuffer,
   });

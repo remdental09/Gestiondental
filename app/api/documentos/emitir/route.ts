@@ -1,8 +1,10 @@
 import { and, eq } from "drizzle-orm";
+import { ensureDocumentIssuanceColumns } from "@/app/document-issuance-db";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { getDb } from "@/db";
 import { patientDocuments } from "@/db/schema";
 import { documentHash, newVerifyToken } from "@/lib/document-verification";
+import { loadRegistration } from "@/app/prestador-db";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -10,6 +12,7 @@ const fail = (message: string, status = 400) => Response.json({ error: message }
 
 /** Emite un borrador: queda bloqueado, con código de verificación (QR) y huella de su contenido. Si reemplaza a otro emitido, ese pasa a «reemplazado». */
 export async function POST(request: Request) {
+  await ensureDocumentIssuanceColumns();
   const user = await getChatGPTUser();
   if (!user?.userId) return fail("Inicia sesión para emitir documentos.", 401);
   if (request.headers.get("origin") !== new URL(request.url).origin) return fail("Origen no permitido.", 403);
@@ -21,6 +24,10 @@ export async function POST(request: Request) {
     const [doc] = await db.select().from(patientDocuments).where(and(eq(patientDocuments.id, id), eq(patientDocuments.ownerId, user.userId))).limit(1);
     if (!doc) return fail("Documento no encontrado.", 404);
     if (doc.verifyToken && doc.issuedAt) return Response.json({ document: doc }, { headers: { "Cache-Control": "no-store" } });
+    // Una receta solo la emite un prestador individual verificado (certificado de la Superintendencia aprobado).
+    if (doc.kind === "receta" && (await loadRegistration(doc.createdBy).catch(() => null))?.status !== "aprobado") {
+      return fail("Para emitir recetas, sube tu certificado de inscripción de la Superintendencia de Salud y espera su aprobación.", 403);
+    }
     const issuedAt = new Date().toISOString();
     const verifyToken = newVerifyToken();
     const contentHash = await documentHash({ ownerId: doc.ownerId, patientId: doc.patientId, kind: doc.kind, title: doc.title, content: doc.content, createdBy: doc.createdBy, createdByName: doc.createdByName, issuedAt });

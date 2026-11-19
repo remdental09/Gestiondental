@@ -1,4 +1,5 @@
 import { and, eq } from "drizzle-orm";
+import { ensureDocumentIssuanceColumns } from "@/app/document-issuance-db";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { getDb } from "@/db";
 import { patientDocuments } from "@/db/schema";
@@ -9,6 +10,7 @@ const fail = (message: string, status = 400) => Response.json({ error: message }
 
 /** Anula un documento emitido: nunca se borra; la verificación pública pasa a mostrarlo como anulado. */
 export async function POST(request: Request) {
+  await ensureDocumentIssuanceColumns();
   const user = await getChatGPTUser();
   if (!user?.userId) return fail("Inicia sesión para anular documentos.", 401);
   if (request.headers.get("origin") !== new URL(request.url).origin) return fail("Origen no permitido.", 403);

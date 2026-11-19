@@ -1,6 +1,7 @@
 // Verificación PÚBLICA de un documento emitido (QR de la receta, certificado o consentimiento). No usa sesión: solo un código secreto largo.
 // Muestra tipo, profesional, clínica, fecha y estado. Nunca datos clínicos ni del paciente.
 import { eq } from "drizzle-orm";
+import { ensureDocumentIssuanceColumns } from "@/app/document-issuance-db";
 import { getDb } from "@/db";
 import { patientDocuments } from "@/db/schema";
 import { loadProfile } from "@/app/clinician-profile-db";
@@ -28,6 +29,7 @@ const BADGE: Record<VerificationState, { color: string; bg: string; title: strin
 };
 
 export async function GET(request: Request) {
+  await ensureDocumentIssuanceColumns();
   const token = new URL(request.url).searchParams.get("t") ?? "";
   if (!isVerifyToken(token)) return notFound();
   try {
