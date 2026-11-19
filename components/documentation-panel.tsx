@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BadgeCheck, FileCheck2, FilePlus2, FileText, ImagePlus, LoaderCircle, Pencil, Printer, ScrollText, Trash2 } from "lucide-react";
 import Image from "next/image";
-import { CLINICAL_DOCUMENT_KINDS, CLINICAL_DOCUMENT_LABEL, type ClinicalDocumentContent, type ClinicalDocumentKind } from "@/lib/clinical-documents";
+import { ageFromBirthDate, splitPrescriptionLines, CLINICAL_DOCUMENT_KINDS, CLINICAL_DOCUMENT_LABEL, type ClinicalDocumentContent, type ClinicalDocumentKind } from "@/lib/clinical-documents";
 
 type Patient = { id: number; name: string; birthDate: string; rut: string; phone: string; email: string };
 type SavedDocument = { id: number; patientId: number; kind: ClinicalDocumentKind; title: string; content: string; status: string; createdBy: string; createdByName: string; createdAt: string; documentMark: string };
@@ -110,6 +110,8 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets }: {
     if (!activeDocument) return null;
     try { return JSON.parse(activeDocument.content) as ClinicalDocumentContent; } catch { return {}; }
   }, [activeDocument]);
+  const prescriptionLines = useMemo(() => splitPrescriptionLines(activeContent?.prescripcion ?? ""), [activeContent]);
+  const patientAge = patient ? ageFromBirthDate(patient.birthDate) : null;
 
   return <div className="space-y-6" data-testid="documentation-panel">
     <section className="surface">
@@ -157,15 +159,42 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets }: {
 
     {patient && activeDocument && activeContent && <section className="surface" aria-label="Vista previa del documento">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3 print:hidden"><div><p className="text-xs font-semibold uppercase tracking-wide text-[#6b5d8e]">Vista previa · borrador</p><h2 className="mt-1 text-lg font-semibold">{activeDocument.title}</h2></div><div className="flex flex-wrap gap-2"><button type="button" onClick={() => { setKind(activeDocument.kind); setContent({ ...blankContent(), ...activeContent }); setNotice("Se cargó el texto para crear una nueva versión; el borrador anterior se conserva."); window.scrollTo({ top: 0, behavior: "smooth" }); }} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-[#b9b1ce] px-4 text-sm font-semibold text-[#473a6d] hover:bg-[#f3f1f7]"><Pencil className="size-4"/>Editar una copia</button><button type="button" onClick={() => window.print()} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-[#473a6d] px-4 text-sm font-semibold text-white hover:bg-[#3a2f5a]"><Printer className="size-4"/>Imprimir o guardar como PDF</button></div></div>
-      <article id="documentation-print" className="mx-auto max-w-[800px] bg-white px-7 py-8 text-[#272533]">
-        <header className="border-b-2 border-[#473a6d] pb-4">
-          <div className="flex items-start justify-between gap-4"><div><p className="text-xs font-semibold uppercase tracking-widest text-[#6b5d8e]">{clinic?.clinicName || "Clínica"}</p><h2 className="mt-2 text-2xl font-bold">{activeDocument.title}</h2></div>{clinic?.logo && <Image src={clinic.logo} alt="Logo de la clínica" width={200} height={200} unoptimized className="max-h-20 max-w-28 object-contain"/>}</div>
-          {(clinic?.address || clinic?.city || clinic?.phone || clinic?.email) && <p className="mt-2 text-xs text-[#615f73]">{[clinic.address, clinic.city, clinic.phone, clinic.email].filter(Boolean).join(" · ")}</p>}
+      <article id="documentation-print" className="mx-auto max-w-[800px] overflow-hidden rounded-xl border border-[#e6e4ee] bg-white text-[#272533] shadow-sm print:rounded-none print:border-0 print:shadow-none [print-color-adjust:exact] [-webkit-print-color-adjust:exact]">
+        <header className="bg-gradient-to-r from-[#473a6d] to-[#6b5d8e] px-7 py-6 text-white">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/75">{clinic?.clinicName || "Clínica"}</p>
+              <h2 className="mt-2 text-3xl font-bold tracking-tight">{activeDocument.title}</h2>
+              {(clinic?.address || clinic?.city || clinic?.phone || clinic?.email) && <p className="mt-2 text-xs leading-relaxed text-white/80">{[clinic.address, clinic.city].filter(Boolean).join(", ")}{(clinic.address || clinic.city) && (clinic.phone || clinic.email) ? " · " : ""}{[clinic.phone, clinic.email].filter(Boolean).join(" · ")}</p>}
+            </div>
+            <div className="flex shrink-0 flex-col items-end gap-2 text-right">
+              {clinic?.logo && <span className="rounded-lg bg-white p-1.5"><Image src={clinic.logo} alt="Logo de la clínica" width={200} height={200} unoptimized className="max-h-14 max-w-24 object-contain"/></span>}
+              <p className="text-[11px] uppercase tracking-wider text-white/75">N° {String(activeDocument.id).padStart(5, "0")}</p>
+            </div>
+          </div>
         </header>
-        <section className="mt-5 grid gap-1 text-sm sm:grid-cols-2"><p><strong>Paciente:</strong> {patient.name}</p><p><strong>Identificación:</strong> {patient.rut || "Sin registrar"}</p><p><strong>Fecha:</strong> {formatDate(activeDocument.createdAt)}</p><p><strong>Profesional:</strong> {activeDocument.createdByName || "Sin registrar"}</p></section>
-        <div className="mt-5 space-y-4">{fields[activeDocument.kind].map(field => <section key={field.key}><h3 className="text-sm font-bold">{field.label}</h3><p className="mt-1 min-h-5 whitespace-pre-wrap text-sm leading-relaxed">{activeContent[field.key]?.trim() || "—"}</p></section>)}</div>
-        {activeDocument.kind === "consentimiento" && <p className="mt-6 rounded-lg border border-[#dddbe6] p-3 text-sm leading-relaxed">Borrador para revisión clínica. Este texto no sustituye la conversación con el paciente ni la verificación del contenido aplicable al procedimiento y sus circunstancias.</p>}
-        <footer className="mt-12 grid grid-cols-2 gap-10 text-center text-xs"><div className="flex min-h-28 flex-col items-center justify-end">{activeDocument.documentMark && <Image src={activeDocument.documentMark} alt="Imagen de firma o timbre" width={200} height={200} unoptimized className="mb-2 max-h-14 max-w-44 object-contain"/>}<div className="w-full border-t border-[#777] pt-2">Firma / timbre profesional<br/>{activeDocument.createdByName}</div></div><div className="flex min-h-28 flex-col justify-end"><div className="w-full border-t border-[#777] pt-2">Firma del paciente<br/>{patient.name}</div></div></footer>
+        <div className="px-7 pb-8 pt-6">
+          <section className="grid gap-x-8 gap-y-2 rounded-lg border border-[#e6e4ee] bg-[#faf9fc] p-4 text-sm sm:grid-cols-2">
+            <p><span className="block text-[11px] font-semibold uppercase tracking-wider text-[#6b5d8e]">Paciente</span><span className="font-semibold">{patient.name}</span></p>
+            <p><span className="block text-[11px] font-semibold uppercase tracking-wider text-[#6b5d8e]">Identificación</span>{patient.rut || "Sin registrar"}</p>
+            <p><span className="block text-[11px] font-semibold uppercase tracking-wider text-[#6b5d8e]">Edad</span>{patientAge === null ? "Sin registrar" : `${patientAge} años`}</p>
+            <p><span className="block text-[11px] font-semibold uppercase tracking-wider text-[#6b5d8e]">Fecha de emisión</span>{formatDate(activeDocument.createdAt)}</p>
+            <p className="sm:col-span-2"><span className="block text-[11px] font-semibold uppercase tracking-wider text-[#6b5d8e]">Profesional</span>{activeDocument.createdByName || "Sin registrar"}</p>
+          </section>
+          {activeDocument.kind === "receta" ? <div className="mt-6 space-y-6">
+            {activeContent.indicacion?.trim() && <section><h3 className="text-[11px] font-semibold uppercase tracking-wider text-[#6b5d8e]">Indicación o motivo</h3><p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed">{activeContent.indicacion.trim()}</p></section>}
+            <section>
+              <h3 className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-[#6b5d8e]"><span className="font-serif text-2xl normal-case italic leading-none text-[#473a6d]">Rp.</span>Prescripción</h3>
+              {prescriptionLines.length ? <ol className="mt-3 space-y-2">{prescriptionLines.map((line, index) => <li key={index} className="flex gap-3 rounded-lg border border-[#e6e4ee] px-4 py-3"><span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-[#eeebf3] text-xs font-bold text-[#473a6d]">{index + 1}</span><div><p className="font-semibold">{line.name}</p>{line.detail && <p className="mt-0.5 text-sm leading-relaxed text-[#44425a]">{line.detail}</p>}</div></li>)}</ol> : <p className="mt-2 text-sm text-[#615f73]">—</p>}
+            </section>
+            {activeContent.instrucciones?.trim() && <section className="rounded-lg bg-[#f3f1f7] p-4"><h3 className="text-[11px] font-semibold uppercase tracking-wider text-[#6b5d8e]">Instrucciones al paciente</h3><p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed">{activeContent.instrucciones.trim()}</p></section>}
+          </div> : <div className="mt-6 space-y-4">{fields[activeDocument.kind].map(field => <section key={field.key}><h3 className="text-[11px] font-semibold uppercase tracking-wider text-[#6b5d8e]">{field.label}</h3><p className="mt-1 min-h-5 whitespace-pre-wrap text-sm leading-relaxed">{activeContent[field.key]?.trim() || "—"}</p></section>)}</div>}
+          {activeDocument.kind === "consentimiento" && <p className="mt-6 rounded-lg border border-[#dddbe6] p-3 text-sm leading-relaxed">Borrador para revisión clínica. Este texto no sustituye la conversación con el paciente ni la verificación del contenido aplicable al procedimiento y sus circunstancias.</p>}
+          <footer className={`mt-14 grid gap-10 text-center text-xs ${activeDocument.kind === "receta" ? "grid-cols-1 justify-items-end" : "grid-cols-2"}`}>
+            <div className={`flex min-h-28 flex-col items-center justify-end ${activeDocument.kind === "receta" ? "w-full max-w-[320px]" : ""}`}>{activeDocument.documentMark && <Image src={activeDocument.documentMark} alt="Imagen de firma o timbre" width={200} height={200} unoptimized className="mb-2 max-h-16 max-w-44 object-contain"/>}<div className="w-full border-t border-[#777] pt-2"><span className="font-semibold">{activeDocument.createdByName}</span><br/>Firma / timbre profesional</div></div>
+            {activeDocument.kind !== "receta" && <div className="flex min-h-28 flex-col justify-end"><div className="w-full border-t border-[#777] pt-2"><span className="font-semibold">{patient.name}</span><br/>Firma del paciente</div></div>}
+          </footer>
+        </div>
       </article>
     </section>}
   </div>;

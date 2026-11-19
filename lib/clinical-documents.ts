@@ -21,3 +21,23 @@ export function cleanClinicalDocumentContent(kind: ClinicalDocumentKind, input: 
 export const CLINICAL_DOCUMENT_LABEL: Record<ClinicalDocumentKind, string> = {
   receta: "Receta", certificado: "Certificado", consentimiento: "Consentimiento informado",
 };
+
+export type PrescriptionLine = { name: string; detail: string };
+
+/** Separa cada línea de la prescripción en medicamento (destacado) y pauta. No interpreta ni completa dosis. */
+export function splitPrescriptionLines(text: string): PrescriptionLine[] {
+  return text.split(/\r?\n/).map(line => line.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "").trim()).filter(Boolean).map(line => {
+    const cut = line.match(/\s[-–—·]\s|:\s|,\s/);
+    if (!cut || cut.index === undefined || cut.index === 0) return { name: line, detail: "" };
+    return { name: line.slice(0, cut.index).trim(), detail: line.slice(cut.index + cut[0].length).trim() };
+  });
+}
+
+export function ageFromBirthDate(birthDate: string, today = new Date()): number | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(birthDate || "");
+  if (!match) return null;
+  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  let age = today.getUTCFullYear() - year;
+  if (today.getUTCMonth() + 1 < month || (today.getUTCMonth() + 1 === month && today.getUTCDate() < day)) age -= 1;
+  return age >= 0 && age < 130 ? age : null;
+}
