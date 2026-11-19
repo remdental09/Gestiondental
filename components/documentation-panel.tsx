@@ -45,13 +45,16 @@ const STATUS_LABEL: Record<string, string> = { borrador: "Borrador", emitido: "E
 const isIssued = (doc: { status: string }) => doc.status !== "borrador";
 const qrSvg = (url: string) => { const qr = qrcode(0, "M"); qr.addData(url); qr.make(); return qr.createSvgTag({ cellSize: 3, margin: 0, scalable: true }); };
 
-export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets }: {
+export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embeddedPatientId }: {
   patients: Patient[];
   budgetCounts: Record<number, number>;
   onOpenBudgets: (patientId: number) => void;
+  /** Cuando se indica, el panel vive dentro de la ficha de ese paciente y no muestra selector. */
+  embeddedPatientId?: number;
 }) {
-  const [requestedPatientId, setPatientId] = useState(0);
-  const patientId = patients.some(item => item.id === requestedPatientId) ? requestedPatientId : patients[0]?.id ?? 0;
+  const embedded = embeddedPatientId !== undefined;
+  const [requestedPatientId, setPatientId] = useState(embeddedPatientId ?? 0);
+  const patientId = embedded ? (patients.some(item => item.id === embeddedPatientId) ? embeddedPatientId : 0) : patients.some(item => item.id === requestedPatientId) ? requestedPatientId : patients[0]?.id ?? 0;
   const patient = patients.find(item => item.id === patientId) ?? null;
   const [kind, setKind] = useState<ClinicalDocumentKind>("receta");
   const [content, setContent] = useState<ClinicalDocumentContent>(blankContent);
@@ -177,7 +180,7 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets }: {
   const patientAge = patient ? ageFromBirthDate(patient.birthDate) : null;
 
   return <div className="space-y-6" data-testid="documentation-panel">
-    <section className="surface">
+    {!embedded && <section className="surface">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div><h2 className="text-lg font-semibold text-[#35343f]">Documentos del paciente</h2><p className="mt-1 max-w-3xl text-sm text-[#615f73]">Prepara recetas, certificados y consentimientos editables. Se guardan como borradores en la ficha elegida; puedes revisarlos e imprimirlos.</p></div>
         {patient && <button type="button" onClick={() => onOpenBudgets(patient.id)} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-[#b9b1ce] px-3 text-sm font-semibold text-[#473a6d] hover:bg-[#f3f1f7]"><FileText className="size-4"/>Presupuestos ({budgetCounts[patient.id] ?? 0})</button>}
@@ -189,7 +192,7 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets }: {
         </select>
       </label>
       {!patients.length && <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-950">Registra o importa un paciente para crear documentos en su ficha.</p>}
-    </section>
+    </section>}
 
     {patient && <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(320px,.82fr)]">
       <section className="surface min-w-0">
