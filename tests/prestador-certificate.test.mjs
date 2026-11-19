@@ -9,7 +9,7 @@ ${code}
 CERTIFICADO DE INSCRIPCIÓN
 EN EL REGISTRO NACIONAL
 DE PRESTADORES INDIVIDUALES DE SALUD
-Certifico que en el Registro Nacional de Prestadores Individuales de Salud, figura, bajo el N° ${reg}, la siguiente inscripción:
+Certifico que en el Registro Nacional de Prestadores Individuales de Salud que mantiene esta Superintendencia de Salud, figura, bajo el N° ${reg}, la siguiente inscripción:
 Fecha de registro: 01/03/2010
 RUN: ${run}
 Nombre Completo: Paula Ejemplo Prueba
@@ -43,6 +43,15 @@ test("rechaza lo que no es un certificado, un RUN inválido, uno vencido o futur
   assert.equal(parsePrestadorCertificate(sample({ reg: "" }).replace(/bajo el N° /, "bajo el "), today).ok, false);
 });
 
+test("el texto copiado desde un visor (sin encabezado ni saltos de línea) también se lee; el código de validación es opcional", () => {
+  const flat = sample().split("\n").slice(3).join(" ").replace(/\s+/g, " ");
+  const result = parsePrestadorCertificate(flat, today);
+  assert.equal(result.ok, true);
+  assert.equal(result.data.regSis, "12345");
+  assert.equal(result.data.validationCode, "");
+  assert.equal(result.data.profession, "Cirujano Dentista");
+});
+
 test("el RUN se compara con guion, sin puntos y con DV en mayúscula", () => {
   assert.equal(normalizeRun("13.051.751-k"), "13051751-K");
   assert.equal(normalizeRun("13051751K"), "13051751-K");
@@ -65,6 +74,7 @@ test("solo un prestador aprobado emite recetas, y el panel de revisión es solo 
   const upload = read("app/api/prestador/route.ts");
   assert.match(upload, /sameRun\(parsed\.data\.run, profile\.rut\)/);
   assert.doesNotMatch(upload, /\.put\(|R2|CLINICAL_IMAGES/); // el PDF se descarta: no se guarda
+  assert.match(upload, /application\/json/); // también acepta el texto pegado
 });
 
 test("los respaldos y la exportación aseguran las columnas antes de leer los documentos", () => {

@@ -40,10 +40,10 @@ export function parsePrestadorCertificate(rawText: string, today = new Date()): 
   const regSis = /figura,?\s*bajo\s*el\s*N[°º.]?\s*(\d{3,8})\b/i.exec(text)?.[1] ?? "";
   const run = normalizeRun(/RUN:?\s*([\d.]{6,12}\s*-?\s*[\dkK])/i.exec(text)?.[1] ?? "");
   const fullName = tidy(/Nombre Completo:?\s*(.+?)\s+(?:Sexo|Nacionalidad|Fecha nacimiento)\s*:/i.exec(text)?.[1] ?? "").slice(0, 120);
-  const validationCode = /c[oó]digo\s+validaci[oó]n:?\s*([A-Za-z0-9]{6,20})\b/i.exec(text)?.[1] ?? "";
+  const validationCode = /c[oó]digo\s+validaci[oó]n:?\s*([A-Za-z0-9]{6,20})\b/i.exec(text)?.[1] ?? ""; // opcional: al copiar el texto desde un visor puede faltar el encabezado
   const issued = /Otorgado\s+en\s+[^,]{2,40},\s*con\s+fecha\s+(\d{1,2})\s+de\s+([A-Za-zÁÉÍÓÚáéíóú]+)\s+de\s+(\d{4})/i.exec(text);
   const month = issued ? MONTHS[issued[2].toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "")] : undefined;
-  if (!regSis || !run || !fullName || !validationCode || !issued || !month) return { ok: false, error: "No se pudieron leer todos los datos del certificado. Descarga de nuevo el PDF original, sin editarlo ni escanearlo." };
+  if (!regSis || !run || !fullName || !issued || !month) return { ok: false, error: "No se pudieron leer todos los datos del certificado. Copia todo el texto de la primera página (Seleccionar todo) o sube el PDF original, sin editarlo ni escanearlo." };
   if (!isValidChileanRut(run)) return { ok: false, error: "El RUN del certificado no es válido." };
   const issuedOn = isoDate(Number(issued[1]), month, Number(issued[3]));
   const issuedAt = new Date(`${issuedOn}T12:00:00Z`);
