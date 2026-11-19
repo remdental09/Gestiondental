@@ -6,6 +6,7 @@ import { evolutions, patients } from "@/db/schema";
 import { loadAnamnesis, saveAnamnesis } from "@/app/anamnesis-db";
 import { anamnesisFromNotes, structureAnamnesis, structureInterview } from "@/lib/dictation/openai-anamnesis";
 import { localAnamnesisFromText } from "@/lib/anamnesis-interview";
+import { addMissingMedications } from "@/lib/anamnesis-drugs";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -63,10 +64,15 @@ export async function POST(request: Request) {
   if (body?.mode === "interview") {
     // Entrevista con el paciente: la IA separa voces y extrae solo lo que el paciente afirma. Si falla, orden local conservador (todo en ámbar).
     if (!key) return json({ ...localAnamnesisFromText(transcript), warning: "Falta OPENAI_API_KEY: se ordenó sin IA. Revisa cada campo." });
-    try { return json(await structureInterview(transcript, key, { model: env.OPENAI_TEXT_MODEL })); }
+    try {
+      const result = await structureInterview(transcript, key, { model: env.OPENAI_TEXT_MODEL });
+      // Red de seguridad: todo fármaco que el paciente nombró queda en «Medicamentos», aunque la IA lo haya omitido (en ámbar para confirmar).
+      const { anamnesis, added } = addMissingMedications(result.anamnesis, transcript);
+      return json({ ...result, anamnesis, doubtful: added.length && !result.doubtful.includes("medications") ? [...result.doubtful, "medications"] : result.doubtful });
+    }
     catch { return json({ ...localAnamnesisFromText(transcript), warning: "La IA no respondió: se ordenó sin IA a partir de la transcripción. Revisa cada campo en ámbar." }); }
   }
   if (!key) return json({ error: "Falta configurar OPENAI_API_KEY para ordenar el dictado." }, 503);
-  try { return json({ anamnesis: await structureAnamnesis(transcript, key, { model: env.OPENAI_TEXT_MODEL }) }); }
+  try { return json({ anamnesis: addMissingMedications(await structureAnamnesis(transcript, key, { model: env.OPENAI_TEXT_MODEL }), transcript).anamnesis }); }
   catch { return json({ error: "La IA no respondió. Reintenta o completa el formulario a mano." }, 502); }
 }
