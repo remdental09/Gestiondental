@@ -1138,10 +1138,15 @@ async function writableGoogleEvent(ownerId: string, eventId: number): Promise<{ 
 }
 
 /** Borra una cita de la agenda: en Google (si hay permiso) y, si venía de «Agendar control», también de la ficha. */
+/** La cita de un próximo control se movió o se borró en la agenda: el control la sigue (nunca bloquea la agenda). */
+const followControl = (ownerId: string, appointmentId: number, change: { day: string } | { deleted: true }) =>
+  import("@/app/followup-db").then(m => m.controlFollowsAppointment(ownerId, appointmentId, change)).catch(() => undefined);
+
 export async function deleteAgendaEvent(ownerId: string, eventId: number): Promise<AgendaEventResult> {
   const config = configuration();
   if (eventId < 0) { // cita de la ficha que no está en Google
     await database().prepare("DELETE FROM appointments WHERE owner_id = ? AND id = ?").bind(ownerId, -eventId).run();
+    await followControl(ownerId, -eventId, { deleted: true });
     return { ok: true };
   }
   if (!config.configured) return { ok: false, error: "Falta configurar Google en la aplicación." };
@@ -1157,6 +1162,7 @@ export async function deleteAgendaEvent(ownerId: string, eventId: number): Promi
   if (link) {
     await database().prepare("DELETE FROM appointments WHERE owner_id = ? AND id = ?").bind(ownerId, link.appointment_id).run();
     await database().prepare("DELETE FROM appointment_google_events WHERE owner_id = ? AND appointment_id = ?").bind(ownerId, link.appointment_id).run();
+    await followControl(ownerId, link.appointment_id, { deleted: true });
   }
   await database().prepare("UPDATE calendar_events SET status = 'cancelled', imported_at = ? WHERE owner_id = ? AND id = ?").bind(now(), ownerId, eventId).run();
   return { ok: true };
@@ -1173,6 +1179,7 @@ export async function updateAgendaEvent(ownerId: string, eventId: number, change
   const isoDay = change.day.split("-")[0].length === 4 ? change.day : change.day.split("-").reverse().join("-");
   if (eventId < 0) {
     await database().prepare("UPDATE appointments SET day = ?, time = ?, reason = ? WHERE owner_id = ? AND id = ?").bind(isoDay, change.time, splitReason(title).slice(0, 500), ownerId, -eventId).run();
+    await followControl(ownerId, -eventId, { day: isoDay });
     return { ok: true };
   }
   if (!config.configured) return { ok: false, error: "Falta configurar Google en la aplicación." };
@@ -1190,7 +1197,10 @@ export async function updateAgendaEvent(ownerId: string, eventId: number, change
   } catch (error) { return { ok: false, error: error instanceof Error ? error.message : "No se pudo cambiar en Google." }; }
   await database().prepare("UPDATE calendar_events SET title = ?, start_at = ?, end_at = ?, all_day = 0, imported_at = ? WHERE owner_id = ? AND id = ?").bind(title, startIso, endIso, now(), ownerId, eventId).run();
   const link = await database().prepare("SELECT appointment_id FROM appointment_google_events WHERE owner_id = ? AND calendar_id = ? AND event_id = ?").bind(ownerId, found.ev.calendar_id, found.ev.google_event_id).first<{ appointment_id: number }>();
-  if (link) await database().prepare("UPDATE appointments SET day = ?, time = ?, reason = ? WHERE owner_id = ? AND id = ?").bind(isoDay, change.time, splitReason(title).slice(0, 500), ownerId, link.appointment_id).run();
+  if (link) {
+    await database().prepare("UPDATE appointments SET day = ?, time = ?, reason = ? WHERE owner_id = ? AND id = ?").bind(isoDay, change.time, splitReason(title).slice(0, 500), ownerId, link.appointment_id).run();
+    await followControl(ownerId, link.appointment_id, { day: isoDay });
+  }
   return { ok: true };
 }
 
@@ -1249,5 +1259,6 @@ export async function deleteAppointmentEverywhere(ownerId: string, appointmentId
     status = result.ok ? "ok" : /solo lectura/.test(result.error) ? "solo-lectura" : "error";
   }
   await database().prepare("DELETE FROM appointments WHERE owner_id = ? AND id = ?").bind(ownerId, appointmentId).run();
+  await followControl(ownerId, appointmentId, { deleted: true });
   return status;
 }
