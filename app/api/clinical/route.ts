@@ -10,6 +10,8 @@ import { touchAppUser } from "@/app/app-users-db";
 import { isDeveloperEmail } from "@/lib/developer-dashboard";
 import { loadAddresses, saveAddress } from "@/app/patient-address-db";
 import { emptyAddress } from "@/lib/patient-address";
+import { loadProfiles, saveProfile } from "@/app/patient-profile-db";
+import { emptyProfile, normalizeProfile, profilePhonesValid } from "@/lib/patient-profile";
 import { displayName } from "@/lib/clinician-profile";
 import { ClinicalImportError, runDriveRecordImport } from "@/app/clinical-import";
 import { syncInstalledImplants } from "@/app/sync-odontogram";
@@ -260,6 +262,7 @@ export async function GET() {
       return { authorName: row?.author_name || "", authorEmail: row?.author_email || "", mine: authorId === personalId };
     };
     const addresses = await loadAddresses(ownerId);
+    const profiles = await loadProfiles(ownerId);
     const [ps, ns, bs, as, pe, ts, imgs, ces, pays, dxs] = await Promise.all([
       db.select().from(patients).where(eq(patients.ownerId, ownerId)).orderBy(patients.name),
       db.select().from(evolutions).where(eq(evolutions.ownerId, ownerId)).orderBy(desc(evolutions.clinicalDate), desc(evolutions.recordedAt)),
@@ -304,7 +307,7 @@ export async function GET() {
       return [p.id, chart];
     }));
     return Response.json({
-      patients: ps.map(p => ({ ...p, rut: p.rut || "", address: addresses.get(p.id) ?? emptyAddress() })),
+      patients: ps.map(p => ({ ...p, rut: p.rut || "", address: addresses.get(p.id) ?? emptyAddress(), profile: profiles.get(p.id) ?? emptyProfile() })),
       notes: ns.map(n => ({ id: n.id, patientId: n.patientId, date: displayDate(n.clinicalDate), clinicalDate: n.clinicalDate, recordedAt: n.recordedAt, title: n.title, body: n.body, sourceDocumentId: n.sourceDocumentId, backupStatus: n.backupStatus, diagnoses: diagnosesByNote.get(n.id) ?? [], ...annulView(n), ...authorView(n.id) })),
       budgets: await (async () => {
         // Quién armó cada presupuesto (en una clínica, el colega que lo estableció); los antiguos, del titular.
@@ -366,7 +369,7 @@ export async function POST(request: Request) {
       return Response.json({imported:true,count:parsed.length});
     }    if (action === "createPatient") {
       const name = string(input.name, 180), birthDateInput = typeof input.birthDate === "string" ? input.birthDate.trim() : "", birthDate = string(birthDateInput, 10), rutRaw = string(input.rut, 30), documentType = asDocumentType(input.documentType), phone = string(input.phone, 24), email = string(input.email, 254);
-      if (!validPhone(phone) || !validEmail(email)) return error("Revisa el teléfono y el correo electrónico.");
+      if (!validPhone(phone) || !validEmail(email) || !profilePhonesValid(normalizeProfile(input.profile))) return error("Revisa el teléfono y el correo electrónico.");
       if (!hasFourNameParts(name)) return error(fullNameRequiredMessage());
       if (birthDateInput.length > 10 || !birthDate || !validDate(birthDate) || birthDate > dateInChile() || Number(birthDate.slice(0, 4)) < Number(dateInChile().slice(0, 4)) - 125 || (rutRaw && !isValidDocument(rutRaw, documentType))) return error("Revisa el nombre, fecha de nacimiento y documento de identidad. La fecha de nacimiento es obligatoria.");
       const rut = rutRaw ? storedDocument(rutRaw, documentType) : null;
@@ -374,7 +377,8 @@ export async function POST(request: Request) {
       const t = now();
       const [p] = await db.insert(patients).values({ ownerId, name, birthDate, rut, phone, email, reason: string(input.reason, 240) || "Evaluación", status: "Evaluación", allergies: "Sin registrar", history: "Sin registrar", createdAt: t, updatedAt: t }).returning();
       const address = await saveAddress(ownerId, p.id, input.address).catch(() => emptyAddress());
-      return Response.json({ patient: { ...p, rut: documentType === "extranjero" ? (rut ?? "") : rutRaw || "", address } }, { status: 201 });
+      const profile = await saveProfile(ownerId, p.id, input.profile).catch(() => emptyProfile());
+      return Response.json({ patient: { ...p, rut: documentType === "extranjero" ? (rut ?? "") : rutRaw || "", address, profile } }, { status: 201 });
     }
     if (action === "previewDriveRecords" || action === "importDriveRecords") {
       const importer = await getChatGPTUser();
@@ -623,7 +627,7 @@ export async function POST(request: Request) {
       const hasBirthDate = Object.prototype.hasOwnProperty.call(input, "birthDate");
       const birthDateCandidate = typeof input.birthDate === "string" ? input.birthDate.trim() : "";
       const birthDate = birthDateCandidate ? string(birthDateCandidate, 10) : patient.birthDate;
-      if (!validPhone(phone) || !validEmail(email)) return error("Revisa el teléfono y el correo electrónico.");
+      if (!validPhone(phone) || !validEmail(email) || (Object.prototype.hasOwnProperty.call(input, "profile") && !profilePhonesValid(normalizeProfile(input.profile)))) return error("Revisa el teléfono y el correo electrónico.");
       if (hasBirthDate && birthDateCandidate && (birthDateCandidate.length > 10 || !validDate(birthDate) || birthDate > dateInChile() || Number(birthDate.slice(0, 4)) < Number(dateInChile().slice(0, 4)) - 125)) return error("Revisa la fecha de nacimiento.");
       const hasRut = Object.prototype.hasOwnProperty.call(input, "rut");
       const rutRaw = hasRut ? string(input.rut, 30).trim() : "";
@@ -643,7 +647,10 @@ export async function POST(request: Request) {
       const address = Object.prototype.hasOwnProperty.call(input, "address")
         ? await saveAddress(ownerId, patientId, input.address)
         : (await loadAddresses(ownerId)).get(patientId) ?? emptyAddress();
-      return Response.json({ patient: { ...updated, rut: updated.rut || "", address } });
+      const profile = Object.prototype.hasOwnProperty.call(input, "profile")
+        ? await saveProfile(ownerId, patientId, input.profile)
+        : (await loadProfiles(ownerId)).get(patientId) ?? emptyProfile();
+      return Response.json({ patient: { ...updated, rut: updated.rut || "", address, profile } });
     }
     if (action === "addNote") {
       const title = string(input.title, 180) || "Evolución clínica", body = string(input.body, 30000);
