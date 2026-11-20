@@ -1,5 +1,5 @@
 // Citas agendadas en la ficha («Agendar control») mostradas como eventos de la agenda general.
-export type FichaAppointment = { id: number; patientId: number; day: string; time: string; reason: string };
+export type FichaAppointment = { id: number; patientId: number; day: string; time: string; reason: string; minutes?: number };
 export type AgendaEvent = { id: number; title: string; startAt: string; endAt: string; sourceTimeZone: string; htmlLink: string | null; status: string; allDay: boolean; patientId: number | null };
 
 const chileParts = (date: Date) => {
@@ -25,7 +25,7 @@ export function appointmentsAsEvents(appointments: FichaAppointment[], patientNa
   for (const a of appointments) {
     const startAt = chileLocalToIso(a.day, a.time);
     if (!startAt || taken.has(`${a.patientId}|${startAt.slice(0, 16)}`)) continue;
-    const endAt = new Date(new Date(startAt).getTime() + 30 * 60000).toISOString();
+    const endAt = new Date(new Date(startAt).getTime() + (a.minutes && a.minutes > 0 ? a.minutes : 30) * 60000).toISOString();
     const name = patientName(a.patientId);
     const title = [name, a.reason].filter(Boolean).join(" · ");
     if (taken.has(`${title}|${startAt.slice(0, 16)}`)) continue;
