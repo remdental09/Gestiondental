@@ -4,7 +4,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { FileDown, Search, ArrowLeft, ChevronRight, ClipboardCheck, ClipboardList, FlaskConical, Pill, FileCheck2, FilePlus2, FileText, LoaderCircle, Pencil, Printer, ScrollText, ShieldCheck, Trash2 } from "lucide-react";
 import Image from "next/image";
 import qrcode from "qrcode-generator";
-import { ageFromBirthDate, parseMedications, MEDICATION_MAX, VIAS, type Medication, splitPrescriptionLines, isPrescriptionKind, CLINICAL_DOCUMENT_KINDS, CLINICAL_DOCUMENT_LABEL, type ClinicalDocumentContent, type ClinicalDocumentKind } from "@/lib/clinical-documents";
+import { ageFromBirthDate, parseMedications, MEDICATION_MAX, VIAS, VIAS_FRECUENTES, DOSE_UNITS, DOSE_UNIT_KEYS, TIME_UNITS, TIME_UNIT_KEYS, autoQuantityText, medicationDosis, medicationLine, type Medication, splitPrescriptionLines, isPrescriptionKind, CLINICAL_DOCUMENT_KINDS, CLINICAL_DOCUMENT_LABEL, type ClinicalDocumentContent, type ClinicalDocumentKind } from "@/lib/clinical-documents";
 import { shortCode, verificationUrl } from "@/lib/document-verification";
 import { formatAddress, type PatientAddress } from "@/lib/patient-address";
 import { registrationLine, type PublicRegistration } from "@/lib/prestador-certificate";
@@ -324,7 +324,8 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
               {medications.length + prescriptionLines.length ? <ol className="mt-2 space-y-2.5">
                 {medications.map((item, index) => <li key={`m${index}`} className="[break-inside:avoid]" data-testid="medication">
                   <p className="text-[14px] font-bold">{index + 1}. {item.nombre}</p>
-                  {(item.dosis || item.via) && <p>{item.dosis}{item.dosis && item.via ? " " : ""}{item.via && <>Vía: {item.via}</>}</p>}
+                  {medicationLine(item) && <p data-testid="medication-line">{medicationLine(item)}</p>}
+                  {item.indicaciones && <p className="whitespace-pre-line">{item.indicaciones}</p>}
                   {item.cantidad && <p>Cantidad a dispensar: {item.cantidad}</p>}
                 </li>)}
                 {prescriptionLines.map((line, index) => <li key={`l${index}`} className="[break-inside:avoid]"><p className="text-[14px] font-bold">{medications.length + index + 1}. {line.name}</p>{line.detail && <p>{line.detail}</p>}</li>)}
@@ -399,33 +400,93 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
 }
 
 
-const blankMedication = (): Medication => ({ nombre: "", dosis: "", via: "oral", cantidad: "" });
-/** Filas tal como se escriben (sin descartar las vacías); al guardar, el servidor limpia y descarta las sin nombre. */
+const blankMedication = (): Medication => ({ nombre: "", dosis: "", via: "", cantidad: "", posologia: "1", unidad: "comprimido", cada: "", cadaUnidad: "hora", duracion: "", duracionUnidad: "día", indicaciones: "" });
+const MED_KEYS = ["nombre", "dosis", "via", "cantidad", "posologia", "unidad", "cada", "cadaUnidad", "duracion", "duracionUnidad", "indicaciones"] as const;
+/** Filas tal como se escriben (sin descartar las vacías); al guardar, el servidor limpia y descarta las sin nombre.
+ *  Las recetas antiguas (pauta en texto libre, sin unidad) conservan su texto hasta que se complete la posología estructurada. */
 function editableMedications(value: string): Medication[] {
   try {
     const list = JSON.parse(value || "[]") as unknown;
-    if (Array.isArray(list) && list.length) return list.map(item => { const row = (item && typeof item === "object" ? item : {}) as Record<string, unknown>; return { nombre: String(row.nombre ?? ""), dosis: String(row.dosis ?? ""), via: String(row.via ?? ""), cantidad: String(row.cantidad ?? "") }; });
+    if (Array.isArray(list) && list.length) return list.map(item => {
+      const row = (item && typeof item === "object" ? item : {}) as Record<string, unknown>;
+      const legacy = !("unidad" in row) && Boolean(String(row.dosis ?? "").trim());
+      const base = legacy ? { ...blankMedication(), posologia: "", unidad: "" } : blankMedication();
+      return Object.fromEntries(MED_KEYS.map(key => [key, row[key] === undefined ? base[key] ?? "" : String(row[key] ?? "")])) as Medication;
+    });
   } catch { /* texto antiguo o vacío */ }
   return [blankMedication()];
 }
 
-/** Medicamentos de la receta, uno por tarjeta: nombre y concentración, dosis y duración, vía y cantidad a dispensar. */
+/** Medicamentos de la receta, uno por tarjeta, como el «Detalle tratamiento» de MekiDoc: medicamento, posología (cantidad + unidad),
+ *  cada, duración, vía, indicaciones y cantidad a dispensar (calculada cuando se puede, editable). */
 function MedicationEditor({ value, onChange }: { value: string; onChange: (next: string) => void }) {
   const rows = editableMedications(value);
-  const update = (index: number, key: keyof Medication, text: string) => onChange(JSON.stringify(rows.map((row, i) => i === index ? { ...row, [key]: text } : row)));
-  const small = "mt-1 min-h-11 w-full rounded-lg border border-[#d2d4df] bg-white px-3 py-2 text-base text-[#35343f] outline-none focus:border-[#75669d] focus:ring-2 focus:ring-[#473a6d]/15 sm:text-sm";
+  const emit = (next: Medication[]) => onChange(JSON.stringify(next));
+  const update = (index: number, key: keyof Medication, text: string) => emit(rows.map((row, i) => {
+    if (i !== index) return row;
+    const next: Medication = { ...row, [key]: text };
+    if (key !== "cantidad" && key !== "nombre" && key !== "via" && key !== "indicaciones") {
+      // La cantidad a dispensar sigue al cálculo mientras no se haya escrito a mano.
+      const previousAuto = autoQuantityText(row);
+      if (!row.cantidad || row.cantidad === previousAuto) next.cantidad = autoQuantityText(next);
+      if (next.unidad) next.dosis = medicationDosis(next);
+    }
+    return next;
+  }));
+  const field = "mt-1 min-h-11 w-full rounded-lg border border-[#d2d4df] bg-white px-3 py-2 text-base text-[#35343f] outline-none focus:border-[#75669d] focus:ring-2 focus:ring-[#473a6d]/15";
+  const label = "block text-sm font-semibold text-[#35343f]";
+  const number = (index: number, key: "posologia" | "cada" | "duracion", value: string, testId: string, aria: string) =>
+    <input className={field} type="text" inputMode="decimal" pattern="[0-9]*[.,]?[0-9]*" autoComplete="off" value={value} aria-label={aria} placeholder={key === "posologia" ? "1" : "Ej. 8"}
+      onChange={event => update(index, key, event.target.value.replace(/[^0-9.,]/g, "").slice(0, 7))} data-testid={testId}/>;
+  const timeSelect = (index: number, key: "cadaUnidad" | "duracionUnidad", value: string, testId: string, aria: string) =>
+    <select className={field} value={value} aria-label={aria} onChange={event => update(index, key, event.target.value)} data-testid={testId}>
+      {TIME_UNIT_KEYS.map(unit => <option key={unit} value={unit}>{TIME_UNITS[unit].singular}</option>)}
+    </select>;
   return <fieldset className="space-y-3" data-testid="medication-editor">
     <legend className="text-sm font-semibold text-[#35343f]">Medicamentos</legend>
-    <datalist id="receta-vias">{VIAS.map(via => <option key={via} value={via}/>)}</datalist>
-    {rows.map((row, index) => <div key={index} className="rounded-lg border border-[#e6e4ee] bg-[#faf9fc] p-3" data-testid="medication-row">
-      <div className="flex items-center justify-between gap-2"><p className="text-xs font-bold uppercase tracking-wider text-[#6b5d8e]">Medicamento {index + 1}</p>{rows.length > 1 && <button type="button" onClick={() => onChange(JSON.stringify(rows.filter((_, i) => i !== index)))} className="inline-flex min-h-9 items-center gap-1 rounded-lg px-2 text-xs font-semibold text-rose-800 hover:bg-rose-50" aria-label={`Quitar medicamento ${index + 1}`}><Trash2 className="size-3.5"/>Quitar</button>}</div>
-      <label className="mt-2 block text-xs font-semibold text-[#35343f]">Nombre y concentración<input className={small} value={row.nombre} onChange={event => update(index, "nombre", event.target.value)} placeholder="Ej. Ibuprofeno 400 mg comprimidos" data-testid="medication-nombre"/></label>
-      <label className="mt-2 block text-xs font-semibold text-[#35343f]">Dosis y duración<input className={small} value={row.dosis} onChange={event => update(index, "dosis", event.target.value)} placeholder="Ej. 1 comprimido cada 8 horas por 3 días" data-testid="medication-dosis"/></label>
-      <div className="mt-2 grid grid-cols-2 gap-2">
-        <label className="block text-xs font-semibold text-[#35343f]">Vía<input className={small} list="receta-vias" value={row.via} onChange={event => update(index, "via", event.target.value)} placeholder="oral" data-testid="medication-via"/></label>
-        <label className="block text-xs font-semibold text-[#35343f]">Cantidad a dispensar<input className={small} value={row.cantidad} onChange={event => update(index, "cantidad", event.target.value)} placeholder="Ej. 9 comprimidos" data-testid="medication-cantidad"/></label>
-      </div>
-    </div>)}
-    {rows.length < MEDICATION_MAX && <button type="button" onClick={() => onChange(JSON.stringify([...rows, blankMedication()]))} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-[#b9b1ce] bg-white px-3 text-sm font-semibold text-[#473a6d] hover:bg-[#f3f1f7]" data-testid="medication-add"><FilePlus2 className="size-4"/>Agregar medicamento</button>}
+    {rows.map((row, index) => {
+      const auto = autoQuantityText(row);
+      const legacy = !row.unidad && row.dosis.trim();
+      const line = medicationLine({ ...row, dosis: row.unidad ? medicationDosis(row) : row.dosis });
+      return <div key={index} className="space-y-3 rounded-xl border border-[#e6e4ee] bg-[#faf9fc] p-3 sm:p-4" data-testid="medication-row">
+        <div className="flex items-center justify-between gap-2"><p className="text-xs font-bold uppercase tracking-wider text-[#6b5d8e]">Medicamento {index + 1}</p>{rows.length > 1 && <button type="button" onClick={() => emit(rows.filter((_, i) => i !== index))} className="inline-flex min-h-11 items-center gap-1 rounded-lg px-2 text-sm font-semibold text-rose-800 hover:bg-rose-50" aria-label={`Quitar medicamento ${index + 1}`}><Trash2 className="size-4"/>Quitar</button>}</div>
+        <label className={label}>Medicamento<input className={field} value={row.nombre} onChange={event => update(index, "nombre", event.target.value)} placeholder="Ej. Amoxicilina 500 mg" autoComplete="off" data-testid="medication-nombre"/></label>
+        <div><p className={label} id={`pos-${index}`}>Posología</p>
+          <div className="grid grid-cols-[5.5rem_1fr] gap-2" role="group" aria-labelledby={`pos-${index}`}>
+            {number(index, "posologia", row.posologia ?? "", "medication-posologia", "Cantidad por toma")}
+            <select className={field} value={row.unidad ?? ""} aria-label="Unidad" onChange={event => update(index, "unidad", event.target.value)} data-testid="medication-unidad">
+              {!row.unidad && <option value="">Seleccionar</option>}
+              {DOSE_UNIT_KEYS.map(unit => <option key={unit} value={unit}>{DOSE_UNITS[unit].label ?? unit}</option>)}
+            </select>
+          </div></div>
+        <div><p className={label} id={`cada-${index}`}>Cada</p>
+          <div className="grid grid-cols-[5.5rem_1fr] gap-2" role="group" aria-labelledby={`cada-${index}`}>
+            {number(index, "cada", row.cada ?? "", "medication-cada", "Cada cuánto")}
+            {timeSelect(index, "cadaUnidad", row.cadaUnidad || "hora", "medication-cada-unidad", "Unidad de frecuencia")}
+          </div></div>
+        <div><p className={label} id={`dur-${index}`}>Duración</p>
+          <div className="grid grid-cols-[5.5rem_1fr] gap-2" role="group" aria-labelledby={`dur-${index}`}>
+            {number(index, "duracion", row.duracion ?? "", "medication-duracion", "Duración")}
+            {timeSelect(index, "duracionUnidad", row.duracionUnidad || "día", "medication-duracion-unidad", "Unidad de duración")}
+          </div></div>
+        <label className={label}>Vía
+          <select className={field} value={row.via} onChange={event => update(index, "via", event.target.value)} data-testid="medication-via">
+            <option value="">Seleccionar</option>
+            {row.via && !VIAS.includes(row.via) && <option value={row.via}>{row.via}</option>}
+            <optgroup label="Frecuentes en odontología">{VIAS_FRECUENTES.map(via => <option key={`f-${via}`} value={via}>{via}</option>)}</optgroup>
+            <optgroup label="Todas (A–Z)">{VIAS.map(via => <option key={via} value={via}>{via}</option>)}</optgroup>
+          </select></label>
+        <label className={label}>Indicaciones <span className="font-normal text-[#615f73]">(Opcional)</span>
+          <textarea className={`${field} min-h-20`} rows={2} value={row.indicaciones ?? ""} onChange={event => update(index, "indicaciones", event.target.value)} placeholder="Ej. Tomar después de las comidas" data-testid="medication-indicaciones"/></label>
+        <label className={label}>Cantidad a dispensar
+          <input className={field} value={row.cantidad} onChange={event => update(index, "cantidad", event.target.value)} placeholder={auto || "Ej. 1 frasco"} autoComplete="off" data-testid="medication-cantidad"/>
+          {auto && row.cantidad === auto && <span className="mt-1 block text-xs font-normal text-[#615f73]">Calculada automáticamente; puedes cambiarla.</span>}
+          {auto && row.cantidad && row.cantidad !== auto && <button type="button" onClick={() => update(index, "cantidad", auto)} className="mt-1 block min-h-9 text-left text-sm font-semibold text-[#473a6d] underline">Usar cálculo: {auto}</button>}
+        </label>
+        {legacy && <label className={label}>Pauta escrita (receta anterior)<input className={field} value={row.dosis} onChange={event => update(index, "dosis", event.target.value)} data-testid="medication-dosis"/><span className="mt-1 block text-xs font-normal text-[#615f73]">Se reemplaza al elegir la unidad de posología.</span></label>}
+        {(line || row.cantidad) && <div className="rounded-lg bg-white p-2.5 text-sm text-[#35343f] ring-1 ring-[#e6e4ee]" data-testid="medication-preview"><p className="text-xs font-bold uppercase tracking-wider text-[#6b5d8e]">Así se imprimirá</p>{line && <p>{line}</p>}{row.indicaciones?.trim() && <p className="whitespace-pre-line">{row.indicaciones.trim()}</p>}{row.cantidad && <p>Cantidad a dispensar: {row.cantidad}</p>}</div>}
+      </div>;
+    })}
+    {rows.length < MEDICATION_MAX && <button type="button" onClick={() => emit([...rows, blankMedication()])} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-[#b9b1ce] bg-white px-3 text-sm font-semibold text-[#473a6d] hover:bg-[#f3f1f7]" data-testid="medication-add"><FilePlus2 className="size-4"/>Agregar medicamento</button>}
   </fieldset>;
 }
