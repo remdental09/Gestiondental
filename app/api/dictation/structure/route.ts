@@ -1,3 +1,4 @@
+import { parseSensitivity } from "@/lib/dictation/sensitivity";
 import { env } from "cloudflare:workers";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { focusedToothReview, proposeFromTranscript, sanitizeChart } from "@/lib/dictation/proposal";
@@ -42,7 +43,7 @@ export async function POST(request: Request) {
     const chart = sanitizeChart(record.chart);
     const target = chart[0];
     const review = record.focused === true && chart.length === 1 && target ? focusedToothReview(transcript, target.tooth) : undefined;
-    const outcome = await proposeFromTranscript({ transcript, chart, ...sanitizePatient(record.patient) }, model, undefined, { ...(agent ? { timeoutMs: 80_000 } : {}), learned });
+    const outcome = await proposeFromTranscript({ transcript, chart, ...sanitizePatient(record.patient) }, model, undefined, { ...(agent ? { timeoutMs: 80_000 } : {}), learned, sensitivity: parseSensitivity(record.sensitivity) });
     return Response.json({ ...outcome, review }, { headers: { "Cache-Control": "no-store" } });
   } catch (cause) {
     const message = cause instanceof Error && cause.message ? cause.message : "No se pudo preparar la propuesta.";
