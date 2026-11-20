@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BellRing, CalendarClock, MessageCircle, Phone, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { chileTodayIso } from "@/lib/dictation/voice-command";
+import { scrollBelowHeader } from "@/lib/scroll-below-header";
 import { addDays, addMonths, CONTROL_STATUSES, controlBucket, controlMatches, DEFAULT_CONTROL_TIME, weekendName, whatsappLink, type ControlStatus } from "@/lib/next-control";
 
 export type ControlView = { id: number; patientId: number; dueOn: string; reason: string; note: string; status: ControlStatus; evolutionId: number | null; createdBy: string; createdAt: string; updatedAt: string; appointmentId?: number | null; appointmentTime?: string; patientName?: string; patientPhone?: string };
@@ -162,9 +163,15 @@ export function ControlsHomeCard({ onOpen }: { onOpen: () => void }) {
 }
 
 /** Lista «Próximos controles» (como en Dentalsoft): filtros, estado, última nota y contacto por teléfono o WhatsApp. */
-export function NextControlsPanel({ onOpenPatient, clinicName }: { onOpenPatient: (patientId: number) => void; clinicName?: string }) {
+/** Control nuevo abierto desde el riel de una evolución: paciente y evolución ya elegidos. */
+export type ControlStart = { patientId: number; patientName: string; evolutions: Array<{ id: number; title: string; date: string }>; evolutionId: number | null; nonce: number };
+
+export function NextControlsPanel({ onOpenPatient, clinicName, start }: { onOpenPatient: (patientId: number) => void; clinicName?: string; start?: ControlStart | null }) {
   const { controls, error } = useControls();
-  const [filter, setFilter] = useState<Filter>("vencidos");
+  const [filter, setFilter] = useState<Filter>(start ? "todos" : "vencidos");
+  const [startOpen, setStartOpen] = useState(Boolean(start));
+  const startRef = useRef<HTMLElement | null>(null);
+  useEffect(() => { if (!start) return; const timer = window.setTimeout(() => scrollBelowHeader(startRef.current), 80); return () => window.clearTimeout(timer); }, [start]);
   const [showClosed, setShowClosed] = useState(false);
   const [noteFor, setNoteFor] = useState<{ id: number; text: string } | null>(null);
   const [busy, setBusy] = useState<number | null>(null);
@@ -185,6 +192,11 @@ export function NextControlsPanel({ onOpenPatient, clinicName }: { onOpenPatient
     <div className="flex flex-wrap gap-2" role="group" aria-label="Filtrar controles">
       {FILTERS.map(([key, label]) => <button key={key} type="button" aria-pressed={filter === key} onClick={() => setFilter(key)} className={`min-h-9 rounded-full border px-3 text-sm font-semibold ${filter === key ? (key === "vencidos" ? "border-rose-700 bg-rose-700 text-white" : "border-[#473a6d] bg-[#473a6d] text-white") : "border-[#dddbe6] bg-white text-[#3a2f5a]"}`} data-testid={`controls-filter-${key}`}>{label} <span className="font-normal">({counts[key]})</span></button>)}
     </div>
+    {start && startOpen && <section ref={startRef} className="rounded-xl border-2 border-[#473a6d] bg-[#faf9fc] p-3" data-testid="control-new">
+      <h3 className="text-base font-semibold text-[#2c2640]">Nuevo control · <span data-testid="control-new-patient">{start.patientName}</span></h3>
+      <p className="mb-2 text-sm text-[#615f73]">Desde la evolución de la ficha. Elige la fecha y guarda.</p>
+      <ScheduleControlForm patientId={start.patientId} evolutions={start.evolutions} defaultEvolutionId={start.evolutionId} onDone={(_, calendar) => { setStartOpen(false); setNotice(calendar); }} onCancel={() => setStartOpen(false)}/>
+    </section>}
     {notice && <ControlCalendarNotice status={notice} onClose={() => setNotice(null)}/>}
     {(error || actionError) && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-2 text-sm text-rose-900">{actionError || error}</p>}
     {controls === null ? <p role="status" className="text-sm text-[#6b6a7c]">Cargando controles…</p>

@@ -14,6 +14,7 @@ import { qrCaption } from "@/lib/prestador-qr";
 import { PrestadorCard, usePrestador } from "@/components/prestador-card";
 import { useTrimmedMark } from "@/components/signature-editor";
 import { mountPrintCopy, printNode, PRINT_CLASS } from "@/lib/print-node";
+import { scrollBelowHeader } from "@/lib/scroll-below-header";
 
 type Patient = { id: number; name: string; birthDate: string; rut: string; phone: string; email: string; address?: PatientAddress };
 type SavedDocument = { id: number; patientId: number; kind: ClinicalDocumentKind; title: string; content: string; status: string; createdBy: string; createdByName: string; authorTitle?: string | null; createdAt: string; documentMark: string; verifyToken?: string | null; contentHash?: string; issuedAt?: string; revokedAt?: string; revokedReason?: string; replacesId?: number | null; registration?: PublicRegistration | null };
@@ -82,23 +83,30 @@ const doctorTitle = (doc: { createdByName: string; authorTitle?: string | null }
 const authorName = (doc: { createdByName: string; authorTitle?: string | null }) => doc.createdByName ? withTitle(doc.createdByName, doctorTitle(doc)) : "";
 const qrSvg = (url: string) => { const qr = qrcode(0, "M"); qr.addData(url); qr.make(); return qr.createSvgTag({ cellSize: 3, margin: 0, scalable: true }); };
 
-export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embeddedPatientId }: {
+/** Documento nuevo abierto desde otra pantalla (riel de la evolución): paciente, tipo y datos iniciales. Se monta con `key` = nonce. */
+export type DocumentStart = { patientId: number; kind: ClinicalDocumentKind; content?: Partial<ClinicalDocumentContent>; nonce: number };
+
+export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embeddedPatientId, start }: {
   patients: Patient[];
   budgetCounts: Record<number, number>;
   onOpenBudgets: (patientId: number) => void;
   /** Cuando se indica, el panel vive dentro de la ficha de ese paciente y no muestra selector. */
   embeddedPatientId?: number;
+  start?: DocumentStart | null;
 }) {
   const embedded = embeddedPatientId !== undefined;
-  const [requestedPatientId, setPatientId] = useState(embeddedPatientId ?? 0);
+  const [requestedPatientId, setPatientId] = useState(start?.patientId ?? embeddedPatientId ?? 0);
   const patientId = embedded ? (patients.some(item => item.id === embeddedPatientId) ? embeddedPatientId : 0) : patients.some(item => item.id === requestedPatientId) ? requestedPatientId : 0;
   const [query, setQuery] = useState("");
   const searchResults = useMemo(() => searchPatients(patients, query), [patients, query]);
   const patient = patients.find(item => item.id === patientId) ?? null;
-  const [kind, setKind] = useState<ClinicalDocumentKind>("receta");
-  const [composing, setComposing] = useState(false);
+  const [kind, setKind] = useState<ClinicalDocumentKind>(start?.kind ?? "receta");
+  const [composing, setComposing] = useState(Boolean(start));
+  const composeRef = useRef<HTMLElement | null>(null);
+  // Abierto desde el riel: se lleva la vista al formulario (en iPhone queda debajo de la búsqueda de paciente).
+  useEffect(() => { if (!start) return; const timer = window.setTimeout(() => scrollBelowHeader(composeRef.current), 80); return () => window.clearTimeout(timer); }, [start]);
   const previewRef = useRef<HTMLElement | null>(null);
-  const [content, setContent] = useState<ClinicalDocumentContent>(blankContent);
+  const [content, setContent] = useState<ClinicalDocumentContent>(() => ({ ...blankContent(), ...Object.fromEntries(Object.entries(start?.content ?? {}).filter(([, v]) => typeof v === "string")) as ClinicalDocumentContent }));
   const [documentsState, setDocumentsState] = useState<{ patientId: number; documents: SavedDocument[]; error: string }>({ patientId: 0, documents: [], error: "" });
   const [activeDocumentId, setActiveDocumentId] = useState<number | null>(null);
   const [clinic, setClinic] = useState<ClinicInfo | null>(null);
@@ -350,7 +358,7 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
     </section>}
 
     {patient && <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(320px,.82fr)]">
-      <section className="surface min-w-0">
+      <section ref={composeRef} className="surface min-w-0" data-testid="documentation-compose">
         {!composing ? <div data-testid="documentation-menu">
           <h2 className="text-lg font-semibold">Nuevo documento</h2>
           <p className="text-sm text-[#615f73]">Elige el tipo de documento que necesitas para este paciente.</p>
@@ -365,7 +373,7 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
             </li>; })}
           </ul>
         </div> : <>
-        <div className="flex items-center gap-3"><button type="button" onClick={() => { setComposing(false); setReplacingId(null); setError(""); }} aria-label="Volver a tipos de documento" className="flex size-10 shrink-0 items-center justify-center rounded-full hover:bg-[#f3f1f7]"><ArrowLeft className="size-5"/></button><div><h2 className="text-lg font-semibold">{CLINICAL_DOCUMENT_LABEL[kind]}</h2><p className="text-sm text-[#615f73]">Completa solo los datos que correspondan y guarda para abrir la vista de impresión.</p></div></div>
+        <div className="flex items-center gap-3"><button type="button" onClick={() => { setComposing(false); setReplacingId(null); setError(""); }} aria-label="Volver a tipos de documento" className="flex size-10 shrink-0 items-center justify-center rounded-full hover:bg-[#f3f1f7]"><ArrowLeft className="size-5"/></button><div><h2 className="text-lg font-semibold">{CLINICAL_DOCUMENT_LABEL[kind]}</h2><p className="text-sm font-semibold text-[#473a6d]" data-testid="documentation-compose-patient">Paciente: {patient.name}</p><p className="text-sm text-[#615f73]">Completa solo los datos que correspondan y guarda para abrir la vista de impresión.</p></div></div>
         <div className="mt-4 space-y-3">
           {fields[kind].map(field => <Fragment key={field.key}>{kind === "receta" && field.key === "prescripcion" && <MedicationEditor value={content.medicamentos ?? ""} onChange={next => setContent(previous => ({ ...previous, medicamentos: next }))}/>}<label className="block text-sm font-semibold text-[#35343f]">{field.label}
             {field.rows ? <textarea rows={field.rows} value={content[field.key] ?? ""} onChange={event => setContent(previous => ({ ...previous, [field.key]: event.target.value }))} placeholder={field.hint} className={inputClass + " resize-y"}/> : <input value={content[field.key] ?? ""} onChange={event => setContent(previous => ({ ...previous, [field.key]: event.target.value }))} placeholder={field.hint} className={inputClass}/>}
