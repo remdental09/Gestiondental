@@ -9,13 +9,14 @@ import { shortCode, verificationUrl } from "@/lib/document-verification";
 import { formatAddress, type PatientAddress } from "@/lib/patient-address";
 import { registrationLine, type PublicRegistration } from "@/lib/prestador-certificate";
 import { formatChileanRut, isValidChileanRut } from "@/lib/patient-document";
+import { asProfessionalTitle, withTitle } from "@/lib/clinician-profile";
 import { qrCaption } from "@/lib/prestador-qr";
 import { PrestadorCard, usePrestador } from "@/components/prestador-card";
 import { useTrimmedMark } from "@/components/signature-editor";
 import { mountPrintCopy, printNode, PRINT_CLASS } from "@/lib/print-node";
 
 type Patient = { id: number; name: string; birthDate: string; rut: string; phone: string; email: string; address?: PatientAddress };
-type SavedDocument = { id: number; patientId: number; kind: ClinicalDocumentKind; title: string; content: string; status: string; createdBy: string; createdByName: string; createdAt: string; documentMark: string; verifyToken?: string | null; contentHash?: string; issuedAt?: string; revokedAt?: string; revokedReason?: string; replacesId?: number | null; registration?: PublicRegistration | null };
+type SavedDocument = { id: number; patientId: number; kind: ClinicalDocumentKind; title: string; content: string; status: string; createdBy: string; createdByName: string; authorTitle?: string | null; createdAt: string; documentMark: string; verifyToken?: string | null; contentHash?: string; issuedAt?: string; revokedAt?: string; revokedReason?: string; replacesId?: number | null; registration?: PublicRegistration | null };
 type ClinicInfo = { clinicName: string; address: string; city: string; phone: string; email: string; logo: string };
 type Field = { key: string; label: string; hint: string; rows?: number };
 const fields: Record<ClinicalDocumentKind, Field[]> = {
@@ -76,8 +77,9 @@ const formatDate = (iso: string) => {
 
 const STATUS_LABEL: Record<string, string> = { borrador: "Borrador", emitido: "Emitido", anulado: "Anulado", reemplazado: "Reemplazado" };
 const isIssued = (doc: { status: string }) => doc.status !== "borrador";
-/** «Dr(a). », «Dr. » o «Dra. » según cómo firma el profesional en su perfil. */
-const doctorTitle = (name: string) => (/^(Dr\(a\)\.|Dra\.|Dr\.)\s*/.exec(name)?.[1] ?? "Dr(a).") + " ";
+/** Tratamiento del autor: el que eligió en su perfil (authorTitle) o, si no llega, el del nombre guardado. */
+const doctorTitle = (doc: { createdByName: string; authorTitle?: string | null }) => asProfessionalTitle(doc.authorTitle ?? /^(Dr\(a\)\.|Dra\.|Dr\.)/.exec(doc.createdByName)?.[1]);
+const authorName = (doc: { createdByName: string; authorTitle?: string | null }) => doc.createdByName ? withTitle(doc.createdByName, doctorTitle(doc)) : "";
 const qrSvg = (url: string) => { const qr = qrcode(0, "M"); qr.addData(url); qr.make(); return qr.createSvgTag({ cellSize: 3, margin: 0, scalable: true }); };
 
 export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embeddedPatientId }: {
@@ -260,7 +262,7 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
         const reg: PublicRegistration | null = doc.registration ?? (doc.status === "borrador" && registration?.status === "aprobado" ? registration : null);
         // La receta lleva SIEMPRE el QR de habilitación de la Superintendencia: sin él no se imprime (no hay opción para ocultarlo).
         const missingQr = prescription && !reg?.qrUrl;
-        const doctorName = reg?.fullName ? `${doctorTitle(doc.createdByName)}${reg.fullName}` : doc.createdByName || "Profesional";
+        const doctorName = reg?.fullName ? `${doctorTitle(doc)} ${reg.fullName}` : authorName(doc) || "Profesional";
         const doctorRut = reg?.run ? formatChileanRut(reg.run) : "";
         const professionLine = reg ? `${reg.profession} (${registrationLine(reg)})` : "";
         const clinicAddress = [clinic?.address, clinic?.city].filter(Boolean).join(", ");
@@ -380,7 +382,7 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
       <div className="min-w-0 space-y-6">
         <section className={cardClass}>
           <div className="flex items-center gap-2"><ScrollText className="size-5 text-[#473a6d]"/><h2 className="font-semibold">Documentos guardados</h2></div>
-          {documentLoading ? <p className="mt-3 text-sm text-[#615f73]" role="status">Cargando documentos…</p> : documentLoadError ? <p role="alert" className="mt-3 text-sm text-rose-800">{documentLoadError}</p> : documents.length ? <ul className="mt-3 space-y-2">{documents.map(document => <li key={document.id}><button type="button" onClick={() => { setActiveDocumentId(document.id); setNotice(""); }} aria-pressed={activeDocument?.id === document.id} className={`w-full rounded-lg border p-3 text-left ${activeDocument?.id === document.id ? "border-[#9b8cba] bg-[#f4f2f7]" : "border-[#e6e4ee] bg-white hover:bg-[#f8f7fa]"}`}><span className="flex items-center justify-between gap-2"><strong className="text-sm">{document.title}</strong><span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${document.status === "emitido" ? "bg-emerald-100 text-emerald-900" : document.status === "anulado" ? "bg-rose-100 text-rose-900" : document.status === "reemplazado" ? "bg-orange-100 text-orange-900" : "bg-[#eeebf3] text-[#473a6d]"}`}>{STATUS_LABEL[document.status] ?? document.status}</span></span><span className="mt-1 block text-xs text-[#615f73]">{formatDate(document.createdAt)}{document.createdByName ? ` · ${document.createdByName}` : ""}</span></button></li>)}</ul> : <p className="mt-3 rounded-lg bg-[#f7f6fa] p-3 text-sm text-[#615f73]">Todavía no hay documentos en esta ficha.</p>}
+          {documentLoading ? <p className="mt-3 text-sm text-[#615f73]" role="status">Cargando documentos…</p> : documentLoadError ? <p role="alert" className="mt-3 text-sm text-rose-800">{documentLoadError}</p> : documents.length ? <ul className="mt-3 space-y-2">{documents.map(document => <li key={document.id}><button type="button" onClick={() => { setActiveDocumentId(document.id); setNotice(""); }} aria-pressed={activeDocument?.id === document.id} className={`w-full rounded-lg border p-3 text-left ${activeDocument?.id === document.id ? "border-[#9b8cba] bg-[#f4f2f7]" : "border-[#e6e4ee] bg-white hover:bg-[#f8f7fa]"}`}><span className="flex items-center justify-between gap-2"><strong className="text-sm">{document.title}</strong><span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${document.status === "emitido" ? "bg-emerald-100 text-emerald-900" : document.status === "anulado" ? "bg-rose-100 text-rose-900" : document.status === "reemplazado" ? "bg-orange-100 text-orange-900" : "bg-[#eeebf3] text-[#473a6d]"}`}>{STATUS_LABEL[document.status] ?? document.status}</span></span><span className="mt-1 block text-xs text-[#615f73]">{formatDate(document.createdAt)}{document.createdByName ? ` · ${authorName(document)}` : ""}</span></button></li>)}</ul> : <p className="mt-3 rounded-lg bg-[#f7f6fa] p-3 text-sm text-[#615f73]">Todavía no hay documentos en esta ficha.</p>}
         </section>
 
         <PrestadorCard state={prestador}/>

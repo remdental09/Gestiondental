@@ -1,15 +1,17 @@
 "use client";
+
+import { TitleSelect } from "@/components/professional-title";
 import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { SignatureEditor } from "@/components/signature-editor";
 import { PrestadorPanel } from "@/components/prestador-card";
-import { COUNTRIES, SPECIALTIES, checkProfile, displayName, formatDocument, professionalDocumentTypeOf, type ClinicianProfile, type ProfessionalDocumentType } from "@/lib/clinician-profile";
+import { COUNTRIES, DEFAULT_TITLE, SPECIALTIES, asProfessionalTitle, checkProfile, displayName, type ProfessionalTitle, formatDocument, professionalDocumentTypeOf, type ClinicianProfile, type ProfessionalDocumentType } from "@/lib/clinician-profile";
 
 const field = "mt-1 block min-h-11 w-full rounded-lg border border-[#d2d4df] bg-white px-3 text-base text-[#35343f] focus-visible:outline-2 focus-visible:outline-[#473a6d]";
 
 /** «Mi perfil»: el profesional corrige sus datos o suma un título. Queda ligado al correo con el que ingresó; el correo no se edita aquí. */
 export function ProfileDialog({ email, onClose, onSaved }: { email: string; onClose: () => void; onSaved: (profile: ClinicianProfile) => void }) {
-  const [form, setForm] = useState({ firstName: "", lastName: "", rut: "", specialty: "", extraTitles: "", clinicName: "", country: "Chile", documentType: "rut" as ProfessionalDocumentType });
+  const [form, setForm] = useState({ firstName: "", lastName: "", rut: "", specialty: "", extraTitles: "", clinicName: "", country: "Chile", title: DEFAULT_TITLE as ProfessionalTitle, documentType: "rut" as ProfessionalDocumentType });
   const [original, setOriginal] = useState<typeof form | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(""), [saving, setSaving] = useState(false), [done, setDone] = useState("");
@@ -23,7 +25,7 @@ export function ProfileDialog({ email, onClose, onSaved }: { email: string; onCl
         const response = await fetch("/api/profile", { cache: "no-store" });
         const data = await response.json() as { profile?: ClinicianProfile | null; error?: string };
         if (!response.ok) throw new Error(data.error || "No se pudo leer tu perfil.");
-        const loaded = { firstName: data.profile?.firstName ?? "", lastName: data.profile?.lastName ?? "", rut: data.profile?.rut ?? "", specialty: data.profile?.specialty ?? "", extraTitles: data.profile?.extraTitles ?? "", clinicName: data.profile?.clinicName ?? "", country: data.profile?.country || "Chile", documentType: professionalDocumentTypeOf(data.profile?.rut) };
+        const loaded = { firstName: data.profile?.firstName ?? "", lastName: data.profile?.lastName ?? "", rut: data.profile?.rut ?? "", specialty: data.profile?.specialty ?? "", extraTitles: data.profile?.extraTitles ?? "", clinicName: data.profile?.clinicName ?? "", country: data.profile?.country || "Chile", title: asProfessionalTitle(data.profile?.title), documentType: professionalDocumentTypeOf(data.profile?.rut) };
         if (active) { setForm(loaded); setOriginal(loaded); setLoading(false); setTimeout(() => firstRef.current?.focus(), 0); }
       } catch (e) { if (active) { setError(e instanceof Error ? e.message : "No se pudo leer tu perfil."); setLoading(false); } }
     })();
@@ -52,7 +54,7 @@ export function ProfileDialog({ email, onClose, onSaved }: { email: string; onCl
       const response = await fetch("/api/profile", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
       const data = await response.json().catch(() => ({})) as { error?: string; profile?: ClinicianProfile };
       if (!response.ok || !data.profile) { setError(data.error || "No se pudo guardar. Inténtalo de nuevo."); return; }
-      const saved = { firstName: data.profile.firstName, lastName: data.profile.lastName, rut: data.profile.rut, specialty: data.profile.specialty, extraTitles: data.profile.extraTitles ?? "", clinicName: data.profile.clinicName ?? "", country: data.profile.country || "Chile", documentType: professionalDocumentTypeOf(data.profile.rut) };
+      const saved = { firstName: data.profile.firstName, lastName: data.profile.lastName, rut: data.profile.rut, specialty: data.profile.specialty, extraTitles: data.profile.extraTitles ?? "", clinicName: data.profile.clinicName ?? "", country: data.profile.country || "Chile", title: asProfessionalTitle(data.profile.title), documentType: professionalDocumentTypeOf(data.profile.rut) };
       setForm(saved); setOriginal(saved); setDone("Perfil actualizado.");
       onSaved(data.profile);
     } catch { setError("No se pudo conectar. Revisa tu conexión e inténtalo de nuevo."); }
@@ -71,6 +73,9 @@ export function ProfileDialog({ email, onClose, onSaved }: { email: string; onCl
       </div>
       {loading ? <p className="mt-5 text-sm text-[#615f73]" role="status">Cargando tu perfil…</p> : <>
         <div className="mt-5 grid gap-4">
+          <label className="text-sm font-medium text-[#35343f]">Título en tus documentos
+            <TitleSelect className={field} value={form.title} onChange={title => { setForm(current => ({ ...current, title })); setDone(""); }}/>
+          </label>
           <div className="grid grid-cols-2 gap-3">
             <label className="text-sm font-medium text-[#35343f]">Nombre<input ref={firstRef} className={field} autoComplete="given-name" value={form.firstName} onChange={e => set("firstName")(e.target.value)} /></label>
             <label className="text-sm font-medium text-[#35343f]">Apellido<input className={field} autoComplete="family-name" value={form.lastName} onChange={e => set("lastName")(e.target.value)} /></label>
@@ -104,7 +109,7 @@ export function ProfileDialog({ email, onClose, onSaved }: { email: string; onCl
         </div>
         <div className="mt-5 border-t border-[#e6e4ee] pt-4"><SignatureEditor compact/></div>
         <div className="mt-5 border-t border-[#e6e4ee] pt-4"><PrestadorPanel/></div>
-        <p className="mt-3 text-xs text-[#6b6a7c]">Se mostrará como {form.firstName.trim() && form.lastName.trim() ? displayName(form) : "Dr(a). Nombre Apellido"}.</p>
+        <p className="mt-3 text-xs text-[#6b6a7c]">Se mostrará como {form.firstName.trim() && form.lastName.trim() ? displayName(form) : `${form.title} Nombre Apellido`}.</p>
         {error && <p role="alert" className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-800">{error}</p>}
         {done && !error && <p role="status" className="mt-4 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800">{done}</p>}
         <p className="mt-4 text-xs text-[#6b6a7c]" data-testid="profile-save-hint">{changed ? "Tienes cambios sin guardar en tus datos." : "«Guardar cambios» guarda tu nombre, RUT, especialidad y clínica. La firma se guarda con su propio botón «Guardar» y el certificado de habilitación al subirlo."}</p>

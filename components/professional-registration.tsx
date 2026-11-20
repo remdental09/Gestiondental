@@ -1,7 +1,9 @@
 "use client";
+
+import { TitleSelect } from "@/components/professional-title";
 import { useState } from "react";
 import { LogOut } from "lucide-react";
-import { COUNTRIES, SPECIALTIES, checkProfile, displayName, formatDocument, type ClinicianProfile, type ProfessionalDocumentType } from "@/lib/clinician-profile";
+import { COUNTRIES, DEFAULT_TITLE, SPECIALTIES, checkProfile, displayName, type ProfessionalTitle, formatDocument, type ClinicianProfile, type ProfessionalDocumentType } from "@/lib/clinician-profile";
 
 /**
  * Google Calendar es un permiso «sensible»: mientras Google no verifique la app, pedirlo muestra
@@ -12,7 +14,7 @@ export const CALENDAR_ON_BY_DEFAULT = false;
 
 /** Registro mínimo en el primer ingreso: nombre, apellido, RUT y especialidad. Bloquea la app hasta completarlo. */
 export function ProfessionalRegistration({ email, onSaved }: { email: string; onSaved: (profile: ClinicianProfile) => void }) {
-  const [form, setForm] = useState({ firstName: "", lastName: "", rut: "", specialty: "", country: "Chile", documentType: "rut" as ProfessionalDocumentType });
+  const [form, setForm] = useState({ firstName: "", lastName: "", rut: "", specialty: "", country: "Chile", title: DEFAULT_TITLE as ProfessionalTitle, documentType: "rut" as ProfessionalDocumentType });
   const [error, setError] = useState(""), [saving, setSaving] = useState(false), [connectDrive, setConnectDrive] = useState(true), [connectCalendar, setConnectCalendar] = useState(CALENDAR_ON_BY_DEFAULT);
   const set = (key: keyof typeof form) => (value: string) => setForm((current) => ({ ...current, [key]: value }));
   const field = "mt-1 block min-h-11 w-full rounded-lg border border-[#d2d4df] bg-white px-3 text-base text-[#35343f] focus-visible:outline-2 focus-visible:outline-[#473a6d]";
@@ -45,6 +47,9 @@ export function ProfessionalRegistration({ email, onSaved }: { email: string; on
         <h2 id="registro-titulo" className="mt-1 text-2xl font-semibold text-[#35343f]">Completa tu registro</h2>
         <p className="mt-2 text-sm text-[#615f73]">Ingresaste como <strong className="text-[#35343f]">{email}</strong>. Necesitamos estos datos una sola vez para abrir tu ficha clínica.</p>
         <div className="mt-5 grid gap-4">
+          <label className="text-sm font-medium text-[#35343f]">Título en tus documentos
+            <TitleSelect className={field} value={form.title} onChange={title => { setForm(current => ({ ...current, title })); }}/>
+          </label>
           <div className="grid grid-cols-2 gap-3">
             <label className="text-sm font-medium text-[#35343f]">Nombre<input className={field} autoComplete="given-name" value={form.firstName} onChange={(e) => set("firstName")(e.target.value)} required /></label>
             <label className="text-sm font-medium text-[#35343f]">Apellido<input className={field} autoComplete="family-name" value={form.lastName} onChange={(e) => set("lastName")(e.target.value)} required /></label>
@@ -78,7 +83,7 @@ export function ProfessionalRegistration({ email, onSaved }: { email: string; on
         </label>
         {error && <p role="alert" className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-800">{error}</p>}
         <button type="submit" disabled={saving} className="mt-5 min-h-11 w-full rounded-lg bg-[#473a6d] px-4 text-base font-semibold text-white hover:bg-[#066d71] disabled:opacity-60">{saving ? "Guardando…" : "Guardar y entrar"}</button>
-        <p className="mt-3 text-center text-xs text-[#6b6a7c]">Se mostrará como {form.firstName.trim() && form.lastName.trim() ? displayName(form) : "Dr(a). Nombre Apellido"}.</p>
+        <p className="mt-3 text-center text-xs text-[#6b6a7c]">Se mostrará como {form.firstName.trim() && form.lastName.trim() ? displayName(form) : `${form.title} Nombre Apellido`}.</p>
         <a href="/auth/salir" className="mt-4 flex items-center justify-center gap-2 text-sm font-medium text-[#57566a] hover:text-[#473a6d]"><LogOut className="size-4" />No soy yo, entrar con otra cuenta</a>
       </form>
     </div>
