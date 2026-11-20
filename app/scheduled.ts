@@ -17,7 +17,9 @@ export async function runScheduled(cron: string, env: CalendarSyncEnv) {
     return result;
   }
   if (cron === AGENDA_CHANGES_CRON) {
-    const { syncGoogleCalendars, syncAppEventsFromGoogle } = await import("./drive-oauth");
+    const { syncGoogleCalendars, syncAppEventsFromGoogle, processPendingWrites } = await import("./drive-oauth");
+    // Primero se reintenta lo que no se pudo escribir en Google (cola «pendiente de sincronizar»).
+    console.log("google-pending", JSON.stringify(await processPendingWrites().catch(error => ({ ok: false, detail: String(error) }))));
     // Ida y vuelta: lo que se movió o borró directo en Google Calendar vuelve a la app (citas y próximos controles).
     console.log("google-two-way", JSON.stringify(await syncAppEventsFromGoogle().catch(error => [{ ok: false, detail: String(error) }])));
     console.log("google-calendars", JSON.stringify(await syncGoogleCalendars().catch(error => [{ ok: false, detail: String(error) }])));

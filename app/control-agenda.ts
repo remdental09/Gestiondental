@@ -85,8 +85,10 @@ export async function restoreCancelledControl(ownerId: string, control: Control,
   const { setAttendance } = await import("@/app/attendance-db");
   await setAttendance(ownerId, "app", appointment.id, "agendada").catch(() => false);
   await linkControlAppointment(ownerId, control.id, appointment.id);
-  const linked = await database().prepare("SELECT event_id FROM appointment_google_events WHERE owner_id = ? AND appointment_id = ?").bind(ownerId, appointment.id).first<{ event_id: string }>().catch(() => null);
-  if (linked) return moveControlAppointment(ownerId, { ...control, appointmentId: appointment.id }, { day: control.dueOn, time: hour, reason: control.reason });
+  const linked = await database().prepare("SELECT event_id, google_status FROM appointment_google_events WHERE owner_id = ? AND appointment_id = ?").bind(ownerId, appointment.id).first<{ event_id: string; google_status: string | null }>().catch(() => null);
+  // El evento se borró en Google: se crea uno nuevo en vez de editar el borrado.
+  if (linked?.google_status === "cancelled") await database().prepare("DELETE FROM appointment_google_events WHERE owner_id = ? AND appointment_id = ?").bind(ownerId, appointment.id).run();
+  else if (linked) return moveControlAppointment(ownerId, { ...control, appointmentId: appointment.id }, { day: control.dueOn, time: hour, reason: control.reason });
   const { pushAppointmentToGoogle } = await import("@/app/drive-oauth");
   return pushAppointmentToGoogle(ownerId, { id: appointment.id, day: control.dueOn, time: hour, reason }, await patientName(ownerId, control.patientId), control.patientId).catch(() => "error" as const);
 }

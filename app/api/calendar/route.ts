@@ -19,7 +19,7 @@ export async function POST(request: Request) {
   const user = await getChatGPTUser();
   if (!user?.userId) return json({ error: "Inicia sesión." }, 401);
   if (request.headers.get("origin") !== new URL(request.url).origin) return json({ error: "Origen no permitido." }, 403);
-  const body = await request.json().catch(() => null) as { action?: unknown; id?: unknown; calendarId?: unknown; enabled?: unknown; eventId?: unknown; title?: unknown; day?: unknown; time?: unknown; minutes?: unknown } | null;
+  const body = await request.json().catch(() => null) as { action?: unknown; id?: unknown; calendarId?: unknown; enabled?: unknown; eventId?: unknown; patientId?: unknown; title?: unknown; day?: unknown; time?: unknown; minutes?: unknown } | null;
   try {
     if (body?.action === "sync") { await syncAppEventsFromGoogle(user.userId).catch(() => []); const results = await syncGoogleCalendars(user.userId); return json({ results, accounts: await listCalendarConnections(user.userId), calendars: await listCalendarChoices(user.userId) }); }
     // Elegir o quitar calendarios cambia la agenda de toda la clínica; las citas sí las mueve cualquier dentista del equipo.
@@ -29,6 +29,12 @@ export async function POST(request: Request) {
       return json({ accounts: await listCalendarConnections(user.userId), calendars: await listCalendarChoices(user.userId) });
     }
     if (body?.action === "remove" && typeof body.id === "string") { await removeCalendarConnection(user.userId, body.id); return json({ accounts: await listCalendarConnections(user.userId) }); }
+    // Cita de Google sin paciente reconocido: se le asigna desde la agenda y pasa a ser cita de la app.
+    if (body?.action === "assignPatient" && Number.isSafeInteger(body.eventId) && Number(body.eventId) > 0 && Number.isSafeInteger(body.patientId) && Number(body.patientId) > 0) {
+      const { assignPatientToCalendarEvent } = await import("@/app/calendar-two-way");
+      const result = await assignPatientToCalendarEvent(user.userId, Number(body.eventId), Number(body.patientId));
+      return result.ok ? json({ ok: true, appointmentId: result.appointmentId }) : json({ error: result.error }, 404);
+    }
     if (body?.action === "deleteEvent" && Number.isSafeInteger(body.eventId) && Number(body.eventId) !== 0) {
       const result = await deleteAgendaEvent(user.userId, Number(body.eventId));
       return result.ok ? json({ ok: true }) : json({ error: result.error }, 409);
