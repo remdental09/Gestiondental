@@ -1069,9 +1069,13 @@ export async function sendMailWithSender(sender: MailSender, raw: string): Promi
 
 
 export type CalendarPushStatus = "ok" | "sin-conexion" | "solo-lectura" | "error";
-type AppointmentForGoogle = { id: number; day: string; time: string; reason: string; box?: string; minutes?: number | null };
+type AppointmentForGoogle = { id: number; day: string; time: string; reason: string; box?: string; minutes?: number | null; professional?: string | null };
 /** El box va en «location» y en la descripción del evento (no en el título, para que el título siga siendo «Paciente · motivo»). */
-const boxFields = (box: string | null | undefined) => box ? { location: box, description: "Box: " + box + " · Gestión Dental" } : {};
+/** El profesional que atiende también va en la descripción («Profesional: …»). */
+const boxFields = (box: string | null | undefined, professional?: string | null) => {
+  const lines = [box ? "Box: " + box : "", professional ? "Profesional: " + professional : ""].filter(Boolean);
+  return { ...(box ? { location: box } : {}), ...(lines.length ? { description: lines.join("\n") + "\nGestión Dental" } : {}) };
+};
 
 /** Crea la cita agendada en la ficha dentro del calendario principal de Google del profesional (si dio permiso de escritura). */
 export async function pushAppointmentToGoogle(ownerId: string, appointment: AppointmentForGoogle, patientName: string, patientId?: number): Promise<CalendarPushStatus> {
@@ -1093,7 +1097,7 @@ export async function pushAppointmentToGoogle(ownerId: string, appointment: Appo
     const wall = (iso: string) => new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Santiago", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).format(new Date(iso)).replace(" ", "T");
     const created = await googleApi<{ id?: string; updated?: string; iCalUID?: string; organizer?: { email?: string } }>(token, "https://www.googleapis.com/calendar/v3/calendars/primary/events?fields=id,updated,iCalUID,organizer(email)", {
       method: "POST",
-      body: JSON.stringify({ summary, ...boxFields(appointment.box), start: { dateTime: wall(startIso), timeZone: "America/Santiago" }, end: { dateTime: wall(endIso), timeZone: "America/Santiago" } }),
+      body: JSON.stringify({ summary, ...boxFields(appointment.box, appointment.professional), start: { dateTime: wall(startIso), timeZone: "America/Santiago" }, end: { dateTime: wall(endIso), timeZone: "America/Santiago" } }),
     });
     if (!created.id) return "error";
     const calendarId = "g:" + row.google_sub + ":" + (created.organizer?.email || row.google_email);
@@ -1318,11 +1322,11 @@ export async function processPendingWrites(ownerId?: string) {
           done++;
           continue;
         }
-        const appointment = await database().prepare("SELECT a.id, a.patient_id, a.day, a.time, a.reason, a.minutes, p.name, b.name AS box FROM appointments a LEFT JOIN patients p ON p.id = a.patient_id AND p.owner_id = a.owner_id LEFT JOIN treatment_boxes b ON b.id = a.box_id AND b.owner_id = a.owner_id WHERE a.id = ? AND a.owner_id = ?").bind(item.appointment_id, owner).first<{ id: number; patient_id: number; day: string; time: string; reason: string; minutes: number | null; name: string | null; box: string | null }>();
+        const appointment = await database().prepare("SELECT a.id, a.patient_id, a.day, a.time, a.reason, a.minutes, p.name, b.name AS box, COALESCE(pr.name, a.professional) AS professional FROM appointments a LEFT JOIN patients p ON p.id = a.patient_id AND p.owner_id = a.owner_id LEFT JOIN treatment_boxes b ON b.id = a.box_id AND b.owner_id = a.owner_id LEFT JOIN professionals pr ON pr.id = a.professional_id AND pr.owner_id = a.owner_id WHERE a.id = ? AND a.owner_id = ?").bind(item.appointment_id, owner).first<{ id: number; patient_id: number; day: string; time: string; reason: string; minutes: number | null; name: string | null; box: string | null; professional: string | null }>();
         if (!appointment) { await twoWay.finishPending(owner, item.appointment_id, "upsert"); continue; }
         const link = await database().prepare("SELECT google_sub, calendar_id, event_id, app_changed_at FROM appointment_google_events WHERE owner_id = ? AND appointment_id = ?").bind(owner, item.appointment_id).first<{ google_sub: string; calendar_id: string; event_id: string; app_changed_at: string | null }>();
         if (!link) {
-          const status = await pushAppointmentToGoogle(owner, { id: appointment.id, day: appointment.day, time: appointment.time, reason: appointment.reason, minutes: appointment.minutes, box: appointment.box ?? undefined }, appointment.name ?? "", appointment.patient_id);
+          const status = await pushAppointmentToGoogle(owner, { id: appointment.id, day: appointment.day, time: appointment.time, reason: appointment.reason, minutes: appointment.minutes, box: appointment.box ?? undefined, professional: appointment.professional }, appointment.name ?? "", appointment.patient_id);
           if (status === "ok") { await twoWay.finishPending(owner, item.appointment_id, "upsert"); done++; } else { await twoWay.finishPending(owner, item.appointment_id, "upsert", status); failed++; }
           continue;
         }
@@ -1344,7 +1348,7 @@ export async function processPendingWrites(ownerId?: string) {
         const endIso = new Date(Date.parse(startIso) + (appointment.minutes ?? 30) * 60000).toISOString();
         const wall = (iso: string) => new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Santiago", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).format(new Date(iso)).replace(" ", "T");
         const summary = [appointment.name ?? "", appointment.reason].filter(Boolean).join(" · ").slice(0, 300);
-        const patched = await googleApi<{ updated?: string; iCalUID?: string }>(token, url + "?fields=id,updated,iCalUID", { method: "PATCH", body: JSON.stringify({ status: "confirmed", summary, ...boxFields(appointment.box), start: { dateTime: wall(startIso), timeZone: "America/Santiago" }, end: { dateTime: wall(endIso), timeZone: "America/Santiago" } }) });
+        const patched = await googleApi<{ updated?: string; iCalUID?: string }>(token, url + "?fields=id,updated,iCalUID", { method: "PATCH", body: JSON.stringify({ status: "confirmed", summary, ...boxFields(appointment.box, appointment.professional), start: { dateTime: wall(startIso), timeZone: "America/Santiago" }, end: { dateTime: wall(endIso), timeZone: "America/Santiago" } }) });
         await database().prepare("UPDATE calendar_events SET title = ?, start_at = ?, end_at = ?, status = 'confirmed', imported_at = ? WHERE owner_id = ? AND calendar_id = ? AND google_event_id = ?").bind(summary, startIso, endIso, now(), owner, link.calendar_id, link.event_id).run();
         await twoWay.noteAppWrite(owner, item.appointment_id, patched.updated, patched.iCalUID);
         done++;

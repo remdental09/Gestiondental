@@ -1,4 +1,5 @@
-import { db as boxDatabase, ensureBoxSchema, listBoxes, type TreatmentBox } from "@/app/box-db";
+import { listBoxes, type TreatmentBox } from "@/app/box-db";
+import { database as professionalsDatabase, defaultProfessional, getProfessional, type OwnerSeed } from "@/app/professionals-db";
 import { ensureAttendance } from "@/app/attendance-db";
 import { checkBlock, checkSchedule, isClock, isIsoDay, parseWeekdays, DURATIONS, type AgendaBlock, type BoxSchedule } from "@/lib/agenda-box";
 import { isAttendanceStatus, type AttendanceStatus } from "@/lib/dashboard";
@@ -12,40 +13,37 @@ import { chileDayTime } from "@/lib/calendar-two-way";
 type Stmt = { bind(...values: unknown[]): { run(): Promise<unknown>; first<T>(): Promise<T | null>; all<T>(): Promise<{ results: T[] }> }; run(): Promise<unknown> };
 type Db = { prepare(sql: string): Stmt };
 const now = () => new Date().toISOString();
-async function database(): Promise<Db> {
-  const db = boxDatabase() as Db | undefined;
-  if (!db) throw new Error("La base de datos no está disponible.");
-  await ensureBoxSchema(db as never);
-  return db;
-}
+const database = async (): Promise<Db> => await professionalsDatabase() as unknown as Db;
 const text = (value: unknown, max: number) => typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, max) : "";
 
-type ScheduleRow = { id: number; box_id: number; professional: string; weekdays: string; start_time: string; end_time: string; valid_from: string | null; valid_to: string | null; block_minutes: number };
-const scheduleOf = (r: ScheduleRow): BoxSchedule => ({ id: r.id, boxId: r.box_id, professional: r.professional, weekdays: parseWeekdays(r.weekdays), start: r.start_time, end: r.end_time, validFrom: r.valid_from, validTo: r.valid_to, blockMinutes: r.block_minutes });
+type ScheduleRow = { id: number; box_id: number; professional: string; professional_id: number | null; current_name: string | null; weekdays: string; start_time: string; end_time: string; valid_from: string | null; valid_to: string | null; block_minutes: number };
+const scheduleOf = (r: ScheduleRow): BoxSchedule => ({ id: r.id, boxId: r.box_id, professional: r.current_name ?? r.professional, professionalId: r.professional_id, weekdays: parseWeekdays(r.weekdays), start: r.start_time, end: r.end_time, validFrom: r.valid_from, validTo: r.valid_to, blockMinutes: r.block_minutes });
 
 export async function listSchedules(ownerId: string): Promise<BoxSchedule[]> {
   const db = await database();
-  const { results } = await db.prepare("SELECT id, box_id, professional, weekdays, start_time, end_time, valid_from, valid_to, block_minutes FROM box_schedules WHERE owner_id = ? ORDER BY box_id, start_time").bind(ownerId).all<ScheduleRow>();
+  const { results } = await db.prepare("SELECT s.id, s.box_id, s.professional, s.professional_id, p.name AS current_name, s.weekdays, s.start_time, s.end_time, s.valid_from, s.valid_to, s.block_minutes FROM box_schedules s LEFT JOIN professionals p ON p.id = s.professional_id AND p.owner_id = s.owner_id WHERE s.owner_id = ? ORDER BY s.box_id, s.start_time").bind(ownerId).all<ScheduleRow>();
   return results.map(scheduleOf);
 }
 
-export async function saveSchedule(ownerId: string, input: Record<string, unknown>, defaultProfessional: string): Promise<{ ok: true; schedules: BoxSchedule[] } | { ok: false; error: string }> {
+export async function saveSchedule(ownerId: string, input: Record<string, unknown>, seed: OwnerSeed): Promise<{ ok: true; schedules: BoxSchedule[] } | { ok: false; error: string }> {
   const db = await database();
   const boxId = Number(input.boxId);
   const boxes = await listBoxes(ownerId);
   if (!boxes.some(b => b.id === boxId)) return { ok: false, error: "Elige un box." };
   const checked = checkSchedule(input as never);
   if (!checked.ok) return checked;
-  const professional = text(input.professional, 80) || defaultProfessional;
+  const pro = await pickProfessional(ownerId, input.professionalId, seed);
+  if (!pro.ok) return pro;
+  const professional = pro.name, professionalId = pro.id;
   const id = Number(input.id);
   if (Number.isSafeInteger(id) && id > 0) {
-    await db.prepare("UPDATE box_schedules SET box_id = ?, professional = ?, weekdays = ?, start_time = ?, end_time = ?, valid_from = ?, valid_to = ?, block_minutes = ? WHERE id = ? AND owner_id = ?")
-      .bind(boxId, professional, checked.weekdays.join(","), checked.start, checked.end, checked.validFrom, checked.validTo, checked.blockMinutes, id, ownerId).run();
+    await db.prepare("UPDATE box_schedules SET box_id = ?, professional = ?, professional_id = ?, weekdays = ?, start_time = ?, end_time = ?, valid_from = ?, valid_to = ?, block_minutes = ? WHERE id = ? AND owner_id = ?")
+      .bind(boxId, professional, professionalId, checked.weekdays.join(","), checked.start, checked.end, checked.validFrom, checked.validTo, checked.blockMinutes, id, ownerId).run();
   } else {
     const count = await db.prepare("SELECT COUNT(*) AS n FROM box_schedules WHERE owner_id = ?").bind(ownerId).first<{ n: number }>();
     if ((count?.n ?? 0) >= 100) return { ok: false, error: "Máximo 100 horarios." };
-    await db.prepare("INSERT INTO box_schedules (owner_id, box_id, professional, weekdays, start_time, end_time, valid_from, valid_to, block_minutes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .bind(ownerId, boxId, professional, checked.weekdays.join(","), checked.start, checked.end, checked.validFrom, checked.validTo, checked.blockMinutes, now()).run();
+    await db.prepare("INSERT INTO box_schedules (owner_id, box_id, professional, professional_id, weekdays, start_time, end_time, valid_from, valid_to, block_minutes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .bind(ownerId, boxId, professional, professionalId, checked.weekdays.join(","), checked.start, checked.end, checked.validFrom, checked.validTo, checked.blockMinutes, now()).run();
   }
   return { ok: true, schedules: await listSchedules(ownerId) };
 }
@@ -91,7 +89,7 @@ export async function removeBlock(ownerId: string, id: number): Promise<boolean>
 
 export type BoxAppointment = {
   key: string; source: "app" | "cal"; id: number; patientId: number | null; patientName: string; phone: string; day: string; start: string; minutes: number;
-  reason: string; boxId: number | null; professional: string; status: AttendanceStatus; google: boolean; needsPatient: boolean;
+  reason: string; boxId: number | null; professional: string; professionalId: number | null; professionalColor: string | null; status: AttendanceStatus; google: boolean; needsPatient: boolean;
 };
 
 /** Citas de la app (con su box y estado) y eventos de Google que no son citas de la app (van a «Sin box»), entre from y to. */
@@ -101,22 +99,22 @@ export async function loadBoxAppointments(ownerId: string, from: string, to: str
   const statuses = new Map<string, AttendanceStatus>();
   for (const row of (await db.prepare("SELECT source, ref_id, status FROM appointment_attendance WHERE owner_id = ?").bind(ownerId).all<{ source: string; ref_id: number; status: string }>()).results)
     if (isAttendanceStatus(row.status)) statuses.set(`${row.source}:${row.ref_id}`, row.status);
-  type AppRow = { id: number; patient_id: number | null; day: string; time: string; reason: string; minutes: number | null; box_id: number | null; professional: string | null; name: string | null; phone: string | null; cal_id: number | null; cal_status: string | null };
+  type AppRow = { id: number; patient_id: number | null; day: string; time: string; reason: string; minutes: number | null; box_id: number | null; professional: string | null; professional_id: number | null; pro_name: string | null; pro_color: string | null; name: string | null; phone: string | null; cal_id: number | null; cal_status: string | null };
   let linked = true;
   let appRows: AppRow[];
   try {
-    appRows = (await db.prepare("SELECT a.id, a.patient_id, a.day, a.time, a.reason, a.minutes, a.box_id, a.professional, p.name, p.phone, ce.id AS cal_id, ce.status AS cal_status FROM appointments a LEFT JOIN patients p ON p.id = a.patient_id AND p.owner_id = a.owner_id LEFT JOIN appointment_google_events g ON g.owner_id = a.owner_id AND g.appointment_id = a.id LEFT JOIN calendar_events ce ON ce.owner_id = a.owner_id AND ce.calendar_id = g.calendar_id AND ce.google_event_id = g.event_id WHERE a.owner_id = ? AND a.day >= ? AND a.day <= ? ORDER BY a.day, a.time LIMIT 1000")
+    appRows = (await db.prepare("SELECT a.id, a.patient_id, a.day, a.time, a.reason, a.minutes, a.box_id, a.professional, a.professional_id, pr.name AS pro_name, pr.color AS pro_color, p.name, p.phone, ce.id AS cal_id, ce.status AS cal_status FROM appointments a LEFT JOIN patients p ON p.id = a.patient_id AND p.owner_id = a.owner_id LEFT JOIN professionals pr ON pr.id = a.professional_id AND pr.owner_id = a.owner_id LEFT JOIN appointment_google_events g ON g.owner_id = a.owner_id AND g.appointment_id = a.id LEFT JOIN calendar_events ce ON ce.owner_id = a.owner_id AND ce.calendar_id = g.calendar_id AND ce.google_event_id = g.event_id WHERE a.owner_id = ? AND a.day >= ? AND a.day <= ? ORDER BY a.day, a.time LIMIT 1000")
       .bind(ownerId, from, to).all<AppRow>()).results;
   } catch { // sin conexión a Google nunca: no existen las tablas de enlace
     linked = false;
-    appRows = (await db.prepare("SELECT a.id, a.patient_id, a.day, a.time, a.reason, a.minutes, a.box_id, a.professional, p.name, p.phone, NULL AS cal_id, NULL AS cal_status FROM appointments a LEFT JOIN patients p ON p.id = a.patient_id AND p.owner_id = a.owner_id WHERE a.owner_id = ? AND a.day >= ? AND a.day <= ? ORDER BY a.day, a.time LIMIT 1000")
+    appRows = (await db.prepare("SELECT a.id, a.patient_id, a.day, a.time, a.reason, a.minutes, a.box_id, a.professional, a.professional_id, pr.name AS pro_name, pr.color AS pro_color, p.name, p.phone, NULL AS cal_id, NULL AS cal_status FROM appointments a LEFT JOIN patients p ON p.id = a.patient_id AND p.owner_id = a.owner_id LEFT JOIN professionals pr ON pr.id = a.professional_id AND pr.owner_id = a.owner_id WHERE a.owner_id = ? AND a.day >= ? AND a.day <= ? ORDER BY a.day, a.time LIMIT 1000")
       .bind(ownerId, from, to).all<AppRow>()).results;
   }
   const out: BoxAppointment[] = [];
   const seen = new Set<string>();
   for (const r of appRows) {
     const status = statuses.get(`app:${r.id}`) ?? (r.cal_id ? statuses.get(`cal:${r.cal_id}`) : undefined) ?? (r.cal_status === "cancelled" ? "cancelada" : "agendada");
-    out.push({ key: `app:${r.id}`, source: "app", id: r.id, patientId: r.patient_id, patientName: r.name ?? "Paciente", phone: r.phone ?? "", day: r.day, start: r.time, minutes: r.minutes && r.minutes > 0 ? r.minutes : 30, reason: r.reason, boxId: r.box_id ?? null, professional: r.professional ?? "", status, google: Boolean(r.cal_id), needsPatient: false });
+    out.push({ key: `app:${r.id}`, source: "app", id: r.id, patientId: r.patient_id, patientName: r.name ?? "Paciente", phone: r.phone ?? "", day: r.day, start: r.time, minutes: r.minutes && r.minutes > 0 ? r.minutes : 30, reason: r.reason, boxId: r.box_id ?? null, professional: r.pro_name ?? r.professional ?? "", professionalId: r.professional_id ?? null, professionalColor: r.pro_color ?? null, status, google: Boolean(r.cal_id), needsPatient: false });
     seen.add(`${r.patient_id}|${r.day}|${r.time}`);
   }
   if (!linked) return out;
@@ -132,7 +130,7 @@ export async function loadBoxAppointments(ownerId: string, from: string, to: str
     if (r.status === "cancelled" && !statuses.has(`cal:${r.id}`)) continue;
     if (r.patient_id !== null && seen.has(`${r.patient_id}|${when.day}|${when.time}`)) continue;
     const minutes = Math.max(15, Math.round((Date.parse(r.end_at) - Date.parse(r.start_at)) / 60000) || 30);
-    out.push({ key: `cal:${r.id}`, source: "cal", id: r.id, patientId: r.patient_id, patientName: r.name ?? r.title, phone: r.phone ?? "", day: when.day, start: when.time, minutes, reason: r.name ? r.title : "", boxId: null, professional: "", status: statuses.get(`cal:${r.id}`) ?? "agendada", google: true, needsPatient: r.needs_patient === 1 });
+    out.push({ key: `cal:${r.id}`, source: "cal", id: r.id, patientId: r.patient_id, patientName: r.name ?? r.title, phone: r.phone ?? "", day: when.day, start: when.time, minutes, reason: r.name ? r.title : "", boxId: null, professional: "", professionalId: null, professionalColor: null, status: statuses.get(`cal:${r.id}`) ?? "agendada", google: true, needsPatient: r.needs_patient === 1 });
   }
   return out;
 }
@@ -149,9 +147,9 @@ export async function setBoxStatus(ownerId: string, source: "app" | "cal", id: n
   return true;
 }
 
-type NewAppointment = { patientId?: unknown; newPatient?: { name?: unknown; phone?: unknown; rut?: unknown }; day: unknown; time: unknown; minutes?: unknown; boxId?: unknown; reason?: unknown; professional?: unknown };
+type NewAppointment = { patientId?: unknown; newPatient?: { name?: unknown; phone?: unknown; rut?: unknown }; day: unknown; time: unknown; minutes?: unknown; boxId?: unknown; reason?: unknown; professionalId?: unknown };
 /** «Detalle cita»: nueva cita en un box (con paciente existente o nuevo); se escribe en Google con el box en «lugar». */
-export async function createBoxAppointment(ownerId: string, input: NewAppointment, defaultProfessional: string): Promise<{ ok: true; appointment: BoxAppointment; calendar: string } | { ok: false; error: string }> {
+export async function createBoxAppointment(ownerId: string, input: NewAppointment, seed: OwnerSeed): Promise<{ ok: true; appointment: BoxAppointment; calendar: string } | { ok: false; error: string }> {
   const db = await database();
   if (!isIsoDay(input.day) || !isClock(input.time)) return { ok: false, error: "Revisa la fecha y la hora." };
   const minutes = DURATIONS.includes(Number(input.minutes)) ? Number(input.minutes) : 30;
@@ -175,17 +173,19 @@ export async function createBoxAppointment(ownerId: string, input: NewAppointmen
     patient = row;
   }
   const reason = text(input.reason, 500) || "Atención";
-  const professional = text(input.professional, 80) || defaultProfessional;
-  const row = await db.prepare("INSERT INTO appointments (owner_id, patient_id, day, time, reason, created_at, minutes, box_id, professional) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id")
-    .bind(ownerId, patient.id, input.day, input.time, reason, now(), minutes, box?.id ?? null, professional).first<{ id: number }>();
+  const pro = await pickProfessional(ownerId, input.professionalId, seed);
+  if (!pro.ok) return pro;
+  const professional = pro.name;
+  const row = await db.prepare("INSERT INTO appointments (owner_id, patient_id, day, time, reason, created_at, minutes, box_id, professional, professional_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id")
+    .bind(ownerId, patient.id, input.day, input.time, reason, now(), minutes, box?.id ?? null, professional, pro.id).first<{ id: number }>();
   if (!row) return { ok: false, error: "No se pudo guardar la cita." };
   const { pushAppointmentToGoogle } = await import("@/app/drive-oauth");
-  const calendar = await pushAppointmentToGoogle(ownerId, { id: row.id, day: input.day, time: input.time, reason, minutes, ...(box ? { box: box.name } : {}) }, patient.name, patient.id).catch(() => "error" as const);
-  return { ok: true, calendar, appointment: { key: `app:${row.id}`, source: "app", id: row.id, patientId: patient.id, patientName: patient.name, phone: patient.phone, day: input.day, start: input.time, minutes, reason, boxId: box?.id ?? null, professional, status: "agendada", google: calendar === "ok", needsPatient: false } };
+  const calendar = await pushAppointmentToGoogle(ownerId, { id: row.id, day: input.day, time: input.time, reason, minutes, professional, ...(box ? { box: box.name } : {}) }, patient.name, patient.id).catch(() => "error" as const);
+  return { ok: true, calendar, appointment: { key: `app:${row.id}`, source: "app", id: row.id, patientId: patient.id, patientName: patient.name, phone: patient.phone, day: input.day, start: input.time, minutes, reason, boxId: box?.id ?? null, professional, professionalId: pro.id, professionalColor: pro.color, status: "agendada", google: calendar === "ok", needsPatient: false } };
 }
 
 /** Mover una cita de la app a otro box (y/u otra hora/duración). Si está en Google, se actualiza el evento (lugar incluido). */
-export async function updateBoxAppointment(ownerId: string, id: number, change: { boxId?: unknown; time?: unknown; day?: unknown; minutes?: unknown }): Promise<{ ok: true } | { ok: false; error: string }> {
+export async function updateBoxAppointment(ownerId: string, id: number, change: { boxId?: unknown; time?: unknown; day?: unknown; minutes?: unknown; professionalId?: unknown }): Promise<{ ok: true } | { ok: false; error: string }> {
   const db = await database();
   const current = await db.prepare("SELECT id, day, time, minutes, box_id FROM appointments WHERE id = ? AND owner_id = ?").bind(id, ownerId).first<{ id: number; day: string; time: string; minutes: number | null; box_id: number | null }>();
   if (!current) return { ok: false, error: "Cita no encontrada." };
@@ -198,10 +198,18 @@ export async function updateBoxAppointment(ownerId: string, id: number, change: 
   const time = change.time === undefined ? current.time : isClock(change.time) ? change.time : null;
   if (!day || !time) return { ok: false, error: "Revisa la fecha y la hora." };
   const minutes = change.minutes === undefined ? current.minutes : DURATIONS.includes(Number(change.minutes)) ? Number(change.minutes) : current.minutes;
+  let professionalId: number | null = null, professional: string | null = null;
+  if (change.professionalId !== undefined) {
+    const id2 = Number(change.professionalId);
+    const pro = Number.isSafeInteger(id2) && id2 > 0 ? await getProfessional(ownerId, id2) : null;
+    if (!pro || !pro.active) return { ok: false, error: "Elige un profesional activo." };
+    professionalId = pro.id; professional = pro.name;
+  }
   const twoWay = await import("@/app/calendar-two-way");
   const link = await db.prepare("SELECT appointment_id FROM appointment_google_events WHERE owner_id = ? AND appointment_id = ?").bind(ownerId, id).first<{ appointment_id: number }>().catch(() => null);
   if (link) await twoWay.markAppChanged(ownerId, id).catch(() => undefined);
   await db.prepare("UPDATE appointments SET box_id = ?, day = ?, time = ?, minutes = ? WHERE id = ? AND owner_id = ?").bind(boxId, day, time, minutes, id, ownerId).run();
+  if (professionalId !== null) await db.prepare("UPDATE appointments SET professional_id = ?, professional = ? WHERE id = ? AND owner_id = ?").bind(professionalId, professional, id, ownerId).run();
   if (day !== current.day) {
     const { controlFollowsAppointment } = await import("@/app/followup-db");
     await controlFollowsAppointment(ownerId, id, { day }).catch(() => undefined);
@@ -213,4 +221,16 @@ export async function updateBoxAppointment(ownerId: string, id: number, change: 
     await processPendingWrites(ownerId).catch(() => undefined);
   }
   return { ok: true };
+}
+
+/** Profesional elegido (activo y del espacio) o, si no se eligió, el por defecto (el dueño). */
+async function pickProfessional(ownerId: string, value: unknown, seed: OwnerSeed): Promise<{ ok: true; id: number | null; name: string; color: string | null } | { ok: false; error: string }> {
+  const id = Number(value);
+  if (value !== undefined && value !== null && value !== "") {
+    const pro = Number.isSafeInteger(id) && id > 0 ? await getProfessional(ownerId, id) : null;
+    if (!pro || !pro.active) return { ok: false, error: "Elige un profesional activo." };
+    return { ok: true, id: pro.id, name: pro.name, color: pro.color };
+  }
+  const fallback = await defaultProfessional(ownerId, seed);
+  return { ok: true, id: fallback?.id ?? null, name: fallback?.name ?? seed.name, color: fallback?.color ?? null };
 }
