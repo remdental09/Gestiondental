@@ -9,12 +9,13 @@ import {
   freeSlots, textOn, toClock, toMinutes, weekOf, weekdayOf, whatsappNumber, type AgendaBlock, type BoxSchedule, type FreeSlot,
 } from "@/lib/agenda-box";
 import { ATTENDANCE_LABEL, type AttendanceStatus } from "@/lib/dashboard";
+import type { Professional } from "@/lib/professionals";
 
 type Box = { id: number; name: string; enabled: boolean; color?: string | null };
-type Appt = { key: string; source: "app" | "cal"; id: number; patientId: number | null; patientName: string; phone: string; day: string; start: string; minutes: number; reason: string; boxId: number | null; professional: string; status: AttendanceStatus; google: boolean; needsPatient: boolean };
+type Appt = { key: string; source: "app" | "cal"; id: number; patientId: number | null; patientName: string; phone: string; day: string; start: string; minutes: number; reason: string; boxId: number | null; professional: string; professionalId: number | null; professionalColor: string | null; status: AttendanceStatus; google: boolean; needsPatient: boolean };
 type PatientLite = { id: number; name: string; rut: string | null; phone: string };
-type Data = { boxes: Box[]; schedules: BoxSchedule[]; blocks: AgendaBlock[]; appointments: Appt[]; patients: PatientLite[]; professional: string };
-type Draft = { boxId: number | null; day: string; time: string; minutes: number; professional: string };
+type Data = { boxes: Box[]; schedules: BoxSchedule[]; blocks: AgendaBlock[]; appointments: Appt[]; patients: PatientLite[]; professional: string; professionals: Professional[]; defaultProfessionalId: number | null };
+type Draft = { boxId: number | null; day: string; time: string; minutes: number; professionalId: number | null };
 
 const chileToday = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Santiago", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 const chileNowMinutes = () => { const [h, m] = new Intl.DateTimeFormat("en-GB", { timeZone: "America/Santiago", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date()).split(":").map(Number); return h * 60 + m; };
@@ -56,6 +57,7 @@ export function AgendaBoxDay({ onOpenPatient, onChanged }: { onOpenPatient?: (id
   const [selectedBlock, setSelectedBlock] = useState<AgendaBlock | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [nowMin, setNowMin] = useState(chileNowMinutes);
+  const [proFilter, setProFilter] = useState<number | "">("");
   const touch = useRef<{ x: number; y: number } | null>(null);
 
   const [reloadKey, setReloadKey] = useState(0);
@@ -89,7 +91,12 @@ export function AgendaBoxDay({ onOpenPatient, onChanged }: { onOpenPatient?: (id
   const boxes = useMemo(() => data?.boxes ?? [], [data]);
   const boxIds = useMemo(() => new Set(boxes.filter(b => b.enabled).map(b => b.id)), [boxes]);
   const todays = useMemo(() => (data?.appointments ?? []).filter(a => a.day === day), [data, day]);
-  const visibleAppts = todays.filter(a => !hidden.has(a.status));
+  const professionals = useMemo(() => data?.professionals ?? [], [data]);
+  const ownerPro = data?.defaultProfessionalId ?? null;
+  /** Citas sin profesional (antiguas, controles, de Google) son del profesional principal. */
+  const proOf = useCallback((a: Appt) => a.professionalId ?? ownerPro, [ownerPro]);
+  const chipOf = (a: Appt) => { const pro = professionals.find(p => p.id === proOf(a)); return pro ? { name: pro.name, color: pro.color } : a.professional ? { name: a.professional, color: a.professionalColor ?? "#473a6d" } : null; };
+  const visibleAppts = todays.filter(a => !hidden.has(a.status) && (proFilter === "" || proOf(a) === proFilter));
   const dayBlocks = useMemo(() => blocksOn(data?.blocks ?? [], day), [data, day]);
   const columns = columnsFor(boxes, todays);
   const range = dayRange(data?.schedules ?? [], day, [...todays, ...dayBlocks.map(b => ({ start: b.start, minutes: toMinutes(b.end) - toMinutes(b.start) }))]);
@@ -119,7 +126,12 @@ export function AgendaBoxDay({ onOpenPatient, onChanged }: { onOpenPatient?: (id
     setBoxIndex(index => Math.max(0, Math.min(columns.length - 1, index + (dx < 0 ? 1 : -1))));
   };
 
-  const openSlot = (boxId: number | null, time: string, minutes = 30, professional?: string) => setDraft({ boxId, day, time, minutes, professional: professional || data?.professional || "" });
+  /** Profesional por defecto del cupo: el del horario del box a esa hora; si no hay, el principal. */
+  const openSlot = (boxId: number | null, time: string, minutes = 30, professionalId?: number | null) => {
+    const fromSchedule = professionalId ?? (boxId === null ? null : freeSlots(data?.schedules ?? [], boxId, day, [], []).find(s => toMinutes(s.start) <= toMinutes(time) && toMinutes(time) < toMinutes(s.start) + s.minutes)?.professionalId ?? null);
+    const active = (id: number | null) => id !== null && professionals.some(p => p.id === id && p.active) ? id : null;
+    setDraft({ boxId, day, time, minutes, professionalId: active(fromSchedule) ?? active(proFilter === "" ? null : proFilter) ?? ownerPro });
+  };
 
   return <div data-testid="agenda-box-day">
     <div className="flex flex-wrap items-center gap-2">
@@ -136,7 +148,10 @@ export function AgendaBoxDay({ onOpenPatient, onChanged }: { onOpenPatient?: (id
       <label className="flex items-center gap-1 text-sm"><span className="sr-only">Fecha</span><input type="date" aria-label="Fecha" className="h-11 rounded-md border border-[#d9d5e4] px-2 text-base sm:h-9 sm:text-sm" value={day} onChange={event => { if (event.target.value) setDay(event.target.value); }} /></label>
       <p className="text-sm font-medium capitalize text-[#3b3355]">{longDay(day)}</p>
       <p className="text-sm text-[#615f73]" data-testid="box-day-count">{scheduled} {scheduled === 1 ? "cita agendada" : "citas agendadas"}</p>
-      <div className="ml-auto flex gap-2">
+      <div className="ml-auto flex flex-wrap gap-2">
+        {professionals.filter(p => p.active).length > 1 && <select aria-label="Filtrar por profesional" className="h-11 rounded-md border border-[#d9d5e4] bg-white px-2 text-base sm:h-9 sm:text-sm" value={proFilter} onChange={event => setProFilter(event.target.value ? Number(event.target.value) : "")} data-testid="professional-filter">
+          <option value="">Todos los profesionales</option>{professionals.filter(p => p.active || p.id === proFilter).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>}
         <Button type="button" variant="outline" size="sm" className="min-h-11 sm:min-h-9" aria-expanded={legendOpen} onClick={() => setLegendOpen(open => !open)}><Palette className="mr-1 size-4" />Colores{hidden.size ? ` (${hidden.size} ocultos)` : ""}</Button>
         <Button type="button" variant="outline" size="sm" className="min-h-11 sm:min-h-9" aria-pressed={compact} onClick={() => setCompact(value => !value)}><Rows3 className="mr-1 size-4" />{compact ? "Expandir" : "Compactar"}</Button>
       </div>
@@ -165,7 +180,7 @@ export function AgendaBoxDay({ onOpenPatient, onChanged }: { onOpenPatient?: (id
         {shownColumns.map(column => {
           const items = visibleAppts.filter(a => columnOf(boxIds, a.boxId) === column.id);
           const blocks = hidden.has(BLOCKED) ? [] : dayBlocks.filter(b => b.boxId === null ? column.id !== null : b.boxId === column.id);
-          const slots: FreeSlot[] = column.id === null ? [] : freeSlots(data.schedules, column.id, day, todays.filter(a => a.status !== "cancelada").map(a => ({ boxId: columnOf(boxIds, a.boxId), start: a.start, minutes: a.minutes })), data.blocks);
+          const slots: FreeSlot[] = column.id === null ? [] : freeSlots(data.schedules.filter(sc => proFilter === "" || sc.professionalId === proFilter), column.id, day, todays.filter(a => a.status !== "cancelada").map(a => ({ boxId: columnOf(boxIds, a.boxId), start: a.start, minutes: a.minutes })), data.blocks);
           const box = boxes.find(b => b.id === column.id);
           return <div key={column.id ?? "sin"} className="min-w-0 flex-1 border-r border-[#ebeaf1] last:border-r-0" data-testid="box-column">
             <div className="sticky top-0 z-10 flex h-10 items-center justify-center gap-2 border-b border-[#ebeaf1] bg-white px-2 text-sm font-semibold">
@@ -175,16 +190,16 @@ export function AgendaBoxDay({ onOpenPatient, onChanged }: { onOpenPatient?: (id
               onClick={event => { if (event.target !== event.currentTarget) return; const y = event.clientY - event.currentTarget.getBoundingClientRect().top; openSlot(column.id, clockAt(y, range.from, row)); }}
               aria-label={`Columna ${boxName(column.id)}: toca una hora libre para agendar`}>
               {day === today && nowMin >= range.from && nowMin <= range.to && <div className="pointer-events-none absolute inset-x-0 z-20 border-t-2 border-rose-500" style={{ top: ((nowMin - range.from) / 15) * row }} aria-hidden="true"><span className="absolute -left-1 -top-[5px] size-2 rounded-full bg-rose-500" /></div>}
-              {slots.map(slot => { const pos = cardBox(slot.start, slot.minutes, range.from, row); return <button key={"s" + slot.start} type="button" className="absolute inset-x-1 overflow-hidden rounded-md border border-dashed border-[#c9c5d6] bg-white px-1.5 text-left text-[11px] text-[#615f73] hover:border-[#473a6d]" style={{ top: pos.top + 1, height: pos.height - 2 }} onClick={() => openSlot(column.id, slot.start, slot.minutes, slot.professional)} data-testid="free-slot">
-                <span className="font-medium">{slot.start}</span>{!compact && <span className="ml-1">Libre · {slot.professional}</span>}
+              {slots.map(slot => { const pos = cardBox(slot.start, slot.minutes, range.from, row); return <button key={"s" + slot.start} type="button" className="absolute inset-x-1 overflow-hidden rounded-md border border-dashed border-[#c9c5d6] bg-white px-1.5 text-left text-[11px] text-[#615f73] hover:border-[#473a6d]" style={{ top: pos.top + 1, height: pos.height - 2 }} onClick={() => openSlot(column.id, slot.start, slot.minutes, slot.professionalId)} data-testid="free-slot">
+                <span className="font-medium">{slot.start}</span>{!compact && <span className="ml-1">Libre · {professionals.find(p => p.id === slot.professionalId)?.name ?? slot.professional}</span>}
               </button>; })}
               {blocks.map(block => { const minutes = toMinutes(block.end) - toMinutes(block.start); const pos = cardBox(block.start, minutes, range.from, row); return <button key={"b" + block.id} type="button" className="absolute inset-x-1 z-[5] overflow-hidden rounded-md px-1.5 text-left text-[11px] text-white" style={{ top: pos.top + 1, height: pos.height - 2, background: `repeating-linear-gradient(135deg, ${BLOCK_COLOR} 0 8px, #c62828 8px 16px)` }} onClick={() => setSelectedBlock(block)} data-testid="agenda-block">
                 <span className="font-semibold">{block.start}–{block.end}</span> {block.reason}
               </button>; })}
-              {items.map(appt => { const pos = cardBox(appt.start, appt.minutes, range.from, row); const color = STATUS_COLOR[appt.status]; const wa = whatsappNumber(appt.phone); return <div key={appt.key} role="button" tabIndex={0} className="absolute inset-x-1 z-10 overflow-hidden rounded-md px-1.5 py-0.5 text-left text-[12px] leading-tight shadow-sm ring-1 ring-black/5" style={{ top: pos.top + 1, height: pos.height - 2, background: color, color: textOn(color) }} onClick={() => setSelected(appt)} onKeyDown={event => { if (event.key === "Enter") setSelected(appt); }} data-testid="box-appointment" data-status={appt.status}>
+              {items.map(appt => { const pos = cardBox(appt.start, appt.minutes, range.from, row); const color = STATUS_COLOR[appt.status]; const wa = whatsappNumber(appt.phone); return <div key={appt.key} role="button" tabIndex={0} className="absolute inset-x-1 z-10 overflow-hidden rounded-md px-1.5 py-0.5 text-left text-[12px] leading-tight shadow-sm ring-1 ring-black/5" style={{ top: pos.top + 1, height: pos.height - 2, background: color, color: textOn(color), borderLeft: `4px solid ${chipOf(appt)?.color ?? color}` }} onClick={() => setSelected(appt)} onKeyDown={event => { if (event.key === "Enter") setSelected(appt); }} data-testid="box-appointment" data-status={appt.status}>
                 <p className="truncate"><span className="font-medium">{appt.start}–{toClock(toMinutes(appt.start) + appt.minutes)}</span> <b>{appt.patientName}</b></p>
                 {!compact && pos.height > 2 * row && <>
-                  {appt.professional && <p className="mt-0.5"><span className="rounded bg-white/30 px-1 text-[10px]">{appt.professional}</span></p>}
+                  {(() => { const chip = chipOf(appt); return chip && <p className="mt-0.5"><span className="inline-flex max-w-full items-center gap-1 truncate rounded-full bg-white/90 px-1.5 text-[10px] font-medium text-[#1f2430]" data-testid="professional-chip"><span className="size-2 shrink-0 rounded-full" style={{ background: chip.color }} aria-hidden="true" />{chip.name}</span></p>; })()}
                   {appt.phone && <p className="mt-0.5 flex items-center gap-1 truncate">{appt.phone}{wa && <a href={`https://wa.me/${wa}`} target="_blank" rel="noreferrer" aria-label={`WhatsApp a ${appt.patientName}`} onClick={event => event.stopPropagation()} className="inline-grid size-6 place-items-center rounded-full bg-white/80 text-[#128c7e]"><MessageCircle className="size-3.5" /></a>}</p>}
                 </>}
               </div>; })}
@@ -196,7 +211,7 @@ export function AgendaBoxDay({ onOpenPatient, onChanged }: { onOpenPatient?: (id
     {data && !(data.schedules.length) && <p className="mt-2 text-xs text-[#6b6a7c]">Tip: en Configuración → Box puedes definir horarios por box para ver los cupos libres. Mientras tanto, toca cualquier hora de una columna para agendar o bloquear.</p>}
     {mobile && columns.length > 1 && <p className="mt-2 text-center text-xs text-[#6b6a7c]">Desliza a los lados para cambiar de box.</p>}
 
-    {selected && <AppointmentSheet appt={selected} boxes={boxes.filter(b => b.enabled)} boxName={boxName} onClose={() => setSelected(null)} onStatus={status => void setStatus(selected, status)} onOpenPatient={onOpenPatient}
+    {selected && <AppointmentSheet appt={selected} boxes={boxes.filter(b => b.enabled)} professionals={professionals} professionalId={proOf(selected)} boxName={boxName} onClose={() => setSelected(null)} onStatus={status => void setStatus(selected, status)} onOpenPatient={onOpenPatient}
       onMove={async change => { try { await post({ action: "mover", id: selected.id, ...change }); setSelected(null); await changed("Cita actualizada."); } catch (cause) { setError(cause instanceof Error ? cause.message : "No se pudo mover la cita."); } }} />}
     {selectedBlock && <Sheet title="Bloqueo" onClose={() => setSelectedBlock(null)}>
       <p className="font-medium">{selectedBlock.reason} · {selectedBlock.start}–{selectedBlock.end}</p>
@@ -204,18 +219,18 @@ export function AgendaBoxDay({ onOpenPatient, onChanged }: { onOpenPatient?: (id
       {selectedBlock.note && <p className="mt-2 text-sm">{selectedBlock.note}</p>}
       <Button type="button" className="mt-4 w-full bg-[#a43542] hover:bg-[#8c2c38]" onClick={async () => { try { await post({ action: "quitarBloqueo", id: selectedBlock.id }); setSelectedBlock(null); await changed("Bloqueo quitado."); } catch (cause) { setError(cause instanceof Error ? cause.message : "No se pudo quitar."); } }}>{selectedBlock.repeat === "none" ? "Quitar bloqueo" : "Quitar bloqueo (toda la repetición)"}</Button>
     </Sheet>}
-    {draft && <SlotSheet draft={draft} boxes={boxes.filter(b => b.enabled)} patients={data?.patients ?? []} onClose={() => setDraft(null)}
+    {draft && <SlotSheet draft={draft} boxes={boxes.filter(b => b.enabled)} professionals={professionals} patients={data?.patients ?? []} onClose={() => setDraft(null)}
       onSaved={async message => { setDraft(null); await changed(message); }} />}
   </div>;
 }
 
-function AppointmentSheet({ appt, boxes, boxName, onClose, onStatus, onMove, onOpenPatient }: { appt: Appt; boxes: Box[]; boxName: (id: number | null) => string; onClose: () => void; onStatus: (status: AttendanceStatus) => void; onMove: (change: Record<string, unknown>) => Promise<void>; onOpenPatient?: (id: number) => void }) {
+function AppointmentSheet({ appt, boxes, professionals, professionalId, boxName, onClose, onStatus, onMove, onOpenPatient }: { appt: Appt; boxes: Box[]; professionals: Professional[]; professionalId: number | null; boxName: (id: number | null) => string; onClose: () => void; onStatus: (status: AttendanceStatus) => void; onMove: (change: Record<string, unknown>) => Promise<void>; onOpenPatient?: (id: number) => void }) {
   const wa = whatsappNumber(appt.phone);
   const [busy, setBusy] = useState(false);
   const move = async (change: Record<string, unknown>) => { setBusy(true); try { await onMove(change); } finally { setBusy(false); } };
   return <Sheet title={appt.patientName} onClose={onClose}>
     <div className="flex items-center gap-2 text-sm"><span className="size-3 rounded-full" style={{ background: STATUS_COLOR[appt.status] }} aria-hidden="true" /><span className="font-medium">{ATTENDANCE_LABEL[appt.status]}</span></div>
-    <p className="mt-1 text-sm">{appt.start}–{toClock(toMinutes(appt.start) + appt.minutes)} · {boxName(appt.boxId)}{appt.professional ? ` · ${appt.professional}` : ""}</p>
+    <p className="mt-1 text-sm">{appt.start}–{toClock(toMinutes(appt.start) + appt.minutes)} · {boxName(appt.boxId)}{(() => { const pro = professionals.find(p => p.id === professionalId); const name = pro?.name ?? appt.professional; return name ? <span> · <span className="inline-flex items-center gap-1"><span className="size-2.5 rounded-full" style={{ background: pro?.color ?? "#473a6d" }} aria-hidden="true" />{name}</span></span> : null; })()}</p>
     {appt.reason && <p className="mt-1 text-sm"><span className="text-[#615f73]">Tratamiento: </span>{appt.reason}</p>}
     {appt.phone && <p className="mt-1 flex items-center gap-2 text-sm">{appt.phone}{wa && <a href={`https://wa.me/${wa}`} target="_blank" rel="noreferrer" className="inline-flex min-h-9 items-center gap-1 rounded-full bg-[#25d366] px-3 text-xs font-semibold text-white"><MessageCircle className="size-4" />WhatsApp</a>}</p>}
     {appt.needsPatient && <p className="mt-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-950">Evento de Google sin paciente: asígnalo desde la vista «Semana».</p>}
@@ -226,6 +241,9 @@ function AppointmentSheet({ appt, boxes, boxName, onClose, onStatus, onMove, onO
       <select className={fieldCls} value={appt.status} onChange={event => onStatus(event.target.value as AttendanceStatus)}>{LEGEND.map(item => <option key={item.status} value={item.status}>{item.label}</option>)}</select>
     </label>
     {appt.source === "app" && <div className="mt-3 grid grid-cols-2 gap-2">
+      <label className="col-span-2 space-y-1 text-sm font-medium">Profesional
+        <select className={fieldCls} disabled={busy} value={professionalId ?? ""} onChange={event => { if (event.target.value) void move({ professionalId: Number(event.target.value) }); }}>{professionalId === null && <option value="">Sin profesional</option>}{professionals.filter(p => p.active || p.id === professionalId).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
+      </label>
       <label className="space-y-1 text-sm font-medium">Box
         <select className={fieldCls} disabled={busy} value={appt.boxId ?? ""} onChange={event => void move({ boxId: event.target.value === "" ? null : Number(event.target.value) })}><option value="">Sin box</option>{boxes.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select>
       </label>
@@ -237,7 +255,7 @@ function AppointmentSheet({ appt, boxes, boxName, onClose, onStatus, onMove, onO
   </Sheet>;
 }
 
-function SlotSheet({ draft, boxes, patients, onClose, onSaved }: { draft: Draft; boxes: Box[]; patients: PatientLite[]; onClose: () => void; onSaved: (message: string) => Promise<void> }) {
+function SlotSheet({ draft, boxes, professionals, patients, onClose, onSaved }: { draft: Draft; boxes: Box[]; professionals: Professional[]; patients: PatientLite[]; onClose: () => void; onSaved: (message: string) => Promise<void> }) {
   const [tab, setTab] = useState<"cita" | "bloqueo">("cita");
   const [boxId, setBoxId] = useState<number | null>(draft.boxId);
   const [time, setTime] = useState(draft.time);
@@ -248,7 +266,7 @@ function SlotSheet({ draft, boxes, patients, onClose, onSaved }: { draft: Draft;
   const [newName, setNewName] = useState("");
   const [newPhone, setNewPhone] = useState("");
   const [reason, setReason] = useState("");
-  const [professional, setProfessional] = useState(draft.professional);
+  const [professionalId, setProfessionalId] = useState<number | null>(draft.professionalId);
   const [end, setEnd] = useState(toClock(Math.min(24 * 60 - 1, toMinutes(draft.time) + draft.minutes)));
   const [repeat, setRepeat] = useState<"none" | "weekly" | "daily">("none");
   const [until, setUntil] = useState(addDays(draft.day, 28));
@@ -267,7 +285,7 @@ function SlotSheet({ draft, boxes, patients, onClose, onSaved }: { draft: Draft;
     setBusy(true); setError("");
     try {
       if (tab === "cita") {
-        const result = await post({ action: "cita", day: draft.day, time, minutes, boxId, reason, professional, ...(isNew ? { newPatient: { name: newName, phone: newPhone } } : { patientId: patient?.id }) });
+        const result = await post({ action: "cita", day: draft.day, time, minutes, boxId, reason, professionalId, ...(isNew ? { newPatient: { name: newName, phone: newPhone } } : { patientId: patient?.id }) });
         const calendar = result.calendar;
         await onSaved("Cita agendada" + (calendar === "ok" ? " y escrita en Google Calendar." : calendar === "solo-lectura" ? ". Google Calendar está en solo lectura: reconéctalo para escribir citas." : "."));
       } else {
@@ -305,7 +323,7 @@ function SlotSheet({ draft, boxes, patients, onClose, onSaved }: { draft: Draft;
         {boxSelect(false)}
         <label className="space-y-1 text-sm font-medium">Hora<input type="time" step={900} className={fieldCls} value={time} onChange={event => setTime(event.target.value)} /></label>
         <label className="space-y-1 text-sm font-medium">Duración<select className={fieldCls} value={minutes} onChange={event => setMinutes(Number(event.target.value))}>{DURATIONS.map(m => <option key={m} value={m}>{m} min ({m / 15} {m === 15 ? "módulo" : "módulos"})</option>)}</select></label>
-        <label className="space-y-1 text-sm font-medium">Profesional<input className={fieldCls} value={professional} maxLength={80} onChange={event => setProfessional(event.target.value)} /></label>
+        <label className="space-y-1 text-sm font-medium">Profesional<select className={fieldCls} value={professionalId ?? ""} onChange={event => setProfessionalId(event.target.value ? Number(event.target.value) : null)} data-testid="slot-professional">{professionals.filter(p => p.active).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
       </div>
       <label className="block space-y-1 text-sm font-medium">Tratamiento / motivo<input className={fieldCls} value={reason} maxLength={500} placeholder="Ej: Control, Destartraje, Evaluación" onChange={event => setReason(event.target.value)} /></label>
     </div> : <div className="mt-3 grid grid-cols-2 gap-2">
