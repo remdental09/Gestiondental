@@ -81,3 +81,57 @@ test("los respaldos y la exportación aseguran las columnas antes de leer los do
   assert.match(read("app/drive-backup.ts"), /ensureDocumentIssuanceColumns\(\)\.then/);
   assert.match(read("app/api/clinical/export/route.ts"), /ensureDocumentIssuanceColumns\(\)\.then/);
 });
+
+test("tolera variantes de copiado: número, R.U.N., fecha de nacimiento y fecha con «del»", () => {
+  const variant = sample({ date: "19 de noviembre del 2026" })
+    .replace("bajo el N° 12345", "bajo el número 12345").replace("RUN:", "R.U.N.:").replace("Fecha nacimiento:", "Fecha de nacimiento:");
+  const result = parsePrestadorCertificate(variant, today);
+  assert.equal(result.ok, true);
+  assert.equal(result.data.regSis, "12345");
+  assert.equal(result.data.issuedOn, "2026-11-19");
+  assert.equal(parsePrestadorCertificate(sample({ date: "19/11/2026" }), today).data.issuedOn, "2026-11-19");
+});
+
+test("el error dice qué datos no se pudieron leer", () => {
+  const broken = sample().replace(/Nombre Completo:[^\n]*\n/, "").replace(/Otorgado en[^\n]*/, "");
+  const result = parsePrestadorCertificate(broken, today);
+  assert.equal(result.ok, false);
+  assert.match(result.error, /nombre, fecha de otorgamiento/);
+  assert.doesNotMatch(result.error, /RUN|registro/);
+});
+
+// Orden que entrega el extractor de PDF del servidor: primero los valores y al final la lista de etiquetas. Datos FICTICIOS.
+const VALORES_PRIMERO = `CERTIFICADO DE INSCRIPCIÓN
+EN EL REGISTRO NACIONAL
+DE PRESTADORES INDIVIDUALES DE SALUD
+código validación:
+AbC12xYz9
+Otorgado en Santiago, con fecha 19 de Noviembre de 2026
+- Implantología Buco Maxilofacial:
+Posee título de especialista en Implantología Buco Maxilofacial otorgado por la Universidad de Chile,
+emitido con fecha 01/01/2012.
+Especialidad Certificada:
+- Cirujano Dentista:
+Posee título de Cirujano Dentista otorgado por la Universidad de Chile emitido el 09/11/2004
+Orden Profesional:
+01/03/2010
+11111111-1
+Paula Ejemplo Prueba
+Femenino
+Chilena
+01/01/1980
+Fecha de registro:
+RUN:
+Nombre Completo:
+Sexo:
+Nacionalidad:
+Fecha nacimiento:
+Certifico que en el Registro Nacional de Prestadores Individuales de Salud que mantiene esta
+Superintendencia de Salud, en la forma prevista, figura, bajo el N° 12345, la siguiente inscripción:`;
+
+test("lee el certificado cuando el PDF entrega los valores antes que las etiquetas", () => {
+  const result = parsePrestadorCertificate(`SUPERINTENDENCIA DE SALUD\n${VALORES_PRIMERO}`, today);
+  assert.equal(result.ok, true, result.error);
+  assert.deepEqual(result.data, { regSis: "12345", run: "11111111-1", fullName: "Paula Ejemplo Prueba", profession: "Cirujano Dentista", specialties: ["Implantología Buco Maxilofacial"], issuedOn: "2026-11-19", validationCode: "AbC12xYz9" });
+  assert.equal(JSON.stringify(result.data).includes("Femenino"), false);
+});
