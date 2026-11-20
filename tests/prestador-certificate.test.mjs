@@ -73,7 +73,8 @@ test("solo un prestador aprobado emite recetas, y el panel de revisión es solo 
   assert.match(review, /Indica el motivo del rechazo/);
   const upload = read("app/api/prestador/route.ts");
   assert.match(upload, /sameRun\(parsed\.data\.run, profile\.rut\)/);
-  assert.doesNotMatch(upload, /\.put\(|R2|CLINICAL_IMAGES/); // el PDF se descarta: no se guarda
+  assert.match(upload, /store\.put\(key, pdf\.bytes/); // el PDF original se GUARDA (R2), no se descarta
+  assert.doesNotMatch(upload, /descarta el archivo/);
   assert.match(upload, /application\/json/); // también acepta el texto pegado
 });
 
