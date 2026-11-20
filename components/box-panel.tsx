@@ -5,10 +5,12 @@ import { Clock, DoorOpen, Pencil, Plus, Power, Trash2, Users } from "lucide-reac
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { BOX_COLORS, BOX_KINDS, BOX_KIND_LABEL, DURATIONS, WEEKDAY_SHORT, type BoxKind, type BoxSchedule } from "@/lib/agenda-box";
+import type { Professional } from "@/lib/professionals";
+import { PROFESSIONALS_CHANGED } from "@/components/professionals-panel";
 
 type Box = { id: number; name: string; enabled: boolean; kind?: BoxKind; color?: string | null };
 type Editing = { id: number | null; name: string; kind: BoxKind; color: string | null };
-type ScheduleDraft = { id?: number; boxId: number; professional: string; weekdays: number[]; start: string; end: string; validFrom: string; validTo: string; blockMinutes: number };
+type ScheduleDraft = { id?: number; boxId: number; professionalId: number | null; weekdays: number[]; start: string; end: string; validFrom: string; validTo: string; blockMinutes: number };
 const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0];
 const fieldCls = "h-11 w-full rounded-md border border-[#d9d5e4] bg-white px-2 text-base sm:h-9 sm:text-sm";
 
@@ -16,7 +18,8 @@ const fieldCls = "h-11 w-full rounded-md border border-[#d9d5e4] bg-white px-2 t
 export function BoxPanel() {
   const [boxes, setBoxes] = useState<Box[] | null>(null);
   const [schedules, setSchedules] = useState<BoxSchedule[]>([]);
-  const [professional, setProfessional] = useState("");
+  const [professionals, setProfessionals] = useState<Professional[]>([]);
+  const [defaultPro, setDefaultPro] = useState<number | null>(null);
   const [hideDisabled, setHideDisabled] = useState(true);
   const [editing, setEditing] = useState<Editing | null>(null);
   const [draft, setDraft] = useState<ScheduleDraft | null>(null);
@@ -28,9 +31,13 @@ export function BoxPanel() {
     fetch("/api/box", { cache: "no-store" }).then(r => r.ok ? r.json() as Promise<{ boxes: Box[] }> : Promise.reject(new Error("box")))
       .then(data => { if (live) setBoxes(data.boxes); }).catch(() => { if (live) setError("No se pudieron cargar los box."); });
     const today = new Date().toISOString().slice(0, 10);
-    fetch(`/api/agenda-box?from=${today}&to=${today}`, { cache: "no-store" }).then(r => r.ok ? r.json() as Promise<{ schedules: BoxSchedule[]; professional: string }> : Promise.reject(new Error("horarios")))
-      .then(data => { if (live) { setSchedules(data.schedules); setProfessional(data.professional); } }).catch(() => undefined);
-    return () => { live = false; };
+    const loadSchedules = () => fetch(`/api/agenda-box?from=${today}&to=${today}`, { cache: "no-store" }).then(r => r.ok ? r.json() as Promise<{ schedules: BoxSchedule[]; professionals: Professional[]; defaultProfessionalId: number | null }> : Promise.reject(new Error("horarios")))
+      .then(data => { if (live) { setSchedules(data.schedules); setProfessionals(data.professionals); setDefaultPro(data.defaultProfessionalId); } }).catch(() => undefined);
+    void loadSchedules();
+    // Si se agrega o renombra un profesional en el panel de arriba, la lista de horarios se actualiza.
+    const onChanged = () => void loadSchedules();
+    window.addEventListener(PROFESSIONALS_CHANGED, onChanged);
+    return () => { live = false; window.removeEventListener(PROFESSIONALS_CHANGED, onChanged); };
   }, []);
 
   async function send(body: Record<string, unknown>): Promise<boolean> {
@@ -66,7 +73,7 @@ export function BoxPanel() {
     if (!draft) return;
     if (await sendSchedule({ action: "horario", ...draft, validFrom: draft.validFrom || null, validTo: draft.validTo || null })) setDraft(null);
   };
-  const newDraft = (boxId: number): ScheduleDraft => ({ boxId, professional, weekdays: [1, 2, 3, 4, 5], start: "09:00", end: "19:00", validFrom: "", validTo: "", blockMinutes: 30 });
+  const newDraft = (boxId: number): ScheduleDraft => ({ boxId, professionalId: defaultPro, weekdays: [1, 2, 3, 4, 5], start: "09:00", end: "19:00", validFrom: "", validTo: "", blockMinutes: 30 });
 
   return <section className="surface" aria-label="Box de la clínica" data-testid="box-panel">
     <div className="flex flex-wrap items-start justify-between gap-3">
@@ -109,9 +116,9 @@ export function BoxPanel() {
             {!own.length && <p className="mt-1 text-xs text-[#6b6a7c]">Sin horarios: en la agenda igual puedes tocar cualquier hora para agendar.</p>}
             <ul className="mt-1 space-y-1">{own.map(s => <li key={s.id} className="flex flex-wrap items-center gap-2 text-sm">
               <span className="font-medium">{WEEK_ORDER.filter(d => s.weekdays.includes(d)).map(d => WEEKDAY_SHORT[d]).join(" ")}</span>
-              <span>{s.start}–{s.end}</span><span className="text-[#615f73]">cada {s.blockMinutes} min · {s.professional}</span>
+              <span>{s.start}–{s.end}</span><span className="text-[#615f73]">cada {s.blockMinutes} min · <span className="inline-flex items-center gap-1"><span className="size-2.5 rounded-full" style={{ background: professionals.find(p => p.id === s.professionalId)?.color ?? "#c9c5d6" }} aria-hidden="true" />{s.professional}</span></span>
               {(s.validFrom || s.validTo) && <span className="text-xs text-[#6b6a7c]">{s.validFrom ? `desde ${s.validFrom.split("-").reverse().join("-")}` : ""} {s.validTo ? `hasta ${s.validTo.split("-").reverse().join("-")}` : ""}</span>}
-              <button type="button" className="ml-auto rounded p-2 text-[#473a6d] hover:bg-[#efeef4]" aria-label="Editar horario" disabled={busy} onClick={() => setDraft({ id: s.id, boxId: s.boxId, professional: s.professional, weekdays: s.weekdays, start: s.start, end: s.end, validFrom: s.validFrom ?? "", validTo: s.validTo ?? "", blockMinutes: s.blockMinutes })}><Pencil className="size-4" /></button>
+              <button type="button" className="ml-auto rounded p-2 text-[#473a6d] hover:bg-[#efeef4]" aria-label="Editar horario" disabled={busy} onClick={() => setDraft({ id: s.id, boxId: s.boxId, professionalId: s.professionalId, weekdays: s.weekdays, start: s.start, end: s.end, validFrom: s.validFrom ?? "", validTo: s.validTo ?? "", blockMinutes: s.blockMinutes })}><Pencil className="size-4" /></button>
               <button type="button" className="rounded p-2 text-[#a43542] hover:bg-rose-50" aria-label="Quitar horario" disabled={busy} onClick={() => { if (window.confirm("¿Quitar este horario? Las citas ya agendadas no cambian.")) void sendSchedule({ action: "borrarHorario", id: s.id }); }}><Trash2 className="size-4" /></button>
             </li>)}</ul>
             {draft && draft.boxId === box.id ? <div className="mt-2 grid gap-2 rounded-lg bg-[#f7f6fa] p-3 sm:grid-cols-2" data-testid="horario-form">
@@ -121,7 +128,7 @@ export function BoxPanel() {
               <label className="space-y-1 text-sm font-medium">Desde las<input type="time" step={900} className={fieldCls} value={draft.start} onChange={e => setDraft({ ...draft, start: e.target.value })} /></label>
               <label className="space-y-1 text-sm font-medium">Hasta las<input type="time" step={900} className={fieldCls} value={draft.end} onChange={e => setDraft({ ...draft, end: e.target.value })} /></label>
               <label className="space-y-1 text-sm font-medium">Largo de cada cupo<select className={fieldCls} value={draft.blockMinutes} onChange={e => setDraft({ ...draft, blockMinutes: Number(e.target.value) })}>{DURATIONS.slice(0, 8).map(m => <option key={m} value={m}>{m} min</option>)}</select></label>
-              <label className="space-y-1 text-sm font-medium">Profesional<input className={fieldCls} maxLength={80} value={draft.professional} onChange={e => setDraft({ ...draft, professional: e.target.value })} /></label>
+              <label className="space-y-1 text-sm font-medium">Profesional<select className={fieldCls} value={draft.professionalId ?? ""} onChange={e => setDraft({ ...draft, professionalId: e.target.value ? Number(e.target.value) : null })}>{professionals.filter(p => p.active || p.id === draft.professionalId).map(p => <option key={p.id} value={p.id}>{p.name}{p.active ? "" : " (inactivo)"}</option>)}</select><span className="block text-xs font-normal text-[#6b6a7c]">Agrega más dentistas en «Profesionales».</span></label>
               <label className="space-y-1 text-sm font-medium">Vigente desde (opcional)<input type="date" className={fieldCls} value={draft.validFrom} onChange={e => setDraft({ ...draft, validFrom: e.target.value })} /></label>
               <label className="space-y-1 text-sm font-medium">Vigente hasta (opcional)<input type="date" className={fieldCls} value={draft.validTo} onChange={e => setDraft({ ...draft, validTo: e.target.value })} /></label>
               <div className="flex gap-2 sm:col-span-2"><Button type="button" className="bg-[#473a6d] hover:bg-[#3a2f5a]" disabled={busy || !draft.weekdays.length} onClick={() => void saveDraft()}>{busy ? "Guardando…" : "Guardar horario"}</Button><Button type="button" variant="outline" disabled={busy} onClick={() => setDraft(null)}>Cancelar</Button></div>

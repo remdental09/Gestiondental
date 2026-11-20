@@ -1,4 +1,5 @@
 import { BOX_COLUMNS_DDL, BOX_SCHEMA_DDL } from "@/lib/agenda-box";
+import { PROFESSIONALS_DDL, PROFESSIONAL_COLUMNS_DDL } from "@/lib/professionals";
 import { env } from "cloudflare:workers";
 import { decideGoogleChange, latestIso, minutesBetween, chileDayTime, type GoogleChange, type IncomingGoogleEvent } from "@/lib/calendar-two-way";
 import { controlReasonFrom, inImportWindow, isClinicalCandidate, isControlTitle, matchPatientByTitle, reasonFromTitle } from "@/lib/calendar-import";
@@ -39,6 +40,8 @@ export async function ensureTwoWay() {
     // Agenda por box: la cita lleva box_id (la cola de reintentos lo lee para el «location» del evento).
     for (const sql of BOX_SCHEMA_DDL) await db.prepare(sql).run();
     for (const sql of BOX_COLUMNS_DDL) { try { await db.prepare(sql).run(); } catch { /* la columna ya existe */ } }
+    for (const sql of PROFESSIONALS_DDL) await db.prepare(sql).run();
+    for (const sql of PROFESSIONAL_COLUMNS_DDL) { try { await db.prepare(sql).run(); } catch { /* la columna ya existe */ } }
   })().catch(cause => { ready = null; throw cause; });
   await ready;
   return db;

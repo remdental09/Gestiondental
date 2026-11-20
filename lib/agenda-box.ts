@@ -70,7 +70,7 @@ export const WEEKDAY_SHORT = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"]
 /** Duraciones en módulos de 15 minutos (15 min a 4 h). */
 export const DURATIONS = Array.from({ length: 16 }, (_, i) => (i + 1) * SLOT_MINUTES);
 
-export type BoxSchedule = { id: number; boxId: number; professional: string; weekdays: number[]; start: string; end: string; validFrom: string | null; validTo: string | null; blockMinutes: number };
+export type BoxSchedule = { id: number; boxId: number; professional: string; professionalId: number | null; weekdays: number[]; start: string; end: string; validFrom: string | null; validTo: string | null; blockMinutes: number };
 export type AgendaBlock = { id: number; boxId: number | null; day: string; start: string; end: string; repeat: "none" | "weekly" | "daily"; until: string | null; reason: string; note: string };
 export type Busy = { boxId: number | null; start: string; minutes: number };
 
@@ -100,7 +100,7 @@ export const blocksOn = (blocks: AgendaBlock[], day: string) => blocks.filter(bl
 
 const overlaps = (aStart: number, aEnd: number, bStart: number, bEnd: number) => aStart < bEnd && bStart < aEnd;
 
-export type FreeSlot = { boxId: number; start: string; minutes: number; professional: string };
+export type FreeSlot = { boxId: number; start: string; minutes: number; professional: string; professionalId: number | null };
 /**
  * Cupos libres de un box ese día, a partir de sus horarios vigentes: bloques del largo configurado,
  * sin los que chocan con una cita (no cancelada) o un bloqueo de ese box (o de todos los box).
@@ -120,7 +120,7 @@ export function freeSlots(schedules: BoxSchedule[], boxId: number, day: string, 
     for (let t = toMinutes(s.start); t + s.blockMinutes <= end; t += s.blockMinutes) {
       if (seen.has(t) || taken.some(([a, b]) => overlaps(t, t + s.blockMinutes, a, b))) continue;
       seen.add(t);
-      out.push({ boxId, start: toClock(t), minutes: s.blockMinutes, professional: s.professional });
+      out.push({ boxId, start: toClock(t), minutes: s.blockMinutes, professional: s.professional, professionalId: s.professionalId ?? null });
     }
   }
   return out.sort((a, b) => a.start.localeCompare(b.start));
