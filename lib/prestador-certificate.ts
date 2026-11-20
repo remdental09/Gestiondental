@@ -1,6 +1,6 @@
 // Certificado de inscripción en el Registro Nacional de Prestadores Individuales de Salud (Superintendencia de Salud).
-// Se lee el texto del PDF y se conservan SOLO los datos necesarios para identificar al profesional en una receta.
-// No se guardan fecha de nacimiento, sexo, nacionalidad ni el archivo.
+// Se lee el texto del PDF para obtener los datos que van en la receta (registro, profesión, código de validación).
+// El PDF original se guarda de forma segura (R2, carpeta del profesional) y su QR se imprime en recetas y certificados.
 import { isValidChileanRut } from "./patient-document.ts";
 
 export type PrestadorCertificate = {
@@ -80,7 +80,7 @@ export function parsePrestadorCertificate(rawText: string, today = new Date()): 
   return { ok: true, data: { regSis, run, fullName, profession, specialties: specialties.slice(0, 4), issuedOn, validationCode } };
 }
 
-export type PublicRegistration = { regSis: string; run: string; fullName: string; profession: string; specialties: string[]; issuedOn: string; validationCode: string };
+export type PublicRegistration = { regSis: string; run: string; fullName: string; profession: string; specialties: string[]; issuedOn: string; validationCode: string; qrUrl?: string };
 
 /** Línea exigida por el reglamento de farmacias: «REG-SIS Nº: …» junto a profesión y RUN del profesional. */
 export const registrationLine = (reg: Pick<PublicRegistration, "regSis">) => `REG-SIS Nº: ${reg.regSis}`;

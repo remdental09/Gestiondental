@@ -8,7 +8,8 @@ import { ageFromBirthDate, splitPrescriptionLines, isPrescriptionKind, CLINICAL_
 import { shortCode, verificationUrl } from "@/lib/document-verification";
 import { formatAddress, type PatientAddress } from "@/lib/patient-address";
 import { RNPI_SITE, VALIDATION_SITE, registrationLine, type PublicRegistration } from "@/lib/prestador-certificate";
-import { PrestadorCard, type MyRegistration } from "@/components/prestador-card";
+import { qrCaption } from "@/lib/prestador-qr";
+import { PrestadorCard, usePrestador } from "@/components/prestador-card";
 import { useTrimmedMark } from "@/components/signature-editor";
 import { mountPrintCopy, printNode, PRINT_CLASS } from "@/lib/print-node";
 
@@ -99,10 +100,8 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
   const [documentMark, setDocumentMark] = useState("");
   const [saving, setSaving] = useState(false);
   const [replacingId, setReplacingId] = useState<number | null>(null);
-  const [registration, setRegistration] = useState<MyRegistration>(null);
-  const [registrationLoading, setRegistrationLoading] = useState(true);
-  const [registrationUploading, setRegistrationUploading] = useState(false);
-  const [registrationError, setRegistrationError] = useState("");
+  const prestador = usePrestador();
+  const registration = prestador.registration;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -187,37 +186,6 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
     finally { setBusy(false); }
   };
   const annul = (doc: SavedDocument) => { if (window.confirm("¿Desea anular este documento? Nunca se borra, pero la verificación por QR lo mostrará como anulado y no podrá deshacerse.")) void act("/api/documentos/anular", doc, "Documento anulado. La verificación por QR lo muestra como anulado."); };
-  useEffect(() => {
-    let active = true;
-    void fetch("/api/prestador", { cache: "no-store" }).then(async response => {
-      const data = await response.json() as { registration?: MyRegistration; error?: string };
-      if (!response.ok) throw new Error(data.error || "No se pudo leer tu habilitación.");
-      if (active) setRegistration(data.registration ?? null);
-    }).catch(reason => { if (active) setRegistrationError(reason instanceof Error ? reason.message : "No se pudo leer tu habilitación."); })
-      .finally(() => { if (active) setRegistrationLoading(false); });
-    return () => { active = false; };
-  }, []);
-  const sendCertificateText = async (texto: string) => {
-    setRegistrationUploading(true); setRegistrationError("");
-    try {
-      const response = await fetch("/api/prestador", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ texto }) });
-      const data = await response.json() as { registration?: MyRegistration; error?: string };
-      if (!response.ok || !data.registration) throw new Error(data.error || "No se pudo leer el certificado.");
-      setRegistration(data.registration);
-    } catch (reason) { setRegistrationError(reason instanceof Error ? reason.message : "No se pudo leer el certificado."); }
-    finally { setRegistrationUploading(false); }
-  };
-  const uploadCertificate = async (file: File) => {
-    setRegistrationUploading(true); setRegistrationError("");
-    try {
-      const body = new FormData(); body.set("certificado", file);
-      const response = await fetch("/api/prestador", { method: "POST", body });
-      const data = await response.json() as { registration?: MyRegistration; error?: string };
-      if (!response.ok || !data.registration) throw new Error(data.error || "No se pudo leer el certificado.");
-      setRegistration(data.registration);
-    } catch (reason) { setRegistrationError(reason instanceof Error ? reason.message : "No se pudo leer el certificado."); }
-    finally { setRegistrationUploading(false); }
-  };
   const canIssueReceta = registration?.status === "aprobado";
 
   const hasContent = fields[kind].some(field => content[field.key]?.trim());
@@ -280,11 +248,11 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
       {(error || notice) && <p role={error ? "alert" : "status"} className={`mb-4 rounded-lg p-3 text-sm print:hidden ${error ? "bg-rose-50 text-rose-800" : "bg-emerald-50 text-emerald-900"}`}>{error || notice}</p>}
       {activeDocument.status === "borrador" && <p className="mb-4 rounded-lg bg-[#f3f1f7] p-3 text-sm text-[#473a6d] print:hidden">Este documento es un borrador. Al imprimir o guardar en PDF se emite primero con su código de verificación QR (o pulsa «Emitir con QR»).{isPrescriptionKind(activeDocument.kind) && !canIssueReceta && " Para emitir recetas primero debes subir tu certificado de inscripción (tarjeta «Habilitación para emitir recetas») y esperar su aprobación."}</p>}
       <article id="documentation-print" className="mx-auto max-w-[800px] overflow-hidden rounded-xl border border-[#e6e4ee] bg-white text-[#272533] shadow-sm print:rounded-none print:border-0 print:shadow-none [print-color-adjust:exact] [-webkit-print-color-adjust:exact]">
-        <header className="bg-gradient-to-r from-[#473a6d] to-[#6b5d8e] px-7 py-6 text-white print:py-4">
+        <header className="bg-gradient-to-r from-[#473a6d] to-[#6b5d8e] px-7 py-6 text-white print:py-3">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
               <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/75">{clinic?.clinicName || "Clínica"}</p>
-              <h2 className="mt-2 text-3xl font-bold tracking-tight">{activeDocument.title}</h2>
+              <h2 className="mt-2 text-3xl font-bold tracking-tight print:mt-1 print:text-2xl">{activeDocument.title}</h2>
               {(clinic?.address || clinic?.city || clinic?.phone || clinic?.email) && <p className="mt-2 text-xs leading-relaxed text-white/80">{[clinic.address, clinic.city].filter(Boolean).join(", ")}{(clinic.address || clinic.city) && (clinic.phone || clinic.email) ? " · " : ""}{[clinic.phone, clinic.email].filter(Boolean).join(" · ")}</p>}
             </div>
             <div className="flex shrink-0 flex-col items-end gap-2 text-right">
@@ -296,8 +264,8 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
         {activeDocument.status === "anulado" && <p className="bg-rose-100 px-7 py-2 text-center text-sm font-bold uppercase tracking-widest text-rose-900">Documento anulado</p>}
         {activeDocument.status === "reemplazado" && <p className="bg-orange-100 px-7 py-2 text-center text-sm font-bold uppercase tracking-widest text-orange-900">Documento reemplazado por una versión nueva</p>}
         {activeDocument.status === "borrador" && <p className="bg-[#f3f1f7] px-7 py-2 text-center text-xs font-semibold uppercase tracking-widest text-[#615f73]">Borrador · sin verificación</p>}
-        <div className="px-7 pb-8 pt-6 print:pb-0 print:pt-4">
-          <section className="grid gap-x-8 gap-y-2 rounded-lg border border-[#e6e4ee] bg-[#faf9fc] p-4 text-sm sm:grid-cols-2">
+        <div className="px-7 pb-8 pt-6 print:pb-0 print:pt-3">
+          <section className="grid gap-x-8 gap-y-2 rounded-lg border border-[#e6e4ee] bg-[#faf9fc] p-4 text-sm sm:grid-cols-2 print:grid-cols-2 print:gap-y-1 print:p-3">
             <p><span className="block text-[11px] font-semibold uppercase tracking-wider text-[#6b5d8e]">Paciente</span><span className="font-semibold">{patient.name}</span></p>
             <p><span className="block text-[11px] font-semibold uppercase tracking-wider text-[#6b5d8e]">Identificación</span>{patient.rut || "Sin registrar"}</p>
             <p><span className="block text-[11px] font-semibold uppercase tracking-wider text-[#6b5d8e]">Edad</span>{patientAge === null ? "Sin registrar" : `${patientAge} años`}</p>
@@ -305,24 +273,39 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
             <p className="sm:col-span-2"><span className="block text-[11px] font-semibold uppercase tracking-wider text-[#6b5d8e]">Profesional</span>{activeDocument.createdByName || "Sin registrar"}{activeDocument.registration && <span className="block text-xs text-[#44425a]">{[activeDocument.registration.profession, ...activeDocument.registration.specialties].join(" · ")} · RUN {activeDocument.registration.run} · {registrationLine(activeDocument.registration)}</span>}{[clinic?.address, clinic?.city].filter(Boolean).length > 0 && <span className="block text-xs text-[#44425a]">Domicilio: {[clinic?.address, clinic?.city].filter(Boolean).join(", ")}</span>}</p>
             {formatAddress(patient.address) && <p className="sm:col-span-2"><span className="block text-[11px] font-semibold uppercase tracking-wider text-[#6b5d8e]">Domicilio del paciente</span>{formatAddress(patient.address)}</p>}
           </section>
-          {isPrescriptionKind(activeDocument.kind) ? <div className="mt-6 space-y-6">
+          {isPrescriptionKind(activeDocument.kind) ? <div className="mt-6 space-y-6 print:mt-3 print:space-y-3">
             {activeContent.indicacion?.trim() && <section><h3 className="text-[11px] font-semibold uppercase tracking-wider text-[#6b5d8e]">Indicación o motivo</h3><p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed">{activeContent.indicacion.trim()}</p></section>}
             <section>
-              <h3 className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-[#6b5d8e]"><span className="font-serif text-2xl normal-case italic leading-none text-[#473a6d]">Rp.</span>Prescripción</h3>
-              {prescriptionLines.length ? <ol className="mt-3 space-y-2">{prescriptionLines.map((line, index) => <li key={index} className="flex gap-3 rounded-lg border border-[#e6e4ee] px-4 py-3"><span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-[#eeebf3] text-xs font-bold text-[#473a6d]">{index + 1}</span><div><p className="font-semibold">{line.name}</p>{line.detail && <p className="mt-0.5 text-sm leading-relaxed text-[#44425a]">{line.detail}</p>}</div></li>)}</ol> : <p className="mt-2 text-sm text-[#615f73]">—</p>}
+              <h3 className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-[#6b5d8e]"><span className="font-serif text-2xl normal-case italic leading-none text-[#473a6d] print:text-xl">Rp.</span>Prescripción</h3>
+              {prescriptionLines.length ? <ol className="mt-3 space-y-2 print:mt-2 print:space-y-1">{prescriptionLines.map((line, index) => <li key={index} className="flex gap-3 rounded-lg border border-[#e6e4ee] px-4 py-3 print:py-1"><span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-[#eeebf3] text-xs font-bold text-[#473a6d]">{index + 1}</span><div><p className="font-semibold">{line.name}</p>{line.detail && <p className="mt-0.5 text-sm leading-relaxed text-[#44425a]">{line.detail}</p>}</div></li>)}</ol> : <p className="mt-2 text-sm text-[#615f73]">—</p>}
             </section>
-            {activeContent.instrucciones?.trim() && <section className="rounded-lg bg-[#f3f1f7] p-4"><h3 className="text-[11px] font-semibold uppercase tracking-wider text-[#6b5d8e]">Instrucciones al paciente</h3><p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed">{activeContent.instrucciones.trim()}</p></section>}
-          </div> : <div className="mt-6 space-y-4">{fields[activeDocument.kind].map(field => <section key={field.key}><h3 className="text-[11px] font-semibold uppercase tracking-wider text-[#6b5d8e]">{field.label}</h3><p className="mt-1 min-h-5 whitespace-pre-wrap text-sm leading-relaxed">{activeContent[field.key]?.trim() || "—"}</p></section>)}</div>}
-          {activeDocument.kind === "consentimiento" && <p className="mt-6 rounded-lg border border-[#dddbe6] p-3 text-sm leading-relaxed">Borrador para revisión clínica. Este texto no sustituye la conversación con el paciente ni la verificación del contenido aplicable al procedimiento y sus circunstancias.</p>}
-          <footer className={`mt-16 print:mt-10 grid gap-10 [break-inside:avoid] text-center text-xs ${activeDocument.kind === "consentimiento" ? "grid-cols-2" : "grid-cols-1 justify-items-end"}`}>
+            {activeContent.instrucciones?.trim() && <section className="rounded-lg bg-[#f3f1f7] p-4 print:p-3"><h3 className="text-[11px] font-semibold uppercase tracking-wider text-[#6b5d8e]">Instrucciones al paciente</h3><p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed">{activeContent.instrucciones.trim()}</p></section>}
+          </div> : <div className="mt-6 space-y-4 print:mt-3 print:space-y-2">{fields[activeDocument.kind].map(field => <section key={field.key}><h3 className="text-[11px] font-semibold uppercase tracking-wider text-[#6b5d8e]">{field.label}</h3><p className="mt-1 min-h-5 whitespace-pre-wrap text-sm leading-relaxed">{activeContent[field.key]?.trim() || "—"}</p></section>)}</div>}
+          {activeDocument.kind === "consentimiento" && <p className="mt-6 rounded-lg border border-[#dddbe6] p-3 text-sm leading-relaxed print:mt-3 print:p-2 print:text-xs">Borrador para revisión clínica. Este texto no sustituye la conversación con el paciente ni la verificación del contenido aplicable al procedimiento y sus circunstancias.</p>}
+          {(() => {
+            const reg = activeDocument.registration;
+            const habilitacion = reg && <div className="flex items-start gap-2.5 text-left [break-inside:avoid]" data-testid="habilitacion-row">
+              {reg.qrUrl && <div className="size-[2cm] shrink-0 bg-white [&_svg]:size-full" role="img" aria-label="Código QR de habilitación del profesional (Superintendencia de Salud)" data-testid="habilitacion-qr" dangerouslySetInnerHTML={{ __html: qrSvg(reg.qrUrl) }}/>}
+              <div className="min-w-0 text-[10.5px] leading-snug text-[#6b6a7c]">{reg.qrUrl && <p className="font-semibold text-[#44425a]">{qrCaption(reg.regSis)}</p>}<p className="mt-0.5">Inscrito en el Registro Nacional de Prestadores Individuales de Salud. {reg.validationCode ? <>Código de validación <span className="font-mono font-semibold">{reg.validationCode}</span> (certificado del {reg.issuedOn.split("-").reverse().join("/")}), en {VALIDATION_SITE}.</> : <>Consulte en {RNPI_SITE}.</>} Acredita al profesional, no este documento.</p></div>
+            </div>;
+            const verificacion = activeDocument.verifyToken && activeDocument.contentHash && <div className="flex items-start gap-2.5 text-left [break-inside:avoid]" data-testid="verificacion-row">
+              <div className="size-[2cm] shrink-0 bg-white [&_svg]:size-full" role="img" aria-label="Código QR de verificación del documento" dangerouslySetInnerHTML={{ __html: qrSvg(verificationUrl(window.location.origin, activeDocument.verifyToken)) }}/>
+              <div className="min-w-0 text-[10.5px] leading-snug text-[#44425a]"><p className="text-[11px] font-bold uppercase tracking-wider text-[#473a6d]">Verificación de documento</p><p className="mt-0.5">Escanee para confirmar que fue emitido desde Gestión Dental y que está vigente. Código: <span className="font-mono font-semibold">{shortCode(activeDocument.contentHash)}</span> · Emitido {formatDate(activeDocument.issuedAt || activeDocument.createdAt)}. No es firma electrónica avanzada.</p></div>
+            </div>;
+            // Los QR (habilitación del profesional y verificación del documento) van abajo, junto a la firma: así la hoja Carta alcanza.
+            return activeDocument.kind === "consentimiento" ? <>
+              <footer className="mt-16 grid grid-cols-2 gap-10 text-center text-xs print:mt-5 [break-inside:avoid]">
             <div className={`flex flex-col items-center justify-end [break-inside:avoid] ${activeDocument.kind === "consentimiento" ? "" : "w-[7cm] max-w-full"}`} data-testid="signature-block"><div className="flex h-[2.8cm] w-[6.5cm] max-w-full items-end justify-center" data-testid="signature-box">{printableMark && <Image src={printableMark} alt="Firma o timbre del profesional" width={900} height={400} unoptimized className="h-full w-full object-contain object-bottom"/>}</div><div className="mt-1 w-full border-t border-[#777] pt-2"><span className="font-semibold">{activeDocument.createdByName}</span><br/>Firma / timbre profesional</div></div>
             {activeDocument.kind === "consentimiento" && <div className="flex min-h-[3.4cm] flex-col justify-end [break-inside:avoid]"><div className="w-full border-t border-[#777] pt-2"><span className="font-semibold">{patient.name}</span><br/>Firma del paciente</div></div>}
-          </footer>
-          {activeDocument.registration && <p className="mt-8 text-[11px] leading-relaxed text-[#6b6a7c] print:mt-4">Habilitación del profesional: inscrito en el Registro Nacional de Prestadores Individuales de Salud. {activeDocument.registration.validationCode ? <>Verifíquelo en {VALIDATION_SITE} con el código de validación <span className="font-mono font-semibold">{activeDocument.registration.validationCode}</span> (certificado del {activeDocument.registration.issuedOn.split("-").reverse().join("/")}).</> : <>Consulte al profesional en {RNPI_SITE}.</>} Esto acredita al profesional; no valida esta receta.</p>}
-          {activeDocument.verifyToken && activeDocument.contentHash && <aside className="mt-10 flex items-center gap-4 rounded-lg border border-[#e6e4ee] bg-[#faf9fc] p-3 text-left [break-inside:avoid] print:mt-5 print:p-2">
-            <div className="size-24 shrink-0 bg-white p-1 [&_svg]:size-full print:size-20" role="img" aria-label="Código QR de verificación del documento" dangerouslySetInnerHTML={{ __html: qrSvg(verificationUrl(window.location.origin, activeDocument.verifyToken)) }}/>
-            <div className="min-w-0 text-[11px] leading-relaxed text-[#44425a]"><p className="text-xs font-bold uppercase tracking-wider text-[#473a6d]">Verificación de documento</p><p className="mt-1">Escanee el código para confirmar que fue emitido desde Gestión Dental y que está vigente.</p><p className="mt-1">Código: <span className="font-mono font-semibold">{shortCode(activeDocument.contentHash)}</span> · Emitido {formatDate(activeDocument.issuedAt || activeDocument.createdAt)}</p><p className="mt-1 text-[#6b6a7c]">No es firma electrónica avanzada.</p></div>
-          </aside>}
+              </footer>
+              {(habilitacion || verificacion) && <div className="mt-6 grid gap-4 sm:grid-cols-2 print:mt-4 print:grid-cols-2" data-testid="qr-strip">{habilitacion}{verificacion}</div>}
+            </> : <footer className="mt-16 grid items-end gap-6 text-center text-xs sm:grid-cols-[minmax(0,1fr)_7cm] print:mt-5 print:grid-cols-[minmax(0,1fr)_7cm] [break-inside:avoid]">
+              <div className="order-2 space-y-2 sm:order-1 print:order-1" data-testid="qr-strip">{habilitacion}{verificacion}</div>
+              <div className="order-1 justify-self-end sm:order-2 print:order-2">
+            <div className={`flex flex-col items-center justify-end [break-inside:avoid] w-[7cm] max-w-full`} data-testid="signature-block"><div className="flex h-[2.8cm] w-[6.5cm] max-w-full items-end justify-center" data-testid="signature-box">{printableMark && <Image src={printableMark} alt="Firma o timbre del profesional" width={900} height={400} unoptimized className="h-full w-full object-contain object-bottom"/>}</div><div className="mt-1 w-full border-t border-[#777] pt-2"><span className="font-semibold">{activeDocument.createdByName}</span><br/>Firma / timbre profesional</div></div>
+              </div>
+            </footer>;
+          })()}
         </div>
       </article>
     </section>}
@@ -364,7 +347,7 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
           {documentLoading ? <p className="mt-3 text-sm text-[#615f73]" role="status">Cargando documentos…</p> : documentLoadError ? <p role="alert" className="mt-3 text-sm text-rose-800">{documentLoadError}</p> : documents.length ? <ul className="mt-3 space-y-2">{documents.map(document => <li key={document.id}><button type="button" onClick={() => { setActiveDocumentId(document.id); setNotice(""); }} aria-pressed={activeDocument?.id === document.id} className={`w-full rounded-lg border p-3 text-left ${activeDocument?.id === document.id ? "border-[#9b8cba] bg-[#f4f2f7]" : "border-[#e6e4ee] bg-white hover:bg-[#f8f7fa]"}`}><span className="flex items-center justify-between gap-2"><strong className="text-sm">{document.title}</strong><span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${document.status === "emitido" ? "bg-emerald-100 text-emerald-900" : document.status === "anulado" ? "bg-rose-100 text-rose-900" : document.status === "reemplazado" ? "bg-orange-100 text-orange-900" : "bg-[#eeebf3] text-[#473a6d]"}`}>{STATUS_LABEL[document.status] ?? document.status}</span></span><span className="mt-1 block text-xs text-[#615f73]">{formatDate(document.createdAt)}{document.createdByName ? ` · ${document.createdByName}` : ""}</span></button></li>)}</ul> : <p className="mt-3 rounded-lg bg-[#f7f6fa] p-3 text-sm text-[#615f73]">Todavía no hay documentos en esta ficha.</p>}
         </section>
 
-        <PrestadorCard registration={registration} loading={registrationLoading} uploading={registrationUploading} error={registrationError} onUpload={file => void uploadCertificate(file)} onPasteText={text => void sendCertificateText(text)}/>
+        <PrestadorCard state={prestador}/>
 
         <section className={cardClass} data-testid="signature-pointer">
           <div className="flex items-start gap-3"><span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#eeebf3] text-[#473a6d]"><Pencil className="size-4"/></span><div><h2 className="font-semibold">Mi firma o timbre</h2><p className="mt-1 text-sm text-[#615f73]">Tu firma ahora vive en tu identificación profesional: <strong>Configuración → Profesionales</strong>. Se usa sola en certificados, recetas, consentimientos y presupuestos.</p></div></div>

@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { SignatureEditor } from "@/components/signature-editor";
+import { PrestadorPanel } from "@/components/prestador-card";
 import { COUNTRIES, SPECIALTIES, checkProfile, displayName, formatDocument, professionalDocumentTypeOf, type ClinicianProfile, type ProfessionalDocumentType } from "@/lib/clinician-profile";
 
 const field = "mt-1 block min-h-11 w-full rounded-lg border border-[#d2d4df] bg-white px-3 text-base text-[#35343f] focus-visible:outline-2 focus-visible:outline-[#473a6d]";
@@ -100,6 +101,7 @@ export function ProfileDialog({ email, onClose, onSaved }: { email: string; onCl
           </label>
         </div>
         <div className="mt-5 border-t border-[#e6e4ee] pt-4"><SignatureEditor compact/></div>
+        <div className="mt-5 border-t border-[#e6e4ee] pt-4"><PrestadorPanel/></div>
         <p className="mt-3 text-xs text-[#6b6a7c]">Se mostrará como {form.firstName.trim() && form.lastName.trim() ? displayName(form) : "Dr(a). Nombre Apellido"}.</p>
         {error && <p role="alert" className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-800">{error}</p>}
         {done && !error && <p role="status" className="mt-4 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800">{done}</p>}
