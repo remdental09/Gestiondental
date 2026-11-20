@@ -9,10 +9,26 @@ import { budgetStatus } from "./budget-status.ts";
 export type Slice = { label: string; value: number; color: string; amount?: number };
 export type Bar = { label: string; amount: number };
 
-export const ATTENDANCE_STATUSES = ["agendada", "confirmada", "atendida", "inasistida", "cancelada"] as const;
+/** Estados de la cita (los de Dentalsoft más «inasistida»). Los 5 primeros son los de siempre; el resto se agregó con la agenda por box. */
+export const ATTENDANCE_STATUSES = ["agendada", "confirmada", "atendida", "inasistida", "cancelada", "en_espera", "ingresada", "notificada_email", "confirmada_email", "notificada_whatsapp", "confirmada_whatsapp"] as const;
 export type AttendanceStatus = typeof ATTENDANCE_STATUSES[number];
 export const isAttendanceStatus = (value: unknown): value is AttendanceStatus => typeof value === "string" && (ATTENDANCE_STATUSES as readonly string[]).includes(value);
-export const ATTENDANCE_LABEL: Record<AttendanceStatus, string> = { agendada: "Agendada", confirmada: "Confirmada", atendida: "Atendida", inasistida: "Inasistida", cancelada: "Cancelada" };
+/** Para las cifras del Dashboard cada estado cuenta como uno de los 5 básicos (p. ej. «Confirmada por WhatsApp» = confirmada, «Notificada por email» = agendada). */
+export function baseAttendance(status: string | null | undefined): "agendada" | "confirmada" | "atendida" | "inasistida" | "cancelada" | null {
+  switch (status) {
+    case "confirmada": case "confirmada_email": case "confirmada_whatsapp": case "en_espera": case "ingresada": return "confirmada";
+    case "atendida": return "atendida";
+    case "inasistida": return "inasistida";
+    case "cancelada": return "cancelada";
+    case "agendada": case "notificada_email": case "notificada_whatsapp": return "agendada";
+    default: return null;
+  }
+}
+export const ATTENDANCE_LABEL: Record<AttendanceStatus, string> = {
+  agendada: "Agendada", confirmada: "Confirmada", atendida: "Atendida", inasistida: "Inasistida", cancelada: "Cancelada",
+  en_espera: "En lista de espera", ingresada: "Ingresada a box", notificada_email: "Notificada por email", confirmada_email: "Confirmada por email",
+  notificada_whatsapp: "Notificada por WhatsApp", confirmada_whatsapp: "Confirmada por WhatsApp",
+};
 
 const pad = (n: number) => String(n).padStart(2, "0");
 /** Mes calendario [desde, hasta) en AAAA-MM-DD. */
@@ -52,7 +68,8 @@ export type AppointmentStats = {
 export function appointmentStats(list: DashAppointment[], evolutionDays: Set<string>, today: string): AppointmentStats {
   const s: AppointmentStats = { scheduled: 0, effective: 0, cancelled: 0, noShow: 0, noRecord: 0, upcoming: 0, confirmed: 0, unconfirmed: 0, attendanceMarked: 0, confirmationsRecorded: 0 };
   for (const a of list) {
-    const status = a.status && a.status !== "agendada" ? a.status : null;
+    const base = baseAttendance(a.status);
+    const status = base && base !== "agendada" ? base : null;
     if (status === "atendida" || status === "inasistida" || status === "cancelada") s.attendanceMarked++;
     if (a.confirmed || status === "confirmada") s.confirmationsRecorded++;
     const attendedByRecord = a.patientId !== null && evolutionDays.has(`${a.patientId}|${a.day}`);

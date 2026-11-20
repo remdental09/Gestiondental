@@ -2,7 +2,7 @@
  * Ida y vuelta con Google Calendar: qué hacer en la app cuando cambia en Google un evento que la app creó.
  * Lógica pura (sin red ni base de datos) para poder probarla.
  */
-export type IncomingGoogleEvent = { id: string; status?: string; updated?: string; summary?: string; iCalUID?: string; start?: { dateTime?: string; date?: string }; end?: { dateTime?: string; date?: string } };
+export type IncomingGoogleEvent = { id: string; status?: string; updated?: string; summary?: string; iCalUID?: string; location?: string; start?: { dateTime?: string; date?: string }; end?: { dateTime?: string; date?: string } };
 export type LinkState = { googleUpdated: string | null; appChangedAt: string | null; cancelled?: boolean };
 /** Cita de la app tal como la conoce (title = motivo guardado; se compara con el motivo que sale del título de Google). */
 export type AppAppointment = { day: string; time: string; minutes?: number | null; title?: string | null } | null;

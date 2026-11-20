@@ -13,7 +13,7 @@ export async function GET() {
   return Response.json({ boxes: await listBoxes(user.userId) }, { headers });
 }
 
-/** POST {action:"crear", name} · {action:"guardar", id, name?, enabled?}. */
+/** POST {action:"crear", name, kind?, color?} · {action:"guardar", id, name?, enabled?, kind?, color?}. */
 export async function POST(request: Request) {
   const user = await getChatGPTUser();
   if (!user?.userId) return fail("Inicia sesión.", 401);
@@ -22,9 +22,9 @@ export async function POST(request: Request) {
   try { body = await request.json(); } catch { return fail("Solicitud no válida."); }
   const id = Number(body.id);
   const result = body.action === "crear"
-    ? await saveBox(user.userId, { name: body.name })
+    ? await saveBox(user.userId, { name: body.name, kind: body.kind, color: body.color })
     : body.action === "guardar" && Number.isSafeInteger(id) && id > 0
-      ? await saveBox(user.userId, { id, ...(body.name !== undefined ? { name: body.name } : {}), ...(typeof body.enabled === "boolean" ? { enabled: body.enabled } : {}) })
+      ? await saveBox(user.userId, { id, ...(body.name !== undefined ? { name: body.name } : {}), ...(typeof body.enabled === "boolean" ? { enabled: body.enabled } : {}), kind: body.kind, color: body.color })
       : null;
   if (!result) return fail("Acción no válida.");
   return result.ok ? Response.json({ boxes: result.boxes }, { headers }) : fail(result.error);

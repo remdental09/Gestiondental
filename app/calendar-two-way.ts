@@ -1,3 +1,4 @@
+import { BOX_COLUMNS_DDL, BOX_SCHEMA_DDL } from "@/lib/agenda-box";
 import { env } from "cloudflare:workers";
 import { decideGoogleChange, latestIso, minutesBetween, chileDayTime, type GoogleChange, type IncomingGoogleEvent } from "@/lib/calendar-two-way";
 import { controlReasonFrom, inImportWindow, isClinicalCandidate, isControlTitle, matchPatientByTitle, reasonFromTitle } from "@/lib/calendar-import";
@@ -35,6 +36,9 @@ export async function ensureTwoWay() {
     await db.prepare("CREATE TABLE IF NOT EXISTS appointment_google_events (owner_id TEXT NOT NULL, appointment_id INTEGER NOT NULL, google_sub TEXT NOT NULL, calendar_id TEXT NOT NULL, event_id TEXT NOT NULL, PRIMARY KEY (owner_id, appointment_id))").run();
     for (const sql of TWO_WAY_DDL) await db.prepare(sql).run();
     for (const sql of TWO_WAY_COLUMNS) { try { await db.prepare(sql).run(); } catch { /* la columna ya existe */ } }
+    // Agenda por box: la cita lleva box_id (la cola de reintentos lo lee para el «location» del evento).
+    for (const sql of BOX_SCHEMA_DDL) await db.prepare(sql).run();
+    for (const sql of BOX_COLUMNS_DDL) { try { await db.prepare(sql).run(); } catch { /* la columna ya existe */ } }
   })().catch(cause => { ready = null; throw cause; });
   await ready;
   return db;
@@ -143,6 +147,11 @@ export async function createAppointmentFromGoogle(ownerId: string, googleSub: st
   const same = await db.prepare("SELECT a.id FROM appointments a LEFT JOIN appointment_google_events l ON l.owner_id = a.owner_id AND l.appointment_id = a.id WHERE a.owner_id = ? AND a.patient_id = ? AND a.day = ? AND a.time = ? AND l.appointment_id IS NULL").bind(ownerId, patient.id, when.day, when.time).first<{ id: number }>();
   const appointmentId = same?.id ?? (await db.prepare("INSERT INTO appointments (owner_id, patient_id, day, time, reason, created_at, minutes) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id").bind(ownerId, patient.id, when.day, when.time, reason, now(), minutes).first<{ id: number }>())?.id;
   if (!appointmentId) return null;
+  // Agenda por box: si el «lugar» del evento es el nombre de un box, la cita queda en ese box.
+  if (!same && event.location?.trim()) {
+    const box = await db.prepare("SELECT id FROM treatment_boxes WHERE owner_id = ? AND enabled = 1 AND lower(name) = lower(?)").bind(ownerId, event.location.trim()).first<{ id: number }>().catch(() => null);
+    if (box) await db.prepare("UPDATE appointments SET box_id = ? WHERE owner_id = ? AND id = ?").bind(box.id, ownerId, appointmentId).run();
+  }
   await db.prepare("INSERT OR REPLACE INTO appointment_google_events (owner_id, appointment_id, google_sub, calendar_id, event_id, google_updated, app_changed_at, google_status, control_cancelled, ical_uid) VALUES (?, ?, ?, ?, ?, ?, NULL, 'confirmed', NULL, ?)")
     .bind(ownerId, appointmentId, googleSub, calendarKey, event.id, event.updated ?? null, event.iCalUID ?? null).run();
   await upsertCalendarRow(db, ownerId, calendarKey, event, patient.id, false);

@@ -929,9 +929,12 @@ export async function POST(request: Request) {
       if (!validDate(day) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time) || !reason) return error("Revisa fecha, hora y motivo.");
       // Lugar de atención: solo un box habilitado de la clínica.
       const boxName = string(input.box, 60);
-      const box = boxName ? (await (await import("@/app/box-db")).listBoxes(ownerId)).find(b => b.enabled && b.name === boxName)?.name : undefined;
+      const boxRow = boxName ? (await (await import("@/app/box-db")).listBoxes(ownerId)).find(b => b.enabled && b.name === boxName) : undefined;
+      const box = boxRow?.name;
       if (boxName && !box) return error("Ese box no está disponible.");
       const [a] = await db.insert(appointments).values({ ownerId, patientId, day, time, reason, createdAt: now() }).returning();
+      // Agenda por box: la cita queda en la columna de su box (box_id; listBoxes ya creó la columna).
+      if (boxRow) await (await import("@/app/box-db")).db()?.prepare("UPDATE appointments SET box_id = ? WHERE owner_id = ? AND id = ?").bind(boxRow.id, ownerId, a.id).run();
       const [who] = await db.select({ name: patients.name }).from(patients).where(and(eq(patients.id, patientId), eq(patients.ownerId, ownerId)));
       const { pushAppointmentToGoogle } = await import("@/app/drive-oauth");
       const calendar = await pushAppointmentToGoogle(ownerId, { id: a.id, day, time, reason, ...(box ? { box } : {}) }, who?.name || "", patientId).catch(() => "error" as const);
