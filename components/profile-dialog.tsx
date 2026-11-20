@@ -57,7 +57,7 @@ export function ProfileDialog({ email, onClose, onSaved }: { email: string; onCl
   }
 
   return <div role="dialog" aria-modal="true" aria-labelledby="perfil-titulo" className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-[#2a2540]/70 p-4 sm:items-center" data-testid="profile-dialog">
-    <form onSubmit={submit} noValidate className="my-6 w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+    <form onSubmit={submit} noValidate className="my-6 w-full max-w-md rounded-xl bg-white p-6 shadow-xl sm:max-w-xl">
       <div className="flex items-start justify-between gap-3">
         <div><p className="text-xs font-bold uppercase tracking-wide text-[#473a6d]">Gestión Dental</p><h2 id="perfil-titulo" className="mt-1 text-2xl font-semibold text-[#35343f]">Mi perfil</h2></div>
         <button type="button" onClick={attemptClose} aria-label="Cerrar" className="rounded-lg p-2 text-[#57566a] hover:bg-[#f1f0f5]"><X className="size-5" /></button>

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { SIGNATURE_BOX_CM, SIGNATURE_MAX_CHARS, cmToPt, fitInBox, inkBounds, outputScale, validSignature, worthTrimming } from "../lib/signature-image.ts";
+import { BASELINE_RATIO, SIGNATURE_BOX_CM, SIGNATURE_MAX_CHARS, backingSize, cmToPt, strokeWidth, fitInBox, inkBounds, outputScale, validSignature, worthTrimming } from "../lib/signature-image.ts";
 
 const read = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 function canvas(width, height, ink) {
@@ -86,4 +86,33 @@ test("impresión: solo el documento, hoja Carta, sin la app detrás", () => {
   const helper = read("lib/print-node.ts");
   assert.match(helper, /afterprint/);
   assert.match(helper, /removeAttribute\("id"\)/, "la copia no duplica ids");
+});
+
+test("cuadro de firma: lienzo a la densidad del iPhone (3×), con tope de memoria", () => {
+  assert.deepEqual(backingSize(367, 234, 3), { width: 1101, height: 702, scale: 3 });
+  assert.deepEqual(backingSize(720, 300, 2), { width: 1440, height: 600, scale: 2 });
+  assert.equal(backingSize(100, 50, 0.5).scale, 1, "nunca menos que 1×");
+  const landscape = backingSize(820, 274, 3);
+  assert.ok(landscape.width <= 2400 && landscape.height <= 1600);
+  assert.ok(strokeWidth(367) >= 4.5 && strokeWidth(367) <= 7, "trazo más grueso que antes");
+  assert.equal(strokeWidth(2000), 7);
+  assert.ok(BASELINE_RATIO > 0.6 && BASELINE_RATIO < 0.8);
+});
+
+test("cuadro de firma: grande en iPhone, guía «Firme aquí», botones grandes y pantalla completa", () => {
+  const editor = read("components/signature-editor.tsx");
+  assert.match(editor, /h-\[clamp\(220px,60vw,260px\)\] w-\[min\(94vw,720px\)\]/, "≈94vw de ancho y 220–260 px de alto en iPhone");
+  assert.match(editor, /sm:max-w-\[720px\]/);
+  assert.match(editor, /lg:h-\[300px\]/, "720×300 en computador (2,4:1 como el recuadro impreso)");
+  assert.doesNotMatch(editor, /width=\{1200\} height=\{440\}/, "el lienzo ya no es fijo ni se deforma");
+  assert.match(editor, /backingSize\(rect\.width, rect\.height, window\.devicePixelRatio\)/);
+  assert.match(editor, /new ResizeObserver/);
+  assert.match(editor, /Firme aquí/);
+  assert.match(editor, /data-testid="signature-clear"[^]*Borrar/);
+  assert.match(editor, /min-h-12/);
+  assert.match(editor, /Pantalla completa/);
+  assert.match(editor, /fixed inset-0 z-\[70\]/);
+  assert.match(editor, /touch-none/);
+  assert.match(editor, /addEventListener\("touchmove", block, \{ passive: false \}\)/, "la página no se desplaza al firmar");
+  assert.match(editor, /trimToDataUrl\(canvas\)/, "se recorta al guardar");
 });
