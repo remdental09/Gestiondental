@@ -112,7 +112,7 @@ test('migraciones solo aditivas y todo por owner_id', () => {
   assert.ok(route.includes('owner_id = ?'));
   // Google: el box va en «location» y en la descripción del evento, también en la cola de reintentos.
   const oauth = src('app/drive-oauth.ts');
-  assert.match(oauth, /location: box, description: "Box: "/);
+  assert.match(oauth, /box \? "Box: " \+ box/); assert.match(oauth, /location: box/);
   assert.match(oauth, /LEFT JOIN treatment_boxes b ON b\.id = a\.box_id AND b\.owner_id = a\.owner_id/);
   assert.match(src('app/calendar-two-way.ts'), /BOX_COLUMNS_DDL/);
   // La vista sigue teniendo la agenda semanal de siempre.
@@ -159,9 +159,9 @@ test('con base real: horarios, bloqueos, cita en box (paciente nuevo), mover de 
   assert.equal(saved.ok && saved.boxes[1].color, '#64b873');
 
   // Horario (profesional por defecto = dueño).
-  let r = await ab.saveSchedule('A', { boxId: boxes[0].id, weekdays: [1, 2, 3, 4, 5], start: '09:00', end: '13:00', blockMinutes: 30 }, 'Dr. Luis Rodríguez');
+  let r = await ab.saveSchedule('A', { boxId: boxes[0].id, weekdays: [1, 2, 3, 4, 5], start: '09:00', end: '13:00', blockMinutes: 30 }, { name: 'Dr. Luis Rodríguez' });
   assert.ok(r.ok); assert.equal(r.schedules[0].professional, 'Dr. Luis Rodríguez');
-  assert.equal((await ab.saveSchedule('A', { boxId: 999, weekdays: [1], start: '09:00', end: '10:00' }, 'x')).ok, false, 'box de otro espacio');
+  assert.equal((await ab.saveSchedule('A', { boxId: 999, weekdays: [1], start: '09:00', end: '10:00' }, { name: 'x' })).ok, false, 'box de otro espacio');
   assert.equal((await ab.listSchedules('B')).length, 0, 'aislamiento');
 
   // Cita existente sin box → «Sin box».
@@ -169,12 +169,12 @@ test('con base real: horarios, bloqueos, cita en box (paciente nuevo), mover de 
   assert.equal(list.length, 1); assert.equal(list[0].boxId, null); assert.equal(list[0].status, 'agendada'); assert.equal(list[0].minutes, 30);
 
   // Nueva cita en un box con paciente nuevo (sin Google conectado no falla).
-  const created = await ab.createBoxAppointment('A', { newPatient: { name: 'Pedro Nuevo', phone: '987654321' }, day: '2026-11-20', time: '09:00', minutes: 45, boxId: boxes[0].id, reason: 'Evaluación' }, 'Dr. Luis');
+  const created = await ab.createBoxAppointment('A', { newPatient: { name: 'Pedro Nuevo', phone: '987654321' }, day: '2026-11-20', time: '09:00', minutes: 45, boxId: boxes[0].id, reason: 'Evaluación' }, { name: 'Dr. Luis Rodríguez' });
   assert.ok(created.ok, created.error);
-  assert.equal(created.appointment.boxId, boxes[0].id); assert.equal(created.appointment.minutes, 45); assert.equal(created.appointment.professional, 'Dr. Luis');
+  assert.equal(created.appointment.boxId, boxes[0].id); assert.equal(created.appointment.minutes, 45); assert.equal(created.appointment.professional, 'Dr. Luis Rodríguez'); assert.ok(created.appointment.professionalId);
   assert.equal(sqlite.prepare("SELECT owner_id FROM patients WHERE name = 'Pedro Nuevo'").get().owner_id, 'A');
-  assert.equal((await ab.createBoxAppointment('A', { patientId: 2, day: '2026-11-20', time: '09:00' }, 'x')).ok, false, 'paciente de otro dueño');
-  assert.equal((await ab.createBoxAppointment('B', { patientId: 2, day: '2026-11-20', time: '09:00', boxId: boxes[0].id }, 'x')).ok, false, 'box de otro dueño');
+  assert.equal((await ab.createBoxAppointment('A', { patientId: 2, day: '2026-11-20', time: '09:00' }, { name: 'x' })).ok, false, 'paciente de otro dueño');
+  assert.equal((await ab.createBoxAppointment('B', { patientId: 2, day: '2026-11-20', time: '09:00', boxId: boxes[0].id }, { name: 'x' })).ok, false, 'box de otro dueño');
 
   // Mover la cita antigua al Box 2 y cambiar su duración.
   const old = list[0].id;
