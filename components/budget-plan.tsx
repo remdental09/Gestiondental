@@ -234,6 +234,8 @@ export function BudgetCard({
                 {item.code ? <span className="ml-2 text-xs text-[#6b6a7c]">Cód. {item.code}</span> : null}
                 {item.discountPercent ? <span className="ml-2 text-xs text-[#3a2f5a]">−{item.discountPercent}%</span> : null}
                 {itemWhereText(item) && <span className="mt-0.5 flex flex-wrap items-center gap-1 text-xs text-[#3a2f5a]" data-testid={`budget-where-${budget.id}-${index}`}><MapPin className="size-3.5 shrink-0 text-[#c95f35]" aria-hidden="true"/>{itemWhereText(item)}</span>}
+                {!done && item.status === "iniciada" && <span className="mt-0.5 block text-xs font-medium text-sky-800" data-testid={`budget-started-${budget.id}-${index}`}>Iniciada{item.startedOn ? ` el ${displayIso(item.startedOn)}` : ""}</span>}
+                {!done && item.status === "desevolucion" && <span className="mt-0.5 block text-xs font-medium text-rose-800">Desevolución</span>}
                 {done && <span className="mt-0.5 block text-xs text-[#3a2f5a]">Realizada el {canTrack
                   ? <input type="date" aria-label={`Fecha en que se realizó «${item.label}»`} className="rounded border border-[#dddbe6] bg-white px-1 text-xs" value={item.doneOn} max={chileToday()} disabled={savingIndex !== null} onChange={event => { if (event.target.value) void setDone(index, event.target.value); }}/>
                   : displayIso(item.doneOn!)}</span>}

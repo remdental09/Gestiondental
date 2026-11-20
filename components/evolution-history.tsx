@@ -25,6 +25,8 @@ export type EvolutionHistoryNote = {
   recordedAt?: string;
   clinicalDate?: string;
   diagnoses?: EvolutionHistoryDiagnosis[];
+  /** Resumen mínimo por pieza de la evolución («2.5 Resina ✓»). */
+  pieces?: { t: string; s: "ok" | "avance" | "plan" | "dx" }[];
   status?: string;
   annulledAt?: string | null;
   annulledBy?: string | null;
@@ -35,6 +37,8 @@ export type EvolutionHistoryNote = {
   authorEmail?: string;
   mine?: boolean;
 };
+
+const PIECE_MARK = { ok: "✓", avance: "↻", plan: "◇", dx: "•" } as const;
 
 type Props = {
   notes: EvolutionHistoryNote[];
@@ -87,6 +91,7 @@ export function EvolutionHistory({ notes, allNotes, odontogram, onSyncOdontogram
               {replacedNote && <p className="mt-1 text-xs text-[#615f73]">Reemplaza a la evolución anulada del {replacedNote.date || "registro anterior"}</p>}
               <p className={`mt-2 whitespace-pre-wrap text-sm leading-6 ${annulled ? "text-[#8b8ca3] line-through" : "text-[#57566a]"}`}>{note.body}</p></>}
               {annulled ? <p className="mt-2 rounded-lg bg-rose-50 p-2 text-xs leading-5 text-rose-950">Anulada{note.annulledAt ? ` el ${new Intl.DateTimeFormat("es-CL", { dateStyle: "short", timeStyle: "short", timeZone: "America/Santiago" }).format(new Date(note.annulledAt))}` : ""}{note.annulledBy ? ` por ${note.annulledBy}` : ""}{note.annulReason ? ` · Motivo: ${note.annulReason}` : ""}</p> : <>
+                {!!note.pieces?.length && <p className="mt-1.5 flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] leading-4 text-[#615f73]" aria-label="Piezas de la evolución" data-testid="note-pieces">{note.pieces.map((piece, pieceIndex) => <span key={pieceIndex} className={piece.s === "ok" ? "text-emerald-800" : piece.s === "avance" ? "text-sky-800" : piece.s === "plan" ? "text-amber-800" : "text-rose-800"}>{piece.t} {PIECE_MARK[piece.s]}</span>)}</p>}
                 {!!note.diagnoses?.length && <ul className="mt-2 flex flex-wrap gap-1.5" aria-label="Diagnósticos de la evolución" data-testid="note-diagnoses">{note.diagnoses.map((diagnosis, diagnosisIndex) => <li key={diagnosis.id ?? diagnosisIndex} title={diagnosis.findings || undefined} className="rounded-full border border-[#cfe3e3] bg-[#efeef4] px-2.5 py-0.5 text-xs text-[#3b3355]">{diagnosis.tooth ? <span className="font-medium">FDI {formatFdi(diagnosis.tooth)} · </span> : null}{diagnosis.title} <span className="font-mono text-[11px] text-[#615f73]">{diagnosis.code || "sin código"}</span></li>)}</ul>}
                 {needsOdontogramSync && <Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => onSyncOdontogram(note)}>Actualizar odontograma desde esta evolución</Button>}
                 {note.backupStatus === "not_configured" && <p className="mt-1 text-xs text-amber-800">Guardado en la ficha · respaldo en Drive pendiente</p>}
