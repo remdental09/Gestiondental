@@ -22,6 +22,7 @@ import { appointments, budgets, calendarEvents, clinicalImages, evolutionDiagnos
 import { budgetTotals, decodeBudgetData, encodeBudgetData, ITEM_STATUSES, normalizeBudgetItems, validIsoDate, withItemStatus, type ItemStatus } from "@/lib/budget-plans";
 import { sanitizeDiagnosisTags } from "@/lib/evolution-diagnoses";
 import { EVOLUTION_PIECES_DDL, sanitizeChips, type PieceChip } from "@/lib/evolution-lines";
+import { PAYMENT_ALLOCATIONS_DDL, PAYMENT_ALLOCATIONS_INDEX, sanitizeAllocations, type Allocation } from "@/lib/payment-allocation";
 import type { OdontogramData, OdontogramSurface, SurfaceFinding } from "@/app/clinical-data";
 import { appendToothHistory, mergeRecentSurfaceEvent, toothHistorySnapshot } from "@/app/odontogram-history";
 import { revertEvolution } from "@/lib/odontogram-timeline";
@@ -332,7 +333,16 @@ export async function GET() {
       })(),
       appointments: as.map(a => ({ id: a.id, patientId: a.patientId, day: a.day.split("-").reverse().join("-"), time: a.time, reason: a.reason, ...(agendaSync.minutes[a.id] ? { minutes: agendaSync.minutes[a.id] } : {}) })),
       agendaSync: { needsPatient: agendaSync.needsPatient, pendingAppointments: agendaSync.pendingAppointments, pendingEvents: agendaSync.pendingEvents },
-      payments: pays.map(paymentView),
+      payments: await (async () => {
+        // Abonos aplicados a ítems (tabla aditiva); los abonos sin asignación son «libres».
+        const byPayment = new Map<number, Allocation[]>();
+        const raw = (env as unknown as { DB?: { prepare(sql: string): { bind(...v: unknown[]): { all<T>(): Promise<{ results: T[] }> } } } }).DB;
+        if (raw) {
+          const rows = await raw.prepare("SELECT payment_id, item_index, item_label, amount FROM payment_allocations WHERE owner_id = ? ORDER BY id").bind(ownerId).all<{ payment_id: number; item_index: number; item_label: string; amount: number }>().catch(() => ({ results: [] as { payment_id: number; item_index: number; item_label: string; amount: number }[] }));
+          for (const row of rows.results) byPayment.set(row.payment_id, [...(byPayment.get(row.payment_id) ?? []), { index: row.item_index, label: row.item_label, amount: row.amount }]);
+        }
+        return pays.map(p => ({ ...paymentView(p), ...(byPayment.has(p.id) ? { allocations: byPayment.get(p.id) } : {}) }));
+      })(),
       calendarEvents: [...ces.filter(e => e.status !== "cancelled").map(e => ({ id: e.id, title: e.title, startAt: e.startAt, endAt: e.endAt, sourceTimeZone: e.sourceTimeZone, htmlLink: e.htmlLink, status: e.status, allDay: e.allDay, patientId: e.patientId })), ...snapshot.events],
       calendarSnapshotAt: snapshot.events.length ? snapshot.capturedAt : null,
       calendarSyncedAt: ces.reduce<string | null>((latest, e) => (e.importedAt && (!latest || e.importedAt > latest) ? e.importedAt : latest), null),
@@ -1010,6 +1020,7 @@ export async function POST(request: Request) {
       const budgetId = input.budgetId === undefined || input.budgetId === null || input.budgetId === "" ? null : Number(input.budgetId);
       if (!Number.isSafeInteger(amount) || amount < 1 || amount > 1000000000 || !PAYMENT_METHODS.has(method) || !validDate(paidOn) || paidOn > dateInChile()) return error("Revisa el monto, el medio de pago y la fecha.");
       let budgetTotal: number | null = null;
+      let allocations: Allocation[] = [];
       if (budgetId !== null) {
         if (!Number.isSafeInteger(budgetId) || budgetId < 1) return error("Presupuesto inválido.");
         const [budget] = await db.select({ id: budgets.id, items: budgets.items }).from(budgets).where(and(eq(budgets.id, budgetId), eq(budgets.patientId, patientId), eq(budgets.ownerId, ownerId)));
@@ -1017,7 +1028,10 @@ export async function POST(request: Request) {
         const budgetData = decodeBudgetData(budget.items);
         if (budgetData.isAlternative) return error("No se pueden asociar pagos a una alternativa. Establécela primero como plan principal.", 409);
         budgetTotal = budgetTotals(budgetData.items).total;
-      }
+        const parsed = sanitizeAllocations(input.allocations, budgetData.items, amount);
+        if (!parsed) return error("Revisa los ítems a los que se aplica el abono.");
+        allocations = parsed;
+      } else if (input.allocations !== undefined && input.allocations !== null && !(Array.isArray(input.allocations) && !input.allocations.length)) return error("Un abono por ítem necesita su presupuesto.");
       const requestId = string(input.requestId, 80) || null;
       if (requestId) {
         const [existing] = await db.select().from(payments).where(and(eq(payments.ownerId, ownerId), eq(payments.requestId, requestId)));
@@ -1031,7 +1045,16 @@ export async function POST(request: Request) {
         if (amount > balance) return error("El monto supera el saldo pendiente del tratamiento. Revisa el total y los abonos ya registrados.", 409);
       }
       const [p] = await db.insert(payments).values({ ownerId, patientId, budgetId, amount, method, concept, paidOn, requestId, createdAt: now() }).returning();
-      return Response.json({ payment: paymentView(p) }, { status: 201 });
+      if (allocations.length && budgetId !== null) {
+        const raw = (env as unknown as { DB?: { prepare(sql: string): { bind(...v: unknown[]): { run(): Promise<unknown> }; run(): Promise<unknown> } } }).DB;
+        if (raw) {
+          await raw.prepare(PAYMENT_ALLOCATIONS_DDL).run();
+          await raw.prepare(PAYMENT_ALLOCATIONS_INDEX).run();
+          const t = now();
+          for (const allocation of allocations) await raw.prepare("INSERT INTO payment_allocations (owner_id, payment_id, budget_id, item_index, item_label, amount, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(ownerId, p.id, budgetId, allocation.index, allocation.label, allocation.amount, t).run();
+        }
+      }
+      return Response.json({ payment: { ...paymentView(p), ...(allocations.length ? { allocations } : {}) } }, { status: 201 });
     }
     if (action === "updateAppointment") {
       const appointmentId = Number(input.appointmentId), day = string(input.day, 10), time = string(input.time, 5), reason = string(input.reason, 500);
