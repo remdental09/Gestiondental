@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FileDown, Search, ArrowLeft, BadgeCheck, ChevronRight, ClipboardCheck, ClipboardList, FlaskConical, Pill, FileCheck2, FilePlus2, FileText, ImagePlus, LoaderCircle, Pencil, Printer, ScrollText, ShieldCheck, Trash2 } from "lucide-react";
+import { FileDown, Search, ArrowLeft, BadgeCheck, ChevronRight, ClipboardCheck, ClipboardList, FlaskConical, Pill, FileCheck2, FilePlus2, FileText, LoaderCircle, Pencil, Printer, ScrollText, ShieldCheck, Trash2 } from "lucide-react";
 import Image from "next/image";
 import qrcode from "qrcode-generator";
 import { ageFromBirthDate, splitPrescriptionLines, isPrescriptionKind, CLINICAL_DOCUMENT_KINDS, CLINICAL_DOCUMENT_LABEL, type ClinicalDocumentContent, type ClinicalDocumentKind } from "@/lib/clinical-documents";
@@ -9,6 +9,8 @@ import { shortCode, verificationUrl } from "@/lib/document-verification";
 import { formatAddress, type PatientAddress } from "@/lib/patient-address";
 import { RNPI_SITE, VALIDATION_SITE, registrationLine, type PublicRegistration } from "@/lib/prestador-certificate";
 import { PrestadorCard, type MyRegistration } from "@/components/prestador-card";
+import { useTrimmedMark } from "@/components/signature-editor";
+import { mountPrintCopy, printNode, PRINT_CLASS } from "@/lib/print-node";
 
 type Patient = { id: number; name: string; birthDate: string; rut: string; phone: string; email: string; address?: PatientAddress };
 type SavedDocument = { id: number; patientId: number; kind: ClinicalDocumentKind; title: string; content: string; status: string; createdBy: string; createdByName: string; createdAt: string; documentMark: string; verifyToken?: string | null; contentHash?: string; issuedAt?: string; revokedAt?: string; revokedReason?: string; replacesId?: number | null; registration?: PublicRegistration | null };
@@ -107,6 +109,14 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
 
   const documents = documentsState.patientId === patientId ? documentsState.documents : [];
   const activeDocument = documents.find(item => item.id === activeDocumentId) ?? null;
+  const printableMark = useTrimmedMark(activeDocument?.documentMark ?? "");
+  // Cmd+P o Compartir → Imprimir con un documento abierto: también se imprime solo el documento (no la app entera).
+  useEffect(() => {
+    if (!activeDocument) return;
+    const before = () => { if (!document.documentElement.classList.contains(PRINT_CLASS)) mountPrintCopy(document.getElementById("documentation-print")); };
+    window.addEventListener("beforeprint", before);
+    return () => window.removeEventListener("beforeprint", before);
+  }, [activeDocument]);
   const documentLoading = Boolean(patientId) && documentsState.patientId !== patientId;
   const documentLoadError = documentsState.patientId === patientId ? documentsState.error : "";
 
@@ -158,10 +168,10 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
   // Imprimir y «Guardar en PDF» usan el mismo diálogo de impresión del dispositivo (allí se elige «Guardar como PDF»).
   // Un borrador se emite primero (con confirmación) para que el documento impreso lleve su QR de verificación.
   const printDocument = async (doc: SavedDocument) => {
-    if (doc.status === "emitido") { window.print(); return; }
+    if (doc.status === "emitido") { printNode(document.getElementById("documentation-print")); return; }
     if (doc.status !== "borrador" || busy) return;
     if (!window.confirm("Para imprimir o guardar en PDF el documento se emite primero: quedará bloqueado y con un QR de verificación. ¿Desea continuar?")) return;
-    if (await act("/api/documentos/emitir", doc, "Documento emitido con QR de verificación.")) window.setTimeout(() => window.print(), 400);
+    if (await act("/api/documentos/emitir", doc, "Documento emitido con QR de verificación.")) window.setTimeout(() => printNode(document.getElementById("documentation-print")), 400);
   };
   const removeDraft = async (doc: SavedDocument) => {
     if (busy || doc.status !== "borrador") return;
@@ -270,7 +280,7 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
       {(error || notice) && <p role={error ? "alert" : "status"} className={`mb-4 rounded-lg p-3 text-sm print:hidden ${error ? "bg-rose-50 text-rose-800" : "bg-emerald-50 text-emerald-900"}`}>{error || notice}</p>}
       {activeDocument.status === "borrador" && <p className="mb-4 rounded-lg bg-[#f3f1f7] p-3 text-sm text-[#473a6d] print:hidden">Este documento es un borrador. Al imprimir o guardar en PDF se emite primero con su código de verificación QR (o pulsa «Emitir con QR»).{isPrescriptionKind(activeDocument.kind) && !canIssueReceta && " Para emitir recetas primero debes subir tu certificado de inscripción (tarjeta «Habilitación para emitir recetas») y esperar su aprobación."}</p>}
       <article id="documentation-print" className="mx-auto max-w-[800px] overflow-hidden rounded-xl border border-[#e6e4ee] bg-white text-[#272533] shadow-sm print:rounded-none print:border-0 print:shadow-none [print-color-adjust:exact] [-webkit-print-color-adjust:exact]">
-        <header className="bg-gradient-to-r from-[#473a6d] to-[#6b5d8e] px-7 py-6 text-white">
+        <header className="bg-gradient-to-r from-[#473a6d] to-[#6b5d8e] px-7 py-6 text-white print:py-4">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
               <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/75">{clinic?.clinicName || "Clínica"}</p>
@@ -286,7 +296,7 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
         {activeDocument.status === "anulado" && <p className="bg-rose-100 px-7 py-2 text-center text-sm font-bold uppercase tracking-widest text-rose-900">Documento anulado</p>}
         {activeDocument.status === "reemplazado" && <p className="bg-orange-100 px-7 py-2 text-center text-sm font-bold uppercase tracking-widest text-orange-900">Documento reemplazado por una versión nueva</p>}
         {activeDocument.status === "borrador" && <p className="bg-[#f3f1f7] px-7 py-2 text-center text-xs font-semibold uppercase tracking-widest text-[#615f73]">Borrador · sin verificación</p>}
-        <div className="px-7 pb-8 pt-6">
+        <div className="px-7 pb-8 pt-6 print:pb-0 print:pt-4">
           <section className="grid gap-x-8 gap-y-2 rounded-lg border border-[#e6e4ee] bg-[#faf9fc] p-4 text-sm sm:grid-cols-2">
             <p><span className="block text-[11px] font-semibold uppercase tracking-wider text-[#6b5d8e]">Paciente</span><span className="font-semibold">{patient.name}</span></p>
             <p><span className="block text-[11px] font-semibold uppercase tracking-wider text-[#6b5d8e]">Identificación</span>{patient.rut || "Sin registrar"}</p>
@@ -304,13 +314,13 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
             {activeContent.instrucciones?.trim() && <section className="rounded-lg bg-[#f3f1f7] p-4"><h3 className="text-[11px] font-semibold uppercase tracking-wider text-[#6b5d8e]">Instrucciones al paciente</h3><p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed">{activeContent.instrucciones.trim()}</p></section>}
           </div> : <div className="mt-6 space-y-4">{fields[activeDocument.kind].map(field => <section key={field.key}><h3 className="text-[11px] font-semibold uppercase tracking-wider text-[#6b5d8e]">{field.label}</h3><p className="mt-1 min-h-5 whitespace-pre-wrap text-sm leading-relaxed">{activeContent[field.key]?.trim() || "—"}</p></section>)}</div>}
           {activeDocument.kind === "consentimiento" && <p className="mt-6 rounded-lg border border-[#dddbe6] p-3 text-sm leading-relaxed">Borrador para revisión clínica. Este texto no sustituye la conversación con el paciente ni la verificación del contenido aplicable al procedimiento y sus circunstancias.</p>}
-          <footer className={`mt-14 grid gap-10 text-center text-xs ${activeDocument.kind === "consentimiento" ? "grid-cols-2" : "grid-cols-1 justify-items-end"}`}>
-            <div className={`flex min-h-44 flex-col items-center justify-end ${activeDocument.kind === "consentimiento" ? "" : "w-full max-w-[380px]"}`}>{activeDocument.documentMark && <Image src={activeDocument.documentMark} alt="Imagen de firma o timbre" width={400} height={200} unoptimized className="mb-2 max-h-32 w-full max-w-80 object-contain"/>}<div className="w-full border-t border-[#777] pt-2"><span className="font-semibold">{activeDocument.createdByName}</span><br/>Firma / timbre profesional</div></div>
-            {activeDocument.kind === "consentimiento" && <div className="flex min-h-28 flex-col justify-end"><div className="w-full border-t border-[#777] pt-2"><span className="font-semibold">{patient.name}</span><br/>Firma del paciente</div></div>}
+          <footer className={`mt-16 print:mt-10 grid gap-10 [break-inside:avoid] text-center text-xs ${activeDocument.kind === "consentimiento" ? "grid-cols-2" : "grid-cols-1 justify-items-end"}`}>
+            <div className={`flex flex-col items-center justify-end [break-inside:avoid] ${activeDocument.kind === "consentimiento" ? "" : "w-[7cm] max-w-full"}`} data-testid="signature-block"><div className="flex h-[2.8cm] w-[6.5cm] max-w-full items-end justify-center" data-testid="signature-box">{printableMark && <Image src={printableMark} alt="Firma o timbre del profesional" width={900} height={400} unoptimized className="h-full w-full object-contain object-bottom"/>}</div><div className="mt-1 w-full border-t border-[#777] pt-2"><span className="font-semibold">{activeDocument.createdByName}</span><br/>Firma / timbre profesional</div></div>
+            {activeDocument.kind === "consentimiento" && <div className="flex min-h-[3.4cm] flex-col justify-end [break-inside:avoid]"><div className="w-full border-t border-[#777] pt-2"><span className="font-semibold">{patient.name}</span><br/>Firma del paciente</div></div>}
           </footer>
-          {activeDocument.registration && <p className="mt-8 text-[11px] leading-relaxed text-[#6b6a7c]">Habilitación del profesional: inscrito en el Registro Nacional de Prestadores Individuales de Salud. {activeDocument.registration.validationCode ? <>Verifíquelo en {VALIDATION_SITE} con el código de validación <span className="font-mono font-semibold">{activeDocument.registration.validationCode}</span> (certificado del {activeDocument.registration.issuedOn.split("-").reverse().join("/")}).</> : <>Consulte al profesional en {RNPI_SITE}.</>} Esto acredita al profesional; no valida esta receta.</p>}
-          {activeDocument.verifyToken && activeDocument.contentHash && <aside className="mt-10 flex items-center gap-4 rounded-lg border border-[#e6e4ee] bg-[#faf9fc] p-3 text-left [break-inside:avoid]">
-            <div className="size-24 shrink-0 bg-white p-1 [&_svg]:size-full" role="img" aria-label="Código QR de verificación del documento" dangerouslySetInnerHTML={{ __html: qrSvg(verificationUrl(window.location.origin, activeDocument.verifyToken)) }}/>
+          {activeDocument.registration && <p className="mt-8 text-[11px] leading-relaxed text-[#6b6a7c] print:mt-4">Habilitación del profesional: inscrito en el Registro Nacional de Prestadores Individuales de Salud. {activeDocument.registration.validationCode ? <>Verifíquelo en {VALIDATION_SITE} con el código de validación <span className="font-mono font-semibold">{activeDocument.registration.validationCode}</span> (certificado del {activeDocument.registration.issuedOn.split("-").reverse().join("/")}).</> : <>Consulte al profesional en {RNPI_SITE}.</>} Esto acredita al profesional; no valida esta receta.</p>}
+          {activeDocument.verifyToken && activeDocument.contentHash && <aside className="mt-10 flex items-center gap-4 rounded-lg border border-[#e6e4ee] bg-[#faf9fc] p-3 text-left [break-inside:avoid] print:mt-5 print:p-2">
+            <div className="size-24 shrink-0 bg-white p-1 [&_svg]:size-full print:size-20" role="img" aria-label="Código QR de verificación del documento" dangerouslySetInnerHTML={{ __html: qrSvg(verificationUrl(window.location.origin, activeDocument.verifyToken)) }}/>
             <div className="min-w-0 text-[11px] leading-relaxed text-[#44425a]"><p className="text-xs font-bold uppercase tracking-wider text-[#473a6d]">Verificación de documento</p><p className="mt-1">Escanee el código para confirmar que fue emitido desde Gestión Dental y que está vigente.</p><p className="mt-1">Código: <span className="font-mono font-semibold">{shortCode(activeDocument.contentHash)}</span> · Emitido {formatDate(activeDocument.issuedAt || activeDocument.createdAt)}</p><p className="mt-1 text-[#6b6a7c]">No es firma electrónica avanzada.</p></div>
           </aside>}
         </div>
@@ -356,7 +366,10 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
 
         <PrestadorCard registration={registration} loading={registrationLoading} uploading={registrationUploading} error={registrationError} onUpload={file => void uploadCertificate(file)} onPasteText={text => void sendCertificateText(text)}/>
 
-        <DocumentMarkEditor mark={documentMark} onSaved={setDocumentMark}/>
+        <section className={cardClass} data-testid="signature-pointer">
+          <div className="flex items-start gap-3"><span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#eeebf3] text-[#473a6d]"><Pencil className="size-4"/></span><div><h2 className="font-semibold">Mi firma o timbre</h2><p className="mt-1 text-sm text-[#615f73]">Tu firma ahora vive en tu identificación profesional: <strong>Configuración → Profesionales</strong>. Se usa sola en certificados, recetas, consentimientos y presupuestos.</p></div></div>
+          {documentMark ? <div className="mt-3 flex h-20 items-center justify-center rounded-lg border border-[#e6e4ee] bg-white p-2"><Image src={documentMark} alt="Tu firma guardada" width={900} height={400} unoptimized className="h-full w-auto max-w-full object-contain"/></div> : <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-950">Aún no tienes firma guardada.</p>}
+        </section>
       </div>
     </div>}
 
@@ -364,77 +377,3 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
   </div>;
 }
 
-function DocumentMarkEditor({ mark, onSaved }: { mark: string; onSaved: (mark: string) => void }) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const fileRef = useRef<HTMLInputElement | null>(null);
-  const drawing = useRef(false);
-  const [hasImage, setHasImage] = useState(Boolean(mark));
-  const [dirty, setDirty] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || !mark) return;
-    const image = new window.Image();
-    image.onload = () => { const ctx = canvas.getContext("2d"); if (!ctx) return; ctx.clearRect(0, 0, canvas.width, canvas.height); const scale = Math.min((canvas.width - 24) / image.width, (canvas.height - 24) / image.height); const width = image.width * scale, height = image.height * scale; ctx.drawImage(image, (canvas.width - width) / 2, (canvas.height - height) / 2, width, height); setHasImage(true); setDirty(false); };
-    image.src = mark;
-  }, [mark]);
-
-  const point = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    return { x: (event.clientX - rect.left) * event.currentTarget.width / rect.width, y: (event.clientY - rect.top) * event.currentTarget.height / rect.height };
-  };
-  const start = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    const canvas = event.currentTarget, ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    canvas.setPointerCapture(event.pointerId); drawing.current = true;
-    const at = point(event); ctx.beginPath(); ctx.moveTo(at.x, at.y); ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.strokeStyle = "#252239"; ctx.lineWidth = 5; ctx.lineTo(at.x + .01, at.y + .01); ctx.stroke();
-    setHasImage(true); setDirty(true); setError(""); setNotice("");
-  };
-  const move = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!drawing.current) return;
-    const ctx = event.currentTarget.getContext("2d"); if (!ctx) return;
-    const at = point(event); ctx.lineTo(at.x, at.y); ctx.stroke();
-  };
-  const stop = () => { drawing.current = false; };
-  const pickFile = async (file?: File) => {
-    if (!file) return;
-    if (!/^image\/(png|jpeg|webp)$/.test(file.type) || file.size > 5 * 1024 * 1024) { setError("Elige una imagen PNG, JPG o WebP de hasta 5 MB."); return; }
-    try {
-      const image = await createImageBitmap(file), canvas = canvasRef.current, ctx = canvas?.getContext("2d");
-      if (!canvas || !ctx) throw new Error("No se pudo abrir el cuadro de dibujo.");
-      ctx.clearRect(0, 0, canvas.width, canvas.height); const scale = Math.min((canvas.width - 24) / image.width, (canvas.height - 24) / image.height); const width = image.width * scale, height = image.height * scale;
-      ctx.drawImage(image, (canvas.width - width) / 2, (canvas.height - height) / 2, width, height); image.close(); setHasImage(true); setDirty(true); setError(""); setNotice("");
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo leer la imagen."); }
-  };
-  const clear = () => { const canvas = canvasRef.current; canvas?.getContext("2d")?.clearRect(0, 0, canvas.width, canvas.height); setHasImage(false); setDirty(true); setError(""); setNotice(""); };
-  const save = async () => {
-    const canvas = canvasRef.current;
-    if (!canvas || saving) return;
-    setSaving(true); setError(""); setNotice("");
-    try {
-      let documentMark = "";
-      if (hasImage) {
-        const small = document.createElement("canvas"); small.width = 200; small.height = 200;
-        const ctx = small.getContext("2d"); if (!ctx) throw new Error("No se pudo preparar la imagen.");
-        const scale = Math.min(188 / canvas.width, 188 / canvas.height); const width = canvas.width * scale, height = canvas.height * scale;
-        ctx.drawImage(canvas, (200 - width) / 2, (200 - height) / 2, width, height); documentMark = small.toDataURL("image/png");
-        if (documentMark.length > 80_000) throw new Error("La imagen tiene demasiados detalles. Dibuja una firma más simple o sube una imagen más pequeña.");
-      }
-      const response = await fetch("/api/documentos/imagen", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ documentMark }) });
-      const result = await response.json() as { documentMark?: string; error?: string };
-      if (!response.ok || typeof result.documentMark !== "string") throw new Error(result.error || "No se pudo guardar la imagen.");
-      onSaved(result.documentMark); setDirty(false); setNotice(result.documentMark ? "Tu imagen queda disponible en tus documentos y presupuestos." : "Imagen quitada de tus documentos nuevos.");
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo guardar la imagen."); }
-    finally { setSaving(false); }
-  };
-
-  return <section className={cardClass}>
-    <div className="flex items-start gap-3"><span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#eeebf3] text-[#473a6d]"><Pencil className="size-4"/></span><div><h2 className="font-semibold">Mi firma o timbre</h2><p className="mt-1 text-sm text-[#615f73]">Dibújalo aquí o sube una imagen; tus documentos y presupuestos la usarán junto a tu nombre.</p></div></div>
-    <canvas ref={canvasRef} width={600} height={180} aria-label="Cuadro para dibujar la firma o el timbre" onPointerDown={start} onPointerMove={move} onPointerUp={stop} onPointerCancel={stop} className="mt-4 h-32 w-full touch-none cursor-crosshair rounded-lg border border-dashed border-[#bcb5cc] bg-white"/>
-    <><div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => fileRef.current?.click()} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-[#473a6d] px-3 text-sm font-semibold text-[#473a6d] hover:bg-[#f3f1f7]"><ImagePlus className="size-4"/>Subir imagen</button><button type="button" onClick={clear} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-[#dddbe6] px-3 text-sm font-semibold text-[#615f73] hover:bg-[#f7f6fa]"><Trash2 className="size-4"/>Limpiar</button><button type="button" disabled={!dirty || saving} onClick={() => void save()} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-[#473a6d] px-3 text-sm font-semibold text-white hover:bg-[#3a2f5a] disabled:opacity-50">{saving ? <LoaderCircle className="size-4 animate-spin"/> : <BadgeCheck className="size-4"/>}{saving ? "Guardando…" : "Guardar imagen"}</button></div><input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={event => { void pickFile(event.target.files?.[0]); event.target.value = ""; }}/><p className="mt-2 text-xs text-[#615f73]">Se guarda como imagen para documentos; no firma electrónicamente ni reemplaza una firma manuscrita cuando corresponda. Cada profesional configura la suya.</p></>
-    {error && <p role="alert" className="mt-3 text-sm text-rose-800">{error}</p>}{notice && !error && <p role="status" className="mt-3 text-sm text-emerald-900">{notice}</p>}
-  </section>;
-}

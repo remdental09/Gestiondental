@@ -1,6 +1,7 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import { budgetItemTotal, budgetPhases, budgetTotals, itemWhereText, type BudgetItem } from "./budget-plans.ts";
 import { DEFAULT_FORMAT, clinicContactGroups, hexToRgb01, shade, tint, type BudgetFormat } from "./budget-format.ts";
+import { SIGNATURE_BOX_CM, cmToPt, fitInBox } from "./signature-image.ts";
 
 /**
  * PDF del presupuesto / plan de tratamiento, con formato de presupuesto clínico: cabecera de la clínica, número y hora de emisión,
@@ -243,7 +244,7 @@ export async function buildBudgetPdf(input: BudgetPdfInput): Promise<Uint8Array>
     ...fitLines(clinic, bold, 9, blockW, 1).map(t => ({ t, f: bold, size: 9 })),
     ...clinicParts.flatMap(part => fitLines(part, regular, 8, blockW, part === [format.clinic.address, format.clinic.city].filter(Boolean).join(", ") ? 2 : 1)).map(t => ({ t, f: regular, size: 8 })),
   ] : [];
-  const signH = 40 + Math.max(62 + 13 + (nameInSignature ? 12 * credentialLines.length : 0), 10 + 11 * signClinic.length) + 8;
+  const signH = 80 + Math.max(62 + 13 + (nameInSignature ? 12 * credentialLines.length : 0), 10 + 11 * signClinic.length) + 8;
 
   // Condiciones y observaciones (se dibujan después)
   const notes = [
@@ -337,13 +338,12 @@ export async function buildBudgetPdf(input: BudgetPdfInput): Promise<Uint8Array>
 
   // ── Firma del profesional
   ensure(signH);
-  y -= 40;
+  // Más aire sobre la línea: la firma se dibuja grande (recuadro ≈ 6,5 × 2,7 cm), escalada para llenarlo sin deformarse.
+  y -= 80;
   const signTop = y;
   if (documentMark) {
-    const maxW = 92, maxH = 42;
-    const scale = Math.min(maxW / documentMark.width, maxH / documentMark.height, 1);
-    const width = documentMark.width * scale, height = documentMark.height * scale;
-    page.drawImage(documentMark, { x: sx + (R - sx - width) / 2, y: signTop - 54, width, height });
+    const box = fitInBox(documentMark.width, documentMark.height, Math.min(cmToPt(SIGNATURE_BOX_CM.width), R - sx), cmToPt(SIGNATURE_BOX_CM.height));
+    page.drawImage(documentMark, { x: sx + (R - sx - box.width) / 2, y: signTop - 58, width: box.width, height: box.height });
   }
   y = signTop - 62; rule(sx, R);
   const signName = pdfSafe(nameInSignature && input.professionalName ? input.professionalName : nameInSignature ? "Profesional tratante" : "Firma del profesional tratante");
