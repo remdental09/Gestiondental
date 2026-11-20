@@ -37,7 +37,7 @@ test("QR impreso: primero el QR oficial leído; si no, el validador; si no hay c
   assert.deepEqual(printableQr({ qrPayload: official, validationCode: "AbC12xYz9" }), { url: official, from: "qr" });
   assert.deepEqual(printableQr({ qrPayload: "https://otro-sitio.cl/x", validationCode: "AbC12xYz9" }), { url: `${VALIDATOR_URL}?id=AbC12xYz9`, from: "codigo" });
   assert.deepEqual(printableQr({ qrPayload: "", validationCode: "" }), { url: "", from: "" });
-  assert.equal(qrCaption("12345"), "Verifique la habilitación del profesional – Superintendencia de Salud, N° registro 12345");
+  assert.equal(qrCaption("12345"), "Verifique la habilitación del profesional – Superintendencia de Salud, REG-SIS N° 12345");
 });
 
 test("archivos en R2: siempre bajo la carpeta del propio profesional", () => {
@@ -90,14 +90,15 @@ test("el QR se lee del PDF en el teléfono (pdf.js + jsQR) y la tarjeta ya no di
   assert.match(JSON.parse(read("package.json")).dependencies.jsqr, /^\^1\./);
 });
 
-test("recetas y certificados imprimen el QR de habilitación (≈2 cm) con su leyenda, sin romper la hoja Carta", () => {
+test("recetas y certificados: QR de habilitación arriba a la derecha (encabezado), con REG-SIS, sin romper la hoja Carta", () => {
   const panel = read("components/documentation-panel.tsx");
-  assert.match(panel, /size-\[2cm\][^>]*data-testid="habilitacion-qr"/);
-  assert.match(panel, /const reg = activeDocument\.registration;/);
+  assert.match(panel, /size-\[2\.2cm\][^>]*data-testid="habilitacion-qr"/);
+  assert.match(panel, /const reg: PublicRegistration \| null = doc\.registration \?\?/);
   assert.match(panel, /qrSvg\(reg\.qrUrl\)/);
-  assert.match(panel, /qrCaption\(reg\.regSis\)/);
-  assert.match(panel, /print:grid-cols-\[minmax\(0,1fr\)_7cm\]/, "QR junto a la firma, en la esquina inferior");
-  assert.match(panel, /data-testid="habilitacion-row"/);
+  assert.match(panel, /title=\{qrCaption\(reg\.regSis\)\}/);
+  assert.match(panel, /REG-SIS N° \{reg\.regSis\}/);
+  const header = panel.slice(panel.indexOf('data-testid="document-header"'), panel.indexOf("</header>", panel.indexOf('data-testid="document-header"')));
+  assert.match(header, /data-testid="habilitacion-row"/, "el QR va en el encabezado");
   assert.match(read("app/prestador-db.ts"), /qrUrl: printableQr\(/);
   assert.match(read("app/globals.css"), /@page\{size:letter;margin:10mm 12mm\}/);
 });

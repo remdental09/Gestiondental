@@ -40,7 +40,7 @@ export function printableQr(reg: { qrPayload?: string; validationCode?: string }
 }
 
 /** Leyenda bajo el QR en el documento impreso. */
-export const qrCaption = (regSis: string) => `Verifique la habilitación del profesional – Superintendencia de Salud, N° registro ${regSis}`;
+export const qrCaption = (regSis: string) => `Verifique la habilitación del profesional – Superintendencia de Salud, REG-SIS N° ${regSis}`;
 
 /** Clave del objeto en R2, siempre bajo la carpeta del profesional (aislamiento por profesional). */
 export const certificateKey = (professionalId: string, id: string, kind: "pdf" | "qr") => `prestador/${professionalId}/${id}${kind === "pdf" ? ".pdf" : "-qr.png"}`;
