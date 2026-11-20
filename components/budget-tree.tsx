@@ -7,21 +7,22 @@ import { useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { budgetTree, STATUS_DOT, type TreeBudget } from "@/lib/budget-tree";
 import { ITEM_STATUS_LABEL, type BudgetItem, type ItemStatus } from "@/lib/budget-plans";
+import { cartola, type AllocPayment } from "@/lib/payment-allocation";
 
 const clp = (value: number) => new Intl.NumberFormat("es-CL", { style: "currency", currency: "CLP", maximumFractionDigits: 0 }).format(value);
 
 type Props = {
   budgets: { id: number; title: string; items: BudgetItem[]; editable?: boolean }[];
-  /** Abonado por presupuesto. */
-  paidByBudget: Record<number, number>;
+  /** Abonos por presupuesto (con sus ítems asignados). */
+  paymentsByBudget: Record<number, AllocPayment[]>;
   onSetStatus: (budgetId: number, index: number, status: ItemStatus) => Promise<void>;
-  onCharge: (budgetId: number) => void;
+  onCharge: (budgetId: number, index?: number) => void;
   /** Abre todas las ramas (p. ej. al tocar «Marcar realizado» en el riel). */
   expanded?: boolean;
   onExpandedChange?: (open: boolean) => void;
 };
 
-export function BudgetTree({ budgets, paidByBudget, onSetStatus, onCharge, expanded, onExpandedChange }: Props) {
+export function BudgetTree({ budgets, paymentsByBudget, onSetStatus, onCharge, expanded, onExpandedChange }: Props) {
   const [openSelf, setOpenSelf] = useState(false);
   const open = expanded ?? openSelf;
   const setOpen = (value: boolean) => { if (onExpandedChange) onExpandedChange(value); else setOpenSelf(value); };
@@ -30,7 +31,8 @@ export function BudgetTree({ budgets, paidByBudget, onSetStatus, onCharge, expan
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
   if (!budgets.length) return null;
-  const trees = budgets.map(b => budgetTree(b, paidByBudget[b.id] ?? 0));
+  const trees = budgets.map(b => budgetTree(b, (paymentsByBudget[b.id] ?? []).reduce((sum, p) => sum + p.amount, 0)));
+  const money = Object.fromEntries(budgets.map(b => [b.id, cartola(b.items, paymentsByBudget[b.id] ?? [])]));
   const owed = trees.reduce((sum, t) => sum + t.owedForDone, 0);
   const saldo = trees.reduce((sum, t) => sum + t.saldo, 0);
   const act = async (tree: TreeBudget, index: number, status: ItemStatus) => {
@@ -56,7 +58,7 @@ export function BudgetTree({ budgets, paidByBudget, onSetStatus, onCharge, expan
             {!single && <ChevronRight className={`size-4 shrink-0 text-[#473a6d] transition-transform ${budgetOpen ? "rotate-90" : ""}`} aria-hidden="true" />}
             <span className="min-w-0 flex-1 truncate text-sm font-semibold">{tree.title}</span>
             <span className="text-xs text-[#615f73]">{tree.doneCount}/{tree.count}{tree.started ? ` · ${tree.started} en curso` : ""}</span>
-            <span className="w-full text-[11px] text-[#615f73]">Total {clp(tree.total)} · Abonado {clp(tree.paid)} · Realizado {clp(tree.doneValue)} · Saldo {clp(tree.saldo)}{tree.owedForDone > 0 && <strong className="ml-1 rounded bg-rose-50 px-1 text-rose-700">Realizado no pagado {clp(tree.owedForDone)}</strong>}</span>
+            <span className="w-full text-[11px] text-[#615f73]" data-testid={`tree-cartola-${tree.id}`}>Total {clp(tree.total)} · Abonado {clp(tree.paid)} · Realizado {clp(tree.doneValue)} · Saldo {money[tree.id].saldo < 0 ? <strong className="rounded bg-rose-50 px-1 text-rose-700">−{clp(-money[tree.id].saldo)} por cobrar</strong> : clp(money[tree.id].saldo)}</span>
           </button>
           {budgetOpen && <ul className="border-t border-[#f0eef5] px-2 pb-2">
             {tree.branches.map(branch => <li key={branch.key} className="mt-2">
@@ -73,13 +75,13 @@ export function BudgetTree({ budgets, paidByBudget, onSetStatus, onCharge, expan
                     <button type="button" className="flex min-h-10 w-full items-center gap-2 text-left text-sm" aria-expanded={opened} onClick={() => setItemOpen(opened ? null : key)}>
                       <span className="size-2.5 shrink-0 rounded-full" style={{ background: STATUS_DOT[status] }} aria-hidden="true" />
                       <span className={`min-w-0 flex-1 truncate ${status === "terminada" ? "text-[#615f73] line-through decoration-emerald-600/60" : ""}`}>{item.label}</span>
-                      <span className="shrink-0 text-[11px] text-[#615f73]">{ITEM_STATUS_LABEL[status]} · {clp(value)}</span>
+                      <span className="shrink-0 text-right text-[11px] leading-tight text-[#615f73]">{ITEM_STATUS_LABEL[status]} · {clp(value)}{(money[tree.id].items[index]?.paid ?? 0) > 0 && <span className="block text-emerald-800">pagado {clp(money[tree.id].items[index].paid)}</span>}{status === "terminada" && (money[tree.id].items[index]?.saldo ?? 0) > 0 && <span className="block font-semibold text-rose-700">por cobrar {clp(money[tree.id].items[index].saldo)}</span>}</span>
                     </button>
                     {opened && <div className="mb-2 flex flex-wrap gap-1.5 pl-4">
                       {status !== "iniciada" && status !== "terminada" && <button type="button" disabled={busy === key} className="h-9 rounded-md border border-sky-300 bg-sky-50 px-3 text-xs font-semibold text-sky-900" onClick={() => void act(tree, index, "iniciada")}>Iniciar</button>}
                       {status !== "terminada" && <button type="button" disabled={busy === key} className="h-9 rounded-md border border-emerald-300 bg-emerald-50 px-3 text-xs font-semibold text-emerald-900" onClick={() => void act(tree, index, "terminada")}>Terminar</button>}
                       {status !== "pendiente" && <button type="button" disabled={busy === key} className="h-9 rounded-md border px-3 text-xs" onClick={() => void act(tree, index, "pendiente")}>Volver a pendiente</button>}
-                      <button type="button" className="h-9 rounded-md border border-[#cfcbe0] px-3 text-xs font-semibold text-[#473a6d]" onClick={() => onCharge(tree.id)}>Cobrar</button>
+                      <button type="button" className="h-9 rounded-md border border-[#cfcbe0] px-3 text-xs font-semibold text-[#473a6d]" onClick={() => onCharge(tree.id, index)}>Cobrar</button>
                     </div>}
                   </li>;
                 })}

@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { budgetItemTotal, budgetPhases, budgetProgress, budgetTotals, itemWhereText, type BudgetItem } from "@/lib/budget-plans";
 import type { Prestacion } from "@/lib/prestaciones-catalog";
 import { WherePicker } from "@/components/zone-picker";
+import { cartola, type Allocation } from "@/lib/payment-allocation";
 
 export type BudgetPlan = {
   id: number;
@@ -31,6 +32,9 @@ export type BudgetPaymentEntry = {
   method: string;
   concept: string;
   date: string;
+  paidOn?: string;
+  /** Ítems a los que se aplicó el abono; sin asignación = abono libre. */
+  allocations?: Allocation[];
 };
 
 const money = (amount: number) => "$" + amount.toLocaleString("es-CL");
@@ -175,6 +179,8 @@ export function BudgetCard({
 }) {
   const totals = budgetTotals(budget.items);
   const progress = budgetProgress(budget.items, paid);
+  // Pagado y saldo por ítem (abonos marcados + abono libre a lo realizado más antiguo) y cartola del presupuesto.
+  const money2 = cartola(budget.items, payments.map(payment => ({ id: payment.id, amount: payment.amount, paidOn: payment.paidOn, allocations: payment.allocations })));
   const [savingIndex, setSavingIndex] = useState<number | null>(null);
   const [itemError, setItemError] = useState("");
   const canTrack = !budget.isAlternative && !!onSetItemDone;
@@ -234,6 +240,7 @@ export function BudgetCard({
                 {item.code ? <span className="ml-2 text-xs text-[#6b6a7c]">Cód. {item.code}</span> : null}
                 {item.discountPercent ? <span className="ml-2 text-xs text-[#3a2f5a]">−{item.discountPercent}%</span> : null}
                 {itemWhereText(item) && <span className="mt-0.5 flex flex-wrap items-center gap-1 text-xs text-[#3a2f5a]" data-testid={`budget-where-${budget.id}-${index}`}><MapPin className="size-3.5 shrink-0 text-[#c95f35]" aria-hidden="true"/>{itemWhereText(item)}</span>}
+                {payments.length > 0 && (money2.items[index]?.paid ?? 0) > 0 && <span className="mt-0.5 block text-xs text-[#615f73]" data-testid={`budget-item-paid-${budget.id}-${index}`}>Pagado {money(money2.items[index].paid)}{money2.items[index].saldo > 0 ? ` · saldo ${money(money2.items[index].saldo)}` : " · pagado completo"}</span>}
                 {!done && item.status === "iniciada" && <span className="mt-0.5 block text-xs font-medium text-sky-800" data-testid={`budget-started-${budget.id}-${index}`}>Iniciada{item.startedOn ? ` el ${displayIso(item.startedOn)}` : ""}</span>}
                 {!done && item.status === "desevolucion" && <span className="mt-0.5 block text-xs font-medium text-rose-800">Desevolución</span>}
                 {done && <span className="mt-0.5 block text-xs text-[#3a2f5a]">Realizada el {canTrack
@@ -255,6 +262,7 @@ export function BudgetCard({
           <p><span className="text-[#6b6a7c]">Abonado</span><strong className="ml-2">{money(paid)}</strong></p>
           <p><span className="text-[#6b6a7c]">Saldo pendiente</span><strong className="ml-2">{money(balance)}</strong></p>
         </div>
+        {payments.length > 0 && <p className="mt-2 text-xs text-[#615f73]" data-testid={`budget-cartola-${budget.id}`}>Cartola · Abonado {money(money2.abonado)} · Tratamientos realizados {money(money2.realizado)} · Saldo <strong className={money2.saldo < 0 ? "text-rose-700" : "text-emerald-800"}>{money2.saldo < 0 ? `−${money(-money2.saldo)} por cobrar` : money(money2.saldo)}</strong></p>}
         <div className="mt-4 border-t border-[#efeef4] pt-4" data-testid={"budget-payment-panel-" + budget.id}>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h4 className="font-semibold">Pagos y abonos de este tratamiento</h4>
