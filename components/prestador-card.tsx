@@ -74,6 +74,11 @@ const SOURCE_LABEL: Record<string, string> = {
   imagen: "de la foto del QR que subiste",
 };
 
+// Clases sin utilidades en conflicto: antes el botón principal mezclaba bg-white/text-white/border-transparent con el morado
+// y en el CSS compilado ganaban los blancos → «Subir certificado (PDF)» quedaba blanco sobre blanco (invisible).
+export const primaryButton = "inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-[#473a6d] bg-[#473a6d] px-4 text-base font-semibold text-white hover:bg-[#3a2f5a]";
+export const secondaryButton = "inline-flex min-h-11 items-center gap-2 rounded-lg border border-[#473a6d] bg-white px-3 text-sm font-semibold text-[#473a6d] hover:bg-[#f3f1f7] disabled:opacity-50";
+
 export function PrestadorCard({ state }: { state: PrestadorState }) {
   const { registration, loading, uploading, step, error, notice, upload, pasteText, uploadQr } = state;
   const input = useRef<HTMLInputElement | null>(null);
@@ -84,7 +89,7 @@ export function PrestadorCard({ state }: { state: PrestadorState }) {
   const printUrl = qr?.printUrl ?? "";
   const svg = useMemo(() => printUrl ? qrSvg(printUrl) : "", [printUrl]);
   const tone = status === "aprobado" ? "border-emerald-200 bg-emerald-50" : status === "rechazado" ? "border-rose-200 bg-rose-50" : status === "pendiente" ? "border-amber-200 bg-amber-50" : "border-[#e6e4ee] bg-white";
-  const button = "inline-flex min-h-11 items-center gap-2 rounded-lg border border-[#473a6d] bg-white px-3 text-sm font-semibold text-[#473a6d] hover:bg-[#f3f1f7] disabled:opacity-50";
+  const button = secondaryButton;
   return <section className={`rounded-xl border p-4 ${tone}`} aria-label="Habilitación para emitir recetas" data-testid="prestador-card">
     <div className="flex items-start gap-3">
       <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white/70 text-[#473a6d]">{status === "aprobado" ? <BadgeCheck className="size-5"/> : status === "pendiente" ? <Clock3 className="size-5"/> : status === "rechazado" ? <ShieldAlert className="size-5"/> : <FileUp className="size-5"/>}</span>
@@ -117,10 +122,9 @@ export function PrestadorCard({ state }: { state: PrestadorState }) {
         {error && <p role="alert" className="mt-2 text-sm text-rose-800">{error}</p>}
         {notice && !error && <p role="status" className="mt-2 text-sm text-emerald-900">{notice}</p>}
         {!loading && status !== "aprobado" && <p className="mt-2 text-xs text-[#615f73]">Esta verificación es solo del profesional; el certificado no valida cada receta.</p>}
-        <input ref={input} type="file" accept="application/pdf,.pdf" className="sr-only" onChange={event => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void upload(file); }} aria-label="Elegir el PDF del certificado de inscripción"/>
         <input ref={qrInput} type="file" accept="image/*" className="sr-only" onChange={event => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void uploadQr(file); }} aria-label="Elegir una foto del código QR del certificado"/>
         {!loading && <div className="mt-3 flex flex-wrap gap-2">
-          <button type="button" disabled={uploading} onClick={() => input.current?.click()} className={`${button} ${registration?.certificate ? "" : "border-transparent bg-[#473a6d] text-white hover:bg-[#3a2f5a]"}`} data-testid="prestador-upload">{uploading ? <LoaderCircle className="size-4 animate-spin"/> : <FileUp className="size-4"/>}{registration?.certificate ? "Reemplazar certificado (PDF)" : "Subir certificado (PDF)"}</button>
+          <label className={`${registration?.certificate ? secondaryButton : primaryButton} cursor-pointer focus-within:ring-2 focus-within:ring-[#473a6d]/40 ${uploading ? "pointer-events-none opacity-50" : ""}`} data-testid="prestador-upload"><input ref={input} type="file" accept="application/pdf,.pdf" className="sr-only" disabled={uploading} onChange={event => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void upload(file); }} aria-label={registration?.certificate ? "Reemplazar el PDF del certificado de inscripción" : "Subir el PDF del certificado de inscripción"} data-testid="prestador-file-input"/>{uploading ? <LoaderCircle className="size-4 animate-spin" aria-hidden="true"/> : <FileUp className="size-4" aria-hidden="true"/>}{uploading ? "Leyendo certificado…" : registration?.certificate ? "Reemplazar certificado (PDF)" : "Subir certificado (PDF)"}</label>
           {registration && qr?.printFrom !== "qr" && <button type="button" disabled={uploading} onClick={() => qrInput.current?.click()} className={button} data-testid="prestador-qr-upload"><QrCode className="size-4"/>Subir foto del QR</button>}
         </div>}
         {!loading && status !== "aprobado" && <details className="mt-3">
