@@ -1,7 +1,7 @@
 import { and, desc, eq } from "drizzle-orm";
 import { ensureDocumentIssuanceColumns } from "@/app/document-issuance-db";
 import { getChatGPTUser, personalIdOf } from "@/app/chatgpt-auth";
-import { loadProfile } from "@/app/clinician-profile-db";
+import { loadProfile, loadProfileTitles } from "@/app/clinician-profile-db";
 import { displayName } from "@/lib/clinician-profile";
 import { getDb } from "@/db";
 import { patientDocuments, patients, professionalDocumentSettings } from "@/db/schema";
@@ -27,8 +27,10 @@ export async function GET(request: Request) {
       .from(patientDocuments).leftJoin(professionalDocumentSettings, eq(patientDocuments.createdBy, professionalDocumentSettings.professionalId))
       .where(and(eq(patientDocuments.ownerId, user.userId), eq(patientDocuments.patientId, patientId)))
       .orderBy(desc(patientDocuments.id)).limit(100);
-    const registrations = await loadApprovedRegistrations(rows.map(row => row.document.createdBy)).catch(() => new Map());
-    const documents = rows.map(row => ({ ...row.document, documentMark: row.documentMark ?? "", registration: registrations.get(row.document.createdBy) ?? null }));
+    const authors = rows.map(row => row.document.createdBy);
+    const [registrations, titles] = await Promise.all([loadApprovedRegistrations(authors).catch(() => new Map()), loadProfileTitles(authors).catch(() => new Map())]);
+    // authorTitle: el tratamiento que el profesional eligió hoy (solo para mostrar; el nombre guardado y su huella no cambian).
+    const documents = rows.map(row => ({ ...row.document, documentMark: row.documentMark ?? "", registration: registrations.get(row.document.createdBy) ?? null, authorTitle: titles.get(row.document.createdBy) ?? null }));
     return Response.json({ documents }, { headers: { "Cache-Control": "no-store" } });
   } catch { return fail("No se pudieron cargar los documentos.", 500); }
 }
@@ -65,6 +67,6 @@ export async function POST(request: Request) {
     const documentMark = await loadDocumentMark(personalId).catch(() => "");
     // La habilitación va con el documento desde el primer momento (antes llegaba solo al recargar: la receta recién creada salía sin el QR).
     const registration = (await loadApprovedRegistrations([personalId]).catch(() => new Map())).get(personalId) ?? null;
-    return Response.json({ document: { ...document, documentMark, registration } }, { status: 201, headers: { "Cache-Control": "no-store" } });
+    return Response.json({ document: { ...document, documentMark, registration, authorTitle: profile?.title ?? null } }, { status: 201, headers: { "Cache-Control": "no-store" } });
   } catch { return fail("No se pudo guardar el borrador.", 500); }
 }
