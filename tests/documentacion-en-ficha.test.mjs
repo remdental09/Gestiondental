@@ -40,7 +40,7 @@ test("la vista previa tiene Guardar en PDF e Imprimir, también para borradores,
 });
 
 test("solo el consentimiento informado lleva firma del paciente", () => {
-  assert.match(panel, /activeDocument\.kind === "consentimiento" && <div className="flex min-h-28 flex-col justify-end">/);
+  assert.match(panel, /activeDocument\.kind === "consentimiento" && <div className="flex min-h-\[3\.4cm\] flex-col justify-end \[break-inside:avoid\]">/);
   assert.doesNotMatch(panel, /activeDocument\.kind !== "receta" && <div/);
 });
 
