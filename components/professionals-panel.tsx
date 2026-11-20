@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Pencil, Plus, Power, Stethoscope, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SignatureEditor } from "@/components/signature-editor";
+import { PrestadorPanel } from "@/components/prestador-card";
 import { PROFESSIONAL_COLORS, type Professional } from "@/lib/professionals";
 
 export const PROFESSIONALS_CHANGED = "gd-professionals-changed";
@@ -81,5 +82,6 @@ export function ProfessionalsPanel() {
       <p className="mb-2 text-sm text-[#615f73]">Tu identificación profesional: la firma que dibujes o subas aquí se pone sola en tus certificados, recetas, consentimientos y presupuestos. Cada dentista con su propia cuenta guarda la suya.</p>
       <SignatureEditor/>
     </div>
+    <div className="mt-5 border-t border-[#e6e4ee] pt-4" data-testid="professional-habilitacion"><PrestadorPanel/></div>
   </section>;
 }
