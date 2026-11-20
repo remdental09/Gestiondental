@@ -29,17 +29,19 @@ export function ProfileDialog({ email, onClose, onSaved }: { email: string; onCl
     })();
     return () => { active = false; };
   }, []);
+  const changed = Boolean(original) && (Object.keys(form) as Array<keyof typeof form>).some(key => form[key] !== original![key]);
+  const attemptClose = () => { if (changed && !window.confirm("Hay cambios sin guardar. ¿Cerrar y descartarlos?")) return; onClose(); };
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") attemptClose(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  const changed = Boolean(original) && (Object.keys(form) as Array<keyof typeof form>).some(key => form[key] !== original![key]);
-  const attemptClose = () => { if (changed && !window.confirm("Hay cambios sin guardar. ¿Cerrar y descartarlos?")) return; onClose(); };
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
+    // Sin cambios en los datos: no hay nada que enviar (la firma y el certificado se guardan solos).
+    if (!changed) { setError(""); setDone("Tus datos ya están guardados. La firma se guarda con su botón «Guardar» y el certificado de habilitación al subirlo."); return; }
     const checked = checkProfile(form);
     if (!checked.ok) { setError(checked.error); return; }
     const before = original, after = checked.profile;
@@ -105,8 +107,9 @@ export function ProfileDialog({ email, onClose, onSaved }: { email: string; onCl
         <p className="mt-3 text-xs text-[#6b6a7c]">Se mostrará como {form.firstName.trim() && form.lastName.trim() ? displayName(form) : "Dr(a). Nombre Apellido"}.</p>
         {error && <p role="alert" className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-800">{error}</p>}
         {done && !error && <p role="status" className="mt-4 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800">{done}</p>}
-        <div className="mt-5 flex gap-3">
-          <button type="submit" disabled={saving || !changed} className="min-h-11 flex-1 rounded-lg bg-[#473a6d] px-4 text-base font-semibold text-white hover:bg-[#3a2f5a] disabled:opacity-50" data-testid="profile-save">{saving ? "Guardando…" : "Guardar cambios"}</button>
+        <p className="mt-4 text-xs text-[#6b6a7c]" data-testid="profile-save-hint">{changed ? "Tienes cambios sin guardar en tus datos." : "«Guardar cambios» guarda tu nombre, RUT, especialidad y clínica. La firma se guarda con su propio botón «Guardar» y el certificado de habilitación al subirlo."}</p>
+        <div className="mt-3 flex gap-3">
+          <button type="submit" disabled={saving} className="min-h-11 flex-1 rounded-lg bg-[#473a6d] px-4 text-base font-semibold text-white hover:bg-[#3a2f5a] disabled:opacity-50" data-testid="profile-save">{saving ? "Guardando…" : "Guardar cambios"}</button>
           <button type="button" onClick={attemptClose} className="min-h-11 rounded-lg border border-[#d2d4df] px-4 text-base font-medium text-[#57566a] hover:bg-[#f7f6fa]">Cerrar</button>
         </div>
       </>}

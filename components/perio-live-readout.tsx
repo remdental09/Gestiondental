@@ -53,7 +53,10 @@ export function PerioLiveReadout({ live, data }: { live: GuideLive; data: PerioT
   const last = live.records[0];
   const { controls } = live;
   const status = live.transcribing ? "Revisando el audio…" : live.paused ? "En pausa" : live.listening ? "Escuchando" : "Hablando…";
-  const btn = "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg border border-[#dddbe6] bg-white px-3 text-base font-semibold text-[#2a2540] hover:bg-[#efeef4]";
+  // Sin colores en conflicto: en Tailwind v4 gana el orden del CSS compilado, no el del atributo (antes «Terminar» salía blanco sobre blanco).
+  const btnBase = "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg border px-3 text-base font-semibold";
+  const btn = `${btnBase} border-[#dddbe6] bg-white text-[#2a2540] hover:bg-[#efeef4]`;
+  const btnStop = `${btnBase} border-rose-700 bg-rose-700 text-white hover:bg-rose-800`;
   return <section aria-label="Dictado periodontal en vivo" data-testid="perio-live-readout" className="space-y-3 rounded-2xl border-2 border-[#473a6d] bg-[#fbfaff] p-3 sm:p-4">
     <style>{CSS}</style>
     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -89,7 +92,7 @@ export function PerioLiveReadout({ live, data }: { live: GuideLive; data: PerioT
       <button type="button" className={btn} onClick={() => controls.command("atrás")}>Atrás</button>
       <button type="button" className={btn} onClick={() => controls.command("salta")}>Salta pieza</button>
       <button type="button" className={btn} onClick={() => controls.command(live.paused ? "sigue" : "pausa")}>{live.paused ? <><Play className="size-4" />Sigue</> : <><Pause className="size-4" />Pausa</>}</button>
-      <button type="button" className={`${btn} border-rose-700 bg-rose-700 text-white hover:bg-rose-800`} onClick={controls.stop}><Square className="size-4" />Terminar</button>
+      <button type="button" className={btnStop} onClick={controls.stop}><Square className="size-4" />Terminar</button>
     </div>
     <p className="text-sm leading-5 text-[#615f73]">Di un número por vez (0 a 12; el margen puede ser «menos 1»). Órdenes: «corrige», «repite», «atrás», «salta», «pausa», «sigue», «sangra», «supura», «pieza …». Sondaje ≥ 4 mm en ámbar y ≥ 6 mm en rojo.</p>
   </section>;
