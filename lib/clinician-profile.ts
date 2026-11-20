@@ -27,7 +27,14 @@ export const DEFAULT_COUNTRY = "Chile";
 export const asCountry = (value: unknown): string => (typeof value === "string" && (COUNTRIES as readonly string[]).includes(value.trim()) ? value.trim() : DEFAULT_COUNTRY);
 
 export type ProfessionalDocumentType = "rut" | "extranjero";
-export type ClinicianProfile = { firstName: string; lastName: string; rut: string; specialty: string; /** Otros títulos o especialidades (texto libre, opcional). */ extraTitles?: string; /** Nombre de la clínica o consulta que se muestra arriba (opcional, hasta 60 caracteres). */ clinicName?: string; /** País de ejercicio (lista fija; por defecto Chile). */ country?: string };
+/** Tratamiento que antecede al nombre en documentos y en la app. Por defecto «Dr(a).». */
+export const PROFESSIONAL_TITLES = ["Dr.", "Dra.", "Dr(a)."] as const;
+export type ProfessionalTitle = typeof PROFESSIONAL_TITLES[number];
+export const DEFAULT_TITLE: ProfessionalTitle = "Dr(a).";
+export const asProfessionalTitle = (value: unknown): ProfessionalTitle => (typeof value === "string" && (PROFESSIONAL_TITLES as readonly string[]).includes(value.trim()) ? value.trim() as ProfessionalTitle : DEFAULT_TITLE);
+/** Cambia el tratamiento de un nombre ya armado («Dr(a). Luis Rodríguez» → «Dr. Luis Rodríguez»); si no trae, lo antepone. */
+export const withTitle = (name: string, title: unknown) => `${asProfessionalTitle(title)} ${name.replace(/^(Dr\(a\)\.|Dra\.|Dr\.)\s*/, "").trim()}`;
+export type ClinicianProfile = { firstName: string; lastName: string; rut: string; specialty: string; /** Otros títulos o especialidades (texto libre, opcional). */ extraTitles?: string; /** Nombre de la clínica o consulta que se muestra arriba (opcional, hasta 60 caracteres). */ clinicName?: string; /** País de ejercicio (lista fija; por defecto Chile). */ country?: string; /** «Dr.», «Dra.» o «Dr(a).» (por defecto). */ title?: ProfessionalTitle };
 export type ProfileCheck = { ok: true; profile: ClinicianProfile } | { ok: false; error: string };
 
 const clean = (value: string) => value.toUpperCase().replace(/[^0-9K]/g, "");
@@ -73,7 +80,7 @@ export function checkProfile(input: unknown): ProfileCheck {
   if (!(SPECIALTIES as readonly string[]).includes(specialty)) return { ok: false, error: "Elige tu especialidad." };
   const extraTitles = tidy(raw.extraTitles).slice(0, 300);
   const clinicName = tidy(raw.clinicName).slice(0, 60);
-  return { ok: true, profile: { firstName, lastName, rut: formatDocument(rut, documentType), specialty, extraTitles, clinicName, country: asCountry(raw.country) } };
+  return { ok: true, profile: { firstName, lastName, rut: formatDocument(rut, documentType), specialty, extraTitles, clinicName, country: asCountry(raw.country), title: asProfessionalTitle(raw.title) } };
 }
 
-export const displayName = (profile: Pick<ClinicianProfile, "firstName" | "lastName">) => `Dr(a). ${profile.firstName} ${profile.lastName}`;
+export const displayName = (profile: Pick<ClinicianProfile, "firstName" | "lastName" | "title">) => `${asProfessionalTitle(profile.title)} ${profile.firstName} ${profile.lastName}`;
