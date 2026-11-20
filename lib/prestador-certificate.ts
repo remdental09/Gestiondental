@@ -30,6 +30,12 @@ export function normalizeRun(value: string): string {
 
 export const sameRun = (a: string, b: string) => { const x = normalizeRun(a), y = normalizeRun(b); return Boolean(x) && x === y; };
 
+/** Un nombre: al menos dos palabras con letras, sin «:» (una etiqueta como «Sexo:» no es un nombre). */
+function plausibleName(value: string): string {
+  const name = tidy(value).slice(0, 120);
+  return !name.includes(":") && name.split(" ").filter(word => /\p{L}/u.test(word)).length >= 2 ? name : "";
+}
+
 const isoDate = (day: number, month: number, year: number) => `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 
 export function parsePrestadorCertificate(rawText: string, today = new Date()): ParsedCertificate {
@@ -37,13 +43,26 @@ export function parsePrestadorCertificate(rawText: string, today = new Date()): 
   if (!/SUPERINTENDENCIA DE SALUD/i.test(text) || !/CERTIFICADO DE INSCRIPCI[ÓO]N/i.test(text) || !/PRESTADORES INDIVIDUALES DE SALUD/i.test(text)) {
     return { ok: false, error: "Este PDF no parece un Certificado de inscripción en el Registro Nacional de Prestadores Individuales de Salud." };
   }
-  const regSis = /figura,?\s*bajo\s*el\s*N[°º.]?\s*(\d{3,8})\b/i.exec(text)?.[1] ?? "";
-  const run = normalizeRun(/RUN:?\s*([\d.]{6,12}\s*-?\s*[\dkK])/i.exec(text)?.[1] ?? "");
-  const fullName = tidy(/Nombre Completo:?\s*(.+?)\s+(?:Sexo|Nacionalidad|Fecha nacimiento)\s*:/i.exec(text)?.[1] ?? "").slice(0, 120);
+  // Tolerante a cómo cada visor de PDF copia el texto: «N°», «Nº», «No.» o «número»; «RUN» o «R.U.N.»; saltos de línea y espacios variables.
+  const regSis = /figura,?\s*bajo\s*el\s*(?:N[°º.o]{0,2}|n[úu]mero)\s*:?\s*(\d{3,8})\b/i.exec(text)?.[1] ?? "";
+  // Algunos PDF entregan primero los valores y después la lista de etiquetas («RUN:», «Nombre Completo:»…): se prueba «etiqueta: valor» y, si no, el valor suelto.
+  let run = normalizeRun(/R\.?\s*U\.?\s*[NT]\.?\s*:?\s*([\d.]{6,12}\s*-?\s*[\dkK])/i.exec(text)?.[1] ?? "");
+  if (!run) for (const match of text.matchAll(/\b\d{1,2}\.?\d{3}\.?\d{3}-[\dkK]\b/g)) { const candidate = normalizeRun(match[0]); if (candidate && isValidChileanRut(candidate)) { run = candidate; break; } }
+  let fullName = plausibleName(/Nombre\s+Completo\s*:?\s*(.+?)\s+(?:Sexo|Nacionalidad|Fecha\s+(?:de\s+)?nacimiento|Orden\s+Profesional)\b/i.exec(text)?.[1] ?? "");
+  if (!fullName) {
+    // Valores sueltos: el nombre es la línea que antecede al sexo.
+    const lines = rawText.split(/\r?\n/).map(tidy).filter(Boolean);
+    const at = lines.findIndex(line => /^(masculino|femenino|otro)$/i.test(line));
+    if (at > 0) fullName = plausibleName(lines[at - 1]);
+  }
   const validationCode = /c[oó]digo\s+validaci[oó]n:?\s*([A-Za-z0-9]{6,20})\b/i.exec(text)?.[1] ?? ""; // opcional: al copiar el texto desde un visor puede faltar el encabezado
-  const issued = /Otorgado\s+en\s+[^,]{2,40},\s*con\s+fecha\s+(\d{1,2})\s+de\s+([A-Za-zÁÉÍÓÚáéíóú]+)\s+de\s+(\d{4})/i.exec(text);
-  const month = issued ? MONTHS[issued[2].toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "")] : undefined;
-  if (!regSis || !run || !fullName || !issued || !month) return { ok: false, error: "No se pudieron leer todos los datos del certificado. Copia todo el texto de la primera página (Seleccionar todo) o sube el PDF original, sin editarlo ni escanearlo." };
+  // «Otorgado en Santiago, con fecha 19 de noviembre de 2026» (también «del 2026» o 19/11/2026).
+  const wordDate = /Otorgado\s*en\s+[^,]{2,60},\s*con\s*fecha\s*:?\s*(\d{1,2})\s*de\s+([A-Za-zÁÉÍÓÚáéíóú]+)\s*de(?:l)?\s*(\d{4})/i.exec(text);
+  const numericDate = /Otorgado\s*en\s+[^,]{2,60},\s*con\s*fecha\s*:?\s*(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})/i.exec(text);
+  const issued = wordDate ?? numericDate;
+  const month = wordDate ? MONTHS[wordDate[2].toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "")] : numericDate ? Number(numericDate[2]) : undefined;
+  const missing = [!regSis && "N° de registro", !run && "RUN", !fullName && "nombre", !(issued && month && month >= 1 && month <= 12) && "fecha de otorgamiento"].filter(Boolean) as string[];
+  if (missing.length || !issued || !month) return { ok: false, error: `No se pudieron leer estos datos del certificado: ${missing.join(", ")}. Copia todo el texto de la primera página (Seleccionar todo) o sube el PDF original, sin editarlo ni escanearlo.` };
   if (!isValidChileanRut(run)) return { ok: false, error: "El RUN del certificado no es válido." };
   const issuedOn = isoDate(Number(issued[1]), month, Number(issued[3]));
   const issuedAt = new Date(`${issuedOn}T12:00:00Z`);
@@ -52,12 +71,13 @@ export function parsePrestadorCertificate(rawText: string, today = new Date()): 
   if (ageDays < -1) return { ok: false, error: "La fecha del certificado es futura. Revisa el PDF." };
   if (ageDays > MAX_CERTIFICATE_AGE_DAYS) return { ok: false, error: `El certificado tiene más de ${MAX_CERTIFICATE_AGE_DAYS} días. Descarga uno nuevo en ${RNPI_SITE}.` };
 
-  const professionSection = /Orden Profesional:?\s*(.*?)(?=Especialidad(?:es)? Certificada|Profesional se encuentra|Otorgado en|$)/i.exec(text)?.[1] ?? "";
-  const specialtySection = /Especialidad(?:es)? Certificadas?:?\s*(.*?)(?=Profesional se encuentra|Otorgado en|$)/i.exec(text)?.[1] ?? "";
-  const titles = (section: string) => [...section.matchAll(/-\s*([^:]{3,100}?):\s*Posee/gi)].map(match => tidy(match[1]));
-  const profession = titles(professionSection)[0] ?? "";
+  // Cada título figura como «- Nombre: Posee título de …». La especialidad dice «título de especialista»; lo demás es la profesión.
+  // Se clasifica por ese texto y no por la etiqueta cercana, porque el orden de bloques cambia según el PDF.
+  const entries = [...text.matchAll(/-\s*([^:]{3,100}?):\s*(Posee\s+[^.]{0,60})/gi)].map(match => ({ title: tidy(match[1]), specialty: /^Posee\s+(?:t[ií]tulo\s+de\s+)?(?:especialista|especialidad|certificaci[oó]n)/i.test(match[2]) }));
+  const profession = entries.find(entry => !entry.specialty)?.title ?? "";
+  const specialties = entries.filter(entry => entry.specialty).map(entry => entry.title);
   if (!profession) return { ok: false, error: "El certificado no indica la profesión inscrita." };
-  return { ok: true, data: { regSis, run, fullName, profession, specialties: titles(specialtySection).slice(0, 4), issuedOn, validationCode } };
+  return { ok: true, data: { regSis, run, fullName, profession, specialties: specialties.slice(0, 4), issuedOn, validationCode } };
 }
 
 export type PublicRegistration = { regSis: string; run: string; fullName: string; profession: string; specialties: string[]; issuedOn: string; validationCode: string };
