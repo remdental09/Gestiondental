@@ -48,6 +48,6 @@ test("medicamentos estructurados: nombre, dosis, vía y cantidad; se limpia y de
   assert.equal(content.prescripcion, "Paracetamol 500 mg — si hay dolor", "el texto libre sigue funcionando");
   assert.equal(cleanClinicalDocumentContent("receta_magistral", { medicamentos: raw }).medicamentos, undefined);
   assert.match(panel, /Cantidad a dispensar: \{item\.cantidad\}/);
-  assert.match(panel, /Vía: \{item\.via\}/);
+  assert.match(panel, /\{medicationLine\(item\)\}/, "pauta + «Vía: …» generadas por medicationLine");
   assert.match(panel, /<MedicationEditor value=\{content\.medicamentos/);
 });
