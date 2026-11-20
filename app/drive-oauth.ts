@@ -1089,7 +1089,7 @@ export async function pushAppointmentToGoogle(ownerId: string, appointment: Appo
     const token = await getAccessToken(user, row as unknown as DriveConnection, config.clientSecret);
     const summary = [patientName, appointment.reason, appointment.box].filter(Boolean).join(" · ").slice(0, 300);
     const wall = (iso: string) => new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Santiago", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).format(new Date(iso)).replace(" ", "T");
-    const created = await googleApi<{ id?: string; updated?: string; organizer?: { email?: string } }>(token, "https://www.googleapis.com/calendar/v3/calendars/primary/events?fields=id,updated,organizer(email)", {
+    const created = await googleApi<{ id?: string; updated?: string; iCalUID?: string; organizer?: { email?: string } }>(token, "https://www.googleapis.com/calendar/v3/calendars/primary/events?fields=id,updated,iCalUID,organizer(email)", {
       method: "POST",
       body: JSON.stringify({ summary, ...(appointment.box ? { location: appointment.box } : {}), start: { dateTime: wall(startIso), timeZone: "America/Santiago" }, end: { dateTime: wall(endIso), timeZone: "America/Santiago" } }),
     });
@@ -1099,9 +1099,12 @@ export async function pushAppointmentToGoogle(ownerId: string, appointment: Appo
     await database().prepare(UPSERT_EVENT).bind(ownerId, calendarId, created.id, summary, startIso, endIso, "America/Santiago", "confirmed", 0, now(), null).run();
     if (patientId) await database().prepare("UPDATE calendar_events SET patient_id = ? WHERE owner_id = ? AND calendar_id = ? AND google_event_id = ?").bind(patientId, ownerId, calendarId, created.id).run();
     await database().prepare("INSERT OR REPLACE INTO appointment_google_events (owner_id, appointment_id, google_sub, calendar_id, event_id) VALUES (?, ?, ?, ?, ?)").bind(ownerId, appointment.id, row.google_sub, calendarId, created.id).run();
-    await noteAppWrite(ownerId, appointment.id, created.updated);
+    await noteAppWrite(ownerId, appointment.id, created.updated, created.iCalUID);
     return "ok";
-  } catch { return "error"; }
+  } catch (error) {
+    await enqueueGoogleWrite(ownerId, appointment.id, "upsert", error instanceof Error ? error.message : "error");
+    return "error";
+  }
 }
 
 /** Si la cita ya está en Google, actualiza su título cuando cambia el motivo. */
@@ -1117,11 +1120,14 @@ export async function updateAppointmentInGoogle(ownerId: string, appointmentId: 
     const user: ChatGPTUser = { userId: row.owner_id, displayName: "", email: row.google_email, fullName: null };
     const token = await getAccessToken(user, row as unknown as DriveConnection, config.clientSecret);
     const summary = [patientName, reason].filter(Boolean).join(" · ").slice(0, 300);
-    const patched = await googleApi<{ updated?: string }>(token, "https://www.googleapis.com/calendar/v3/calendars/primary/events/" + encodeURIComponent(link.event_id) + "?fields=id,updated", { method: "PATCH", body: JSON.stringify({ summary }) });
+    const patched = await googleApi<{ updated?: string }>(token, "https://www.googleapis.com/calendar/v3/calendars/" + encodeURIComponent(googleCalendarIdOf(link.calendar_id) || "primary") + "/events/" + encodeURIComponent(link.event_id) + "?fields=id,updated", { method: "PATCH", body: JSON.stringify({ summary }) });
     await noteAppWrite(ownerId, appointmentId, patched.updated);
     await database().prepare("UPDATE calendar_events SET title = ? WHERE owner_id = ? AND calendar_id = ? AND google_event_id = ?").bind(summary, ownerId, link.calendar_id, link.event_id).run();
     return "ok";
-  } catch { return "error"; }
+  } catch (error) {
+    await enqueueGoogleWrite(ownerId, appointmentId, "upsert", error instanceof Error ? error.message : "error");
+    return "error";
+  }
 }
 
 export type AgendaEventResult = { ok: true } | { ok: false; error: string };
@@ -1141,7 +1147,10 @@ async function writableGoogleEvent(ownerId: string, eventId: number): Promise<{ 
 
 /** Borra una cita de la agenda: en Google (si hay permiso) y, si venía de «Agendar control», también de la ficha. */
 const markAppChanged = (ownerId: string, appointmentId: number) => import("@/app/calendar-two-way").then(m => m.markAppChanged(ownerId, appointmentId)).catch(() => undefined);
-const noteAppWrite = (ownerId: string, appointmentId: number, updated: string | null | undefined) => import("@/app/calendar-two-way").then(m => m.noteAppWrite(ownerId, appointmentId, updated)).catch(() => undefined);
+const noteAppWrite = (ownerId: string, appointmentId: number, updated: string | null | undefined, iCalUID?: string) => import("@/app/calendar-two-way").then(m => m.noteAppWrite(ownerId, appointmentId, updated, iCalUID)).catch(() => undefined);
+/** Escritura en Google que falló: queda «pendiente de sincronizar» y se reintenta (cron y al abrir la agenda). */
+const enqueueGoogleWrite = (ownerId: string, appointmentId: number, op: "upsert" | "delete", error: string, target?: { googleSub: string; calendarId: string; eventId: string }) =>
+  import("@/app/calendar-two-way").then(m => m.enqueuePending(ownerId, appointmentId, op, error.replace(/[A-Za-z0-9_-]{40,}/g, "…"), target)).catch(() => undefined);
 
 /** La cita de un próximo control se movió o se borró en la agenda: el control la sigue (nunca bloquea la agenda). */
 const followControl = (ownerId: string, appointmentId: number, change: { day: string } | { deleted: true }) =>
@@ -1257,27 +1266,102 @@ export async function rescheduleAppointmentInGoogle(ownerId: string, appointment
   const eventId = await agendaEventForAppointment(ownerId, appointmentId).catch(() => null);
   if (!eventId) return "sin-conexion";
   const result = await updateAgendaEvent(ownerId, eventId, change).catch(() => ({ ok: false as const, error: "error" }));
-  return result.ok ? "ok" : /solo lectura/.test(result.error) ? "solo-lectura" : "error";
+  const status: CalendarPushStatus = result.ok ? "ok" : /solo lectura/.test(result.error) ? "solo-lectura" : "error";
+  if (status === "error") await enqueueGoogleWrite(ownerId, appointmentId, "upsert", result.ok ? "" : result.error);
+  return status;
 }
 
 /** Borra la cita de la ficha y, si está en Google Calendar, también allá. */
 export async function deleteAppointmentEverywhere(ownerId: string, appointmentId: number): Promise<CalendarPushStatus> {
   const eventId = await agendaEventForAppointment(ownerId, appointmentId).catch(() => null);
+  const target = await database().prepare("SELECT google_sub, calendar_id, event_id FROM appointment_google_events WHERE owner_id = ? AND appointment_id = ?").bind(ownerId, appointmentId).first<{ google_sub: string; calendar_id: string; event_id: string }>().catch(() => null);
   let status: CalendarPushStatus = "sin-conexion";
   if (eventId) {
     const result = await deleteAgendaEvent(ownerId, eventId).catch(() => ({ ok: false as const, error: "error" }));
     status = result.ok ? "ok" : /solo lectura/.test(result.error) ? "solo-lectura" : "error";
+    // No se pudo borrar en Google: queda en la cola y se reintenta (la cita de la app sí se borra).
+    if (status === "error" && target) await enqueueGoogleWrite(ownerId, appointmentId, "delete", result.ok ? "" : result.error, { googleSub: target.google_sub, calendarId: target.calendar_id, eventId: target.event_id });
   }
   await database().prepare("DELETE FROM appointments WHERE owner_id = ? AND id = ?").bind(ownerId, appointmentId).run();
   await followControl(ownerId, appointmentId, { deleted: true });
   return status;
 }
 
+type TwoWayGoogleEvent = { id?: string; status?: string; updated?: string; summary?: string; iCalUID?: string; start?: { dateTime?: string; date?: string }; end?: { dateTime?: string; date?: string } };
+const googleCalendarIdOf = (calendarKey: string) => calendarKey.split(":").slice(2).join(":");
+
 /**
- * Vuelta desde Google Calendar (ida y vuelta): lee con syncToken (solo lo que cambió, incluidos los borrados) el calendario
- * principal de cada cuenta con permiso de escritura y aplica a la app los cambios de los eventos que la app creó.
+ * Cola de escrituras pendientes: lo que no se pudo escribir en Google se reintenta en cada pasada del cron y al abrir la agenda.
+ * Antes de reescribir se compara con Google: si allá hay un cambio más reciente que el de la app, gana Google (se aplica a la app).
+ */
+export async function processPendingWrites(ownerId?: string) {
+  const config = configuration();
+  if (!config.configured) return { done: 0, failed: 0 };
+  await ensureCalendarTable();
+  const twoWay = await import("@/app/calendar-two-way");
+  const owners = ownerId ? [ownerId] : await twoWay.pendingOwners();
+  let done = 0, failed = 0;
+  for (const owner of owners) {
+    for (const item of await twoWay.listPending(owner)) {
+      try {
+        if (item.op === "delete") {
+          if (!item.google_sub || !item.calendar_id || !item.event_id) { await twoWay.finishPending(owner, item.appointment_id, "delete"); continue; }
+          const row = await database().prepare("SELECT * FROM google_calendar_connections WHERE owner_id = ? AND google_sub = ?").bind(owner, item.google_sub).first<CalendarConnection>();
+          if (!row?.can_write) throw new Error("sin permiso de escritura");
+          const token = await getAccessToken({ userId: owner, displayName: "", email: row.google_email, fullName: null }, row as unknown as DriveConnection, config.clientSecret);
+          const response = await fetch("https://www.googleapis.com/calendar/v3/calendars/" + encodeURIComponent(googleCalendarIdOf(item.calendar_id)) + "/events/" + encodeURIComponent(item.event_id), { method: "DELETE", headers: { Authorization: "Bearer " + token } });
+          if (!response.ok && response.status !== 404 && response.status !== 410) throw new Error("HTTP " + response.status);
+          await database().prepare("DELETE FROM appointment_google_events WHERE owner_id = ? AND appointment_id = ? AND event_id = ?").bind(owner, item.appointment_id, item.event_id).run();
+          await twoWay.finishPending(owner, item.appointment_id, "delete");
+          done++;
+          continue;
+        }
+        const appointment = await database().prepare("SELECT a.id, a.patient_id, a.day, a.time, a.reason, a.minutes, p.name FROM appointments a LEFT JOIN patients p ON p.id = a.patient_id AND p.owner_id = a.owner_id WHERE a.id = ? AND a.owner_id = ?").bind(item.appointment_id, owner).first<{ id: number; patient_id: number; day: string; time: string; reason: string; minutes: number | null; name: string | null }>();
+        if (!appointment) { await twoWay.finishPending(owner, item.appointment_id, "upsert"); continue; }
+        const link = await database().prepare("SELECT google_sub, calendar_id, event_id, app_changed_at FROM appointment_google_events WHERE owner_id = ? AND appointment_id = ?").bind(owner, item.appointment_id).first<{ google_sub: string; calendar_id: string; event_id: string; app_changed_at: string | null }>();
+        if (!link) {
+          const status = await pushAppointmentToGoogle(owner, { id: appointment.id, day: appointment.day, time: appointment.time, reason: appointment.reason }, appointment.name ?? "", appointment.patient_id);
+          if (status === "ok") { await twoWay.finishPending(owner, item.appointment_id, "upsert"); done++; } else { await twoWay.finishPending(owner, item.appointment_id, "upsert", status); failed++; }
+          continue;
+        }
+        const row = await database().prepare("SELECT * FROM google_calendar_connections WHERE owner_id = ? AND google_sub = ?").bind(owner, link.google_sub).first<CalendarConnection>();
+        if (!row?.can_write) throw new Error("sin permiso de escritura");
+        const token = await getAccessToken({ userId: owner, displayName: "", email: row.google_email, fullName: null }, row as unknown as DriveConnection, config.clientSecret);
+        const url = "https://www.googleapis.com/calendar/v3/calendars/" + encodeURIComponent(googleCalendarIdOf(link.calendar_id)) + "/events/" + encodeURIComponent(link.event_id);
+        const current = await googleApi<TwoWayGoogleEvent>(token, url + "?fields=id,status,updated,summary,iCalUID,start,end");
+        // Reconciliación: gana el cambio más reciente.
+        if (current.updated && link.app_changed_at && Date.parse(current.updated) > Date.parse(link.app_changed_at)) {
+          await twoWay.applyGoogleEvents(owner, link.google_sub, [{ calendarKey: link.calendar_id, importable: false, event: { ...current, id: link.event_id } }]);
+          await twoWay.finishPending(owner, item.appointment_id, "upsert");
+          done++;
+          continue;
+        }
+        const { chileLocalToIso } = await import("@/lib/appointment-events");
+        const startIso = chileLocalToIso(appointment.day, appointment.time);
+        if (!startIso) throw new Error("fecha inválida");
+        const endIso = new Date(Date.parse(startIso) + (appointment.minutes ?? 30) * 60000).toISOString();
+        const wall = (iso: string) => new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Santiago", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).format(new Date(iso)).replace(" ", "T");
+        const summary = [appointment.name ?? "", appointment.reason].filter(Boolean).join(" · ").slice(0, 300);
+        const patched = await googleApi<{ updated?: string; iCalUID?: string }>(token, url + "?fields=id,updated,iCalUID", { method: "PATCH", body: JSON.stringify({ status: "confirmed", summary, start: { dateTime: wall(startIso), timeZone: "America/Santiago" }, end: { dateTime: wall(endIso), timeZone: "America/Santiago" } }) });
+        await database().prepare("UPDATE calendar_events SET title = ?, start_at = ?, end_at = ?, status = 'confirmed', imported_at = ? WHERE owner_id = ? AND calendar_id = ? AND google_event_id = ?").bind(summary, startIso, endIso, now(), owner, link.calendar_id, link.event_id).run();
+        await twoWay.noteAppWrite(owner, item.appointment_id, patched.updated, patched.iCalUID);
+        done++;
+      } catch (error) {
+        await twoWay.finishPending(owner, item.appointment_id, item.op, (error instanceof Error ? error.message : "error").replace(/[A-Za-z0-9_-]{40,}/g, "…"));
+        failed++;
+      }
+    }
+  }
+  return { done, failed };
+}
+
+/**
+ * Ida y vuelta con Google Calendar: lee con syncToken (solo lo que cambió, incluidos borrados) TODOS los calendarios
+ * que la cuenta posee o puede editar (calendarList, uno con su propio token) y:
+ * - aplica a la app los cambios a eventos enlazados (mover, duración, título, borrar, restaurar, cambio de calendario);
+ * - convierte en citas las creadas directo en Google en los calendarios de la agenda.
  * Primera vez: lectura completa por páginas (se retoma en la siguiente pasada si es larga). HTTP 410 → se empieza de nuevo.
- * onDemand: al abrir agenda/controles, como máximo una vez cada 2 minutos por cuenta.
+ * onDemand: al abrir agenda/controles, como máximo una vez cada 2 minutos por cuenta. Antes, se reintentan las escrituras pendientes.
  */
 export async function syncAppEventsFromGoogle(ownerId?: string, options: { onDemand?: boolean } = {}) {
   const config = configuration();
@@ -1290,42 +1374,61 @@ export async function syncAppEventsFromGoogle(ownerId?: string, options: { onDem
     ? database().prepare("SELECT * FROM google_calendar_connections WHERE owner_id = ? AND can_write = 1").bind(ownerId)
     : database().prepare("SELECT * FROM google_calendar_connections WHERE can_write = 1").bind();
   const { results } = await query.all<CalendarConnection>();
-  const out: Array<{ ok: boolean; moved: number; cancelled: number; detail: string }> = [];
+  const out: Array<{ ok: boolean; moved: number; cancelled: number; restored: number; imported: number; unassigned: number; calendars: number; detail: string }> = [];
   for (const row of results.slice(0, 20)) {
     const state = await twoWay.readSyncState(row.owner_id, row.google_sub);
     if (options.onDemand && !shouldSyncNow(state.last_run_at, new Date())) continue;
     await twoWay.writeSyncState(row.owner_id, row.google_sub, { last_run_at: now() });
-    const summary = { ok: false, moved: 0, cancelled: 0, detail: "" };
+    if (options.onDemand) await processPendingWrites(row.owner_id).catch(() => undefined);
+    const summary = { ok: false, moved: 0, cancelled: 0, restored: 0, imported: 0, unassigned: 0, calendars: 0, detail: "" };
     try {
       const user: ChatGPTUser = { userId: row.owner_id, displayName: "", email: row.google_email, fullName: null };
       const token = await getAccessToken(user, row as unknown as DriveConnection, config.clientSecret);
-      let syncToken = state.sync_token, pageToken = state.page_token, restarted = false, pages = 0, finished = false;
-      while (pages < (options.onDemand ? 3 : 8)) {
-        const params = new URLSearchParams({ showDeleted: "true", maxResults: syncToken ? "250" : "2500", fields: "items(id,status,updated,start,end),nextPageToken,nextSyncToken" });
-        if (syncToken) params.set("syncToken", syncToken);
-        if (pageToken) params.set("pageToken", pageToken);
-        const response = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events?" + params.toString(), { headers: { Authorization: "Bearer " + token } });
-        pages++;
-        if (response.status === 410 && !restarted) { // token vencido: lectura completa de nuevo
-          restarted = true; syncToken = null; pageToken = null;
-          await twoWay.writeSyncState(row.owner_id, row.google_sub, { sync_token: null, page_token: null });
-          continue;
+      const list = await googleApi<{ items?: Array<{ id: string; primary?: boolean; accessRole?: string }> }>(token, "https://www.googleapis.com/calendar/v3/users/me/calendarList?minAccessRole=writer&fields=items(id,primary,accessRole)");
+      const calendars = (list.items ?? []).sort((a, b) => Number(!!b.primary) - Number(!!a.primary)).slice(0, 10);
+      const chosen = await database().prepare("SELECT calendar_id FROM calendar_choices WHERE owner_id = ? AND google_sub = ? AND enabled = 1").bind(row.owner_id, row.google_sub).all<{ calendar_id: string }>();
+      const agendaCalendars = new Set(chosen.results.map(item => item.calendar_id));
+      const seen: Array<{ calendarKey: string; importable: boolean; event: TwoWayGoogleEvent & { id: string } }> = [];
+      const cursors: Array<{ calendarId: string; cursor: { sync_token: string | null; page_token: string | null } }> = [];
+      let budget = options.onDemand ? 6 : 16, partial = false;
+      for (const cal of calendars) {
+        if (budget <= 0) { partial = true; break; }
+        summary.calendars++;
+        const calendarKey = "g:" + row.google_sub + ":" + cal.id;
+        const importable = agendaCalendars.size ? agendaCalendars.has(cal.id) : !!cal.primary;
+        let { sync_token: syncToken, page_token: pageToken } = await twoWay.readCursor(row.owner_id, row.google_sub, cal.id);
+        // La versión anterior guardaba un solo token, del calendario principal: se reutiliza.
+        if (!syncToken && !pageToken && cal.primary && state.sync_token) syncToken = state.sync_token;
+        let restarted = false, finished = false;
+        while (budget > 0) {
+          const params = new URLSearchParams({ showDeleted: "true", maxResults: syncToken ? "250" : "2500", fields: "items(id,status,updated,summary,iCalUID,start,end),nextPageToken,nextSyncToken" });
+          if (syncToken) params.set("syncToken", syncToken);
+          if (pageToken) params.set("pageToken", pageToken);
+          const response = await fetch("https://www.googleapis.com/calendar/v3/calendars/" + encodeURIComponent(cal.id) + "/events?" + params.toString(), { headers: { Authorization: "Bearer " + token } });
+          budget--;
+          if (response.status === 410 && !restarted) { restarted = true; syncToken = null; pageToken = null; continue; } // token vencido: lectura completa
+          if (!response.ok) throw new Error("Google Calendar respondió HTTP " + response.status);
+          const data = await response.json() as { items?: TwoWayGoogleEvent[]; nextPageToken?: string; nextSyncToken?: string };
+          for (const event of data.items ?? []) if (event.id) seen.push({ calendarKey, importable, event: { ...event, id: event.id } });
+          if (data.nextPageToken) { pageToken = data.nextPageToken; continue; }
+          if (data.nextSyncToken) { syncToken = data.nextSyncToken; pageToken = null; }
+          finished = true;
+          break;
         }
-        if (!response.ok) throw new Error("Google Calendar respondió HTTP " + response.status);
-        const data = await response.json() as { items?: Array<{ id?: string; status?: string; updated?: string; start?: { dateTime?: string; date?: string }; end?: { dateTime?: string; date?: string } }>; nextPageToken?: string; nextSyncToken?: string };
-        const applied = await twoWay.applyGoogleEvents(row.owner_id, row.google_sub, (data.items ?? []).filter((e): e is typeof e & { id: string } => !!e.id));
-        summary.moved += applied.moved; summary.cancelled += applied.cancelled;
-        if (data.nextPageToken) { pageToken = data.nextPageToken; await twoWay.writeSyncState(row.owner_id, row.google_sub, { page_token: pageToken }); continue; }
-        if (data.nextSyncToken) { syncToken = data.nextSyncToken; pageToken = null; await twoWay.writeSyncState(row.owner_id, row.google_sub, { sync_token: syncToken, page_token: null }); }
-        finished = true;
-        break;
+        if (!finished) partial = true;
+        cursors.push({ calendarId: cal.id, cursor: { sync_token: syncToken, page_token: pageToken } });
       }
+      const applied = await twoWay.applyGoogleEvents(row.owner_id, row.google_sub, seen);
+      // Los tokens se guardan después de aplicar: si algo falla antes (o quedaron citas nuevas por importar), la próxima pasada vuelve a leer lo mismo.
+      if (!applied.deferred) for (const item of cursors) await twoWay.writeCursor(row.owner_id, row.google_sub, item.calendarId, item.cursor);
+      else partial = true;
+      Object.assign(summary, { moved: applied.moved, cancelled: applied.cancelled, restored: applied.restored, imported: applied.imported, unassigned: applied.unassigned });
       summary.ok = true;
-      summary.detail = finished ? "al día" : "lectura parcial; sigue en la próxima pasada";
+      summary.detail = applied.deferred ? "citas nuevas por tandas; sigue en la próxima pasada" : partial ? "lectura parcial; sigue en la próxima pasada" : "al día";
     } catch (error) {
       summary.detail = (error instanceof Error ? error.message : "error").replace(/[A-Za-z0-9_-]{40,}/g, "…").slice(0, 160);
     }
-    await twoWay.writeSyncState(row.owner_id, row.google_sub, { last_result: `${summary.ok ? "ok" : "error"}: ${summary.detail} (movidas ${summary.moved}, canceladas ${summary.cancelled})` });
+    await twoWay.writeSyncState(row.owner_id, row.google_sub, { last_result: `${summary.ok ? "ok" : "error"}: ${summary.detail} (${summary.calendars} calendarios; movidas ${summary.moved}, canceladas ${summary.cancelled}, restauradas ${summary.restored}, nuevas ${summary.imported}, sin paciente ${summary.unassigned})` });
     out.push(summary);
   }
   return out;

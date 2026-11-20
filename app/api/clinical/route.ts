@@ -277,6 +277,8 @@ export async function GET() {
       // Igual con las etiquetas de diagnóstico (migración 0005).
       db.select().from(evolutionDiagnoses).where(eq(evolutionDiagnoses.ownerId, ownerId)).orderBy(evolutionDiagnoses.id).catch(() => [] as (typeof evolutionDiagnoses.$inferSelect)[]),
     ]);
+    // Ida y vuelta con Google: duración real, citas sin paciente y marcas «pendiente de sincronizar» (si falla, la agenda carga igual).
+    const agendaSync = await import("@/app/calendar-two-way").then(m => m.agendaSyncFlags(ownerId)).catch(() => ({ minutes: {} as Record<number, number>, needsPatient: [] as number[], pendingAppointments: [] as number[], pendingEvents: [] as number[] }));
     const diagnosesByNote = new Map<number, ReturnType<typeof diagnosisView>[]>();
     for (const dx of dxs) diagnosesByNote.set(dx.evolutionId, [...(diagnosesByNote.get(dx.evolutionId) ?? []), diagnosisView(dx)]);
     const notesByPatient = new Map<number, typeof ns>();
@@ -318,7 +320,8 @@ export async function GET() {
           return { ...budgetView(b), authorName: row?.author_name || "", mine: author === personalId, editable: author === personalId || canManageTeam(spaceRole) };
         });
       })(),
-      appointments: as.map(a => ({ id: a.id, patientId: a.patientId, day: a.day.split("-").reverse().join("-"), time: a.time, reason: a.reason })),
+      appointments: as.map(a => ({ id: a.id, patientId: a.patientId, day: a.day.split("-").reverse().join("-"), time: a.time, reason: a.reason, ...(agendaSync.minutes[a.id] ? { minutes: agendaSync.minutes[a.id] } : {}) })),
+      agendaSync: { needsPatient: agendaSync.needsPatient, pendingAppointments: agendaSync.pendingAppointments, pendingEvents: agendaSync.pendingEvents },
       payments: pays.map(paymentView),
       calendarEvents: [...ces.filter(e => e.status !== "cancelled").map(e => ({ id: e.id, title: e.title, startAt: e.startAt, endAt: e.endAt, sourceTimeZone: e.sourceTimeZone, htmlLink: e.htmlLink, status: e.status, allDay: e.allDay, patientId: e.patientId })), ...snapshot.events],
       calendarSnapshotAt: snapshot.events.length ? snapshot.capturedAt : null,
