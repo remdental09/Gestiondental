@@ -3,7 +3,7 @@ export type ClinicalDocumentKind = typeof CLINICAL_DOCUMENT_KINDS[number];
 export type ClinicalDocumentContent = Record<string, string>;
 
 const FIELDS: Record<ClinicalDocumentKind, Record<string, number>> = {
-  receta: { indicacion: 800, prescripcion: 3000, instrucciones: 1800 },
+  receta: { indicacion: 800, medicamentos: 6000, prescripcion: 3000, instrucciones: 1800 },
   receta_magistral: { indicacion: 800, prescripcion: 3000, instrucciones: 1800 },
   orden: { diagnostico: 800, examenes: 3000, observaciones: 1800 },
   certificado: { motivo: 800, observaciones: 1800, vigencia: 300 },
@@ -16,6 +16,7 @@ export const isClinicalDocumentKind = (value: unknown): value is ClinicalDocumen
 export function cleanClinicalDocumentContent(kind: ClinicalDocumentKind, input: unknown): ClinicalDocumentContent {
   const source = input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : {};
   return Object.fromEntries(Object.entries(FIELDS[kind]).map(([key, max]) => [key,
+    key === "medicamentos" ? cleanMedications(source[key]) :
     typeof source[key] === "string" ? source[key].normalize("NFC").replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "").trim().slice(0, max) : "",
   ]));
 }
@@ -46,3 +47,27 @@ export function ageFromBirthDate(birthDate: string, today = new Date()): number 
   if (today.getUTCMonth() + 1 < month || (today.getUTCMonth() + 1 === month && today.getUTCDate() < day)) age -= 1;
   return age >= 0 && age < 130 ? age : null;
 }
+
+/** Un medicamento de la receta, como en las recetas electrónicas: nombre y concentración, pauta, vía y cantidad a dispensar. */
+export type Medication = { nombre: string; dosis: string; via: string; cantidad: string };
+export const MEDICATION_MAX = 15;
+const MEDICATION_FIELD_MAX = { nombre: 160, dosis: 300, via: 60, cantidad: 80 } as const;
+const cleanText = (value: unknown, max: number) => typeof value === "string" ? value.normalize("NFC").replace(/[\u0000-\u001F\u007F]/g, " ").replace(/\s+/g, " ").trim().slice(0, max) : "";
+
+/** Lista de medicamentos guardada como JSON dentro del contenido (texto). Se descarta lo que no tenga nombre. */
+export function parseMedications(value: unknown): Medication[] {
+  let list: unknown = value;
+  if (typeof value === "string") { if (!value.trim()) return []; try { list = JSON.parse(value); } catch { return []; } }
+  if (!Array.isArray(list)) return [];
+  return list.slice(0, MEDICATION_MAX).map(item => {
+    const source = item && typeof item === "object" ? item as Record<string, unknown> : {};
+    return { nombre: cleanText(source.nombre, MEDICATION_FIELD_MAX.nombre), dosis: cleanText(source.dosis, MEDICATION_FIELD_MAX.dosis), via: cleanText(source.via, MEDICATION_FIELD_MAX.via), cantidad: cleanText(source.cantidad, MEDICATION_FIELD_MAX.cantidad) };
+  }).filter(item => item.nombre);
+}
+
+export function cleanMedications(value: unknown): string {
+  const list = parseMedications(value);
+  return list.length ? JSON.stringify(list) : "";
+}
+
+export const VIAS = ["oral", "sublingual", "tópica", "enjuague bucal", "intramuscular", "endovenosa", "inhalatoria", "rectal"];

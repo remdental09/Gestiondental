@@ -5,7 +5,7 @@ import { getDb } from "@/db";
 import { patientDocuments } from "@/db/schema";
 import { isPrescriptionKind } from "@/lib/clinical-documents";
 import { documentHash, newVerifyToken } from "@/lib/document-verification";
-import { loadRegistration } from "@/app/prestador-db";
+import { loadApprovedRegistrations, loadRegistration, publicRegistration } from "@/app/prestador-db";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -24,10 +24,14 @@ export async function POST(request: Request) {
     const db = getDb();
     const [doc] = await db.select().from(patientDocuments).where(and(eq(patientDocuments.id, id), eq(patientDocuments.ownerId, user.userId))).limit(1);
     if (!doc) return fail("Documento no encontrado.", 404);
-    if (doc.verifyToken && doc.issuedAt) return Response.json({ document: doc }, { headers: { "Cache-Control": "no-store" } });
-    // Una receta solo la emite un prestador individual verificado (certificado de la Superintendencia aprobado).
-    if (isPrescriptionKind(doc.kind) && (await loadRegistration(doc.createdBy).catch(() => null))?.status !== "aprobado") {
-      return fail("Para emitir recetas, sube tu certificado de inscripción de la Superintendencia de Salud y espera su aprobación.", 403);
+    // La habilitación (y su QR) acompaña al documento en la respuesta, para que la vista e impresión la tengan sin recargar.
+    const withRegistration = async <T extends { createdBy: string }>(row: T) => ({ ...row, registration: (await loadApprovedRegistrations([row.createdBy]).catch(() => new Map())).get(row.createdBy) ?? null });
+    if (doc.verifyToken && doc.issuedAt) return Response.json({ document: await withRegistration(doc) }, { headers: { "Cache-Control": "no-store" } });
+    // Una receta solo la emite un prestador individual habilitado, con el QR de la Superintendencia (obligatorio en la receta).
+    if (isPrescriptionKind(doc.kind)) {
+      const reg = await loadRegistration(doc.createdBy).catch(() => null);
+      if (reg?.status !== "aprobado") return fail("Para emitir recetas, sube tu certificado de inscripción de la Superintendencia de Salud y espera su aprobación.", 403);
+      if (!publicRegistration(reg).qrUrl) return fail("Para emitir recetas falta el QR de tu certificado de la Superintendencia. Vuelve a subir el certificado (PDF).", 403);
     }
     const issuedAt = new Date().toISOString();
     const verifyToken = newVerifyToken();
@@ -37,12 +41,12 @@ export async function POST(request: Request) {
       .where(and(eq(patientDocuments.id, id), eq(patientDocuments.ownerId, user.userId), eq(patientDocuments.status, "borrador"))).returning();
     if (!issued) {
       const [again] = await db.select().from(patientDocuments).where(and(eq(patientDocuments.id, id), eq(patientDocuments.ownerId, user.userId))).limit(1);
-      return again ? Response.json({ document: again }, { headers: { "Cache-Control": "no-store" } }) : fail("Documento no encontrado.", 404);
+      return again ? Response.json({ document: await withRegistration(again) }, { headers: { "Cache-Control": "no-store" } }) : fail("Documento no encontrado.", 404);
     }
     if (doc.replacesId) {
       await db.update(patientDocuments).set({ revokedAt: issuedAt, revokedReason: "reemplazado", status: "reemplazado" })
         .where(and(eq(patientDocuments.id, doc.replacesId), eq(patientDocuments.ownerId, user.userId), eq(patientDocuments.patientId, doc.patientId), eq(patientDocuments.status, "emitido")));
     }
-    return Response.json({ document: issued, replacedId: doc.replacesId ?? null }, { headers: { "Cache-Control": "no-store" } });
+    return Response.json({ document: await withRegistration(issued), replacedId: doc.replacesId ?? null }, { headers: { "Cache-Control": "no-store" } });
   } catch { return fail("No se pudo emitir el documento.", 500); }
 }
