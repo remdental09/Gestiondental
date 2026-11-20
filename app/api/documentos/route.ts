@@ -63,6 +63,8 @@ export async function POST(request: Request) {
       createdBy: personalId, createdByName: authorName, createdAt: new Date().toISOString(), replacesId: replaces,
     }).returning();
     const documentMark = await loadDocumentMark(personalId).catch(() => "");
-    return Response.json({ document: { ...document, documentMark } }, { status: 201, headers: { "Cache-Control": "no-store" } });
+    // La habilitación va con el documento desde el primer momento (antes llegaba solo al recargar: la receta recién creada salía sin el QR).
+    const registration = (await loadApprovedRegistrations([personalId]).catch(() => new Map())).get(personalId) ?? null;
+    return Response.json({ document: { ...document, documentMark, registration } }, { status: 201, headers: { "Cache-Control": "no-store" } });
   } catch { return fail("No se pudo guardar el borrador.", 500); }
 }
