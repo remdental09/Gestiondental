@@ -72,6 +72,8 @@ import { buildFeedback, type ReviewGroup } from "@/lib/dictation/feedback";
 import { spokenAlerts } from "@/lib/dictation/spoken-alerts";
 import { toothMismatch } from "@/lib/dictation/tooth-mismatch";
 import { speakPhrases, unlockSpeech } from "@/lib/dictation/speech";
+import { budgetItemsFor, buildEvolutionLines, formatTooth, pieceChips, STATUS_WORD, type EvolutionLine, type OpenBudget } from "@/lib/evolution-lines";
+import { EvolutionLinesBlock } from "@/components/evolution-lines";
 
 type Reload = {
   patients: { id: number; name: string; birthDate: string; rut: string; phone: string; email: string; reason: string; status: string; allergies: string; history: string }[];
@@ -204,6 +206,7 @@ export function ClinicalDictation({
   onPriorEndo,
   budgetOptions = [],
   plannedItems = [],
+  openBudgets = [],
   request = null,
   notes = [],
   onAnnul,
@@ -218,6 +221,8 @@ export function ClinicalDictation({
   budgetOptions?: { id: number; title: string }[];
   /** Prestaciones del plan con pieza, para enlazar la evolución con el tratamiento que avanza. */
   plannedItems?: (PlannedLink & { tooth: number })[];
+  /** Presupuestos abiertos con sus ítems, para que cada línea por pieza avance el ítem que corresponde. */
+  openBudgets?: OpenBudget[];
   onApplied: (data: Reload) => void;
   /** Guarda en el endograma las endodoncias previas confirmadas (caso «Previamente tratado»). Sin esto, la propuesta no se muestra. */
   onPriorEndo?: (items: { tooth: number; year: string }[]) => Promise<void>;
@@ -284,6 +289,11 @@ export function ClinicalDictation({
   const [result, setResult] = useState<{ ok: boolean; messages: string[] } | null>(null);
   const [patientConfirmed, setPatientConfirmed] = useState(false);
   const [dxItems, setDxItems] = useState<ReviewDiagnosis[]>([]);
+  // Líneas por pieza al pie de la evolución (qué se presupuesta y en qué presupuesto).
+  const [lines, setLines] = useState<EvolutionLine[]>([]);
+  const [lineSelected, setLineSelected] = useState<Set<string>>(new Set());
+  const [lineTarget, setLineTarget] = useState("new");
+  const [arancel, setArancel] = useState<Record<string, number> | null>(null);
   const [prestItems, setPrestItems] = useState<Array<PrestacionItem & { decision: Decided }>>([]);
   const [prestSearch, setPrestSearch] = useState("");
   const [dxSearch, setDxSearch] = useState("");
@@ -325,6 +335,8 @@ export function ClinicalDictation({
     setOutcome(null);
     setPatientConfirmed(false);
     setTeeth([]);
+    setLines([]);
+    setLineSelected(new Set());
     setBudgets([]);
     setFichaItems([]);
     setNotRecorded([]);
@@ -470,6 +482,15 @@ export function ClinicalDictation({
         ...(data.proposal.incomplete ?? []).map((item) => ({ ...item, decision: "rejected" as const, toothText: formatFdi(item.tooth), incompleteCaries: true })),
       ]);
       setBudgets(data.proposal.budget.map((item) => ({ ...item, decision: "accepted", amountText: item.amount > 0 ? String(item.amount) : "" })));
+      {
+        const built = buildEvolutionLines({ items: data.proposal.items ?? [], perio: data.proposal.perio ?? [], budgets: openBudgets });
+        // Lo que el dictado ya presupuesta («presupuesto de corona en la 3.6») no se vuelve a ofrecer.
+        const dictatedBudget = data.proposal.budget.map((item) => item.label).join(" ");
+        const pending = built.filter((line) => line.pendingBudget && !(line.tooth !== null && dictatedBudget.includes(formatTooth(line.tooth))));
+        setLines(built.map((line) => pending.includes(line) || !line.pendingBudget ? line : { ...line, pendingBudget: false, canBudget: false }));
+        setLineSelected(new Set(pending.map((line) => line.id)));
+        { const editable = openBudgets.filter((b) => b.editable !== false); setLineTarget(editable.length ? String(editable[0].id) : "new"); }
+      }
       setFichaItems((data.proposal.ficha ?? []).map((item) => ({ ...item, decision: patient ? "accepted" : "rejected" })));
       setPriorEndoItems(onPriorEndo ? (data.proposal.priorEndo ?? []).map((item) => ({ id: item.id, tooth: item.tooth, year: item.year, evidence: item.evidence, decision: "accepted" as const })) : []);
       setNotRecorded([]);
@@ -583,7 +604,7 @@ export function ClinicalDictation({
     return data;
   };
 
-  const confirm = async () => {
+  const confirm = async (budgetize = true) => {
     if (!outcome || saving || result?.ok) return;
     if (patientBlocked) {
       setFormError(`El dictado nombra a otra persona o a otro RUT. Confirma que corresponde a ${patientName} antes de guardar.`);
@@ -759,6 +780,7 @@ export function ClinicalDictation({
     const savedPayments: { amount: number; method: string; savedId?: number }[] = [];
     const savedAppointments: { day: string; time: string; reason: string; savedId?: number }[] = [];
     let examId: number | undefined;
+    const lineMessages: string[] = [];
     const once = async (key: string, run: () => Promise<number | undefined>) => {
       const known = savedOnce.current.get(key);
       if (known !== undefined) return known;
@@ -787,6 +809,32 @@ export function ClinicalDictation({
         const link = advance.closable;
         if (!link || keepPending.has(linkKey(link))) continue;
         await once("plan-done:" + linkKey(link), async () => { await persist({ action: "setBudgetItemDone", patientId, budgetId: link.budgetId, index: link.index, done: true, doneOn: attentionDate || chileTodayIso() }); return 1; });
+      }
+      // Líneas por pieza: lo realizado avanza su ítem (Iniciada/Terminada); nunca lo diagnosticado o planificado.
+      const closedByAdvances = new Set(advances.flatMap((advance) => advance.closable && !keepPending.has(linkKey(advance.closable)) ? [linkKey(advance.closable)] : []));
+      const lineDate = attentionDate || chileTodayIso();
+      for (const line of lines) {
+        const match = line.match;
+        if (line.kind !== "realizado" || !match || match.to === match.from || closedByAdvances.has(`${match.budgetId}:${match.index}`)) continue;
+        try {
+          await once(`line-status:${match.budgetId}:${match.index}:${match.to}`, async () => { await persist({ action: "setBudgetItemStatus", patientId, budgetId: match.budgetId, index: match.index, status: match.to, date: lineDate }); return 1; });
+          lineMessages.push(`«${match.label}» quedó ${STATUS_WORD[match.to]}.`);
+        } catch (lineError) { lineMessages.push(`No se pudo avanzar «${match.label}»: ${lineError instanceof Error ? lineError.message : "error"}`); }
+      }
+      const toBudget = budgetize ? lines.filter((line) => line.canBudget && lineSelected.has(line.id)) : [];
+      if (toBudget.length) {
+        const prices = arancel ?? await fetch("/api/aranceles", { credentials: "same-origin" }).then((r) => r.ok ? r.json() as Promise<{ prices?: Record<string, number> }> : { prices: {} }).then((d) => d.prices ?? {}).catch(() => ({}));
+        const items = toBudget.flatMap((line) => budgetItemsFor(line, prices, lineDate));
+        const target = lineTarget !== "new" && openBudgets.some((b) => String(b.id) === lineTarget) ? Number(lineTarget) : null;
+        try {
+          await once(`line-budget:${target ?? "new"}:${items.map((i) => i.label).join("|")}`, async () => (await persist({ action: "addBudgetItems", patientId, budgetId: target, items, title: `Presupuesto ${lineDate.split("-").reverse().join("-")}`, clinicalDate: lineDate })).budget?.id);
+          const noPrice = items.filter((i) => !i.amount).length;
+          lineMessages.push(`${items.length} prestación(es) presupuestada(s) ${target ? `en «${openBudgets.find((b) => b.id === target)?.title}»` : "en un presupuesto nuevo"}${noPrice ? `; ${noPrice} sin valor en tu arancel (complétalo en el presupuesto)` : ""}.`);
+        } catch (lineError) { lineMessages.push(`No se pudo presupuestar: ${lineError instanceof Error ? lineError.message : "error"}`); }
+      }
+      if (savedNote?.id && lines.length) {
+        const evolutionId = savedNote.id;
+        await persist({ action: "saveEvolutionPieces", patientId, evolutionId, pieces: pieceChips(lines) }).catch(() => undefined);
       }
       // Un plan por opción dictada (la primera es el principal, las demás son alternativas), con todas sus prestaciones y fases.
       const budgetGroups = new Map<string, typeof acceptedBudgets>();
@@ -861,6 +909,7 @@ export function ClinicalDictation({
       if (acceptedControl) check = controlId
         ? { ...check, messages: [...check.messages, `Próximo control programado y agendado para el ${acceptedControl.dueOn.split("-").reverse().join("-")} a las 09:00 (${acceptedControl.reason}).`] }
         : { ok: false, messages: [...check.messages, "No se pudo confirmar el próximo control."] };
+      if (lineMessages.length) check = { ...check, messages: [...check.messages, ...lineMessages] };
       if (reviewWarnings.length) check = { ...check, messages: [...check.messages, `${saveEvolution ? "La evolución" : "La ficha"} quedó guardada; algunos campos opcionales siguen pendientes de revisión.`] };
       onApplied(finalRead);
       savedSinceOpen.current = true;
@@ -900,6 +949,14 @@ export function ClinicalDictation({
   };
 
   const proposal = outcome?.proposal;
+  const budgetableSelected = lines.filter((line) => line.canBudget && lineSelected.has(line.id)).length;
+  // Arancel propio (valores por código) para presupuestar las líneas: se lee una vez al aparecer líneas.
+  useEffect(() => {
+    if (!lines.some((line) => line.canBudget) || arancel) return;
+    let alive = true;
+    void fetch("/api/aranceles", { credentials: "same-origin" }).then((r) => r.ok ? r.json() as Promise<{ prices?: Record<string, number> }> : { prices: {} }).then((d) => { if (alive) setArancel(d.prices ?? {}); }).catch(() => undefined);
+    return () => { alive = false; };
+  }, [lines, arancel]);
   const missing = useMemo(() => proposal ? missingData(proposal) : [], [proposal]);
   // Tratamientos por pieza que esta evolución hace avanzar (según sus «Procedimientos realizados» y lo ya registrado).
   const advances = useMemo(() => {
@@ -1065,6 +1122,7 @@ export function ClinicalDictation({
                 <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-[#615f73]"><span>Una vez guardada, la evolución queda cerrada: solo puede anularse y registrarse otra.</span>{proposal.evolution && (evolutionBody !== proposal.evolution.body || evolutionTitle !== proposal.evolution.title) && <button type="button" className="font-semibold text-[#473a6d] underline" onClick={() => { if (window.confirm("¿Descartar tus cambios y volver al texto propuesto?")) { setEvolutionTitle(proposal.evolution?.title ?? ""); setEvolutionBody(proposal.evolution?.body ?? ""); } }}>Volver al texto propuesto</button>}</div>
               </> : <p className="mt-3 text-[#6b6a7c]">El dictado no produjo una evolución.</p>}
             </section>
+            {lines.length > 0 && <EvolutionLinesBlock lines={lines} onChange={setLines} budgets={openBudgets} selected={lineSelected} onToggle={(id) => setLineSelected((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; })} target={lineTarget} onTarget={setLineTarget} disabled={saving || !!result?.ok} onRetooth={(from, to) => setTeeth((current) => current.map((entry) => entry.tooth === from ? { ...entry, tooth: to, toothText: formatFdi(to) } : entry))} />}
             {advances.length > 0 && <section className="rounded-xl border border-[#dddbe6] p-4" data-testid="dictation-advances">
               <h3 className="font-semibold">Tratamientos que avanza esta evolución</h3>
               <p className="mt-1 text-xs text-[#615f73]">Según los procedimientos realizados y lo ya registrado en cada pieza.</p>
@@ -1423,7 +1481,8 @@ export function ClinicalDictation({
         </div>
         <DialogFooter className="sticky bottom-0 -mx-6 -mb-6 border-t border-[#e6e4ee] bg-white px-6 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
           <Button type="button" variant="outline" onClick={close}>Cerrar</Button>
-          <Button type="button" className="bg-[#473a6d] hover:bg-[#3a2f5a]" disabled={!outcome || saving || patientBlocked || !!result?.ok} title={patientBlocked ? "Confirma el paciente antes de guardar" : undefined} onClick={() => void confirm()} data-testid="dictation-confirm">{saving ? "Guardando y verificando…" : "Guardar evolución"}</Button>
+          {budgetableSelected > 0 && <Button type="button" variant="outline" disabled={!outcome || saving || patientBlocked || !!result?.ok} onClick={() => void confirm(false)} data-testid="dictation-confirm-only">Solo guardar</Button>}
+          <Button type="button" className="bg-[#473a6d] hover:bg-[#3a2f5a]" disabled={!outcome || saving || patientBlocked || !!result?.ok} title={patientBlocked ? "Confirma el paciente antes de guardar" : undefined} onClick={() => void confirm(true)} data-testid="dictation-confirm">{saving ? "Guardando y verificando…" : budgetableSelected > 0 ? `Guardar y presupuestar (${budgetableSelected})` : "Guardar"}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

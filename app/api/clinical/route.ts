@@ -19,8 +19,9 @@ import { cementedCrownFromEvolution } from "@/app/crown-evidence";
 import { fullNameRequiredMessage, hasFourNameParts } from "@/app/patient-identity";
 import { getDb } from "@/db";
 import { appointments, budgets, calendarEvents, clinicalImages, evolutionDiagnoses, evolutions, patients, payments, periodontalExams, toothStatuses } from "@/db/schema";
-import { budgetTotals, decodeBudgetData, encodeBudgetData, normalizeBudgetItems, validIsoDate } from "@/lib/budget-plans";
+import { budgetTotals, decodeBudgetData, encodeBudgetData, ITEM_STATUSES, normalizeBudgetItems, validIsoDate, withItemStatus, type ItemStatus } from "@/lib/budget-plans";
 import { sanitizeDiagnosisTags } from "@/lib/evolution-diagnoses";
+import { EVOLUTION_PIECES_DDL, sanitizeChips, type PieceChip } from "@/lib/evolution-lines";
 import type { OdontogramData, OdontogramSurface, SurfaceFinding } from "@/app/clinical-data";
 import { appendToothHistory, mergeRecentSurfaceEvent, toothHistorySnapshot } from "@/app/odontogram-history";
 import { revertEvolution } from "@/lib/odontogram-timeline";
@@ -279,6 +280,15 @@ export async function GET() {
     ]);
     // Ida y vuelta con Google: duración real, citas sin paciente y marcas «pendiente de sincronizar» (si falla, la agenda carga igual).
     const agendaSync = await import("@/app/calendar-two-way").then(m => m.agendaSyncFlags(ownerId)).catch(() => ({ minutes: {} as Record<number, number>, needsPatient: [] as number[], pendingAppointments: [] as number[], pendingEvents: [] as number[] }));
+    // Resumen por pieza de cada evolución (tabla aditiva; si no existe aún, la ficha carga igual).
+    const piecesByNote = await (async () => {
+      const map = new Map<number, PieceChip[]>();
+      const raw = (env as unknown as { DB?: { prepare(sql: string): { bind(...v: unknown[]): { all<T>(): Promise<{ results: T[] }> } } } }).DB;
+      if (!raw) return map;
+      const rows = await raw.prepare("SELECT evolution_id, pieces FROM evolution_pieces WHERE owner_id = ?").bind(ownerId).all<{ evolution_id: number; pieces: string }>().catch(() => ({ results: [] as { evolution_id: number; pieces: string }[] }));
+      for (const row of rows.results) { try { map.set(row.evolution_id, sanitizeChips(JSON.parse(row.pieces))); } catch { /* fila dañada: se omite */ } }
+      return map;
+    })();
     const diagnosesByNote = new Map<number, ReturnType<typeof diagnosisView>[]>();
     for (const dx of dxs) diagnosesByNote.set(dx.evolutionId, [...(diagnosesByNote.get(dx.evolutionId) ?? []), diagnosisView(dx)]);
     const notesByPatient = new Map<number, typeof ns>();
@@ -310,7 +320,7 @@ export async function GET() {
     }));
     return Response.json({
       patients: ps.map(p => ({ ...p, rut: p.rut || "", address: addresses.get(p.id) ?? emptyAddress(), profile: profiles.get(p.id) ?? emptyProfile() })),
-      notes: ns.map(n => ({ id: n.id, patientId: n.patientId, date: displayDate(n.clinicalDate), clinicalDate: n.clinicalDate, recordedAt: n.recordedAt, title: n.title, body: n.body, sourceDocumentId: n.sourceDocumentId, backupStatus: n.backupStatus, diagnoses: diagnosesByNote.get(n.id) ?? [], ...annulView(n), ...authorView(n.id) })),
+      notes: ns.map(n => ({ id: n.id, patientId: n.patientId, date: displayDate(n.clinicalDate), clinicalDate: n.clinicalDate, recordedAt: n.recordedAt, title: n.title, body: n.body, sourceDocumentId: n.sourceDocumentId, backupStatus: n.backupStatus, diagnoses: diagnosesByNote.get(n.id) ?? [], pieces: piecesByNote.get(n.id) ?? [], ...annulView(n), ...authorView(n.id) })),
       budgets: await (async () => {
         // Quién armó cada presupuesto (en una clínica, el colega que lo estableció); los antiguos, del titular.
         const budgetAuthorMap = authorDb ? await budgetAuthorsOf(authorDb, ownerId).catch(() => new Map()) : new Map();
@@ -888,6 +898,60 @@ export async function POST(request: Request) {
         return done ? { ...rest, doneOn } : rest;
       });
       const [b] = await db.update(budgets).set({ items: encodeBudgetData(items, data) }).where(and(eq(budgets.id, budgetId), eq(budgets.patientId, patientId), eq(budgets.ownerId, ownerId))).returning();
+      return Response.json({ budget: await budgetViewWithAuthor(b, ownerId) });
+    }
+    if (action === "saveEvolutionPieces") {
+      const evolutionId = Number(input.evolutionId);
+      const pieces = sanitizeChips(input.pieces);
+      if (!Number.isSafeInteger(evolutionId) || evolutionId < 1) return error("Evolución inválida.");
+      const [note] = await db.select({ id: evolutions.id }).from(evolutions).where(and(eq(evolutions.id, evolutionId), eq(evolutions.patientId, patientId), eq(evolutions.ownerId, ownerId)));
+      if (!note) return error("Evolución no encontrada en esta ficha.", 404);
+      const raw = (env as unknown as { DB?: { prepare(sql: string): { bind(...v: unknown[]): { run(): Promise<unknown> }; run(): Promise<unknown> } } }).DB;
+      if (!raw) return error("La base de datos no está disponible.", 500);
+      await raw.prepare(EVOLUTION_PIECES_DDL).run();
+      await raw.prepare("INSERT INTO evolution_pieces (owner_id, evolution_id, pieces, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(owner_id, evolution_id) DO UPDATE SET pieces = excluded.pieces, updated_at = excluded.updated_at").bind(ownerId, evolutionId, JSON.stringify(pieces), now()).run();
+      return Response.json({ evolutionId, pieces });
+    }
+    if (action === "setBudgetItemStatus") {
+      // Estado del ítem como en Dentalsoft: Pendiente / Iniciada / Terminada (con fecha) / Desevolución.
+      const budgetId = Number(input.budgetId), index = Number(input.index);
+      const status = typeof input.status === "string" ? input.status : "";
+      const date = typeof input.date === "string" ? input.date : "";
+      if (!Number.isSafeInteger(budgetId) || budgetId < 1 || !Number.isInteger(index) || index < 0) return error("Prestación inválida.");
+      if (!(ITEM_STATUSES as readonly string[]).includes(status)) return error("Estado inválido.");
+      if ((status === "iniciada" || status === "terminada") && !validIsoDate(date)) return error("Indica la fecha del avance.");
+      const [existing] = await db.select().from(budgets).where(and(eq(budgets.id, budgetId), eq(budgets.patientId, patientId), eq(budgets.ownerId, ownerId)));
+      if (!existing) return error("Presupuesto no encontrado.", 404);
+      const data = decodeBudgetData(existing.items);
+      if (data.isAlternative) return error("Las alternativas son solo cotizaciones; establece esta opción como plan principal para registrar avances.", 409);
+      if (index >= data.items.length) return error("La prestación ya no existe en este plan.", 404);
+      const professional = string(input.professional, 80);
+      const items = data.items.map((item, itemIndex) => itemIndex !== index ? item : { ...withItemStatus(item, status as ItemStatus, date || now().slice(0, 10)), ...(professional ? { professional } : {}) });
+      const [b] = await db.update(budgets).set({ items: encodeBudgetData(items, data) }).where(and(eq(budgets.id, budgetId), eq(budgets.patientId, patientId), eq(budgets.ownerId, ownerId))).returning();
+      return Response.json({ budget: await budgetViewWithAuthor(b, ownerId) });
+    }
+    if (action === "addBudgetItems") {
+      // «Presupuestar» desde la evolución: agrega ítems a un presupuesto abierto (no alternativa) o crea uno nuevo.
+      const items = normalizeBudgetItems(input.items, true);
+      if (!items || !items.length) return error("Revisa las prestaciones a presupuestar.");
+      const budgetId = input.budgetId === undefined || input.budgetId === null || input.budgetId === "" ? null : Number(input.budgetId);
+      if (budgetId === null) {
+        const title = string(input.title, 180) || "Presupuesto";
+        const budgetDate = string(input.clinicalDate, 10);
+        const t = now();
+        const createdAt = /^\d{4}-\d{2}-\d{2}$/.test(budgetDate) && !Number.isNaN(Date.parse(budgetDate)) && budgetDate <= t.slice(0, 10) ? `${budgetDate}T12:00:00.000Z` : t;
+        const [[b]] = await db.batch([db.insert(budgets).values({ ownerId, patientId, title, items: encodeBudgetData(items, { isAlternative: false, parentBudgetId: null }), status: "Borrador", createdAt }).returning(), (await budgetAuthorStatement(db, ownerId)).statement]);
+        return Response.json({ budget: await budgetViewWithAuthor(b, ownerId) }, { status: 201 });
+      }
+      if (!Number.isSafeInteger(budgetId) || budgetId < 1) return error("Presupuesto inválido.");
+      const [existing] = await db.select().from(budgets).where(and(eq(budgets.id, budgetId), eq(budgets.patientId, patientId), eq(budgets.ownerId, ownerId)));
+      if (!existing) return error("Presupuesto no encontrado.", 404);
+      if (!(await budgetAccess(ownerId, budgetId)).editable) return error(NOT_BUDGET_OWNER, 403);
+      const data = decodeBudgetData(existing.items);
+      if (data.isAlternative) return error("Las alternativas son solo cotizaciones; agrega la prestación al plan principal.", 409);
+      const merged = normalizeBudgetItems([...data.items, ...items], true);
+      if (!merged) return error("El presupuesto quedaría con más prestaciones de las permitidas; crea uno nuevo.", 409);
+      const [b] = await db.update(budgets).set({ items: encodeBudgetData(merged, data) }).where(and(eq(budgets.id, budgetId), eq(budgets.patientId, patientId), eq(budgets.ownerId, ownerId))).returning();
       return Response.json({ budget: await budgetViewWithAuthor(b, ownerId) });
     }
     if (action === "selectBudgetAlternative") {

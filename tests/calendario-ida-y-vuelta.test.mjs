@@ -113,7 +113,9 @@ test('cableado: todos los calendarios con token propio, 410, cola de pendientes,
 });
 
 const canRun = typeof nodeModule.registerHooks === 'function' && await import('node:sqlite').then(() => true, () => false);
-test('con base real: importar, mover, título, borrar, restaurar, cambio de calendario, asignar y cola', { skip: !canRun && 'node:sqlite o registerHooks no disponibles' }, async () => {
+test('con base real: importar, mover, título, borrar, restaurar, cambio de calendario, asignar y cola', { skip: !canRun && 'node:sqlite o registerHooks no disponibles' }, async (t) => {
+  // Reloj fijo: las marcas «cambiado en la app» usan la hora actual y el guion usa horas de Google del 20-11-2026.
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-11-20T13:00:00Z') });
   const { DatabaseSync } = await import('node:sqlite');
   const root = path.resolve(new URL('..', import.meta.url).pathname);
   nodeModule.registerHooks({

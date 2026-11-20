@@ -14,9 +14,43 @@ export type BudgetItem = {
   zone?: string;
   /** Detalle libre de dónde se trabaja («sitios con sacos > 4 mm», «zona edéntula 3.5–3.7»). */
   area?: string;
-  /** Fecha (AAAA-MM-DD) en que se realizó; ausente mientras está pendiente. */
+  /** Fecha (AAAA-MM-DD) en que se realizó; ausente mientras está pendiente. Con doneOn el ítem está «Terminado». */
   doneOn?: string;
+  /** Caras de la pieza (M, O, D, V, P), como en Dentalsoft «2.7 m,o». */
+  surfaces?: string[];
+  /** «iniciada» (en curso desde startedOn) o «desevolucion» (se revirtió); sin estado y sin doneOn = «pendiente». */
+  status?: "iniciada" | "desevolucion";
+  /** Fecha (AAAA-MM-DD) en que se inició el tratamiento del ítem. */
+  startedOn?: string;
+  /** Profesional que lo realiza (nombre). */
+  professional?: string;
 };
+
+/** Estado del ítem (la unidad del presupuesto, como en Dentalsoft). */
+export const ITEM_STATUSES = ["pendiente", "iniciada", "terminada", "desevolucion"] as const;
+export type ItemStatus = typeof ITEM_STATUSES[number];
+export const ITEM_STATUS_LABEL: Record<ItemStatus, string> = { pendiente: "Pendiente", iniciada: "Iniciada", terminada: "Terminada", desevolucion: "Desevolución" };
+export function itemStatus(item: Pick<BudgetItem, "doneOn" | "status">): ItemStatus {
+  if (item.doneOn) return "terminada";
+  if (item.status === "iniciada") return "iniciada";
+  if (item.status === "desevolucion") return "desevolucion";
+  return "pendiente";
+}
+/** Cambia el estado de un ítem con su fecha (terminada → doneOn; iniciada → startedOn; pendiente limpia). */
+export function withItemStatus(item: BudgetItem, status: ItemStatus, date: string): BudgetItem {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { doneOn: _d, status: _s, ...rest } = item;
+  if (status === "terminada") return { ...rest, ...(item.startedOn ? {} : { startedOn: date }), doneOn: date };
+  if (status === "iniciada") return { ...rest, status: "iniciada", startedOn: item.startedOn || date };
+  if (status === "desevolucion") return { ...rest, status: "desevolucion" };
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { startedOn: _st, ...clean } = rest;
+  return clean;
+}
+const SURFACE_ORDER = ["M", "O", "D", "V", "P"];
+export const normalizeSurfaces = (value: unknown): string[] => Array.isArray(value)
+  ? SURFACE_ORDER.filter(s => value.some(v => typeof v === "string" && (v.toUpperCase() === s || (s === "P" && v.toUpperCase() === "L") || (s === "O" && v.toUpperCase() === "I"))))
+  : [];
 
 export type BudgetTotals = { subtotal: number; discount: number; total: number };
 
@@ -83,7 +117,13 @@ export function normalizeBudgetItems(value: unknown, allowZero = false): BudgetI
     const teeth = normalizeTeeth(zoneFixesTeeth(zone) ? zoneTeeth(zone) : item.teeth);
     const area = typeof item.area === "string" ? item.area.replace(/\s+/g, " ").trim().slice(0, 160) : "";
     const doneOn = typeof item.doneOn === "string" && validIsoDate(item.doneOn) ? item.doneOn : "";
-    items.push({ label, amount, ...(phase ? { phase } : {}), ...(discountPercent ? { discountPercent } : {}), ...(code ? { code } : {}), ...(teeth.length ? { teeth } : {}), ...(zone ? { zone } : {}), ...(area ? { area } : {}), ...(doneOn ? { doneOn } : {}) });
+    const startedOn = typeof item.startedOn === "string" && validIsoDate(item.startedOn) ? item.startedOn : "";
+    const status = !doneOn && (item.status === "iniciada" || item.status === "desevolucion") ? item.status : "";
+    const surfaces = normalizeSurfaces(item.surfaces);
+    const professional = typeof item.professional === "string" ? item.professional.replace(/\s+/g, " ").trim().slice(0, 80) : "";
+    // Ítems antiguos sin pieza ni zona: la pieza escrita en el nombre («Corona 3.6») pasa a ser su zona (pieza).
+    const derivedTeeth = !teeth.length && !zone ? labelTeeth(label) : [];
+    items.push({ label, amount, ...(phase ? { phase } : {}), ...(discountPercent ? { discountPercent } : {}), ...(code ? { code } : {}), ...(teeth.length ? { teeth } : derivedTeeth.length ? { teeth: derivedTeeth } : {}), ...(zone ? { zone } : {}), ...(area ? { area } : {}), ...(doneOn ? { doneOn } : {}), ...(surfaces.length ? { surfaces } : {}), ...(status ? { status } : {}), ...(startedOn ? { startedOn } : {}), ...(professional ? { professional } : {}) });
   }
   return items;
 }
@@ -141,8 +181,11 @@ export function parseTeethText(text: string): number[] {
 /** Piezas de la prestación: las asignadas o, si no hay, las escritas con punto en el nombre («Corona 3.6»). */
 export function itemTeeth(item: BudgetItem): number[] {
   if (item.teeth?.length) return item.teeth;
+  return labelTeeth(item.label);
+}
+function labelTeeth(label: string): number[] {
   const found: number[] = [];
-  for (const match of item.label.matchAll(/(?<![\d.])([1-8])\.([1-8])(?![\d])/g)) {
+  for (const match of label.matchAll(/(?<![\d.])([1-8])\.([1-8])(?![\d])/g)) {
     const tooth = Number(match[1]) * 10 + Number(match[2]);
     if (validFdi(tooth)) found.push(tooth);
   }
