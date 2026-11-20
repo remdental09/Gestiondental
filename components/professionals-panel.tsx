@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Pencil, Plus, Power, Stethoscope, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ProfessionalTitleSetting } from "@/components/professional-title";
 import { SignatureEditor } from "@/components/signature-editor";
 import { PrestadorPanel } from "@/components/prestador-card";
 import { PROFESSIONAL_COLORS, type Professional } from "@/lib/professionals";
@@ -80,6 +81,7 @@ export function ProfessionalsPanel() {
     {inactive > 0 && <label className="mt-3 flex min-h-11 cursor-pointer items-center gap-2 text-sm font-medium"><input type="checkbox" className="size-4 accent-[#473a6d]" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} />Mostrar inactivos ({inactive})</label>}
     <div className="mt-5 border-t border-[#e6e4ee] pt-4" data-testid="professional-signature">
       <p className="mb-2 text-sm text-[#615f73]">Tu identificación profesional: la firma que dibujes o subas aquí se pone sola en tus certificados, recetas, consentimientos y presupuestos. Cada dentista con su propia cuenta guarda la suya.</p>
+      <div className="mb-4"><ProfessionalTitleSetting/></div>
       <SignatureEditor/>
     </div>
     <div className="mt-5 border-t border-[#e6e4ee] pt-4" data-testid="professional-habilitacion"><PrestadorPanel/></div>

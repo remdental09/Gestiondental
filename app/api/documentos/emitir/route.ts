@@ -6,6 +6,7 @@ import { patientDocuments } from "@/db/schema";
 import { isPrescriptionKind } from "@/lib/clinical-documents";
 import { documentHash, newVerifyToken } from "@/lib/document-verification";
 import { loadApprovedRegistrations, loadRegistration, publicRegistration } from "@/app/prestador-db";
+import { loadProfileTitles } from "@/app/clinician-profile-db";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -25,7 +26,7 @@ export async function POST(request: Request) {
     const [doc] = await db.select().from(patientDocuments).where(and(eq(patientDocuments.id, id), eq(patientDocuments.ownerId, user.userId))).limit(1);
     if (!doc) return fail("Documento no encontrado.", 404);
     // La habilitación (y su QR) acompaña al documento en la respuesta, para que la vista e impresión la tengan sin recargar.
-    const withRegistration = async <T extends { createdBy: string }>(row: T) => ({ ...row, registration: (await loadApprovedRegistrations([row.createdBy]).catch(() => new Map())).get(row.createdBy) ?? null });
+    const withRegistration = async <T extends { createdBy: string }>(row: T) => ({ ...row, registration: (await loadApprovedRegistrations([row.createdBy]).catch(() => new Map())).get(row.createdBy) ?? null, authorTitle: (await loadProfileTitles([row.createdBy]).catch(() => new Map())).get(row.createdBy) ?? null });
     if (doc.verifyToken && doc.issuedAt) return Response.json({ document: await withRegistration(doc) }, { headers: { "Cache-Control": "no-store" } });
     // Una receta solo la emite un prestador individual habilitado, con el QR de la Superintendencia (obligatorio en la receta).
     if (isPrescriptionKind(doc.kind)) {
