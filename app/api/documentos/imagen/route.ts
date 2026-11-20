@@ -1,6 +1,6 @@
 import { getChatGPTUser, personalIdOf } from "@/app/chatgpt-auth";
 import { loadDocumentMark, saveDocumentMark } from "@/app/document-mark-db";
-import { LOGO_MAX_CHARS, validLogo } from "@/lib/clinic-profile";
+import { validSignature } from "@/lib/signature-image";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -19,7 +19,7 @@ export async function POST(request: Request) {
   if (request.headers.get("origin") !== new URL(request.url).origin) return fail("Origen no permitido.", 403);
   const body = await request.json().catch(() => null) as { documentMark?: unknown } | null;
   const mark = typeof body?.documentMark === "string" ? body.documentMark.trim() : "";
-  if (mark && (mark.length > LOGO_MAX_CHARS || !validLogo(mark))) return fail("La imagen debe ser PNG, JPG o WebP y no superar 200x200 px.");
+  if (mark && !validSignature(mark)) return fail("La firma debe ser una imagen PNG, JPG o WebP de hasta 400 KB.");
   try {
     await saveDocumentMark(personalIdOf(user), mark);
     return Response.json({ documentMark: mark }, { headers: { "Cache-Control": "no-store" } });
