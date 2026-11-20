@@ -58,19 +58,27 @@ export async function loadApprovedRegistrations(ids: string[]): Promise<Map<stri
 }
 
 /** Guarda los datos del certificado. Con PDF: reemplaza el archivo guardado (y su QR, si se leyó). Con texto pegado: conserva el PDF anterior. */
-export async function saveRegistration(professionalId: string, email: string, cert: PrestadorCertificate, fileHash: string, file?: StoredFile | null, qr?: StoredQr | null): Promise<RegistrationRow> {
+/** Decisión al guardar: habilitado automático (todo coincide) o en revisión con el motivo exacto. */
+export type RegistrationDecision = { approved: boolean; reviewer: string; note: string };
+
+export async function saveRegistration(professionalId: string, email: string, cert: PrestadorCertificate, fileHash: string, file?: StoredFile | null, qr?: StoredQr | null, decision?: RegistrationDecision | null): Promise<RegistrationRow> {
   const database = await open();
   const now = new Date().toISOString();
   const previous = await loadRegistration(professionalId);
   // Si es el mismo registro y el mismo RUN ya aprobado, un certificado más nuevo no pierde la aprobación.
   const keepApproved = previous?.status === "aprobado" && previous.reg_sis === cert.regSis && previous.run === cert.run;
+  const approveNow = Boolean(decision?.approved);
+  const status = approveNow || keepApproved ? "aprobado" : "pendiente";
+  const reviewedBy = approveNow ? (decision?.reviewer ?? "") : keepApproved ? previous!.reviewed_by : "";
+  const reviewedAt = approveNow ? now : keepApproved ? previous!.reviewed_at : "";
+  const note = status === "pendiente" ? (decision?.note ?? "").slice(0, 300) : "";
   await database.prepare(
     "INSERT INTO professional_registrations (professional_id, email, reg_sis, run, full_name, profession, specialties, issued_on, validation_code, file_hash, status, reviewed_by, reviewed_at, review_note, created_at, updated_at) " +
-    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?) ON CONFLICT(professional_id) DO UPDATE SET email = excluded.email, reg_sis = excluded.reg_sis, run = excluded.run, full_name = excluded.full_name, " +
+    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(professional_id) DO UPDATE SET email = excluded.email, reg_sis = excluded.reg_sis, run = excluded.run, full_name = excluded.full_name, " +
     "profession = excluded.profession, specialties = excluded.specialties, issued_on = excluded.issued_on, validation_code = excluded.validation_code, file_hash = excluded.file_hash, status = excluded.status, " +
-    "reviewed_by = excluded.reviewed_by, reviewed_at = excluded.reviewed_at, review_note = '', updated_at = excluded.updated_at"
+    "reviewed_by = excluded.reviewed_by, reviewed_at = excluded.reviewed_at, review_note = excluded.review_note, updated_at = excluded.updated_at"
   ).bind(professionalId, email, cert.regSis, cert.run, cert.fullName, cert.profession, JSON.stringify(cert.specialties), cert.issuedOn, cert.validationCode, fileHash,
-    keepApproved ? "aprobado" : "pendiente", keepApproved ? previous!.reviewed_by : "", keepApproved ? previous!.reviewed_at : "", now, now).run();
+    status, reviewedBy, reviewedAt, note, now, now).run();
   if (file) {
     await database.prepare("UPDATE professional_registrations SET cert_key = ?, cert_name = ?, cert_size = ?, cert_uploaded_at = ?, qr_key = ?, qr_payload = ?, qr_source = ? WHERE professional_id = ?")
       .bind(file.key, file.name.slice(0, 200), file.size, now, qr?.key ?? "", qr?.payload ?? "", qr?.source ?? "", professionalId).run();

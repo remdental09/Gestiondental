@@ -8,7 +8,8 @@ import { getChatGPTUser, personalIdOf } from "@/app/chatgpt-auth";
 import { loadProfile } from "@/app/clinician-profile-db";
 import { loadRegistration, saveRegistration, type StoredFile, type StoredQr } from "@/app/prestador-db";
 import { registrationView } from "@/app/prestador-view";
-import { parsePrestadorCertificate, sameRun } from "@/lib/prestador-certificate";
+import { normalizeRun, parsePrestadorCertificate, sameRun } from "@/lib/prestador-certificate";
+import { AUTO_REVIEWER, autoApproval } from "@/lib/prestador-approval";
 import { QR_IMAGE_MAX_BYTES, certificateKey, cleanQrPayload, ownsKey } from "@/lib/prestador-qr";
 
 export const runtime = "edge";
@@ -64,8 +65,14 @@ export async function POST(request: Request) {
   if (!profile) return json({ error: "Primero completa tu registro profesional (nombre, RUT y especialidad)." }, 409);
   const parsed = parsePrestadorCertificate(text);
   if (!parsed.ok) return json({ error: parsed.error }, 422);
-  if (!sameRun(parsed.data.run, profile.rut)) return json({ error: "El RUN del certificado no coincide con el RUT de tu registro en la aplicación." }, 422);
+  // El RUN es la identidad: si no coincide no se guarda (no se puede habilitar con el certificado de otra persona).
+  if (!sameRun(parsed.data.run, profile.rut)) return json({ error: `El RUN del certificado (${normalizeRun(parsed.data.run) || parsed.data.run}) no coincide con el RUT de tu perfil (${profile.rut || "vacío"}). Corrige tu RUT en «Mi perfil» o sube tu propio certificado.` }, 422);
+  // Todo coincide → habilitado al instante; si no, queda en revisión con el motivo exacto.
   const previous = await loadRegistration(personalId).catch(() => null);
+  const check = autoApproval(parsed.data, pdf ? qrPayload : "");
+  // Una habilitación revocada por una persona no se reactiva sola: vuelve a revisión manual.
+  if (previous?.status === "rechazado" && previous.reviewed_by && previous.reviewed_by !== AUTO_REVIEWER) check.reasons.unshift("Tu habilitación fue revocada en una revisión manual; un revisor debe aprobarla de nuevo.");
+  const decision = { approved: check.reasons.length === 0, reviewer: AUTO_REVIEWER, note: check.reasons.join(" ") };
   const written: string[] = [];
   try {
     const digest = await crypto.subtle.digest("SHA-256", bytes as BufferSource);
@@ -85,7 +92,7 @@ export async function POST(request: Request) {
         qr = { key: qrKey, payload: qrPayload, source: "pdf" };
       }
     }
-    const row = await saveRegistration(personalId, user.email ?? "", parsed.data, fileHash, stored, qr);
+    const row = await saveRegistration(personalId, user.email ?? "", parsed.data, fileHash, stored, qr, decision);
     // El certificado anterior se reemplaza: se borran sus objetos (solo los de este profesional).
     if (stored && previous) for (const old of [previous.cert_key, previous.qr_key]) if (old && ownsKey(personalId, old) && !written.includes(old)) await bucket()?.delete(old).catch(() => undefined);
     return json({ registration: registrationView(row) }, 201);

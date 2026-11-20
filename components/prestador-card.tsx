@@ -54,9 +54,9 @@ export function usePrestador() {
     if (found) { body.set("qrPayload", found.payload); body.set("qrImage", new File([found.image], "qr.png", { type: "image/png" })); }
     setStep("Guardando el certificado…");
     return send("/api/prestador", { method: "POST", body });
-  }, reg => reg?.qr?.printFrom === "qr" ? "Certificado guardado. Su código QR se imprimirá en tus recetas y certificados." : "Certificado guardado. No se pudo leer su QR: se imprimirá el enlace al validador de la Superintendencia con tu código de validación. Puedes subir una foto del QR."), [run]);
+  }, reg => reg?.status === "pendiente" ? "Certificado guardado, pero quedó en revisión: algo no coincidió (ver abajo)." : (reg?.status === "aprobado" ? "¡Listo! Quedaste habilitado para emitir recetas. " : "") + (reg?.qr?.printFrom === "qr" ? "Certificado guardado. Su código QR se imprimirá en tus recetas y certificados." : "Certificado guardado. No se pudo leer su QR: se imprimirá el enlace al validador de la Superintendencia con tu código de validación. Puedes subir una foto del QR.")), [run]);
   const pasteText = useCallback((texto: string) => run(() => send("/api/prestador", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ texto }) }),
-    () => "Datos leídos. Sube también el PDF para guardarlo y usar su QR."), [run]);
+    reg => (reg?.status === "aprobado" ? "¡Listo! Quedaste habilitado para emitir recetas. " : reg?.status === "pendiente" ? "Datos leídos, pero quedaron en revisión: algo no coincidió (ver abajo). " : "Datos leídos. ") + "Sube también el PDF para guardarlo y usar su QR."), [run]);
   const uploadQr = useCallback((file: File) => run(async () => {
     setStep("Leyendo el código QR…");
     const found = await import("@/components/certificate-qr").then(module => module.extractQrFromImage(file));
@@ -100,6 +100,7 @@ export function PrestadorCard({ state }: { state: PrestadorState }) {
           <p className="mt-1 text-sm text-[#44425a]">REG-SIS Nº {registration.regSis} · {registration.profession}{registration.specialties.length ? ` · ${registration.specialties.join(", ")}` : ""}</p>
           <p className="text-xs text-[#615f73]">Certificado del {dateLabel(registration.issuedOn)}{registration.validationCode ? ` · código de validación ${registration.validationCode}` : ""}</p>
           {status === "rechazado" && registration.reviewNote && <p className="mt-1 text-sm text-rose-900">Motivo: {registration.reviewNote}</p>}
+          {status === "pendiente" && registration.reviewNote && <p className="mt-1 text-sm text-amber-950" data-testid="prestador-pending-reason"><strong>Qué no coincidió:</strong> {registration.reviewNote} Corrígelo y vuelve a subir el certificado, o espera la revisión manual.</p>}
           {registration.certificate ? <div className="mt-3 rounded-lg border border-[#dddbe6] bg-white p-3" data-testid="prestador-file">
             <p className="flex items-center gap-2 text-sm font-semibold text-[#35343f]"><ShieldCheck className="size-4 text-emerald-700" aria-hidden="true"/>Certificado guardado de forma segura</p>
             <p className="mt-0.5 break-all text-xs text-[#615f73]">{registration.certificate.name}{registration.certificate.uploadedAt ? ` · subido el ${dateLabel(registration.certificate.uploadedAt)}` : ""}</p>
