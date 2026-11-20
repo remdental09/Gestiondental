@@ -8,16 +8,24 @@ body{background:radial-gradient(900px 420px at 95% -5%,rgba(239,137,95,.18),tran
 html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 button,a,label,select,summary,[role=button],[role=tab]{touch-action:manipulation}
 @media (pointer:coarse) and (max-width:1024px){input:not([type=checkbox]):not([type=radio]),select,textarea{font-size:16px}}
-@page budget-document{size:A4;margin:14mm}
+@page{size:letter;margin:10mm 12mm}
+@page budget-document{size:letter;margin:12mm}
+#gd-print-root{display:none}
 @media print{
   body{background:#fff!important}
-  body *{visibility:hidden!important}
-  [data-budget-print-dialog],[data-budget-print-dialog] *{visibility:visible!important}
-  #documentation-print,#documentation-print *{visibility:visible!important}
+  /* Documento (certificado, receta, consentimiento…): solo la copia del documento, sin la app → páginas reales. */
+  html.gd-print-node,html.gd-print-node body{height:auto!important;min-height:0!important;overflow:visible!important;background:#fff!important}
+  html.gd-print-node body>*:not(#gd-print-root){display:none!important}
+  html.gd-print-node #gd-print-root{display:block!important;visibility:visible!important;margin:0!important;padding:0!important}
+  #gd-print-root [data-print-copy]{display:block!important;width:100%!important;max-width:none!important;margin:0!important;border:0!important;border-radius:0!important;box-shadow:none!important;overflow:visible!important;background:#fff!important}
+  #gd-print-root [data-print-copy] *{break-before:auto!important;break-after:auto!important}
+  #gd-print-root [data-print-copy] footer,#gd-print-root [data-print-copy] aside,#gd-print-root [data-print-copy] [data-testid="signature-block"]{break-inside:avoid!important}
+  /* Presupuesto en su diálogo (si se imprime la página entera). */
+  html:not(.gd-print-node) body *{visibility:hidden!important}
+  html:not(.gd-print-node) [data-budget-print-dialog],html:not(.gd-print-node) [data-budget-print-dialog] *{visibility:visible!important}
   [data-budget-print-dialog]{position:static!important;inset:auto!important;transform:none!important;width:100%!important;max-width:none!important;max-height:none!important;overflow:visible!important;margin:0!important;padding:0!important;border:0!important;box-shadow:none!important;background:#fff!important}
   [data-budget-print-controls]{display:none!important}
   #budget-print-document{page:budget-document;display:block!important;position:static!important;width:100%!important;margin:0!important;padding:0!important;border:0!important;box-shadow:none!important;background:#fff!important}
-  #documentation-print{page:budget-document;display:block!important;position:static!important;width:100%!important;max-width:none!important;margin:0!important;padding:8mm!important;border:0!important;box-shadow:none!important;background:#fff!important}
   [data-slot="dialog-overlay"]{display:none!important}
 }
 
