@@ -950,6 +950,13 @@ export function ClinicalDictation({
 
   const proposal = outcome?.proposal;
   const budgetableSelected = lines.filter((line) => line.canBudget && lineSelected.has(line.id)).length;
+  // El riel de herramientas de cada evolución abre este dictado («Dictar»).
+  useEffect(() => {
+    if (!prominent) return;
+    const openFromRail = () => setOpen(true);
+    window.addEventListener("gd-open-dictation", openFromRail);
+    return () => window.removeEventListener("gd-open-dictation", openFromRail);
+  }, [prominent]);
   // Arancel propio (valores por código) para presupuestar las líneas: se lee una vez al aparecer líneas.
   useEffect(() => {
     if (!lines.some((line) => line.canBudget) || arancel) return;
