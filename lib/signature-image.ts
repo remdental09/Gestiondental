@@ -48,3 +48,16 @@ export function fitInBox(imageWidth: number, imageHeight: number, boxWidth: numb
   return { width: imageWidth * scale, height: imageHeight * scale };
 }
 export const cmToPt = (cm: number) => cm / 2.54 * 72;
+
+/** Tamaño interno del lienzo para que el trazo salga nítido en pantallas de alta densidad (iPhone = 3×), sin pasarse de memoria. */
+export function backingSize(cssWidth: number, cssHeight: number, devicePixelRatio = 1): { width: number; height: number; scale: number } {
+  const wanted = Math.min(Math.max(devicePixelRatio || 1, 1), 3);
+  const scale = Math.max(1, Math.min(wanted, 2400 / Math.max(cssWidth, 1), 1600 / Math.max(cssHeight, 1)));
+  return { width: Math.max(1, Math.round(cssWidth * scale)), height: Math.max(1, Math.round(cssHeight * scale)), scale };
+}
+
+/** Grosor del trazo en px de pantalla: más grueso que antes y proporcional al cuadro (≈5 px en iPhone, hasta 7 px). */
+export const strokeWidth = (cssWidth: number) => Math.min(7, Math.max(4.5, cssWidth / 75));
+
+/** Altura de la línea guía «Firme aquí», como fracción del alto del cuadro. */
+export const BASELINE_RATIO = 0.72;
