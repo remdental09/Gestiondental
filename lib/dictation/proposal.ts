@@ -1,5 +1,6 @@
 import { DENTAL_DICTIONARY_HINTS } from "./dental-lexicon.ts";
 import { APICAL_STATUSES, FRACTURE_STATUSES, isLesionStatus } from "../tooth-status.ts";
+import { calmClarifications, type Sensitivity } from "./sensitivity.ts";
 import { applyAiReview, clinicalCoherence, parseReview, parseReviewExtras, REVIEW_PROMPT, reviewPayload } from "./clinical-review.ts";
 import { isDeducedSuggestion, type Learned } from "./learning.ts";
 import { applyClinicalItems, ITEMS_PROMPT, ITEMS_SCHEMA, parseAiItems, patientPrompt, polishNote, type ClinicalItem, type PatientContext } from "./clinical-items.ts";
@@ -4168,8 +4169,10 @@ export async function proposeFromTranscript(
   input: StructureInput,
   model: ClinicalModel | null,
   log: DictationLog = defaultDictationLog,
-  options: { timeoutMs?: number; today?: string; learned?: Learned } = {},
+  options: { timeoutMs?: number; today?: string; learned?: Learned; sensitivity?: Sensitivity } = {},
 ): Promise<StructureOutcome> {
+  // La biblioteca conserva la revisión completa si nadie dice otra cosa; la aplicación (API y pantalla) manda «basic» por defecto.
+  const sensitivity = options.sensitivity ?? "full";
   const transcript = input.transcript.trim();
   if (transcript.length < 3) throw new Error("El dictado está vacío.");
   if (transcript.length > 8000) throw new Error("El dictado es demasiado largo para este prototipo.");
@@ -4254,7 +4257,7 @@ export async function proposeFromTranscript(
     }
     return withClinicalItems({
       ...finished,
-      clarifications: [...finished.clarifications, ...endoQuestions, ...surgeryAsks].filter((item) => !(ruleBrandAsked && /^IA: ¿La marca dictada como/.test(item)) && !(hasPrestaciones && /^IA: No hay una prestaci[oó]n candidata/.test(item)) && !alreadyPlaced(item)),
+      clarifications: calmClarifications([...finished.clarifications, ...endoQuestions, ...surgeryAsks], sensitivity).filter((item) => !(ruleBrandAsked && /^IA: ¿La marca dictada como/.test(item)) && !(hasPrestaciones && /^IA: No hay una prestaci[oó]n candidata/.test(item)) && !alreadyPlaced(item)),
     }, text, aiItems);
   };
   if (!model) return { engine: "reglas-locales", model: null, notice: LOCAL_NOTICE, proposal: withText(localOnly, fixed, lexicon.corrections) };
@@ -4275,7 +4278,7 @@ export async function proposeFromTranscript(
     const proposal = { ...mergeProposals(ai, local, corrected), ...(ai.acts?.length ? { acts: ai.acts } : {}) };
     const aiMs = Date.now() - started;
     log("dictation.ai_ok", { model: usedModel, ms: aiMs, items: ai.odontogram.length, rejected: ai.rejected, corrections: reconciled.corrections.filter((item) => item.applied).length });
-    return { engine: "ia+reglas", model: usedModel, notice: AI_NOTICE, proposal: await secondOpinion(model, withText(proposal, corrected, [...lexicon.corrections, ...reconciled.corrections], ai.diagnoses ?? [], ai.items ?? []), corrected, input.chart ?? [], log), aiMs, ...(aiNote ? { aiNote } : {}) };
+    return { engine: "ia+reglas", model: usedModel, notice: AI_NOTICE, proposal: await (sensitivity === "full" ? secondOpinion(model, withText(proposal, corrected, [...lexicon.corrections, ...reconciled.corrections], ai.diagnoses ?? [], ai.items ?? []), corrected, input.chart ?? [], log) : Promise.resolve(withText(proposal, corrected, [...lexicon.corrections, ...reconciled.corrections], ai.diagnoses ?? [], ai.items ?? []))), aiMs, ...(aiNote ? { aiNote } : {}) };
   } catch (cause) {
     const aiMs = Date.now() - started;
     const reason = cause instanceof Error ? cause.message.replace(/\s+/g, " ").slice(0, 120) : "error";

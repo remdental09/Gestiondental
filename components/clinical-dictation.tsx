@@ -258,6 +258,15 @@ export function ClinicalDictation({
   const [elapsed, setElapsed] = useState(0);
   const [interim, setInterim] = useState("");
   const [structuring, setStructuring] = useState(false);
+  // Revisión de la IA: «básica» (por defecto) solo detecta diagnóstico, procedimientos y plan; «completa» agrega la segunda opinión y todos los avisos.
+  const [reviewLevel, setReviewLevel] = useState<"basic" | "full">("basic");
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { try { if (window.localStorage.getItem("dictation.reviewLevel") === "full") setReviewLevel("full"); } catch { /* sin almacenamiento */ } }, []);
+  const toggleReviewLevel = () => {
+    const next = reviewLevel === "basic" ? "full" : "basic";
+    setReviewLevel(next);
+    try { window.localStorage.setItem("dictation.reviewLevel", next); } catch { /* sin almacenamiento */ }
+  };
   const [outcome, setOutcome] = useState<StructureOutcome | null>(null);
   const [evolutionTitle, setEvolutionTitle] = useState("");
   const [attentionDate, setAttentionDate] = useState("");
@@ -464,6 +473,7 @@ export function ClinicalDictation({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           transcript: text,
+          sensitivity: reviewLevel,
           // Solo sexo (deducido del nombre, si es claro) y edad: la identidad no sale de la ficha.
           patient: { sex: inferSexFromName(patientName), age: ageFrom(patient?.birthDate, chileTodayIso()) },
           chart: Object.entries(odontogram.teeth).map(([tooth, status]) => ({ tooth: Number(tooth), status, ...(odontogram.crowns?.[Number(tooth)]?.foundation ? { foundation: odontogram.crowns[Number(tooth)]!.foundation } : {}), ...(odontogram.extras?.[Number(tooth)]?.length ? { extras: odontogram.extras[Number(tooth)] } : {}) })),
@@ -971,14 +981,14 @@ export function ClinicalDictation({
     const prior = notes.flatMap((note) => procedureSessions(note.body ?? "", (note as { clinicalDate?: string }).clinicalDate, note.id));
     return treatmentAdvances(prior, plannedItems, procedureSessions(evolutionBody, attentionDate || chileTodayIso()));
   }, [evolutionBody, notes, plannedItems, attentionDate]);
-  // Avisos en voz alta cuando algo falta o genera duda. Interruptor guardado en este navegador; por defecto activado.
-  const [speakAlerts, setSpeakAlerts] = useState(true);
+  // Corrección con voz: la app solo habla si el profesional lo autoriza. Guardado en este navegador; por defecto SIN voz.
+  const [speakAlerts, setSpeakAlerts] = useState(false);
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { try { if (window.localStorage.getItem("dictation.speakAlerts") === "off") setSpeakAlerts(false); } catch { /* sin almacenamiento */ } }, []);
+  useEffect(() => { try { if (window.localStorage.getItem("dictation.voiceCorrection") === "on") setSpeakAlerts(true); } catch { /* sin almacenamiento */ } }, []);
   const toggleSpeak = () => {
     const next = !speakAlerts;
     setSpeakAlerts(next);
-    try { window.localStorage.setItem("dictation.speakAlerts", next ? "on" : "off"); } catch { /* sin almacenamiento */ }
+    try { window.localStorage.setItem("dictation.voiceCorrection", next ? "on" : "off"); } catch { /* sin almacenamiento */ }
     if (!next && typeof window !== "undefined") window.speechSynthesis?.cancel();
   };
   const alertPhrases = useMemo(() => proposal ? spokenAlerts(proposal.clarifications, missing) : [], [proposal, missing]);
@@ -1074,6 +1084,11 @@ export function ClinicalDictation({
             </Button>
             <Button type="button" variant="outline" onClick={() => { stopWithoutCorrecting(); setTranscript(EXAMPLE); setInterim(""); resetReview(); }} data-testid="dictation-example">Cargar ejemplo</Button>
             <Button type="button" className="bg-[#473a6d] hover:bg-[#3a2f5a]" disabled={transcribing || structuring || listening || transcript.trim().length < 3} onClick={() => void structure(transcript)} data-testid="dictation-structure"><Sparkles className="mr-2 size-4" aria-hidden="true" />{structuring ? "Corrigiendo texto…" : outcome ? "Volver a corregir texto" : "Corregir texto"}</Button>
+          </div>
+          <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Corrección del dictado" data-testid="dictation-correction-options">
+            <span className="text-xs font-semibold uppercase tracking-wide text-[#473a6d]">Corrección</span>
+            <Button type="button" size="sm" variant="outline" className="bg-white" aria-pressed={speakAlerts} onClick={toggleSpeak} data-testid="dictation-voice-toggle">{speakAlerts ? "🔊 Con voz" : "🔇 Sin voz"}</Button>
+            <Button type="button" size="sm" variant="outline" className="bg-white" aria-pressed={reviewLevel === "full"} onClick={toggleReviewLevel} data-testid="dictation-review-toggle" title={reviewLevel === "basic" ? "Solo detecta diagnóstico, procedimientos y plan" : "Segunda opinión de la IA y todos los avisos"}>{reviewLevel === "basic" ? "Revisión básica" : "Revisión completa"}</Button>
           </div>
           {listening && <p role="status" className="font-medium text-[#473a6d]">Escuchando en español de Chile… Al detener, el texto se corrige solo con IA.</p>}
           {structuring && <p role="status" aria-live="polite" className="flex items-center gap-2 rounded-lg bg-sky-50 p-3 font-medium text-sky-950" data-testid="dictation-correcting"><span className="size-4 shrink-0 animate-spin rounded-full border-2 border-sky-700 border-t-transparent" aria-hidden="true" />Corrigiendo con IA… redactando la nota por secciones.</p>}
@@ -1199,8 +1214,7 @@ export function ClinicalDictation({
                 </div>)}
             </section>}
             <div className="flex flex-wrap items-center gap-2 text-sm" data-testid="dictation-speak-alerts">
-              <Button type="button" size="sm" variant="outline" className="bg-white" aria-pressed={speakAlerts} onClick={toggleSpeak}>{speakAlerts ? "🔊 Avisos en voz alta: sí" : "🔇 Avisos en voz alta: no"}</Button>
-              {alertPhrases.length > 0 && <Button type="button" size="sm" variant="outline" className="bg-white" onClick={speakNow}>Repetir avisos</Button>}
+              {speakAlerts && alertPhrases.length > 0 && <Button type="button" size="sm" variant="outline" className="bg-white" onClick={speakNow}>Repetir avisos</Button>}
               {speechBlocked && <span className="text-xs text-amber-800">El móvil bloqueó el audio automático: toca «Repetir avisos».</span>}
             </div>
             {shownClarifications.length > 0 && <section className="rounded-xl bg-amber-50 p-4 text-amber-950" data-testid="dictation-clarifications">
