@@ -33,7 +33,7 @@ const INK = rgb(0.12, 0.11, 0.17), MUTED = rgb(0.4, 0.39, 0.47), LINE = rgb(0.81
 
 const wrap = (text: string, font: PDFFont, size: number, width: number): string[] => {
   const out: string[] = [];
-  for (const paragraph of pdfSafe(text).split(/\n/)) {
+  for (const paragraph of text.split(/\r?\n/).map(pdfSafe)) {
     let line = "";
     for (const word of paragraph.split(" ")) {
       const next = line ? `${line} ${word}` : word;
@@ -137,8 +137,8 @@ export async function buildDocumentPdf(input: DocumentPdfInput): Promise<Uint8Ar
   };
   const doctorLines = [input.doctorName, ...input.doctorLines.slice(0, 2)];
   const withPatient = Boolean(input.patientLabel);
-  const verificationHeight = input.verification ? 52 : 0;
-  need(cmToPt(SIGNATURE_BOX_CM.height) + 70 + (withPatient ? 24 : 0) + verificationHeight);
+  const verificationHeight = input.verification ? 12 + 46 + 4 : 0;
+  need(26 + cmToPt(SIGNATURE_BOX_CM.height) + 70 + (withPatient ? 24 : 0) + verificationHeight);
   y -= 26;
   const signTop = y;
   if (withPatient) {

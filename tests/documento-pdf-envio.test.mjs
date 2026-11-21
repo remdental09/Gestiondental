@@ -55,3 +55,12 @@ test("el panel envía el PDF por WhatsApp (compartir con archivo) y por correo (
   assert.match(panel, /documentation-send-whatsapp/); assert.match(panel, /documentation-send-email/);
   assert.match(panel, /\(isPrescriptionKind\(activeDocument\.kind\) \|\| activeDocument\.kind === "consentimiento"\) && !printBlocked\(activeDocument\)/);
 });
+
+test("los saltos de línea del texto se respetan (no se colapsan en un párrafo)", async () => {
+  const lines = Array.from({ length: 60 }, (_, i) => `Componente ${i + 1}`).join("\n");
+  const bytes = await buildDocumentPdf({ ...base, title: "Receta magistral", sections: [{ heading: "FÓRMULA MAGISTRAL", lines: [lines] }] });
+  assert.ok((await PDFDocument.load(bytes)).getPageCount() >= 1);
+  const source = readFileSync(new URL("../lib/document-pdf.ts", import.meta.url), "utf8");
+  assert.match(source, /text\.split\(\/\\r\?\\n\/\)\.map\(pdfSafe\)/);
+  assert.match(source, /need\(26 \+ cmToPt\(SIGNATURE_BOX_CM\.height\) \+ 70/);
+});
