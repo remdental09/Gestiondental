@@ -102,3 +102,15 @@ test("recetas y certificados: QR de habilitación arriba a la derecha (encabezad
   assert.match(read("app/prestador-db.ts"), /qrUrl: printableQr\(/);
   assert.match(read("app/globals.css"), /@page\{size:letter;margin:10mm 12mm\}/);
 });
+
+test("el consentimiento informado lleva el mismo QR de habilitación del prestador y, si falta, avisa sin bloquear la impresión", () => {
+  const panel = read("components/documentation-panel.tsx");
+  // El bloque del encabezado no depende del tipo de documento: lo usan recetas, certificados y consentimientos.
+  const header = panel.slice(panel.indexOf('data-testid="document-header"'), panel.indexOf("</header>", panel.indexOf('data-testid="document-header"')));
+  assert.doesNotMatch(header.slice(header.indexOf("{reg?.qrUrl &&"), header.indexOf('data-testid="habilitacion-row"')), /prescription|isPrescriptionKind/);
+  assert.match(panel, /data-testid="consent-sin-qr-habilitacion"/);
+  assert.match(panel, /No impide imprimirlo/);
+  // Solo la receta bloquea la impresión sin QR.
+  assert.match(panel, /const printBlocked = \(doc: SavedDocument\) => isPrescriptionKind\(doc\.kind\) &&/);
+  assert.match(panel, /const missingQr = prescription && !reg\?\.qrUrl;/);
+});
