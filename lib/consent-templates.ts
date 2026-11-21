@@ -12,8 +12,8 @@ export type ConsentTemplate = {
   declaracion: string;
 };
 
-const DECLARACION_BASE = "El profesional me explicó el procedimiento, sus riesgos y las alternativas con palabras que pude entender. Tuve la oportunidad de hacer preguntas y fueron respondidas. Entiendo que puedo retirar mi consentimiento antes de que el procedimiento comience.";
-const DECLARACION_MENOR = "El profesional explicó el procedimiento, sus riesgos y las alternativas a la persona que firma, con palabras que pudo entender. Quien firma declara ser el padre, la madre o el representante legal del paciente menor de edad o sin capacidad de decidir por sí mismo, y que tuvo la oportunidad de hacer preguntas, que fueron respondidas. Puede retirar el consentimiento antes de que el procedimiento comience.";
+const DECLARACION_BASE = "El profesional me explicó el procedimiento, sus riesgos y las alternativas con palabras que pude entender. Tuve la oportunidad de hacer preguntas y fueron respondidas. Informé al profesional mis antecedentes de salud, alergias y medicamentos con veracidad. Entiendo que este consentimiento es voluntario, que puedo retirarlo antes de que el procedimiento comience, y que negarme no afecta el resto de mi atención.";
+const DECLARACION_MENOR = "El profesional explicó el procedimiento, sus riesgos y las alternativas a la persona que firma, con palabras que pudo entender. Quien firma declara ser el padre, la madre o el representante legal del paciente menor de edad o sin capacidad de decidir por sí mismo, y que tuvo la oportunidad de hacer preguntas, que fueron respondidas. Se informaron los antecedentes de salud, alergias y medicamentos del paciente con veracidad. El consentimiento es voluntario y puede retirarse antes de que el procedimiento comience, sin afectar el resto de la atención.";
 const ANESTESIA = "Anestesia local: puede causar adormecimiento prolongado de labio, lengua o mejilla, mordedura accidental de los tejidos adormecidos, hematoma en el punto de inyección y, rara vez, reacción alérgica o alteración prolongada de la sensibilidad.";
 
 export const CONSENT_TEMPLATES: ConsentTemplate[] = [
@@ -33,8 +33,8 @@ export const CONSENT_TEMPLATES: ConsentTemplate[] = [
   },
   {
     id: "endodoncia-conductos", specialty: "Endodoncia", procedure: "Tratamiento de conductos (endodoncia)",
-    descripcion: "Remoción del tejido pulpar inflamado, infectado o necrótico, limpieza, desinfección y relleno del sistema de conductos de la pieza, habitualmente en una o más sesiones, con anestesia local y aislamiento con goma. Luego la pieza requiere una restauración definitiva (obturación o corona) que no está incluida salvo que se indique.",
-    riesgos: `${ANESTESIA}\nDolor o inflamación posoperatoria transitoria. Conductos calcificados, curvos o con anatomía compleja pueden impedir su limpieza completa. Fractura de un instrumento dentro del conducto, perforación de la raíz o de la cámara, extrusión de material más allá del ápice y, rara vez, alteración de la sensibilidad. Una pieza tratada es más frágil y puede fracturarse. El tratamiento puede fracasar y requerir retratamiento, cirugía apical o extracción. El éxito no puede garantizarse.`,
+    descripcion: "Remoción del tejido pulpar inflamado, infectado o necrótico, limpieza, desinfección y relleno del sistema de conductos de la pieza, habitualmente en una o más sesiones, con anestesia local y aislamiento con goma. Luego la pieza requiere una restauración definitiva (obturación o corona) que no está incluida salvo que se indique; su costo es independiente y debe realizarse lo antes posible. Ante dolor intenso, hinchazón o dudas entre sesiones, el paciente debe contactar a la clínica.",
+    riesgos: `${ANESTESIA}\nDolor o inflamación posoperatoria transitoria. Conductos calcificados, curvos o con anatomía compleja pueden impedir su limpieza completa. Fractura de un instrumento dentro del conducto, perforación de la raíz o de la cámara, extrusión de material más allá del ápice y, rara vez, alteración de la sensibilidad. Una pieza tratada es más frágil y puede fracturarse. El tratamiento puede fracasar y requerir retratamiento, cirugía apical o extracción. El éxito no puede garantizarse. Pueden presentarse reacciones inesperadas a la anestesia, y cambio de color de la pieza que podría requerir un tratamiento estético. Puede requerirse cirugía oral adicional, con costos y riesgos propios.`,
     alternativas: "Extracción de la pieza, con o sin reposición posterior (implante, puente o prótesis), o no tratar. Dejar una infección sin tratar puede causar dolor, absceso, diseminación de la infección y pérdida del hueso que rodea la raíz.",
     declaracion: DECLARACION_BASE,
   },
@@ -55,8 +55,8 @@ export const CONSENT_TEMPLATES: ConsentTemplate[] = [
   {
     id: "cirugia-tercer-molar", specialty: "Cirugía oral", procedure: "Cirugía de tercer molar (muela del juicio) incluido o retenido",
     descripcion: "Extracción quirúrgica de uno o más terceros molares que pueden estar incluidos o parcialmente erupcionados, con anestesia local (o la que se acuerde), incisión en la encía, eventual remoción de hueso o división de la pieza, y sutura. Se indican medicación y cuidados posoperatorios.",
-    riesgos: `${ANESTESIA}\nDolor, inflamación facial, hematoma y limitación para abrir la boca durante varios días. Sangrado, infección y alveolitis. Lesión de los nervios dentario inferior o lingual, con alteración temporal o, rara vez, permanente de la sensibilidad del labio, el mentón o la lengua. En el maxilar superior, comunicación con el seno maxilar. Fractura de la pieza, de la raíz o, raramente, de la mandíbula. Daño a dientes vecinos. El tiempo de recuperación varía y puede requerirse reposo.`,
-    alternativas: "Control periódico con radiografías si la pieza no presenta patología, o tratamiento de la complicación (por ejemplo, de la inflamación recurrente de la encía) sin extraer. Dejar piezas con patología puede originar infección, quistes, caries y daño en la pieza vecina.",
+    riesgos: `${ANESTESIA}\nDolor, inflamación facial, hematoma y limitación para abrir la boca durante varios días. Sangrado, infección y alveolitis. Lesión de los nervios dentario inferior o lingual, con alteración temporal o, rara vez, permanente de la sensibilidad del labio, el mentón o la lengua. En el maxilar superior, comunicación con el seno maxilar. Fractura de la pieza, de la raíz o, raramente, de la mandíbula. Daño a dientes vecinos. Enfermedades previas, alergias, trastornos de la coagulación o medicación habitual pueden aumentar la frecuencia o gravedad de las complicaciones y deben informarse. Durante la cirugía pueden surgir hallazgos imprevistos que obliguen a modificar la técnica; el material extraído podría enviarse a estudio (biopsia). El tiempo de recuperación varía y puede requerirse reposo.`,
+    alternativas: "Control periódico con radiografías si la pieza no presenta patología, o tratamiento de la complicación (por ejemplo, de la inflamación recurrente de la encía) sin extraer. Dejar piezas con patología puede originar infección, quistes, caries y daño en la pieza vecina. No se recomienda operar si la pieza erupciona bien y funciona, si no hay evidencia de patología asociada o si el riesgo quirúrgico es alto.",
     declaracion: DECLARACION_BASE,
   },
   {
@@ -71,7 +71,7 @@ export const CONSENT_TEMPLATES: ConsentTemplate[] = [
     descripcion: "Colocación quirúrgica de uno o más implantes de titanio (u otro material) en el hueso maxilar o mandibular, con anestesia local (o la que se acuerde). Tras un período de cicatrización (osteointegración), cuya duración se explicará, se confecciona la prótesis sobre el implante. Puede combinarse con injerto óseo o regeneración si el hueso es insuficiente.",
     riesgos: `${ANESTESIA}\nDolor, inflamación, hematoma y sangrado posoperatorio. Infección. Falta de integración del implante con el hueso, con necesidad de retirarlo y, eventualmente, reponerlo. Lesión de nervios (alteración temporal o, rara vez, permanente de la sensibilidad) o perforación del seno maxilar. Exposición del implante o de la membrana del injerto. A largo plazo, inflamación de los tejidos que lo rodean (periimplantitis) y pérdida de hueso, que se relacionan con higiene, tabaco, diabetes y controles. Fracturas o aflojamiento de componentes protésicos. El resultado estético y funcional no puede garantizarse.`,
     alternativas: "Prótesis fija sobre dientes vecinos (puente), prótesis removible, o no reponer la pieza. Existen distintos materiales y técnicas, que el profesional explicará.",
-    declaracion: `${DECLARACION_BASE} Me comprometo a mantener la higiene y los controles indicados, y declaro haber informado mis enfermedades, medicamentos y hábitos (por ejemplo tabaco) que puedan influir en el resultado.`,
+    declaracion: `${DECLARACION_BASE} Me comprometo a mantener la higiene y los controles indicados. Declaro haber informado mis enfermedades (por ejemplo diabetes, osteoporosis, alteraciones de la coagulación), medicamentos (por ejemplo bifosfonatos, anticoagulantes), radioterapia previa y hábitos (por ejemplo tabaco, alcohol) que puedan influir en el resultado.`,
   },
   {
     id: "implantologia-injerto", specialty: "Implantología", procedure: "Injerto óseo / regeneración ósea o elevación de seno maxilar",
@@ -121,6 +121,35 @@ export const CONSENT_TEMPLATES: ConsentTemplate[] = [
     riesgos: `${ANESTESIA} En niños es importante cuidar que no se muerdan los labios, la lengua o las mejillas mientras dura el adormecimiento.\nSensibilidad o dolor posteriores, hinchazón, sangrado y, rara vez, infección. En piezas temporales, el tratamiento busca mantener el espacio y la función hasta la erupción de la pieza permanente. Una pieza temporal con caries profunda puede requerir tratamiento de la pulpa o extracción. La colaboración del niño influye en el resultado y en la seguridad del procedimiento.`,
     alternativas: "Observación y control, otro tipo de tratamiento o extracción de la pieza, según el caso. No tratar puede causar dolor, infección y alterar la erupción de las piezas permanentes.",
     declaracion: DECLARACION_MENOR,
+  },
+  {
+    id: "periodoncia-profilaxis", specialty: "Periodoncia", procedure: "Profilaxis y destartraje (limpieza dental)",
+    descripcion: "Remoción de sarro, placa y manchas superficiales de los dientes sobre y justo bajo el borde de la encía, con instrumental manual o ultrasónico, y pulido. Puede aplicarse anestesia tópica o local si hay sensibilidad. Se indican técnicas de higiene y frecuencia de controles.",
+    riesgos: "Sensibilidad dental transitoria y sangrado de encías, sobre todo si hay inflamación previa. Molestias en la encía durante los días siguientes. Al remover el sarro puede quedar más visible la retracción de la encía o los espacios entre dientes. Los resultados dependen de la higiene diaria y de los controles. En pacientes con ciertas condiciones cardíacas o inmunosupresión puede requerirse profilaxis antibiótica previa, que debe informarse.",
+    alternativas: "Raspado y alisado radicular si hay enfermedad periodontal, higiene profesional parcial, o no realizar el procedimiento. No removerlo puede favorecer la inflamación de la encía y la pérdida de hueso.",
+    declaracion: DECLARACION_BASE,
+  },
+  {
+    id: "operatoria-carillas", specialty: "Operatoria y restauradora", procedure: "Carillas (resina o cerámica)",
+    descripcion: "Cobertura de la cara visible de uno o más dientes con una lámina de resina o cerámica para modificar color, forma o posición. Puede requerir desgaste de esmalte (irreversible), provisorios, toma de impresiones, prueba y cementado. Se acordará el material y el diseño con el paciente.",
+    riesgos: "Desgaste irreversible de tejido dental sano. Sensibilidad durante días o semanas. Descementado, fractura o fisura de la carilla, y manchas o filtración en el borde con el tiempo. Diferencia de color con piezas vecinas o restauraciones existentes. Retracción de la encía. Hábitos como el rechinamiento (bruxismo) o morder objetos duros aumentan el riesgo de fractura y pueden requerir una férula. La duración no es indefinida y pueden requerirse reemplazos. No se puede garantizar el resultado estético exacto.",
+    alternativas: "Blanqueamiento, resinas directas, coronas, ortodoncia, o no realizar tratamiento.",
+    declaracion: DECLARACION_BASE,
+  },
+  {
+    id: "ttm-ferula", specialty: "Trastornos temporomandibulares", procedure: "Férula oclusal / manejo de trastorno temporomandibular",
+    descripcion: "Confección y control de una férula de uso, habitualmente nocturno, para proteger los dientes y disminuir la carga sobre la articulación y los músculos de la mandíbula, junto con indicaciones de autocuidado y controles. Puede requerir ajustes y complementarse con otras terapias.",
+    riesgos: "Molestias de adaptación, aumento de salivación, dificultad para hablar al inicio y ajustes frecuentes. La mejoría es variable y gradual, y los síntomas pueden persistir o reaparecer. Cambios en la mordida si se usa de forma inadecuada. Caries o irritación de la encía si la férula no se mantiene limpia. Fractura o desgaste de la férula. No se puede garantizar la desaparición del dolor.",
+    alternativas: "Fisioterapia, medicación indicada por el profesional, ajuste de hábitos, otros tratamientos, o control sin tratamiento.",
+    declaracion: `${DECLARACION_BASE} Me comprometo a usar la férula según lo indicado y asistir a los controles.`,
+  },
+  {
+    id: "cirugia-biopsia", specialty: "Cirugía oral", procedure: "Biopsia de tejidos bucales",
+    descripcion: "Toma de una muestra de tejido de la boca (o extirpación de una lesión) con anestesia local, para su estudio en laboratorio de anatomía patológica y obtener un diagnóstico. Se sutura la zona y se entregan indicaciones de cuidado. El resultado se informa cuando el laboratorio lo entrega.",
+    riesgos: `${ANESTESIA}
+Dolor, inflamación, hematoma y sangrado. Infección o apertura de los puntos. Cicatriz o alteración de la sensibilidad de la zona. La muestra puede no ser suficiente o requerir repetir la biopsia, y el resultado puede indicar otros estudios o tratamientos. El costo del estudio de laboratorio puede ser aparte.`,
+    alternativas: "Control periódico de la lesión, otros exámenes, o no realizar el procedimiento. No estudiar una lesión puede retrasar el diagnóstico y el tratamiento.",
+    declaracion: DECLARACION_BASE,
   },
   {
     id: "urgencia-dolor", specialty: "Urgencia", procedure: "Atención de urgencia (dolor, infección o trauma dental)",
