@@ -1,3 +1,4 @@
+import { normalizeShades } from "./shade.ts";
 import { DENTAL_DICTIONARY_HINTS } from "./dental-lexicon.ts";
 import { APICAL_STATUSES, FRACTURE_STATUSES, isLesionStatus } from "../tooth-status.ts";
 import { calmClarifications, type Sensitivity } from "./sensitivity.ts";
@@ -4181,7 +4182,7 @@ export async function proposeFromTranscript(
   // y autocorrecciones dichas en voz alta («la 2.4, no, perdón, la 2.5» → «la 2.5»), visibles en «Texto corregido».
   // 0) Saludo y cierre («Hola, quiero evolucionar la ficha de…», «eso es todo») no van a la nota ni a la IA.
   const frame = stripDictationFrame(transcript);
-  const dictionary = applyLexicon(frame.text);
+  const dictionary = applyLexicon(normalizeShades(frame.text));
   const selfFix = applySelfCorrections(dictionary.text);
   const lexicon = { text: selfFix.text, corrections: [...frame.corrections, ...dictionary.corrections, ...selfFix.corrections] };
   const fixed = lexicon.text;

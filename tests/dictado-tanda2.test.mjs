@@ -418,3 +418,20 @@ test('un diagnóstico dictado que no está en el catálogo se acerca al más par
   assert.ok(dx, JSON.stringify(result.proposal.diagnoses));
   assert.equal(dx.suggested?.from, 'aproximado');
 });
+
+test("el color de la corona dicho de varias formas («A 3.5», «a 3,5», «A tres cinco», «A3 y medio») no cambia la pieza", async () => {
+  for (const color of ["A 3.5", "a 3.5", "A 3,5", "A tres cinco", "A3 y medio", "A tres punto cinco", "A3.5"]) {
+    const p = await quick(`Pieza 4.5 fractura en mesial. Se confecciona una corona CAD CAM de silicona color ${color}.`);
+    assert.ok(p.odontogram.length > 0 && p.odontogram.every((item) => item.tooth === 45), `${color}: ${JSON.stringify(p.odontogram.map((i) => i.tooth))}`);
+    assert.match(p.evolution?.title ?? "", /4\.5/, color);
+    assert.doesNotMatch(p.evolution?.title ?? "", /3\.5/, color);
+  }
+});
+
+test("normalizeShades deja el color en una forma única y no toca medidas ni piezas", async () => {
+  const { normalizeShades } = await import("../lib/dictation/shade.ts");
+  assert.equal(normalizeShades("corona color A 3.5 cementada"), "corona color A3.5 cementada");
+  assert.equal(normalizeShades("tono b tres y medio"), "tono B3.5");
+  assert.equal(normalizeShades("color A2"), "color A2");
+  assert.equal(normalizeShades("pieza 3.5 con sondaje a 3.5 mm"), "pieza 3.5 con sondaje a 3.5 mm");
+});
