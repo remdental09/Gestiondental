@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { chileToFdi, universalToFdi } from "@/lib/dictation/proposal";
 import { buildImport, chunkBundles, commonZoneNumber, detectKind, needsNumbering, parseCsv, toRecords, type CsvKind, type Numbering, type Row } from "@/lib/platform-import";
 import { readZip } from "@/lib/zip-reader";
+import { PatientImportPanel } from "@/components/patient-import-panel";
 
 const KIND_LABEL: Record<CsvKind, string> = { pacientes: "Pacientes", planes: "Planes de tratamiento", tratamientos: "Tratamientos de los planes", evoluciones: "Evoluciones", pagos: "Pagos", aranceles: "Aranceles" };
 const COUNT_LABEL = { pacientes: "fichas de pacientes", planes: "planes de tratamiento", tratamientos: "tratamientos", evoluciones: "evoluciones", pagos: "pagos", aranceles: "aranceles propios" } as const;
@@ -101,6 +102,8 @@ export function ConfiguracionPanel() {
         <h2 className="text-xl font-semibold text-[#2b2540]">Configuración</h2>
         <p className="text-sm text-[#6b6a7c]">Ajustes de tu cuenta y de la plataforma.</p>
       </div>
+
+      <PatientImportPanel />
 
       <section className="space-y-4 rounded-xl border border-[#e2dfea] bg-white p-5" aria-labelledby="importar-titulo">
         <div>

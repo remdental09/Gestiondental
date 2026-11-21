@@ -324,6 +324,9 @@ export default function Home(){
     setPatients(data.patients);setNotes(data.notes);setBudgets(data.budgets);setPayments(data.payments??[]);setAppointments(data.appointments);setAgendaSync(data.agendaSync??null);setCalendarEvents(data.calendarEvents||[]);setCalendarSnapshotAt(data.calendarSnapshotAt||null);setCalendarSyncedAt(data.calendarSyncedAt||null);
     setPeriodontalExams(data.periodontalExams);setToothStatuses(data.toothStatuses);setClinicalImages(data.clinicalImages);setLoadError("");
   },[]);
+  // Pacientes importados desde Configuración: se recarga la lista sin recargar la página.
+  useEffect(()=>{const onImported=()=>{void fetch("/api/clinical",{cache:"no-store"}).then(async response=>{if(response.ok)applyClinicalLoad(await response.json() as ClinicalLoadResponse)}).catch(()=>undefined)};window.addEventListener("gd-patients-imported",onImported);return()=>window.removeEventListener("gd-patients-imported",onImported)},[applyClinicalLoad]);
+
   const downloadClinicalRecords=useCallback(async(format:"json"|"md"="json")=>{
     setExporting(true);setExportError("");
     try{
