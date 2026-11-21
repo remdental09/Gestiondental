@@ -211,3 +211,9 @@ test("el selector guía al clínico: pista tras elegir especialidad, aviso al ca
   assert.match(picker, /getElementById\("consent-procedimiento"\)/);
   assert.match(readFileSync(new URL("../components/documentation-panel.tsx", import.meta.url), "utf8"), /`consent-\$\{field\.key\}`/);
 });
+
+test("la receta no lleva la leyenda de firma electrónica avanzada; el consentimiento sí", async () => {
+  const { readFileSync } = await import("node:fs");
+  const panel = readFileSync(new URL("../components/documentation-panel.tsx", import.meta.url), "utf8");
+  assert.match(panel, /\{!prescription && " No es firma electrónica avanzada\."\}/);
+});
