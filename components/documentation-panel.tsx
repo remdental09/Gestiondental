@@ -276,7 +276,7 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
       {(error || notice) && <p role={error ? "alert" : "status"} className={`mb-4 rounded-lg p-3 text-sm print:hidden ${error ? "bg-rose-50 text-rose-800" : "bg-emerald-50 text-emerald-900"}`}>{error || notice}</p>}
       {activeDocument.status === "borrador" && <p className="mb-4 rounded-lg bg-[#f3f1f7] p-3 text-sm text-[#473a6d] print:hidden">Este documento es un borrador. Al imprimir o guardar en PDF se emite primero con su código de verificación QR (o pulsa «Emitir con QR»).{requiresHabilitacionQr(activeDocument.kind) && !canIssueReceta && ` Para emitir ${habilitacionNoun(activeDocument.kind).emitir} primero debes subir tu certificado de inscripción (tarjeta «Habilitación para emitir recetas») y esperar su aprobación.`}</p>}
       {activeDocument.kind === "consentimiento" && patient && (activeDocument.status === "borrador" || activeDocument.status === "emitido" || activeDocument.signature) && <div className="mb-4 print:hidden">
-        <ConsentSigningCard documentId={activeDocument.id} issued={activeDocument.status === "emitido" || Boolean(activeDocument.signature?.status === "firmado")} signature={activeDocument.signature} patient={{ name: patient.name, phone: patient.phone, email: patient.email }}
+        <ConsentSigningCard key={activeDocument.id} documentId={activeDocument.id} issued={activeDocument.status === "emitido" || Boolean(activeDocument.signature?.status === "firmado")} signature={activeDocument.signature} patient={{ name: patient.name, phone: patient.phone, email: patient.email }}
           onChange={next => patchSignature(activeDocument.id, next)} onRefresh={refreshDocuments}/>
       </div>}
       {(() => {

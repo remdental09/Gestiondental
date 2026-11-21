@@ -170,7 +170,7 @@ test("la firma aparece en el documento impreso y la ficha la lee junto a los doc
   const panel = read("components/documentation-panel.tsx");
   assert.match(panel, /doc\.signature\?\.status === "firmado" && <div[^>]*><PatientSignatureImage/);
   assert.match(panel, /Firma electrónica simple\./);
-  assert.match(panel, /<ConsentSigningCard documentId=\{activeDocument\.id\}/);
+  assert.match(panel, /<ConsentSigningCard key=\{activeDocument\.id\} documentId=\{activeDocument\.id\}/);
   assert.equal((panel.match(/Firma del paciente/g) ?? []).length, 1);
   assert.match(read("app/api/documentos/route.ts"), /signature: signatures\.get\(row\.document\.id\) \?\? null/);
 });
@@ -196,4 +196,9 @@ test("hay migración Drizzle con índice único parcial y es idempotente", () =>
 
 test("el hash SHA-256 auxiliar coincide con el valor conocido", async () => {
   assert.equal(await sha256Hex("abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+});
+
+test("la tarjeta de firma se reinicia al cambiar de documento (key por id)", async () => {
+  const { readFileSync } = await import("node:fs");
+  assert.match(readFileSync(new URL("../components/documentation-panel.tsx", import.meta.url), "utf8"), /<ConsentSigningCard key=\{activeDocument\.id\}/);
 });
