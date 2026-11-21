@@ -5,7 +5,7 @@
  * documentos: certificados, recetas, consentimientos y presupuestos.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, ImagePlus, Maximize2, Pencil, Save, Trash2 } from "lucide-react";
+import { Check, ImagePlus, Lock, Maximize2, Pencil, Save, Trash2 } from "lucide-react";
 import { BASELINE_RATIO, backingSize, inkBounds, outputScale, strokeWidth, worthTrimming } from "@/lib/signature-image";
 
 const loadImage = (src: string) => new Promise<HTMLImageElement>((resolve, reject) => { const image = new window.Image(); image.onload = () => resolve(image); image.onerror = () => reject(new Error("No se pudo leer la imagen.")); image.src = src; });
@@ -47,9 +47,19 @@ export function useTrimmedMark(mark: string): string {
   return trimmed.source === mark ? trimmed.value : mark;
 }
 
+async function codeRequest(body: { action: "enviar" | "verificar"; code?: string }): Promise<{ to?: string }> {
+  const response = await fetch("/api/documentos/imagen/codigo", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const result = await response.json() as { to?: string; error?: string };
+  if (!response.ok) throw new Error(result.error || "No se pudo completar.");
+  return result;
+}
+
+class LockedError extends Error {}
+
 async function saveMark(documentMark: string): Promise<string> {
   const response = await fetch("/api/documentos/imagen", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ documentMark }) });
-  const result = await response.json() as { documentMark?: string; error?: string };
+  const result = await response.json() as { documentMark?: string; locked?: boolean; error?: string };
+  if (response.status === 403 && result.locked) throw new LockedError(result.error || "Tu firma está protegida.");
   if (!response.ok || typeof result.documentMark !== "string") throw new Error(result.error || "No se pudo guardar la firma.");
   return result.documentMark;
 }
@@ -90,6 +100,11 @@ export function SignatureEditor({ compact = false }: { compact?: boolean }) {
   const [full, setFull] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  // Firma guardada = protegida: cambiarla o quitarla exige el código enviado al correo de la cuenta.
+  const [locked, setLocked] = useState(false);
+  const [codeSentTo, setCodeSentTo] = useState<string | null>(null);
+  const [code, setCode] = useState("");
+  const [codeBusy, setCodeBusy] = useState(false);
 
   /** Redibuja todo: la imagen base (firma guardada, subida o trazos anteriores) y los trazos en curso. */
   const render = useCallback(() => {
@@ -161,11 +176,12 @@ export function SignatureEditor({ compact = false }: { compact?: boolean }) {
   useEffect(() => {
     let alive = true;
     void fetch("/api/documentos/imagen", { cache: "no-store" }).then(async response => {
-      const data = await response.json() as { documentMark?: string; error?: string };
+      const data = await response.json() as { documentMark?: string; locked?: boolean; error?: string };
       if (!response.ok) throw new Error(data.error || "No se pudo leer tu firma.");
       let saved = data.documentMark ?? "";
+      if (alive) setLocked(!!data.locked);
       // Migración: la firma antigua (cuadro de 200 px con mucho blanco) se guarda recortada al trazo, una sola vez.
-      if (saved) {
+      if (saved && !data.locked) {
         const image = await loadImage(saved);
         const c = document.createElement("canvas"); c.width = image.naturalWidth; c.height = image.naturalHeight;
         const x = c.getContext("2d");
@@ -245,10 +261,27 @@ export function SignatureEditor({ compact = false }: { compact?: boolean }) {
         if (documentMark.length > 400_000) throw new Error("La imagen tiene demasiados detalles. Firma con el dedo o sube una imagen más simple.");
       }
       const saved = await saveMark(documentMark);
-      setMark(saved); setDirty(false); setFull(false);
+      setMark(saved); setDirty(false); setFull(false); setLocked(!!saved); setCodeSentTo(null); setCode("");
       setNotice(saved ? "Firma guardada. Se usa sola en tus certificados, recetas, consentimientos y presupuestos." : "Firma quitada de tus documentos.");
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo guardar la firma."); }
+    } catch (reason) {
+      // El permiso venció (o ya se usó): se vuelve a pedir el código y lo dibujado queda en el cuadro.
+      if (reason instanceof LockedError) { setLocked(true); setCodeSentTo(null); setCode(""); }
+      setError(reason instanceof Error ? reason.message : "No se pudo guardar la firma.");
+    }
     finally { setSaving(false); }
+  };
+
+  const requestCode = async () => {
+    setCodeBusy(true); setError(""); setNotice("");
+    try { const sent = await codeRequest({ action: "enviar" }); setCodeSentTo(sent.to ?? "tu correo"); setCode(""); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo enviar el código."); }
+    finally { setCodeBusy(false); }
+  };
+  const confirmCode = async () => {
+    setCodeBusy(true); setError(""); setNotice("");
+    try { await codeRequest({ action: "verificar", code }); setLocked(false); setCodeSentTo(null); setCode(""); setNotice("Listo: tienes 10 minutos para cambiar o quitar tu firma."); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo verificar el código."); }
+    finally { setCodeBusy(false); }
   };
 
   const big = "inline-flex min-h-12 items-center justify-center gap-2 rounded-xl px-4 text-base font-semibold disabled:opacity-50";
@@ -257,9 +290,23 @@ export function SignatureEditor({ compact = false }: { compact?: boolean }) {
     <div className={full ? "fixed inset-0 z-[70] flex flex-col gap-3 bg-[#f3f1f7] p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-[max(0.75rem,env(safe-area-inset-top))]" : "mt-3"} data-testid="signature-pad-area" role={full ? "dialog" : undefined} aria-modal={full ? true : undefined} aria-label={full ? "Firma en pantalla completa" : undefined}>
       {full && <p className="text-center text-sm text-[#615f73]">Gira el teléfono para tener más espacio. Firma sobre la línea.</p>}
       <div className={full ? "relative min-h-0 w-full flex-1" : "relative left-1/2 h-[clamp(220px,60vw,260px)] w-[min(94vw,720px)] -translate-x-1/2 sm:left-0 sm:w-full sm:max-w-[720px] sm:translate-x-0 lg:h-[300px]"} data-testid="signature-pad">
-        <canvas ref={canvasRef} aria-label="Cuadro para firmar con el dedo" onPointerDown={start} onPointerMove={move} onPointerUp={stop} onPointerCancel={stop} className="absolute inset-0 block size-full touch-none select-none cursor-crosshair rounded-xl border-2 border-dashed border-[#bcb5cc] bg-white" style={{ WebkitUserSelect: "none", WebkitTouchCallout: "none" }}/>
-        <div aria-hidden="true" className="pointer-events-none absolute inset-x-5 flex items-end gap-2 border-b-2 border-[#9a93ad] pb-1 text-[#9a93ad]" style={{ top: `calc(${BASELINE_RATIO * 100}% - 1.75rem)`, height: "1.75rem" }} data-testid="signature-baseline"><span className="text-xl font-semibold leading-none">✕</span><span className="text-sm font-medium uppercase tracking-wider">Firme aquí</span></div>
+        <canvas ref={canvasRef} aria-label="Cuadro para firmar con el dedo" onPointerDown={start} onPointerMove={move} onPointerUp={stop} onPointerCancel={stop} className={`absolute inset-0 block size-full touch-none select-none rounded-xl border-2 border-dashed border-[#bcb5cc] bg-white ${locked ? "pointer-events-none" : "cursor-crosshair"}`} style={{ WebkitUserSelect: "none", WebkitTouchCallout: "none" }}/>
+        {!locked && <div aria-hidden="true" className="pointer-events-none absolute inset-x-5 flex items-end gap-2 border-b-2 border-[#9a93ad] pb-1 text-[#9a93ad]" style={{ top: `calc(${BASELINE_RATIO * 100}% - 1.75rem)`, height: "1.75rem" }} data-testid="signature-baseline"><span className="text-xl font-semibold leading-none">✕</span><span className="text-sm font-medium uppercase tracking-wider">Firme aquí</span></div>}
       </div>
+      {locked ? <div className="mt-3 space-y-2 rounded-xl border border-[#dddbe6] bg-[#f7f6fa] p-3" data-testid="signature-locked">
+        <p className="flex items-center gap-2 text-sm font-semibold text-[#473a6d]"><Lock className="size-4" aria-hidden="true"/>Firma protegida</p>
+        {codeSentTo === null ? <>
+          <p className="text-sm text-[#615f73]">Para cambiarla o quitarla te enviamos un código al correo con que ingresaste.</p>
+          <button type="button" disabled={codeBusy} onClick={() => void requestCode()} className={`${big} w-full border-2 border-[#473a6d] bg-white text-[#473a6d] hover:bg-[#f3f1f7]`} data-testid="signature-change"><Pencil className="size-5" aria-hidden="true"/>{codeBusy ? "Enviando…" : "Cambiar firma"}</button>
+        </> : <>
+          <p className="text-sm text-[#615f73]">Te enviamos un código de 6 dígitos a <strong>{codeSentTo}</strong>. Vale 10 minutos.</p>
+          <input value={code} onChange={event => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="000000" aria-label="Código de 6 dígitos" className="h-12 w-full rounded-xl border-2 border-[#dddbe6] bg-white text-center text-2xl font-semibold tracking-[0.4em]" data-testid="signature-code"/>
+          <div className="grid grid-cols-2 gap-2">
+            <button type="button" disabled={codeBusy} onClick={() => void requestCode()} className={`${big} border-2 border-[#dddbe6] bg-white text-[#57566a]`}>Reenviar</button>
+            <button type="button" disabled={codeBusy || code.length !== 6} onClick={() => void confirmCode()} className={`${big} bg-[#473a6d] text-white hover:bg-[#3a2f5a]`} data-testid="signature-code-confirm">{codeBusy ? "Verificando…" : "Confirmar"}</button>
+          </div>
+        </>}
+      </div> : <>
       <div className={full ? "grid grid-cols-3 gap-2" : "mt-3 grid grid-cols-2 gap-2"}>
         <button type="button" onClick={clear} className={`${big} border-2 border-[#dddbe6] bg-white text-[#57566a] hover:bg-[#f7f6fa]`} data-testid="signature-clear"><Trash2 className="size-5" aria-hidden="true"/>Borrar</button>
         {full && <button type="button" onClick={() => setFull(false)} className={`${big} border-2 border-[#473a6d] bg-white text-[#473a6d] hover:bg-[#f3f1f7]`}><Check className="size-5" aria-hidden="true"/>Listo</button>}
@@ -269,6 +316,7 @@ export function SignatureEditor({ compact = false }: { compact?: boolean }) {
         <button type="button" onClick={() => setFull(true)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#473a6d] px-3 text-sm font-semibold text-[#473a6d] hover:bg-[#f3f1f7]" data-testid="signature-fullscreen"><Maximize2 className="size-4" aria-hidden="true"/>Pantalla completa</button>
         <button type="button" onClick={() => fileRef.current?.click()} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#dddbe6] px-3 text-sm font-semibold text-[#615f73] hover:bg-[#f7f6fa]"><ImagePlus className="size-4" aria-hidden="true"/>Subir imagen</button>
       </div>}
+      </>}
       <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={event => { void pickFile(event.target.files?.[0]); event.target.value = ""; }}/>
     </div>
     {mark === null && <p className="mt-2 text-xs text-[#615f73]" role="status">Cargando tu firma…</p>}
