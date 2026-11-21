@@ -965,7 +965,7 @@ export default function Home(){
     onControl:()=>{setControlStart({patientId:patient.id,patientName:patient.name,evolutions,evolutionId:note.id,nonce:Date.now()});navigateTo("Controles",patient.id)},
     onAppointment:()=>{navigateTo("Agenda",patient.id);openNewApptFor(patient,note.title)},
     whatsappHref:wa?`https://wa.me/${wa}`:null,
-    onDocument:()=>{const indicacion=evolutionDiagnosis(note);setDocStart({patientId:patient.id,kind:"receta",content:indicacion?{indicacion}:{},nonce:Date.now()});navigateTo("Documentación",patient.id)},
+    onDocument:(kind)=>{const text=evolutionDiagnosis(note);const content=!text?{}:kind==="receta"||kind==="receta_magistral"?{indicacion:text}:kind==="orden"?{diagnostico:text}:{};setDocStart({patientId:patient.id,kind,content,nonce:Date.now()});navigateTo("Documentación",patient.id)},
   }}/>}}
   below={note=>controlFor===note.id?<div className="mt-3"><ScheduleControlForm patientId={patient.id} evolutions={patientNotes.map(n=>({id:n.id,title:n.title,date:n.date}))} defaultEvolutionId={note.id} onDone={()=>setControlFor(null)} onCancel={()=>setControlFor(null)}/></div>:null}
   notes={showAnnulled ? patientNotesAll : patientNotes}

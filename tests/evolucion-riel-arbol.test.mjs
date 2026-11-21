@@ -27,7 +27,8 @@ test('rama: zona boca y piezas múltiples', () => {
 
 test('riel vertical junto a cada evolución con las 8 acciones; el árbol vive en la pestaña Evolución', () => {
   const rail = read('components/evolution-rail.tsx');
-  for (const label of ['Dictar', 'Presup.', 'Realizado', 'Cobrar', 'Control', 'Cita', 'WhatsApp', 'Receta']) assert.ok(rail.includes(`"${label}"`), label);
+  for (const label of ['Dictar', 'Presup.', 'Realizado', 'Cobrar', 'Control', 'Cita', 'WhatsApp']) assert.ok(rail.includes(`"${label}"`), label);
+  assert.ok(rail.includes('>Documento<'));
   assert.match(rail, /sticky/);
   const page = read('app/page.tsx');
   assert.match(page, /<BudgetTree /);
@@ -36,4 +37,16 @@ test('riel vertical junto a cada evolución con las 8 acciones; el árbol vive e
   assert.match(read('components/clinical-dictation.tsx'), /gd-open-dictation/);
   const history = read('components/evolution-history.tsx');
   assert.match(history, /rail\(note, note\.id === latestId\)/);
+});
+
+test('el botón Documento despliega un árbol con los cinco tipos, se pliega al volver a tocarlo y respeta reducir movimiento', () => {
+  const rail = read('components/evolution-rail.tsx');
+  assert.ok(rail.includes('>Documento<'));
+  for (const kind of ['receta', 'receta_magistral', 'orden', 'certificado', 'consentimiento']) assert.match(rail, new RegExp(`kind: "${kind}"`));
+  assert.match(rail, /aria-expanded=\{docsOpen\}/);
+  assert.match(rail, /setDocsOpen\(value => !value\)/);
+  assert.match(rail, /grid-rows-\[1fr\]/);
+  assert.match(rail, /cubic-bezier\(0\.32,0\.72,0,1\)/);
+  assert.match(rail, /motion-reduce:transition-none/);
+  assert.match(rail, /actions\.onDocument\?\.\(item\.kind\)/);
 });
