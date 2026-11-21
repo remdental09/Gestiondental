@@ -9,7 +9,7 @@ const compiled = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText;
 const tables = Object.fromEntries(
-  ['patients', 'evolutions', 'budgets', 'appointments', 'periodontalExams', 'toothStatuses', 'clinicalImages', 'patientDocuments', 'driveBackups']
+  ['patients', 'evolutions', 'budgets', 'appointments', 'periodontalExams', 'toothStatuses', 'clinicalImages', 'patientDocuments', 'consentSignatures', 'driveBackups']
     .map(name => [name, Object.fromEntries(['id', 'ownerId', 'patientId', 'backupStatus'].map(key => [key, key]))]),
 );
 
@@ -25,7 +25,7 @@ function fixture() {
   };
   const rows = {
     patients: [patient], evolutions: [note], budgets: [], appointments: [], periodontalExams: [],
-    toothStatuses: [], clinicalImages: [], patientDocuments: [], driveBackups: [],
+    toothStatuses: [], clinicalImages: [], patientDocuments: [], consentSignatures: [], driveBackups: [],
   };
   const keyOf = table => Object.keys(tables).find(key => tables[key] === table);
   const eq = (column, value) => ({ column, value });
@@ -71,6 +71,7 @@ function fixture() {
       '@/app/anamnesis-db': { loadAnamnesis: async () => null },
       '@/app/patient-address-db': { loadAddresses: async () => new Map() },
       '@/app/document-issuance-db': { ensureDocumentIssuanceColumns: async () => undefined },
+      '@/app/consent-signature-db': { ensureConsentSignatureTable: async () => undefined },
     })[name],
     crypto, TextEncoder, Date, Uint8Array, ArrayBuffer,
   });

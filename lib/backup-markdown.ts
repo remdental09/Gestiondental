@@ -16,7 +16,7 @@ export type MarkdownRecord = {
   periodontalExams: Array<{ recordedAt: string; data: unknown }>;
   odontogram: { teeth?: Record<string, string>; surfaces?: Record<string, Record<string, { condition?: string; depth?: string | null; restorationMaterial?: string | null } | null>>; crowns?: Record<string, { material?: string; foundation?: string } | null>; missingReason?: Record<string, string> } | null;
   imageMetadata: Array<{ name: string; driveFile?: string; kind?: string | null; note?: string | null; addedAt?: string | null }>;
-  documents?: Array<{ title: string; kind?: string; content: string; status?: string; createdAt?: string; createdByName?: string }>;
+  documents?: Array<{ title: string; kind?: string; content: string; status?: string; createdAt?: string; createdByName?: string; signature?: { signerName: string; signerRole: string; signerRelation: string; signedAt: string; method: string; signatureHash: string } }>;
 };
 
 const fdi = (tooth: string | number) => { const n = Number(tooth); return `${Math.floor(n / 10)}.${n % 10}`; };
@@ -102,6 +102,7 @@ export function fichaMarkdown(record: MarkdownRecord, generatedAt = ""): string 
       try { values = JSON.parse(document.content) as Record<string, unknown>; } catch { /* el contenido original queda además en el JSON estructurado */ }
       out.push(`### ${document.title} · ${day(document.createdAt)} · ${clean(document.status)}`, "");
       if (document.createdByName) out.push(`- **Profesional:** ${cell(document.createdByName)}`);
+      if (document.signature) out.push(`- **Firma del paciente:** ${cell(document.signature.signerName)}${document.signature.signerRelation ? ` (${cell(document.signature.signerRelation)})` : ""} · ${day(document.signature.signedAt)} · firma electrónica simple, método ${cell(document.signature.method)} · huella ${document.signature.signatureHash.slice(0, 16)}`);
       for (const [key, value] of Object.entries(values)) if (typeof value === "string" && value.trim()) out.push(`- **${cell(key)}:** ${value.trim().replace(/\n/g, "\n  ")}`);
       out.push("");
     }

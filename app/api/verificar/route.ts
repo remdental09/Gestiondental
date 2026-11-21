@@ -1,9 +1,11 @@
 // Verificación PÚBLICA de un documento emitido (QR de la receta, certificado o consentimiento). No usa sesión: solo un código secreto largo.
 // Muestra tipo, profesional, clínica, fecha y estado. Nunca datos clínicos ni del paciente.
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { ensureDocumentIssuanceColumns } from "@/app/document-issuance-db";
 import { getDb } from "@/db";
-import { patientDocuments } from "@/db/schema";
+import { consentSignatures, patientDocuments } from "@/db/schema";
+import { ensureConsentSignatureTable } from "@/app/consent-signature-db";
+import { SIGNER_ROLE_LABEL, SIGN_METHOD_LABEL, isSignMethod, isSignerRole, signatureHash } from "@/lib/consent-signature";
 import { loadProfile } from "@/app/clinician-profile-db";
 import { CLINICAL_DOCUMENT_LABEL, isClinicalDocumentKind } from "@/lib/clinical-documents";
 import { documentHash, isVerifyToken, shortCode, verificationState, type VerificationState } from "@/lib/document-verification";
@@ -37,6 +39,20 @@ export async function GET(request: Request) {
     if (!doc) return notFound();
     const recomputed = await documentHash({ ownerId: doc.ownerId, patientId: doc.patientId, kind: doc.kind, title: doc.title, content: doc.content, createdBy: doc.createdBy, createdByName: doc.createdByName, issuedAt: doc.issuedAt });
     const state = verificationState(doc, recomputed);
+    // Consentimiento: se informa si el paciente lo firmó (sin su nombre ni su firma) y si esa firma sigue íntegra.
+    let signatureRow = "";
+    const fmt = (iso: string) => new Intl.DateTimeFormat("es-CL", { dateStyle: "long", timeStyle: "short", timeZone: "America/Santiago" }).format(new Date(iso));
+    if (doc.kind === "consentimiento" && doc.contentHash && state !== "no-emitido") {
+      await ensureConsentSignatureTable();
+      const [signed] = await getDb().select().from(consentSignatures).where(and(eq(consentSignatures.documentId, doc.id), eq(consentSignatures.status, "firmado"))).limit(1);
+      if (!signed) signatureRow = "Sin firma del paciente registrada";
+      else {
+        const intact = signed.signatureHash === await signatureHash({ documentHash: doc.contentHash, image: signed.image, signedAt: signed.signedAt, signerName: signed.signerName, signerRole: signed.signerRole, signerRelation: signed.signerRelation, method: signed.method });
+        const who = isSignerRole(signed.signerRole) ? SIGNER_ROLE_LABEL[signed.signerRole] : "Paciente";
+        const how = isSignMethod(signed.method) ? SIGN_METHOD_LABEL[signed.method] : "";
+        signatureRow = intact ? `Firmado por ${who.toLowerCase()} el ${fmt(signed.signedAt)}${how ? ` (${how})` : ""}` : "Registro de la firma alterado: no lo aceptes y consulta con el profesional";
+      }
+    }
     const profile = await loadProfile(doc.createdBy).catch(() => null);
     const badge = BADGE[state];
     const label = isClinicalDocumentKind(doc.kind) ? CLINICAL_DOCUMENT_LABEL[doc.kind] : "Documento";
@@ -46,6 +62,6 @@ export async function GET(request: Request) {
       `<div style="background:${badge.bg};color:${badge.color};border-radius:10px;padding:14px 16px"><p style="margin:0;font-size:18px;font-weight:bold">${esc(badge.title)}</p><p style="margin:6px 0 0;font-size:14px">${esc(badge.text)}</p></div>` +
       row("Documento", label) + row("Profesional", doc.createdByName) + row("Clínica", profile?.clinicName ?? "") + row("Emitido", issued) +
       (doc.revokedAt ? row(doc.revokedReason === "reemplazado" ? "Reemplazado" : "Anulado", new Intl.DateTimeFormat("es-CL", { dateStyle: "long", timeStyle: "short", timeZone: "America/Santiago" }).format(new Date(doc.revokedAt))) : "") +
-      row("Código de verificación", shortCode(doc.contentHash)));
+      row("Firma del paciente", signatureRow) + row("Código de verificación", shortCode(doc.contentHash)));
   } catch { return page("Verificación no disponible", `<h1 style="font-size:20px;margin:0 0 8px">No pudimos verificar ahora</h1><p style="margin:0">Intenta de nuevo en unos minutos.</p>`, 503); }
 }

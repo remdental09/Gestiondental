@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { integer, primaryKey, sqliteTable, text, uniqueIndex, index } from "drizzle-orm/sqlite-core";
 
 export const patients = sqliteTable("patients", {
@@ -95,6 +96,32 @@ export const patientDocuments = sqliteTable("patient_documents", {
 }, table => [
   index("patient_documents_owner_patient_idx").on(table.ownerId, table.patientId, table.id),
   uniqueIndex("patient_documents_verify_token_idx").on(table.verifyToken),
+]);
+
+/** Firma electrónica simple del paciente en un consentimiento emitido. Una fila pendiente es un enlace de firma (solo se guarda la huella del código); al firmar pasa a «firmado». Máximo una firma por documento. */
+export const consentSignatures = sqliteTable("consent_signatures", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  documentId: integer("document_id").notNull().references(() => patientDocuments.id),
+  ownerId: text("owner_id").notNull(),
+  patientId: integer("patient_id").notNull().references(() => patients.id),
+  status: text("status").notNull(),
+  tokenHash: text("token_hash"),
+  tokenExpiresAt: text("token_expires_at").notNull().default(""),
+  signerName: text("signer_name").notNull().default(""),
+  signerRole: text("signer_role").notNull().default(""),
+  signerRelation: text("signer_relation").notNull().default(""),
+  image: text("image").notNull().default(""),
+  signedAt: text("signed_at").notNull().default(""),
+  method: text("method").notNull().default(""),
+  ip: text("ip").notNull().default(""),
+  userAgent: text("user_agent").notNull().default(""),
+  signatureHash: text("signature_hash").notNull().default(""),
+  createdAt: text("created_at").notNull(),
+}, table => [
+  index("consent_signatures_document_idx").on(table.documentId),
+  index("consent_signatures_owner_patient_idx").on(table.ownerId, table.patientId),
+  uniqueIndex("consent_signatures_token_idx").on(table.tokenHash),
+  uniqueIndex("consent_signatures_one_signed_idx").on(table.documentId).where(sql`${table.status} = 'firmado'`),
 ]);
 
 /** Firma/timbre gráfico personal; cada documento y presupuesto usa la imagen de su autor. */
