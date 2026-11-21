@@ -68,6 +68,7 @@ import { procedureSessions } from "@/lib/tooth-evolution-milestones";
 import { treatmentAdvances, type PlannedLink } from "@/lib/tooth-treatments";
 import { sameDiagnosisTags, sanitizeDiagnosisTags, type EvolutionDiagnosisTag } from "@/lib/evolution-diagnoses";
 import { evolutionNotices, type EvolutionNoticeKey } from "@/lib/dictation/evolution-notices";
+import { FIDELITY_LABEL, noteFidelity } from "@/lib/dictation/note-fidelity";
 import { buildFeedback, type ReviewGroup } from "@/lib/dictation/feedback";
 import { spokenAlerts } from "@/lib/dictation/spoken-alerts";
 import { toothMismatch } from "@/lib/dictation/tooth-mismatch";
@@ -975,6 +976,11 @@ export function ClinicalDictation({
     return () => { alive = false; };
   }, [lines, arancel]);
   const missing = useMemo(() => proposal ? missingData(proposal) : [], [proposal]);
+  // Fidelidad: datos de la nota (pieza, cara, cifra, material, fármaco, color, pasos) que no están en lo dicho.
+  // Se recalcula mientras el profesional edita: si borra o corrige el dato, el aviso desaparece.
+  const fidelity = useMemo(() => proposal?.evolution
+    ? noteFidelity(evolutionBody, [proposal.transcript ?? "", proposal.corrected?.text ?? "", ...Object.values(answers)])
+    : [], [proposal, evolutionBody, answers]);
   // Tratamientos por pieza que esta evolución hace avanzar (según sus «Procedimientos realizados» y lo ya registrado).
   const advances = useMemo(() => {
     if (!evolutionBody.trim()) return [];
@@ -1141,6 +1147,20 @@ export function ClinicalDictation({
                 </label>
                 <Textarea className="mt-2 min-h-56 w-full min-w-0 max-w-full cursor-text border-2 border-emerald-300 bg-emerald-50 text-base leading-6 focus-visible:border-[#473a6d] focus-visible:bg-white sm:text-sm" aria-label="Cuerpo de la evolución (editable)" spellCheck lang="es" rows={10} value={evolutionBody} onChange={(event) => setEvolutionBody(event.target.value)} data-testid="dictation-evolution-body" />
                 {(() => { const mismatch = toothMismatch(evolutionTitle, evolutionBody); return mismatch && <p role="alert" className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-sm text-amber-950" data-testid="dictation-tooth-mismatch">El título menciona la pieza {mismatch.title.join(", ")} pero el texto habla de la pieza {mismatch.body.join(", ")}. Corrige el que esté mal antes de guardar.</p>; })()}
+                {fidelity.length > 0 && <section role="status" className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950" data-testid="dictation-fidelity">
+                  <p className="font-semibold">Revisa: {fidelity.length === 1 ? "1 dato de la nota no aparece" : `${fidelity.length} datos de la nota no aparecen`} en tu dictado</p>
+                  <p className="mt-0.5 text-xs">La IA pudo agregarlo. Si es correcto, déjalo; si no, bórralo o corrígelo en el texto y el aviso desaparece.</p>
+                  <ul className="mt-2 space-y-1.5">
+                    {fidelity.map((flag) => {
+                      const at = flag.sentence.indexOf(flag.found);
+                      return <li key={`${flag.kind}-${flag.found}`} className="leading-5">
+                        <span className="mr-1.5 rounded bg-amber-200 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide">{FIDELITY_LABEL[flag.kind]}</span>
+                        {at >= 0 ? <>{flag.sentence.slice(0, at)}<mark className="rounded bg-amber-300 px-0.5 font-semibold text-amber-950">{flag.found}</mark>{flag.sentence.slice(at + flag.found.length)}</> : <><mark className="rounded bg-amber-300 px-0.5 font-semibold text-amber-950">{flag.found}</mark> · {flag.sentence}</>}
+                      </li>;
+                    })}
+                  </ul>
+                  {proposal.transcript && <details className="mt-2"><summary className="cursor-pointer text-xs font-medium text-[#473a6d]">Ver lo que dictaste</summary><p className="mt-1 whitespace-pre-wrap rounded bg-white p-2 text-xs text-[#3b3355]">{proposal.transcript}</p></details>}
+                </section>}
                 <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-[#615f73]"><span>Una vez guardada, la evolución queda cerrada: solo puede anularse y registrarse otra.</span>{proposal.evolution && (evolutionBody !== proposal.evolution.body || evolutionTitle !== proposal.evolution.title) && <button type="button" className="font-semibold text-[#473a6d] underline" onClick={() => { if (window.confirm("¿Descartar tus cambios y volver al texto propuesto?")) { setEvolutionTitle(proposal.evolution?.title ?? ""); setEvolutionBody(proposal.evolution?.body ?? ""); } }}>Volver al texto propuesto</button>}</div>
               </> : <p className="mt-3 text-[#6b6a7c]">El dictado no produjo una evolución.</p>}
             </section>

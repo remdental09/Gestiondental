@@ -4150,6 +4150,11 @@ const ITEM_TOOLS = {
   formatFdi: (tooth: number) => formatFdi(tooth),
 };
 
+/** Piezas (FDI compacto) que nombra un texto, con las mismas reglas de numeración que el dictado. */
+export function teethInText(text: string): number[] {
+  return [...new Set(sentences(text).flatMap((sentence) => ITEM_TOOLS.teethIn(sentence)))];
+}
+
 /** Revisión del texto original, incluso si la propuesta solo conserva una de las dos caras. */
 export function focusedToothReview(transcript: string, tooth: number) {
   const otherTeeth = [...new Set(ITEM_TOOLS.teethIn(spokenPunctuation(transcript)))].filter(value => value !== tooth);

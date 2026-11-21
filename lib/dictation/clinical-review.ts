@@ -109,6 +109,7 @@ LEE Y COMPRENDE el dictado como lo haría un colega (verbos, intención, qué ma
 - Marcar «obturada» una cara cuando lo colocado fue para inactivar caries o fue provisorio y el dictado no habla de obturación definitiva.
 - Una prestación que no corresponde a nada realizado hoy, o cuya cantidad/extensión no calza (p. ej. un sextante cuando se dictaron varios).
 - Pieza, caras o material en la nota distintos a los del odontograma o del dictado.
+- Un dato clínico en la nota que no está en el dictado: pieza, cara, material, fármaco, dosis, color o paso técnico agregado (aislamiento, anestesia, «tolera bien»). Pasar el lenguaje coloquial a clínico no es un error.
 - Marcar implante en una pieza que se trepana o tiene pulpa; atribuir a una pieza lo dicho de la vecina; marcar ausente una pieza tratada; contradecir el odontograma actual sin que el dictado diga qué ocurrió.
 No inventes cambios nuevos y no objetes lo razonable. Responde SOLO un JSON:
 {"observaciones":[{"pieza":"4.5","estado":"Implante","motivo":"…"}],"prestaciones":[{"codigo":"5005002","pieza":"1.6","motivo":"…"}],"nota":[{"motivo":"…"}]}
