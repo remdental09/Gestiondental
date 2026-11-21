@@ -28,6 +28,11 @@ export const CLINICAL_DOCUMENT_LABEL: Record<ClinicalDocumentKind, string> = {
 /** Las recetas (común y magistral) comparten diseño y exigen la habilitación del prestador para emitirse. */
 export const isPrescriptionKind = (kind: string): boolean => kind === "receta" || kind === "receta_magistral";
 
+/** Documentos que llevan SIEMPRE el QR de habilitación del prestador (Superintendencia de Salud): sin él no se emiten ni se imprimen. */
+export const requiresHabilitacionQr = (kind: string): boolean => isPrescriptionKind(kind) || kind === "consentimiento";
+/** Cómo nombrar el documento en los avisos de habilitación. */
+export const habilitacionNoun = (kind: string): { esta: string; emitir: string } => kind === "consentimiento" ? { esta: "Este consentimiento", emitir: "consentimientos" } : { esta: "Esta receta", emitir: "recetas" };
+
 export type PrescriptionLine = { name: string; detail: string };
 
 /** Separa cada línea de la prescripción en medicamento (destacado) y pauta. No interpreta ni completa dosis. */
