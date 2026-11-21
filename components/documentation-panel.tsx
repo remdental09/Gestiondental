@@ -200,15 +200,14 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
       const file = new File([blob], `${doc.kind === "consentimiento" ? "consentimiento" : "receta"}-${String(doc.id).padStart(5, "0")}.pdf`, { type: "application/pdf" });
       const message = `Hola ${patient.name.trim().split(/\s+/)[0] ?? ""}, te enviamos${clinic?.clinicName ? ` desde ${clinic.clinicName}` : ""} tu ${noun} en PDF.`;
       if (typeof navigator.canShare === "function" && navigator.canShare({ files: [file] })) {
-        try { await navigator.share({ files: [file], text: message }); setNotice(`Elige WhatsApp y el chat de ${patient.name} para enviar el PDF.`); }
+        try { await navigator.share({ files: [file], text: message }); setNotice(`Elige WhatsApp y luego el chat de ${patient.name}.`); }
         catch (shareError) { if ((shareError as Error)?.name !== "AbortError") throw shareError; }
       } else {
         const url = URL.createObjectURL(blob);
         const link = window.document.createElement("a"); link.href = url; link.download = file.name; link.click();
         window.setTimeout(() => URL.revokeObjectURL(url), 10000);
-        const wa = whatsappSignLink(patient.phone, `${message} Te lo adjunto en este chat.`);
-        if (wa) window.open(wa, "_blank", "noopener");
-        setNotice("El PDF se descargó: adjúntalo en el chat de WhatsApp que se abrió.");
+        window.open(`https://wa.me/?text=${encodeURIComponent(`${message} Te lo adjunto en este chat.`)}`, "_blank", "noopener");
+        setNotice(`El PDF se descargó. En WhatsApp elige el chat de ${patient.name} y adjunta el archivo.`);
       }
     } catch (failure) { setError(failure instanceof Error ? failure.message : "No se pudo preparar el PDF."); }
     finally { setBusy(false); }
@@ -315,9 +314,9 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
             const buttonClass = "inline-flex min-h-11 items-center gap-2 rounded-lg border border-[#b9b1ce] px-4 text-sm font-semibold text-[#473a6d] hover:bg-[#f3f1f7] disabled:cursor-not-allowed disabled:opacity-50";
             const noun = doc.kind === "consentimiento" ? "consentimiento" : "receta";
             return <>
-              <button type="button" data-testid="documentation-send-whatsapp" disabled={busy || !patient.phone} title={patient.phone ? undefined : "Agrega un teléfono al paciente"} onClick={() => void shareDocumentPdf(doc)} className={buttonClass}>Enviar PDF por WhatsApp</button>
+              <button type="button" data-testid="documentation-send-whatsapp" disabled={busy} onClick={() => void shareDocumentPdf(doc)} className={buttonClass}>Enviar PDF por WhatsApp</button>
               <button type="button" data-testid="documentation-send-email" disabled={busy || !patient.email} title={patient.email ? undefined : "Agrega un correo al paciente"} onClick={() => void emailDocumentPdf(doc)} className={buttonClass}>Enviar PDF por correo</button>
-              {(!patient.phone || !patient.email) && <p className="basis-full text-xs text-[#615f73]" data-testid="documentation-send-missing">{!patient.phone && !patient.email ? `Agrega teléfono y correo a la ficha para enviar el ${noun}.` : !patient.phone ? `Agrega el teléfono del paciente para enviar el ${noun} por WhatsApp.` : `Agrega el correo del paciente para enviar el ${noun} por correo.`}</p>}
+              {!patient.email && <p className="basis-full text-xs text-[#615f73]" data-testid="documentation-send-missing">{`Agrega el correo del paciente para enviar el ${noun} por correo.`}</p>}
             </>;
           })()}
           {activeDocument.status === "borrador" && <button type="button" data-testid="documentation-delete-draft" disabled={busy} onClick={() => void removeDraft(activeDocument)} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-rose-300 px-4 text-sm font-semibold text-rose-800 hover:bg-rose-50 disabled:opacity-50"><Trash2 className="size-4"/>Borrar</button>}
