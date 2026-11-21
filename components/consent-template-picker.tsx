@@ -15,9 +15,11 @@ export function ConsentTemplatePicker({ onPick }: { onPick: (content: ReturnType
       {CONSENT_SPECIALTIES.map(item => <button key={item} type="button" aria-pressed={specialty === item} onClick={() => { setSpecialty(item); setPickedId(""); }}
         className={`min-h-10 rounded-full border px-3 text-sm font-semibold ${specialty === item ? "border-[#473a6d] bg-[#473a6d] text-white" : "border-[#b9b1ce] bg-white text-[#473a6d] hover:bg-[#f3f1f7]"}`}>{item}</button>)}
     </div>
-    {templates.length > 0 && <ul className="mt-3 space-y-2" aria-label="Procedimientos">
+    {templates.length > 0 && !pickedId && <p className="mt-3 text-sm font-semibold text-[#473a6d]" data-testid="consent-template-hint">Ahora toca el procedimiento para llenar el consentimiento:</p>}
+    {pickedId && <p role="status" className="mt-3 rounded-lg bg-emerald-50 p-2 text-sm font-semibold text-emerald-900" data-testid="consent-template-applied">Plantilla cargada. Revisa y edita los campos de abajo antes de guardar.</p>}
+    {templates.length > 0 && <ul className="mt-2 space-y-2" aria-label="Procedimientos">
       {templates.map(template => <li key={template.id}>
-        <button type="button" data-testid={`consent-template-${template.id}`} onClick={() => { setPickedId(template.id); onPick(consentTemplateContent(template), template); }}
+        <button type="button" data-testid={`consent-template-${template.id}`} onClick={() => { setPickedId(template.id); onPick(consentTemplateContent(template), template); window.setTimeout(() => document.getElementById("consent-procedimiento")?.scrollIntoView({ behavior: "smooth", block: "center" }), 50); }}
           className={`min-h-11 w-full rounded-lg border px-3 py-2 text-left text-sm ${pickedId === template.id ? "border-[#473a6d] bg-[#ece8f7] font-semibold" : "border-[#e0def0] bg-white hover:bg-[#f3f1f7]"}`}>{template.procedure}</button>
       </li>)}
     </ul>}

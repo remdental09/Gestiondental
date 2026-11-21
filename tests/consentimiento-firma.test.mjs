@@ -202,3 +202,12 @@ test("la tarjeta de firma se reinicia al cambiar de documento (key por id)", asy
   const { readFileSync } = await import("node:fs");
   assert.match(readFileSync(new URL("../components/documentation-panel.tsx", import.meta.url), "utf8"), /<ConsentSigningCard key=\{activeDocument\.id\}/);
 });
+
+test("el selector guía al clínico: pista tras elegir especialidad, aviso al cargar y salto al campo", async () => {
+  const { readFileSync } = await import("node:fs");
+  const picker = readFileSync(new URL("../components/consent-template-picker.tsx", import.meta.url), "utf8");
+  assert.match(picker, /consent-template-hint/);
+  assert.match(picker, /consent-template-applied/);
+  assert.match(picker, /getElementById\("consent-procedimiento"\)/);
+  assert.match(readFileSync(new URL("../components/documentation-panel.tsx", import.meta.url), "utf8"), /`consent-\$\{field\.key\}`/);
+});
