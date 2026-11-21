@@ -1,11 +1,14 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileDown, Search, ArrowLeft, ChevronRight, ClipboardCheck, ClipboardList, FlaskConical, Pill, FileCheck2, FilePlus2, FileText, LoaderCircle, Pencil, Printer, ScrollText, ShieldCheck, Trash2 } from "lucide-react";
 import Image from "next/image";
 import qrcode from "qrcode-generator";
-import { ageFromBirthDate, parseMedications, MEDICATION_MAX, VIAS, VIAS_FRECUENTES, DOSE_UNITS, DOSE_UNIT_KEYS, TIME_UNITS, TIME_UNIT_KEYS, autoQuantityText, medicationDosis, medicationLine, type Medication, splitPrescriptionLines, isPrescriptionKind, CLINICAL_DOCUMENT_KINDS, CLINICAL_DOCUMENT_LABEL, type ClinicalDocumentContent, type ClinicalDocumentKind } from "@/lib/clinical-documents";
+import { ageFromBirthDate, parseMedications, MEDICATION_MAX, VIAS, VIAS_FRECUENTES, DOSE_UNITS, DOSE_UNIT_KEYS, TIME_UNITS, TIME_UNIT_KEYS, autoQuantityText, medicationDosis, medicationLine, type Medication, splitPrescriptionLines, isPrescriptionKind, requiresHabilitacionQr, habilitacionNoun, CLINICAL_DOCUMENT_KINDS, CLINICAL_DOCUMENT_LABEL, type ClinicalDocumentContent, type ClinicalDocumentKind } from "@/lib/clinical-documents";
 import { shortCode, verificationUrl } from "@/lib/document-verification";
+import { ConsentSigningCard, PatientSignatureImage } from "@/components/consent-signing";
+import { ConsentTemplatePicker } from "@/components/consent-template-picker";
+import { SIGNER_ROLE_LABEL, SIGN_METHOD_LABEL, isSignMethod, isSignerRole, type SignatureView } from "@/lib/consent-signature";
 import { formatAddress, type PatientAddress } from "@/lib/patient-address";
 import { registrationLine, type PublicRegistration } from "@/lib/prestador-certificate";
 import { formatChileanRut, isValidChileanRut } from "@/lib/patient-document";
@@ -17,7 +20,7 @@ import { mountPrintCopy, printNode, PRINT_CLASS } from "@/lib/print-node";
 import { scrollBelowHeader } from "@/lib/scroll-below-header";
 
 type Patient = { id: number; name: string; birthDate: string; rut: string; phone: string; email: string; address?: PatientAddress };
-type SavedDocument = { id: number; patientId: number; kind: ClinicalDocumentKind; title: string; content: string; status: string; createdBy: string; createdByName: string; authorTitle?: string | null; createdAt: string; documentMark: string; verifyToken?: string | null; contentHash?: string; issuedAt?: string; revokedAt?: string; revokedReason?: string; replacesId?: number | null; registration?: PublicRegistration | null };
+type SavedDocument = { id: number; patientId: number; kind: ClinicalDocumentKind; title: string; content: string; status: string; createdBy: string; createdByName: string; authorTitle?: string | null; createdAt: string; documentMark: string; verifyToken?: string | null; contentHash?: string; issuedAt?: string; revokedAt?: string; revokedReason?: string; replacesId?: number | null; registration?: PublicRegistration | null; signature?: SignatureView | null };
 type ClinicInfo = { clinicName: string; address: string; city: string; phone: string; email: string; logo: string };
 type Field = { key: string; label: string; hint: string; rows?: number };
 const fields: Record<ClinicalDocumentKind, Field[]> = {
@@ -165,6 +168,15 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
 
 
   const patchDocument = (updated: SavedDocument, previousId?: number | null) => setDocumentsState(previous => ({ ...previous, documents: previous.documents.map(item => item.id === updated.id ? { ...item, ...updated, documentMark: item.documentMark } : item.id === previousId ? { ...item, status: "reemplazado", revokedReason: "reemplazado", revokedAt: updated.issuedAt ?? "" } : item) }));
+  const patchSignature = (documentId: number, signature: SignatureView | null) => setDocumentsState(previous => ({ ...previous, documents: previous.documents.map(item => item.id === documentId ? { ...item, signature } : item) }));
+  // Mientras el paciente firma desde su teléfono, se vuelve a leer la ficha para ver la firma apenas llega.
+  const refreshDocuments = useCallback(() => {
+    if (!patientId) return;
+    void fetch(`/api/documentos?patientId=${patientId}`, { cache: "no-store" }).then(async response => {
+      const data = await response.json() as { documents?: SavedDocument[] };
+      if (response.ok && data.documents) setDocumentsState({ patientId, documents: data.documents, error: "" });
+    }).catch(() => undefined);
+  }, [patientId]);
   const act = async (path: string, doc: SavedDocument, done: string) => {
     if (busy) return false;
     setBusy(true); setError(""); setNotice("");
@@ -179,11 +191,11 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
   const issue = (doc: SavedDocument) => { if (window.confirm("¿Desea emitir este documento? Quedará bloqueado y con un QR de verificación. Para cambiarlo deberá crear una versión nueva.")) void act("/api/documentos/emitir", doc, "Documento emitido con QR de verificación. Ya puedes imprimirlo."); };
   const canIssueReceta = registration?.status === "aprobado";
   // Receta: borrador solo si el profesional está habilitado; emitida solo si trae el QR de habilitación (obligatorio).
-  const printBlocked = (doc: SavedDocument) => isPrescriptionKind(doc.kind) && (doc.status === "borrador" ? !canIssueReceta : !doc.registration?.qrUrl);
+  const printBlocked = (doc: SavedDocument) => requiresHabilitacionQr(doc.kind) && (doc.status === "borrador" ? !canIssueReceta : !doc.registration?.qrUrl);
   // Imprimir y «Guardar en PDF» usan el mismo diálogo de impresión del dispositivo (allí se elige «Guardar como PDF»).
   // Un borrador se emite primero (con confirmación) para que el documento impreso lleve su QR de verificación.
   const printDocument = async (doc: SavedDocument) => {
-    if (printBlocked(doc)) { setError("Esta receta no se puede imprimir sin el QR de habilitación de la Superintendencia de Salud."); return; }
+    if (printBlocked(doc)) { setError(`${habilitacionNoun(doc.kind).esta} no se puede imprimir sin el QR de habilitación de la Superintendencia de Salud.`); return; }
     if (doc.status === "emitido") { printNode(document.getElementById("documentation-print")); return; }
     if (doc.status !== "borrador" || busy) return;
     if (!window.confirm("Para imprimir o guardar en PDF el documento se emite primero: quedará bloqueado y con un QR de verificación. ¿Desea continuar?")) return;
@@ -254,7 +266,7 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3 print:hidden"><div><p className="text-xs font-semibold uppercase tracking-wide text-[#6b5d8e]">Vista previa · {(STATUS_LABEL[activeDocument.status] ?? activeDocument.status).toLowerCase()}</p><h2 className="mt-1 text-lg font-semibold">{activeDocument.title}</h2></div><div className="flex flex-wrap gap-2">
         <button type="button" onClick={() => { setKind(activeDocument.kind); setComposing(true); setContent({ ...blankContent(), ...activeContent }); setReplacingId(activeDocument.status === "emitido" ? activeDocument.id : null); setNotice(activeDocument.status === "emitido" ? "Se cargó el texto para crear una versión nueva. Al emitirla, la versión anterior quedará como reemplazada." : "Se cargó el texto para crear una nueva versión; el borrador anterior se conserva."); window.scrollTo({ top: 0, behavior: "smooth" }); }} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-[#b9b1ce] px-4 text-sm font-semibold text-[#473a6d] hover:bg-[#f3f1f7]"><Pencil className="size-4"/>{isIssued(activeDocument) ? "Crear versión nueva" : "Editar una copia"}</button>
         {(activeDocument.status === "borrador" || activeDocument.status === "emitido") && <>
-          {activeDocument.status === "borrador" && <button type="button" disabled={busy || (isPrescriptionKind(activeDocument.kind) && !canIssueReceta)} title={isPrescriptionKind(activeDocument.kind) && !canIssueReceta ? "Sube y espera la aprobación de tu certificado de inscripción para emitir recetas" : undefined} onClick={() => issue(activeDocument)} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-[#473a6d] px-4 text-sm font-semibold text-[#473a6d] hover:bg-[#f3f1f7] disabled:opacity-50">{busy ? <LoaderCircle className="size-4 animate-spin"/> : <ShieldCheck className="size-4"/>}Emitir con QR</button>}
+          {activeDocument.status === "borrador" && <button type="button" disabled={busy || (requiresHabilitacionQr(activeDocument.kind) && !canIssueReceta)} title={requiresHabilitacionQr(activeDocument.kind) && !canIssueReceta ? `Sube y espera la aprobación de tu certificado de inscripción para emitir ${habilitacionNoun(activeDocument.kind).emitir}` : undefined} onClick={() => issue(activeDocument)} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-[#473a6d] px-4 text-sm font-semibold text-[#473a6d] hover:bg-[#f3f1f7] disabled:opacity-50">{busy ? <LoaderCircle className="size-4 animate-spin"/> : <ShieldCheck className="size-4"/>}Emitir con QR</button>}
           <button type="button" data-testid="documentation-save-pdf" disabled={busy || printBlocked(activeDocument)} onClick={() => void printDocument(activeDocument)} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-[#473a6d] px-4 text-sm font-semibold text-white hover:bg-[#3a2f5a] disabled:opacity-50"><FileDown className="size-4"/>Guardar en PDF</button>
           <button type="button" data-testid="documentation-print-button" disabled={busy || printBlocked(activeDocument)} onClick={() => void printDocument(activeDocument)} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-[#473a6d] px-4 text-sm font-semibold text-white hover:bg-[#3a2f5a] disabled:opacity-50"><Printer className="size-4"/>Imprimir</button>
           {activeDocument.status === "borrador" && <button type="button" data-testid="documentation-delete-draft" disabled={busy} onClick={() => void removeDraft(activeDocument)} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-rose-300 px-4 text-sm font-semibold text-rose-800 hover:bg-rose-50 disabled:opacity-50"><Trash2 className="size-4"/>Borrar</button>}
@@ -262,14 +274,18 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
         </>}
       </div></div>
       {(error || notice) && <p role={error ? "alert" : "status"} className={`mb-4 rounded-lg p-3 text-sm print:hidden ${error ? "bg-rose-50 text-rose-800" : "bg-emerald-50 text-emerald-900"}`}>{error || notice}</p>}
-      {activeDocument.status === "borrador" && <p className="mb-4 rounded-lg bg-[#f3f1f7] p-3 text-sm text-[#473a6d] print:hidden">Este documento es un borrador. Al imprimir o guardar en PDF se emite primero con su código de verificación QR (o pulsa «Emitir con QR»).{isPrescriptionKind(activeDocument.kind) && !canIssueReceta && " Para emitir recetas primero debes subir tu certificado de inscripción (tarjeta «Habilitación para emitir recetas») y esperar su aprobación."}</p>}
+      {activeDocument.status === "borrador" && <p className="mb-4 rounded-lg bg-[#f3f1f7] p-3 text-sm text-[#473a6d] print:hidden">Este documento es un borrador. Al imprimir o guardar en PDF se emite primero con su código de verificación QR (o pulsa «Emitir con QR»).{requiresHabilitacionQr(activeDocument.kind) && !canIssueReceta && ` Para emitir ${habilitacionNoun(activeDocument.kind).emitir} primero debes subir tu certificado de inscripción (tarjeta «Habilitación para emitir recetas») y esperar su aprobación.`}</p>}
+      {activeDocument.kind === "consentimiento" && patient && (activeDocument.status === "borrador" || activeDocument.status === "emitido" || activeDocument.signature) && <div className="mb-4 print:hidden">
+        <ConsentSigningCard key={activeDocument.id} documentId={activeDocument.id} issued={activeDocument.status === "emitido" || Boolean(activeDocument.signature?.status === "firmado")} signature={activeDocument.signature} patient={{ name: patient.name, phone: patient.phone, email: patient.email }}
+          onChange={next => patchSignature(activeDocument.id, next)} onRefresh={refreshDocuments}/>
+      </div>}
       {(() => {
         const doc = activeDocument;
         const prescription = isPrescriptionKind(doc.kind);
         // Emitido: solo la habilitación que trae el documento. Borrador: vista previa con la propia, si está habilitado.
         const reg: PublicRegistration | null = doc.registration ?? (doc.status === "borrador" && registration?.status === "aprobado" ? registration : null);
         // La receta lleva SIEMPRE el QR de habilitación de la Superintendencia: sin él no se imprime (no hay opción para ocultarlo).
-        const missingQr = prescription && !reg?.qrUrl;
+        const missingQr = requiresHabilitacionQr(doc.kind) && !reg?.qrUrl;
         const doctorName = reg?.fullName ? `${doctorTitle(doc)} ${reg.fullName}` : authorName(doc) || "Profesional";
         const doctorRut = reg?.run ? formatChileanRut(reg.run) : "";
         const professionLine = reg ? `${reg.profession} (${registrationLine(reg)})` : "";
@@ -307,7 +323,7 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
               <div className="min-w-0 text-[10px] leading-snug text-[#3b3950]"><p className="font-semibold text-[#1f1d2b]">Verifique la habilitación del profesional</p><p>Superintendencia de Salud</p><p className="mt-1 font-semibold text-[#1f1d2b]">REG-SIS N° {reg.regSis}</p>{reg.validationCode && <p className="mt-0.5">Código <span className="font-mono">{reg.validationCode}</span></p>}</div>
             </div>}
           </header>
-          {missingQr ? <div className="mt-6 rounded-lg border-2 border-rose-300 bg-rose-50 p-5 text-center text-sm text-rose-900" data-testid="receta-sin-qr" role="alert"><p className="font-bold">Esta receta no se puede imprimir sin el QR de habilitación de la Superintendencia de Salud.</p><p className="mt-1">Sube tu certificado de inscripción (PDF) en «Habilitación para emitir recetas» y vuelve a abrir la receta.</p></div> : <>
+          {missingQr ? <div className="mt-6 rounded-lg border-2 border-rose-300 bg-rose-50 p-5 text-center text-sm text-rose-900" data-testid={prescription ? "receta-sin-qr" : "consent-sin-qr"} role="alert"><p className="font-bold">{habilitacionNoun(doc.kind).esta} no se puede imprimir sin el QR de habilitación de la Superintendencia de Salud.</p><p className="mt-1">Sube tu certificado de inscripción (PDF) en «Habilitación para emitir recetas» y vuelve a abrir {prescription ? "la receta" : "el consentimiento"}.</p></div> : <>
           <div className="mt-3 grid grid-cols-[3.5rem_minmax(0,1fr)_3.5rem] items-baseline sm:grid-cols-[6rem_minmax(0,1fr)_6rem] print:grid-cols-[6rem_minmax(0,1fr)_6rem]">
             <span/>
             <h2 className="text-center text-[15px] font-semibold uppercase tracking-[0.12em] text-[#473a6d] sm:tracking-[0.25em] print:tracking-[0.25em]" data-testid="document-title">{doc.title}</h2>
@@ -345,7 +361,11 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
           {doc.kind === "consentimiento" ? <>
             <footer className="mt-12 grid gap-10 text-center text-xs sm:grid-cols-2 print:mt-6 print:grid-cols-2 [break-inside:avoid]">
               <div className="flex justify-center">{signature}</div>
-              <div className="flex min-h-[3.4cm] flex-col justify-end [break-inside:avoid]"><div className="w-full border-t border-[#555] pt-1.5 text-[12px]"><span className="font-semibold">{patient.name}</span><br/>Firma del paciente</div></div>
+              <div className="flex min-h-[3.4cm] flex-col justify-end [break-inside:avoid]" data-testid="patient-signature-block">
+                {doc.signature?.status === "firmado" && <div className="mx-auto mb-1 h-[2.4cm] w-[6cm] max-w-full"><PatientSignatureImage signature={doc.signature}/></div>}
+                <div className="w-full border-t border-[#555] pt-1.5 text-[12px]"><span className="font-semibold">{doc.signature?.status === "firmado" ? doc.signature.signerName : patient.name}</span><br/>Firma del paciente
+                  {doc.signature?.status === "firmado" && <span className="block text-[10px] leading-snug text-[#55536a]" data-testid="patient-signature-note">{doc.signature.signerRole === "representante" ? `${doc.signature.signerRelation ? `${doc.signature.signerRelation}, ` : ""}${isSignerRole(doc.signature.signerRole) ? SIGNER_ROLE_LABEL[doc.signature.signerRole].toLowerCase() : "representante"} de ${patient.name}. ` : ""}Firmado electrónicamente el {formatDate(doc.signature.signedAt)}{isSignMethod(doc.signature.method) ? ` (${SIGN_METHOD_LABEL[doc.signature.method]})` : ""}. Firma electrónica simple.</span>}
+                </div></div>
             </footer>
             {verificacion && <div className="mt-4" data-testid="qr-strip">{verificacion}</div>}
           </> : <footer className="mt-10 grid items-end gap-6 sm:grid-cols-[minmax(0,1fr)_7cm] print:mt-6 print:grid-cols-[minmax(0,1fr)_7cm] [break-inside:avoid]">
@@ -374,12 +394,16 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
           </ul>
         </div> : <>
         <div className="flex items-center gap-3"><button type="button" onClick={() => { setComposing(false); setReplacingId(null); setError(""); }} aria-label="Volver a tipos de documento" className="flex size-10 shrink-0 items-center justify-center rounded-full hover:bg-[#f3f1f7]"><ArrowLeft className="size-5"/></button><div><h2 className="text-lg font-semibold">{CLINICAL_DOCUMENT_LABEL[kind]}</h2><p className="text-sm font-semibold text-[#473a6d]" data-testid="documentation-compose-patient">Paciente: {patient.name}</p><p className="text-sm text-[#615f73]">Completa solo los datos que correspondan y guarda para abrir la vista de impresión.</p></div></div>
+        {kind === "consentimiento" && <ConsentTemplatePicker onPick={template => {
+          if (fields.consentimiento.some(field => content[field.key]?.trim()) && !window.confirm("¿Desea reemplazar lo que ya escribiste por esta plantilla?")) return;
+          setContent(previous => ({ ...previous, ...template }));
+        }}/>}
         <div className="mt-4 space-y-3">
           {fields[kind].map(field => <Fragment key={field.key}>{kind === "receta" && field.key === "prescripcion" && <MedicationEditor value={content.medicamentos ?? ""} onChange={next => setContent(previous => ({ ...previous, medicamentos: next }))}/>}<label className="block text-sm font-semibold text-[#35343f]">{field.label}
             {field.rows ? <textarea rows={field.rows} value={content[field.key] ?? ""} onChange={event => setContent(previous => ({ ...previous, [field.key]: event.target.value }))} placeholder={field.hint} className={inputClass + " resize-y"}/> : <input value={content[field.key] ?? ""} onChange={event => setContent(previous => ({ ...previous, [field.key]: event.target.value }))} placeholder={field.hint} className={inputClass}/>}
           </label></Fragment>)}
         </div>
-        {kind === "consentimiento" && <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">Borrador editable. Revisa riesgos y alternativas con el paciente, adapta el contenido al procedimiento y obtén la firma correspondiente. La aplicación no valida legalmente el texto ni firma por el paciente.</p>}
+        {kind === "consentimiento" && <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">Borrador editable. Revisa riesgos y alternativas con el paciente, adapta el contenido al procedimiento y explícalo al paciente. La aplicación no valida legalmente el texto. Al emitirlo, el paciente puede firmarlo en pantalla o desde un enlace, sin costo.</p>}
         {error && <p role="alert" className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-800">{error}</p>}
         {notice && !error && <p role="status" className="mt-4 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-900">{notice}</p>}
         <button type="button" onClick={() => void saveDraft()} disabled={!hasContent || saving} className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-lg bg-[#473a6d] px-4 text-sm font-semibold text-white hover:bg-[#3a2f5a] disabled:cursor-not-allowed disabled:opacity-50">

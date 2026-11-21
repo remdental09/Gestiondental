@@ -1,5 +1,6 @@
 import { and, desc, eq } from "drizzle-orm";
 import { ensureDocumentIssuanceColumns } from "@/app/document-issuance-db";
+import { loadSignatureViews } from "@/app/consent-signature-db";
 import { getChatGPTUser, personalIdOf } from "@/app/chatgpt-auth";
 import { loadProfile, loadProfileTitles } from "@/app/clinician-profile-db";
 import { displayName } from "@/lib/clinician-profile";
@@ -28,9 +29,9 @@ export async function GET(request: Request) {
       .where(and(eq(patientDocuments.ownerId, user.userId), eq(patientDocuments.patientId, patientId)))
       .orderBy(desc(patientDocuments.id)).limit(100);
     const authors = rows.map(row => row.document.createdBy);
-    const [registrations, titles] = await Promise.all([loadApprovedRegistrations(authors).catch(() => new Map()), loadProfileTitles(authors).catch(() => new Map())]);
+    const [registrations, titles, signatures] = await Promise.all([loadApprovedRegistrations(authors).catch(() => new Map()), loadProfileTitles(authors).catch(() => new Map()), loadSignatureViews(user.userId, patientId).catch(() => new Map())]);
     // authorTitle: el tratamiento que el profesional eligió hoy (solo para mostrar; el nombre guardado y su huella no cambian).
-    const documents = rows.map(row => ({ ...row.document, documentMark: row.documentMark ?? "", registration: registrations.get(row.document.createdBy) ?? null, authorTitle: titles.get(row.document.createdBy) ?? null }));
+    const documents = rows.map(row => ({ ...row.document, documentMark: row.documentMark ?? "", registration: registrations.get(row.document.createdBy) ?? null, authorTitle: titles.get(row.document.createdBy) ?? null, signature: signatures.get(row.document.id) ?? null }));
     return Response.json({ documents }, { headers: { "Cache-Control": "no-store" } });
   } catch { return fail("No se pudieron cargar los documentos.", 500); }
 }

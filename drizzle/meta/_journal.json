@@ -78,6 +78,13 @@
       "when": 1795060035125,
       "tag": "0010_qr_verificacion",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1795282867281,
+      "tag": "0011_firma_consentimiento",
+      "breakpoints": true
     }
   ]
 }

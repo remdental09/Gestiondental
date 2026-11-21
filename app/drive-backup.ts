@@ -1,11 +1,12 @@
 import { and, asc, eq, gt, type AnyColumn } from "drizzle-orm";
 import { ensureDocumentIssuanceColumns } from "@/app/document-issuance-db";
+import { ensureConsentSignatureTable } from "@/app/consent-signature-db";
 import { fichaMarkdown } from "@/lib/backup-markdown";
 import { loadAnamnesis } from "@/app/anamnesis-db";
 import { loadAddresses } from "@/app/patient-address-db";
 import { getDb } from "@/db";
 import {
-  appointments, budgets, clinicalImages, driveBackups, evolutions,
+  appointments, budgets, clinicalImages, consentSignatures, driveBackups, evolutions,
   patientDocuments, patients, periodontalExams, toothStatuses,
 } from "@/db/schema";
 import { decodeBudgetData } from "@/lib/budget-plans";
@@ -22,7 +23,7 @@ export async function getDriveSnapshot(ownerId: string, patientId: number, conne
 
   const filter = (ownerColumn: AnyColumn, patientColumn: AnyColumn) =>
     and(eq(ownerColumn, ownerId), eq(patientColumn, patientId));
-  const [notes, plans, visits, exams, teeth, images, documents, backups] = await Promise.all([
+  const [notes, plans, visits, exams, teeth, images, documents, backups, signatures] = await Promise.all([
     db.select().from(evolutions).where(filter(evolutions.ownerId, evolutions.patientId)).orderBy(asc(evolutions.id)),
     db.select().from(budgets).where(filter(budgets.ownerId, budgets.patientId)).orderBy(asc(budgets.id)),
     db.select().from(appointments).where(filter(appointments.ownerId, appointments.patientId)).orderBy(asc(appointments.id)),
@@ -32,6 +33,8 @@ export async function getDriveSnapshot(ownerId: string, patientId: number, conne
     ensureDocumentIssuanceColumns().then(() => db.select().from(patientDocuments).where(filter(patientDocuments.ownerId, patientDocuments.patientId)).orderBy(asc(patientDocuments.id)))
       .catch(() => [] as (typeof patientDocuments.$inferSelect)[]),
     db.select().from(driveBackups).where(filter(driveBackups.ownerId, driveBackups.patientId)).limit(1),
+    ensureConsentSignatureTable().then(() => db.select().from(consentSignatures).where(and(eq(consentSignatures.ownerId, ownerId), eq(consentSignatures.patientId, patientId), eq(consentSignatures.status, "firmado"))))
+      .catch(() => [] as (typeof consentSignatures.$inferSelect)[]),
   ]);
 
   const [address, anamnesis] = await Promise.all([
@@ -69,6 +72,8 @@ export async function getDriveSnapshot(ownerId: string, patientId: number, conne
     documents: documents.map(document => ({
       id: document.id, kind: document.kind, title: document.title, content: document.content,
       status: document.status, createdByName: document.createdByName, createdAt: document.createdAt,
+      // Solo los consentimientos firmados llevan este dato: el respaldo de fichas sin firmas no cambia.
+      ...(signatures.find(signature => signature.documentId === document.id) ? { signature: (({ signerName, signerRole, signerRelation, signedAt, method, signatureHash }) => ({ signerName, signerRole, signerRelation, signedAt, method, signatureHash }))(signatures.find(signature => signature.documentId === document.id)!) } : {}),
     })),
     appointments: visits.map(v => ({
       id: v.id, day: v.day, time: v.time, reason: v.reason,

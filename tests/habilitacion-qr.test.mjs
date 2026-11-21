@@ -102,3 +102,24 @@ test("recetas y certificados: QR de habilitación arriba a la derecha (encabezad
   assert.match(read("app/prestador-db.ts"), /qrUrl: printableQr\(/);
   assert.match(read("app/globals.css"), /@page\{size:letter;margin:10mm 12mm\}/);
 });
+
+test("receta y consentimiento exigen el QR de habilitación del prestador: sin él no se emiten ni se imprimen", async () => {
+  const lib = read("lib/clinical-documents.ts");
+  assert.match(lib, /requiresHabilitacionQr = \(kind: string\): boolean => isPrescriptionKind\(kind\) \|\| kind === "consentimiento"/);
+  const panel = read("components/documentation-panel.tsx");
+  // El bloque del encabezado no depende del tipo de documento.
+  const header = panel.slice(panel.indexOf('data-testid="document-header"'), panel.indexOf("</header>", panel.indexOf('data-testid="document-header"')));
+  assert.doesNotMatch(header.slice(header.indexOf("{reg?.qrUrl &&"), header.indexOf('data-testid="habilitacion-row"')), /prescription|isPrescriptionKind/);
+  assert.match(panel, /const missingQr = requiresHabilitacionQr\(doc\.kind\) && !reg\?\.qrUrl;/);
+  assert.match(panel, /data-testid=\{prescription \? "receta-sin-qr" : "consent-sin-qr"\}/);
+  assert.match(panel, /disabled=\{busy \|\| \(requiresHabilitacionQr\(activeDocument\.kind\) && !canIssueReceta\)\}/);
+  const emitir = read("app/api/documentos/emitir/route.ts");
+  assert.match(emitir, /requiresHabilitacionQr\(doc\.kind\)/);
+  assert.match(emitir, /status !== "aprobado"\) return fail\(`Para emitir \$\{noun\}/);
+  assert.match(emitir, /!publicRegistration\(reg\)\.qrUrl\) return fail/);
+  const { requiresHabilitacionQr, habilitacionNoun } = await import("../lib/clinical-documents.ts");
+  for (const kind of ["receta", "receta_magistral", "consentimiento"]) assert.equal(requiresHabilitacionQr(kind), true, kind);
+  for (const kind of ["orden", "certificado"]) assert.equal(requiresHabilitacionQr(kind), false, kind);
+  assert.equal(habilitacionNoun("consentimiento").esta, "Este consentimiento");
+  assert.equal(habilitacionNoun("receta").esta, "Esta receta");
+});

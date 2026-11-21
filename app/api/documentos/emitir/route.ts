@@ -3,7 +3,7 @@ import { ensureDocumentIssuanceColumns } from "@/app/document-issuance-db";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { getDb } from "@/db";
 import { patientDocuments } from "@/db/schema";
-import { isPrescriptionKind } from "@/lib/clinical-documents";
+import { habilitacionNoun, requiresHabilitacionQr } from "@/lib/clinical-documents";
 import { documentHash, newVerifyToken } from "@/lib/document-verification";
 import { loadApprovedRegistrations, loadRegistration, publicRegistration } from "@/app/prestador-db";
 import { loadProfileTitles } from "@/app/clinician-profile-db";
@@ -28,11 +28,12 @@ export async function POST(request: Request) {
     // La habilitación (y su QR) acompaña al documento en la respuesta, para que la vista e impresión la tengan sin recargar.
     const withRegistration = async <T extends { createdBy: string }>(row: T) => ({ ...row, registration: (await loadApprovedRegistrations([row.createdBy]).catch(() => new Map())).get(row.createdBy) ?? null, authorTitle: (await loadProfileTitles([row.createdBy]).catch(() => new Map())).get(row.createdBy) ?? null });
     if (doc.verifyToken && doc.issuedAt) return Response.json({ document: await withRegistration(doc) }, { headers: { "Cache-Control": "no-store" } });
-    // Una receta solo la emite un prestador individual habilitado, con el QR de la Superintendencia (obligatorio en la receta).
-    if (isPrescriptionKind(doc.kind)) {
+    // Receta y consentimiento solo los emite un prestador individual habilitado, con el QR de la Superintendencia de Salud.
+    if (requiresHabilitacionQr(doc.kind)) {
       const reg = await loadRegistration(doc.createdBy).catch(() => null);
-      if (reg?.status !== "aprobado") return fail("Para emitir recetas, sube tu certificado de inscripción de la Superintendencia de Salud y espera su aprobación.", 403);
-      if (!publicRegistration(reg).qrUrl) return fail("Para emitir recetas falta el QR de tu certificado de la Superintendencia. Vuelve a subir el certificado (PDF).", 403);
+      const noun = habilitacionNoun(doc.kind).emitir;
+      if (reg?.status !== "aprobado") return fail(`Para emitir ${noun}, sube tu certificado de inscripción de la Superintendencia de Salud y espera su aprobación.`, 403);
+      if (!publicRegistration(reg).qrUrl) return fail(`Para emitir ${noun} falta el QR de tu certificado de la Superintendencia. Vuelve a subir el certificado (PDF).`, 403);
     }
     const issuedAt = new Date().toISOString();
     const verifyToken = newVerifyToken();

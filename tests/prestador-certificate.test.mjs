@@ -66,7 +66,7 @@ const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf
 
 test("solo un prestador aprobado emite recetas, y el panel de revisión es solo del desarrollador", () => {
   const emitir = read("app/api/documentos/emitir/route.ts");
-  assert.match(emitir, /isPrescriptionKind\(doc\.kind\)[\s\S]*loadRegistration\(doc\.createdBy\)[\s\S]*!== "aprobado"/);
+  assert.match(emitir, /requiresHabilitacionQr\(doc\.kind\)[\s\S]*loadRegistration\(doc\.createdBy\)[\s\S]*!== "aprobado"/);
   assert.match(emitir, /403/);
   const review = read("app/api/desarrollador/prestadores/route.ts");
   assert.match(review, /isDeveloperEmail/);
