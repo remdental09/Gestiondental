@@ -85,6 +85,13 @@
       "when": 1795282867281,
       "tag": "0011_firma_consentimiento",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1795300411780,
+      "tag": "0012_firma_protegida",
+      "breakpoints": true
     }
   ]
 }

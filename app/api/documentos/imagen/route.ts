@@ -32,10 +32,13 @@ export async function POST(request: Request) {
   try {
     const professionalId = personalIdOf(user), now = Date.now(), saved = await loadDocumentMark(professionalId);
     const changes = changesSavedMark(saved, mark);
-    // La firma guardada solo se cambia o se quita con el código enviado al correo (válido para un solo cambio).
-    if (changes && !isUnlocked(await loadLock(professionalId), now)) return Response.json({ error: "Tu firma está protegida. Pide el código a tu correo para cambiarla.", locked: true }, { status: 403, headers: { "Cache-Control": "no-store" } });
+    // La firma guardada solo se cambia o se quita con el código enviado al correo: el permiso se gasta aquí, de forma atómica
+    // (un permiso = un cambio, aunque lleguen dos guardados a la vez).
+    if (changes) {
+      if (!await consumeUnlock(professionalId, new Date(now).toISOString())) return Response.json({ error: "Tu firma está protegida. Pide el código a tu correo para cambiarla.", locked: true }, { status: 403, headers: { "Cache-Control": "no-store" } });
+      await archiveMark(professionalId, saved, mark ? "cambiada" : "quitada", new Date(now).toISOString());
+    }
     await saveDocumentMark(professionalId, mark);
-    if (changes) { await archiveMark(professionalId, saved, mark ? "cambiada" : "quitada", new Date(now).toISOString()); await consumeUnlock(professionalId); }
     if (changes) await notifyChange(user.userId, user.email, mark ? "cambiada" : "quitada", now).catch(() => undefined);
     return Response.json({ documentMark: mark, locked: !!mark }, { headers: { "Cache-Control": "no-store" } });
   } catch { return fail("No se pudo guardar tu imagen de documentos.", 500); }

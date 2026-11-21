@@ -3,10 +3,10 @@ import { getChatGPTUser, personalIdOf } from "@/app/chatgpt-auth";
 import { ensureMailTables, getSender, mailDb } from "@/app/appointment-mail-db";
 import { sendMailWithSender } from "@/app/drive-oauth";
 import { loadDocumentMark } from "@/app/document-mark-db";
-import { countAttempt, grantUnlock, loadLock, storeCode } from "@/app/signature-lock-db";
+import { grantUnlock, loadLock, reserveAttempt, storeCode } from "@/app/signature-lock-db";
 import { buildRawMessage, isValidEmail } from "@/lib/appointment-mail";
 import { sha256Hex } from "@/lib/consent-signature";
-import { CODE_TTL_MS, MAX_ATTEMPTS, UNLOCK_TTL_MS, canResend, cleanCode, isCodeShape, judgeAttempt, newUnlockCode, unlockCodeEmail } from "@/lib/signature-lock";
+import { CODE_TTL_MS, UNLOCK_TTL_MS, canResend, cleanCode, isCodeShape, judgeAttempt, newUnlockCode, unlockCodeEmail } from "@/lib/signature-lock";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -39,12 +39,15 @@ export async function POST(request: Request) {
     if (body?.action === "verificar") {
       const code = cleanCode(body.code);
       if (!isCodeShape(code)) return json({ error: "El código tiene 6 dígitos." }, 400);
-      const lock = await loadLock(professionalId);
-      if (lock?.code_hash && lock.attempts < MAX_ATTEMPTS) await countAttempt(professionalId);
-      const matches = !!lock?.code_hash && await sha256Hex(`${professionalId}:${code}`) === lock.code_hash;
-      const result = judgeAttempt(lock, matches, now);
-      if (result === "ok") { await grantUnlock(professionalId, new Date(now + UNLOCK_TTL_MS).toISOString()); return json({ ok: true, minutes: UNLOCK_TTL_MS / 60000 }); }
-      const message = { none: "Pide un código nuevo.", expired: "El código venció. Pide uno nuevo.", blocked: "Demasiados intentos. Pide un código nuevo.", wrong: "Código incorrecto." }[result];
+      // El intento se reserva de forma atómica antes de comparar: pedidos simultáneos no pasan del límite.
+      const reserved = await reserveAttempt(professionalId);
+      const matches = !!reserved && await sha256Hex(`${professionalId}:${code}`) === reserved.code_hash;
+      const result = reserved ? judgeAttempt({ ...reserved, attempts: reserved.attempts - 1, unlocked_until: "", last_sent_at: "" }, matches, now) : ((await loadLock(professionalId))?.code_hash ? "blocked" : "none");
+      if (result === "ok" && reserved) {
+        if (await grantUnlock(professionalId, reserved.code_hash, new Date(now + UNLOCK_TTL_MS).toISOString())) return json({ ok: true, minutes: UNLOCK_TTL_MS / 60000 });
+        return json({ error: "Pide un código nuevo.", result: "none" }, 409);
+      }
+      const message = { ok: "Pide un código nuevo.", none: "Pide un código nuevo.", expired: "El código venció. Pide uno nuevo.", blocked: "Demasiados intentos. Pide un código nuevo.", wrong: "Código incorrecto." }[result];
       return json({ error: message, result }, result === "wrong" ? 400 : 409);
     }
     return json({ error: "Solicitud no válida." }, 400);

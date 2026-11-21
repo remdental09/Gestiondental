@@ -54,9 +54,12 @@ async function codeRequest(body: { action: "enviar" | "verificar"; code?: string
   return result;
 }
 
+class LockedError extends Error {}
+
 async function saveMark(documentMark: string): Promise<string> {
   const response = await fetch("/api/documentos/imagen", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ documentMark }) });
   const result = await response.json() as { documentMark?: string; locked?: boolean; error?: string };
+  if (response.status === 403 && result.locked) throw new LockedError(result.error || "Tu firma está protegida.");
   if (!response.ok || typeof result.documentMark !== "string") throw new Error(result.error || "No se pudo guardar la firma.");
   return result.documentMark;
 }
@@ -260,7 +263,11 @@ export function SignatureEditor({ compact = false }: { compact?: boolean }) {
       const saved = await saveMark(documentMark);
       setMark(saved); setDirty(false); setFull(false); setLocked(!!saved); setCodeSentTo(null); setCode("");
       setNotice(saved ? "Firma guardada. Se usa sola en tus certificados, recetas, consentimientos y presupuestos." : "Firma quitada de tus documentos.");
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo guardar la firma."); }
+    } catch (reason) {
+      // El permiso venció (o ya se usó): se vuelve a pedir el código y lo dibujado queda en el cuadro.
+      if (reason instanceof LockedError) { setLocked(true); setCodeSentTo(null); setCode(""); }
+      setError(reason instanceof Error ? reason.message : "No se pudo guardar la firma.");
+    }
     finally { setSaving(false); }
   };
 

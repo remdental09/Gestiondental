@@ -131,6 +131,25 @@ export const professionalDocumentSettings = sqliteTable("professional_document_s
   updatedAt: text("updated_at").notNull(),
 });
 
+/** Bloqueo de la firma del profesional: huella del código enviado al correo, intentos y hasta cuándo vale el permiso de cambio. */
+export const signatureUnlock = sqliteTable("signature_unlock", {
+  professionalId: text("professional_id").primaryKey(),
+  codeHash: text("code_hash").notNull().default(""),
+  expiresAt: text("expires_at").notNull().default(""),
+  attempts: integer("attempts").notNull().default(0),
+  unlockedUntil: text("unlocked_until").notNull().default(""),
+  lastSentAt: text("last_sent_at").notNull().default(""),
+});
+
+/** Firmas anteriores del profesional (cambiadas o quitadas), para auditoría. */
+export const signatureHistory = sqliteTable("signature_history", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  professionalId: text("professional_id").notNull(),
+  image: text("image").notNull(),
+  action: text("action").notNull(),
+  replacedAt: text("replaced_at").notNull(),
+}, table => [index("signature_history_professional_idx").on(table.professionalId)]);
+
 export const appointments = sqliteTable("appointments", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   ownerId: text("owner_id").notNull(),

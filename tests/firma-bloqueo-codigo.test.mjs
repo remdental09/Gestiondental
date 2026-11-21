@@ -48,12 +48,17 @@ test("los correos llevan el código y el aviso", () => {
 test("el servidor exige el código para cambiar o quitar la firma y la archiva", () => {
   const route = readFileSync(new URL("../app/api/documentos/imagen/route.ts", import.meta.url), "utf8");
   assert.match(route, /changesSavedMark\(saved, mark\)/);
-  assert.match(route, /if \(changes && !isUnlocked\(await loadLock\(professionalId\), now\)\) return Response\.json\(\{[^}]*locked: true \}, \{ status: 403/);
+  assert.match(route, /if \(!await consumeUnlock\(professionalId, .*?\)\) return Response\.json\(\{[^}]*locked: true \}, \{ status: 403/);
   assert.match(route, /archiveMark\(/);
   assert.match(route, /consumeUnlock\(/);
   const codigo = readFileSync(new URL("../app/api/documentos/imagen/codigo/route.ts", import.meta.url), "utf8");
   assert.match(codigo, /to: user\.email\.trim\(\)/);
-  assert.match(codigo, /countAttempt\(/);
+  assert.match(codigo, /reserveAttempt\(/);
+  const db = readFileSync(new URL("../app/signature-lock-db.ts", import.meta.url), "utf8");
+  assert.match(db, /attempts < \? RETURNING/);
+  assert.match(db, /unlocked_until > \? RETURNING/);
+  assert.match(readFileSync(new URL("../drizzle/0012_firma_protegida.sql", import.meta.url), "utf8"), /signature_unlock/);
+  assert.match(readFileSync(new URL("../db/schema.ts", import.meta.url), "utf8"), /export const signatureUnlock/);
   assert.doesNotMatch(codigo, /json\(\{[^}]*\bcode\b[^}]*\}\)/); // el código nunca vuelve en la respuesta
 });
 
@@ -62,4 +67,5 @@ test("la pantalla muestra «Firma protegida» y pide el código", () => {
   assert.match(ui, /Firma protegida/);
   assert.match(ui, /data-testid="signature-code"/);
   assert.match(ui, /pointer-events-none/);
+  assert.match(ui, /reason instanceof LockedError\) \{ setLocked\(true\)/);
 });
