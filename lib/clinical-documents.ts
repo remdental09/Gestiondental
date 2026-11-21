@@ -176,15 +176,3 @@ export function cleanMedications(value: unknown): string {
   const list = parseMedications(value);
   return list.length ? JSON.stringify(list) : "";
 }
-
-/** Texto para enviar la receta emitida al paciente por WhatsApp o correo (solo con su propio contacto; incluye el enlace de verificación). */
-export function prescriptionShareText(input: { patientName: string; clinic: string; doctor: string; dateText: string; medications: Medication[]; extra: string; url: string }): string {
-  const first = input.patientName.trim().split(/\s+/)[0] ?? "";
-  const items = input.medications.map((m, index) => {
-    const detail = [medicationLine(m), m.cantidad ? `Cantidad a dispensar: ${m.cantidad}` : "", m.indicaciones?.trim() ?? ""].filter(Boolean).join(" ");
-    return `${index + 1}. ${m.nombre}${detail ? ` — ${detail}` : ""}`;
-  });
-  const extra = input.extra.trim() ? splitPrescriptionLines(input.extra).map((line, index) => `${items.length + index + 1}. ${line.detail ? `${line.name} — ${line.detail}` : line.name}`) : [];
-  const body = [...items, ...extra].join("\n");
-  return `Hola${first ? ` ${first}` : ""}, te enviamos${input.clinic ? ` desde ${input.clinic}` : ""} tu receta médica, emitida por ${input.doctor || "tu profesional"}${input.dateText ? ` el ${input.dateText}` : ""}.${body ? `\n\nRp.\n${body}` : ""}\n\nPuedes verificar la receta aquí: ${input.url}`;
-}
