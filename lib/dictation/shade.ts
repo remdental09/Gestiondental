@@ -5,7 +5,7 @@
  * No se toca cuando la «a» es la preposición: «cambio de color a 2 meses», «color a 3.5 mm».
  */
 const WORD_DIGIT: Record<string, string> = { uno: "1", una: "1", dos: "2", tres: "3", cuatro: "4" };
-const NOT_A_SHADE_AFTER = /^\s*(?:[.,]\s*\d+)?\s*(?:mes|semana|d[ií]a|a[ñn]o|hora|minuto|segundo|mm\b|mil[ií]metro|cm\b|vez|veces|pieza|diente|sesi|control|cita|unidad)/i;
+const NOT_A_SHADE_AFTER = /^\s*(?:[.,]\s*\d+)?\s*(?:mes|semana|d[ií]a|a[ñn]o|hora|minuto|segundo|mm\b|mil[ií]metro|cm\b|vez|veces)/i;
 
 export function normalizeShades(text: string): string {
   return text.replace(
