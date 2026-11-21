@@ -436,5 +436,7 @@ test("normalizeShades deja el color en una forma única y no toca medidas ni pie
   assert.equal(normalizeShades("cambio de color a 2 meses"), "cambio de color a 2 meses");
   assert.equal(normalizeShades("el color a 3 semanas y a 1 día"), "el color a 3 semanas y a 1 día");
   assert.equal(normalizeShades("color a 3.5 mm"), "color a 3.5 mm");
+  assert.equal(normalizeShades("Se cementó corona color A 3.5 pieza 4.5"), "Se cementó corona color A3.5 pieza 4.5");
+  assert.equal(normalizeShades("color a tres cinco diente 4.5"), "color A3.5 diente 4.5");
   assert.equal(normalizeShades("pieza 3.5 con sondaje a 3.5 mm"), "pieza 3.5 con sondaje a 3.5 mm");
 });
