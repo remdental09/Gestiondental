@@ -15,7 +15,7 @@ export function AppointmentWeekMini({ events, day, time, minutes, onPick }: { ev
   const days = useMemo(() => blocksByDay(events, weekStart), [events, weekStart]);
   const proposed = proposedBlock(day, time, minutes);
   const { startHour, endHour } = gridHours(days, proposed);
-  const hourHeight = expanded ? 40 : 18;
+  const hourHeight = expanded ? 72 : 30;
   const height = (endHour - startHour) * hourHeight;
   const top = (minute: number) => ((minute - startHour * 60) / 60) * hourHeight;
   const dayKeys = Object.keys(days);
@@ -57,7 +57,7 @@ export function AppointmentWeekMini({ events, day, time, minutes, onPick }: { ev
                   }}
                 >
                   {days[key]!.map(block => (
-                    <span key={block.id} className="absolute inset-x-0 overflow-hidden bg-[#cfd8e8] px-px text-[8px] leading-tight text-[#2d3a52]" style={{ top: top(block.start), height: Math.max(3, top(block.end) - top(block.start)) }}>{expanded ? block.title : ""}</span>
+                    <span key={block.id} className="absolute inset-x-0 overflow-hidden break-words border-y border-white bg-[#cfd8e8] px-0.5 py-px text-[10px] font-medium leading-[1.15] text-[#1f2a44]" style={{ top: top(block.start), height: Math.max(12, top(block.end) - top(block.start)) }}>{expanded ? `${formatTime(block.start)} ` : ""}{block.title}</span>
                   ))}
                   {proposed && proposed.day === key && (
                     <span data-testid="appt-week-proposed" className={`absolute inset-x-0 border-2 ${conflicts.length ? "border-[#a43542] bg-[#a43542]/40" : "border-[#473a6d] bg-[#b8a4f0]/70"}`} style={{ top: top(proposed.start), height: Math.max(3, top(proposed.end) - top(proposed.start)) }} />
@@ -68,7 +68,12 @@ export function AppointmentWeekMini({ events, day, time, minutes, onPick }: { ev
           })}
         </div>
       </div>
-      <p className="text-xs text-[#6b6a7c]" aria-live="polite">
+      {(days[day] ?? []).length > 0 && (
+        <ul aria-label="Citas de ese día" className="space-y-0.5 rounded-md bg-[#f7f5fc] p-2 text-[13px] text-[#1f2a44]">
+          {(days[day] ?? []).map(block => <li key={block.id} className="flex gap-2"><span className="shrink-0 font-semibold tabular-nums">{formatTime(block.start)}–{formatTime(block.end)}</span><span className="min-w-0 break-words">{block.title}</span></li>)}
+        </ul>
+      )}
+      <p className="text-[13px] text-[#4a4960]" aria-live="polite">
         {conflicts.length ? <span role="alert" className="font-medium text-[#a43542]">Se cruza con {conflicts.map(block => `${block.title} (${formatTime(block.start)})`).join(", ")}.</span> : null}
         {conflicts.length ? " " : ""}
         {summary.freeMinutes > 0 ? `Ese día quedan ${formatSpan(summary.freeMinutes)} libres${summary.largest ? `; el mayor hueco es de ${formatTime(summary.largest.start)} a ${formatTime(summary.largest.end)}` : ""}.` : "Ese día no quedan horas libres."}

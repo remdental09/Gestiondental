@@ -44,3 +44,9 @@ test("la vista vuelve a la semana del día elegido y el diálogo hace scroll", (
   const page = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
   assert.match(page, /open=\{!!newAppt\}[^]*?<DialogContent className="max-h-\[92dvh\] overflow-y-auto">/);
 });
+
+test("los nombres de las citas se leen: en los bloques y en la lista del día", () => {
+  const comp = readFileSync(new URL("../components/appointment-week-mini.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(comp, /expanded \? block\.title : ""/);
+  assert.match(comp, /aria-label="Citas de ese día"/);
+});
