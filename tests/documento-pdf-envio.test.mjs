@@ -52,6 +52,8 @@ test("el panel envía el PDF por WhatsApp (compartir con archivo) y por correo (
   assert.match(panel, /\/api\/documentos\/pdf\?id=/);
   assert.match(panel, /\/api\/documentos\/enviar/);
   assert.match(panel, /window\.confirm\(`¿Enviar el PDF a/);
+  assert.doesNotMatch(panel, /disabled=\{busy \|\| !patient\.phone\}/);
+  assert.match(panel, /https:\/\/wa\.me\/\?text=/);
   assert.match(panel, /documentation-send-whatsapp/); assert.match(panel, /documentation-send-email/);
   assert.match(panel, /\(isPrescriptionKind\(activeDocument\.kind\) \|\| activeDocument\.kind === "consentimiento"\) && !printBlocked\(activeDocument\)/);
 });
