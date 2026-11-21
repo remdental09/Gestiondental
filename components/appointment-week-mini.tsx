@@ -7,7 +7,10 @@ const DAY_NAMES = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 /** Semana en miniatura para «Agendar cita»: muestra cómo está cubierta la semana mientras se elige día, hora y duración. */
 export function AppointmentWeekMini({ events, day, time, minutes, onPick }: { events: WeekEvent[]; day: string; time: string; minutes: number; onPick: (day: string, time: string) => void }) {
   const [expanded, setExpanded] = useState(false);
-  const [offset, setOffset] = useState(0);
+  const [nav, setNav] = useState({ anchor: day, offset: 0 });
+  // Al cambiar el día elegido (toque o campo de fecha) la vista vuelve a la semana de ese día.
+  const offset = nav.anchor === day ? nav.offset : 0;
+  const setOffset = (value: number) => setNav({ anchor: day, offset: value });
   const weekStart = addDays(weekMonday(day || new Date().toISOString().slice(0, 10)), offset * 7);
   const days = useMemo(() => blocksByDay(events, weekStart), [events, weekStart]);
   const proposed = proposedBlock(day, time, minutes);

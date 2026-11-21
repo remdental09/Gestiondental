@@ -37,3 +37,10 @@ test("el diálogo Agendar cita incluye la miniatura conectada a la fecha y hora"
   const page = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
   assert.match(page, /<AppointmentWeekMini events=\{agendaEvents\}[^>]*onPick=\{\(day,time\)=>setNewAppt\(/);
 });
+
+test("la vista vuelve a la semana del día elegido y el diálogo hace scroll", () => {
+  const comp = readFileSync(new URL("../components/appointment-week-mini.tsx", import.meta.url), "utf8");
+  assert.match(comp, /nav\.anchor === day \? nav\.offset : 0/);
+  const page = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /open=\{!!newAppt\}[^]*?<DialogContent className="max-h-\[92dvh\] overflow-y-auto">/);
+});
