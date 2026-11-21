@@ -38,7 +38,7 @@ test("Documentación tiene URL propia (Atrás de Safari vuelve a la ficha)", () 
 test("cada botón del riel abre su sección real con el paciente elegido", () => {
   const page = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
   const rail = page.slice(page.indexOf("rail={(note,latest)=>"), page.indexOf("below={note=>"));
-  assert.match(rail, /onDocument:.*setDocStart\(\{patientId:patient\.id,kind:"receta".*navigateTo\("Documentación"/);
+  assert.match(rail, /onDocument:\(kind\)=>.*setDocStart\(\{patientId:patient\.id,kind,.*navigateTo\("Documentación"/);
   assert.match(rail, /onBudget:.*navigateTo\("Ficha clínica",patient\.id,"presupuestos"\).*startNewBudgetWith\(draftItemFor/);
   assert.match(rail, /onCharge:.*navigateTo\("Ficha clínica",patient\.id,"presupuestos"\).*openManualPayment\(target/);
   assert.match(rail, /onControl:.*setControlStart\(\{patientId:patient\.id.*navigateTo\("Controles"/);
