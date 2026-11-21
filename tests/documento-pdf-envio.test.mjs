@@ -32,7 +32,9 @@ test("el correo del documento nombra receta o consentimiento y escapa el nombre"
   const receta = documentEmail({ patientName: "Ana <b>", clinicName: "Clínica", doctorName: "Dr. X" });
   assert.match(receta.subject, /receta médica/);
   assert.doesNotMatch(receta.html, /<b>/);
-  assert.match(documentEmail({ patientName: "Ana", consent: true }).subject, /consentimiento informado/);
+  assert.match(documentEmail({ patientName: "Ana", kind: "consentimiento" }).subject, /consentimiento informado/);
+  assert.match(documentEmail({ patientName: "Ana", kind: "orden" }).subject, /orden médica/);
+  assert.match(documentEmail({ patientName: "Ana", kind: "certificado" }).subject, /certificado médico/);
 });
 
 test("las rutas y el servidor exigen sesión, dueño, documento emitido y QR de habilitación", () => {
@@ -55,7 +57,7 @@ test("el panel envía el PDF por WhatsApp (compartir con archivo) y por correo (
   assert.doesNotMatch(panel, /disabled=\{busy \|\| !patient\.phone\}/);
   assert.match(panel, /https:\/\/wa\.me\/\?text=/);
   assert.match(panel, /documentation-send-whatsapp/); assert.match(panel, /documentation-send-email/);
-  assert.match(panel, /\(isPrescriptionKind\(activeDocument\.kind\) \|\| activeDocument\.kind === "consentimiento"\) && !printBlocked\(activeDocument\)/);
+  assert.match(panel, /\!printBlocked\(activeDocument\)/);
 });
 
 test("los saltos de línea del texto se respetan (no se colapsan en un párrafo)", async () => {

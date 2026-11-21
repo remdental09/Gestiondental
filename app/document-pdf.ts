@@ -23,7 +23,13 @@ const toBase64 = (bytes: Uint8Array) => { let bin = ""; for (let i = 0; i < byte
 const dateLong = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? "" : new Intl.DateTimeFormat("es-CL", { dateStyle: "long", timeZone: "America/Santiago" }).format(d); };
 const CONSENT_FIELDS: [string, string][] = [["procedimiento", "PROCEDIMIENTO PROPUESTO"], ["descripcion", "DESCRIPCIÓN Y ALCANCE"], ["riesgos", "RIESGOS Y POSIBLES COMPLICACIONES"], ["alternativas", "ALTERNATIVAS Y CONSECUENCIAS DE NO TRATAR"], ["declaracion", "DECLARACIONES O ACUERDOS ESPECÍFICOS"]];
 
-export const documentPdfFileName = (kind: string, id: number) => `${kind === "consentimiento" ? "consentimiento" : "receta"}-${String(id).padStart(5, "0")}.pdf`;
+const FILE_PREFIX: Record<string, string> = { receta: "receta", receta_magistral: "receta-magistral", orden: "orden", certificado: "certificado", consentimiento: "consentimiento" };
+const OTHER_FIELDS: Record<"orden" | "certificado", [string, string][]> = {
+  orden: [["diagnostico", "DIAGNÓSTICO O JUSTIFICACIÓN CLÍNICA"], ["examenes", "EXÁMENES O PROCEDIMIENTOS SOLICITADOS"], ["observaciones", "OBSERVACIONES"]],
+  certificado: [["motivo", "MOTIVO DEL CERTIFICADO"], ["observaciones", "OBSERVACIONES"], ["vigencia", "FECHA O VIGENCIA"]],
+};
+
+export const documentPdfFileName = (kind: string, id: number) => `${FILE_PREFIX[kind] ?? "documento"}-${String(id).padStart(5, "0")}.pdf`;
 
 /** PDF de un documento emitido del profesional (nunca de otro). Exige el QR de habilitación en recetas y consentimientos. */
 export async function renderDocumentPdf(ownerId: string, documentId: number, origin: string) {
@@ -32,7 +38,7 @@ export async function renderDocumentPdf(ownerId: string, documentId: number, ori
   const [doc] = await db.select().from(patientDocuments).where(and(eq(patientDocuments.id, documentId), eq(patientDocuments.ownerId, ownerId))).limit(1);
   if (!doc) throw new Error("No encontré ese documento.");
   if (doc.status !== "emitido" || !doc.verifyToken || !doc.contentHash) throw new Error("Solo se puede enviar un documento emitido (con QR de verificación).");
-  if (!(isPrescriptionKind(doc.kind) || doc.kind === "consentimiento")) throw new Error("Este tipo de documento no se envía en PDF desde aquí.");
+  if (!(doc.kind in FILE_PREFIX)) throw new Error("Este tipo de documento no se envía en PDF.");
   const [patient] = await db.select().from(patients).where(and(eq(patients.id, doc.patientId), eq(patients.ownerId, ownerId))).limit(1);
   if (!patient) throw new Error("No encontré la ficha del paciente.");
   const [regs, titles, clinic, mark] = await Promise.all([loadApprovedRegistrations([doc.createdBy]).catch(() => new Map()), loadProfileTitles([doc.createdBy]).catch(() => new Map()), loadClinic(ownerId).catch(() => null), loadDocumentMark(doc.createdBy).catch(() => "")]);
@@ -56,7 +62,7 @@ export async function renderDocumentPdf(ownerId: string, documentId: number, ori
     if (kind === "receta_magistral") sections.push({ heading: "FÓRMULA MAGISTRAL", lines: [text("prescripcion") || "—"] });
     else sections.push({ heading: "Rp.", lines: [] }, ...items.flatMap((item, index) => [{ lines: [`${index + 1}. ${item.name}`], strong: true }, { lines: item.lines }]));
     if (text("instrucciones")) sections.push({ heading: "INDICACIONES AL PACIENTE", lines: [text("instrucciones")] });
-  } else for (const [key, label] of CONSENT_FIELDS) sections.push({ heading: label, lines: [text(key) || "—"] });
+  } else for (const [key, label] of kind === "consentimiento" ? CONSENT_FIELDS : OTHER_FIELDS[kind as "orden" | "certificado"]) { if (kind === "consentimiento" || text(key)) sections.push({ heading: label, lines: [text(key) || "—"] }); }
   let signature: DocumentPdfInput["patientSignature"];
   if (kind === "consentimiento") {
     await ensureConsentSignatureTable();
@@ -101,7 +107,7 @@ export async function previewDocumentMail(ownerId: string, documentId: number) {
 export async function sendDocumentPdf(ownerId: string, documentId: number, origin: string) {
   const pdf = await renderDocumentPdf(ownerId, documentId, origin);
   const { to, sender } = await mailTarget(ownerId, pdf.patient.email, pdf.patient.name);
-  const mail = documentEmail({ patientName: pdf.patient.name, clinicName: pdf.clinicName, doctorName: pdf.doctorName, consent: pdf.kind === "consentimiento" });
+  const mail = documentEmail({ patientName: pdf.patient.name, clinicName: pdf.clinicName, doctorName: pdf.doctorName, kind: pdf.kind });
   await sendMailWithSender(sender, buildRawMessage({ from: sender.google_email, fromName: pdf.clinicName || undefined, to, replyTo: sender.google_email, ...mail,
     attachments: [{ filename: pdf.fileName, contentType: "application/pdf", base64: toBase64(pdf.bytes) }] }));
   return { to, from: sender.google_email };

@@ -1,14 +1,14 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FileDown, Search, ArrowLeft, ChevronRight, ClipboardCheck, ClipboardList, FlaskConical, Pill, FileCheck2, FilePlus2, FileText, LoaderCircle, Pencil, Printer, ScrollText, ShieldCheck, Trash2 } from "lucide-react";
+import { Mail, FileDown, Search, ArrowLeft, ChevronRight, ClipboardCheck, ClipboardList, FlaskConical, Pill, FileCheck2, FilePlus2, FileText, LoaderCircle, Pencil, Printer, ScrollText, ShieldCheck, Trash2 } from "lucide-react";
 import Image from "next/image";
 import qrcode from "qrcode-generator";
 import { ageFromBirthDate, parseMedications, MEDICATION_MAX, VIAS, VIAS_FRECUENTES, DOSE_UNITS, DOSE_UNIT_KEYS, TIME_UNITS, TIME_UNIT_KEYS, autoQuantityText, medicationDosis, medicationLine, type Medication, splitPrescriptionLines, isPrescriptionKind, requiresHabilitacionQr, habilitacionNoun, CLINICAL_DOCUMENT_KINDS, CLINICAL_DOCUMENT_LABEL, type ClinicalDocumentContent, type ClinicalDocumentKind } from "@/lib/clinical-documents";
 import { shortCode, verificationUrl } from "@/lib/document-verification";
 import { ConsentSigningCard, PatientSignatureImage } from "@/components/consent-signing";
 import { ConsentTemplatePicker } from "@/components/consent-template-picker";
-import { whatsappSignLink, SIGNER_ROLE_LABEL, SIGN_METHOD_LABEL, isSignMethod, isSignerRole, type SignatureView } from "@/lib/consent-signature";
+import { SIGNER_ROLE_LABEL, SIGN_METHOD_LABEL, isSignMethod, isSignerRole, type SignatureView } from "@/lib/consent-signature";
 import { formatAddress, type PatientAddress } from "@/lib/patient-address";
 import { registrationLine, type PublicRegistration } from "@/lib/prestador-certificate";
 import { formatChileanRut, isValidChileanRut } from "@/lib/patient-document";
@@ -79,6 +79,9 @@ const formatDate = (iso: string) => {
   return Number.isNaN(date.getTime()) ? "Fecha sin registrar" : new Intl.DateTimeFormat("es-CL", { dateStyle: "long", timeZone: "America/Santiago" }).format(date);
 };
 
+const SHARE_NOUN: Record<ClinicalDocumentKind, string> = { receta: "receta médica", receta_magistral: "receta magistral", orden: "orden médica", certificado: "certificado médico", consentimiento: "consentimiento informado" };
+/** Logo de WhatsApp (burbuja con auricular) para reconocer el botón de un vistazo. */
+const WhatsAppIcon = () => <svg viewBox="0 0 24 24" className="size-5 shrink-0" aria-hidden="true" data-testid="whatsapp-icon"><path fill="#25D366" d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Z"/><path fill="#fff" d="M16.9 14.3c-.2-.1-1.4-.7-1.6-.8s-.4-.1-.5.1-.6.8-.8.9-.3.2-.5.1a6.6 6.6 0 0 1-3.3-2.9c-.2-.4.2-.4.7-1.300.1-.1 0-.3 0-.4l-.7-1.700c-.2-.4-.4-.4-.5-.4h-.5a.9.9 0 0 0-.7.3 2.800 2.800 0 0 0-.9 2.100 4.900 4.900 0 0 0 1 2.600 11.200 11.200 0 0 0 4.300 3.800c1.600.700 2.200.700 3 .600a2.500 2.500 0 0 0 1.700-1.200 2 2 0 0 0 .1-1.200c-.1-.1-.2-.2-.5-.3Z"/></svg>;
 const STATUS_LABEL: Record<string, string> = { borrador: "Borrador", emitido: "Emitido", anulado: "Anulado", reemplazado: "Reemplazado" };
 const isIssued = (doc: { status: string }) => doc.status !== "borrador";
 /** Tratamiento del autor: el que eligió en su perfil (authorTitle) o, si no llega, el del nombre guardado. */
@@ -196,8 +199,8 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
       const response = await fetch(`/api/documentos/pdf?id=${doc.id}`, { cache: "no-store" });
       if (!response.ok) throw new Error((await response.json().catch(() => null) as { error?: string } | null)?.error || "No se pudo generar el PDF.");
       const blob = await response.blob();
-      const noun = doc.kind === "consentimiento" ? "consentimiento informado" : "receta médica";
-      const file = new File([blob], `${doc.kind === "consentimiento" ? "consentimiento" : "receta"}-${String(doc.id).padStart(5, "0")}.pdf`, { type: "application/pdf" });
+      const noun = SHARE_NOUN[doc.kind];
+      const file = new File([blob], `${doc.kind.replace(/_/g, "-")}-${String(doc.id).padStart(5, "0")}.pdf`, { type: "application/pdf" });
       const message = `Hola ${patient.name.trim().split(/\s+/)[0] ?? ""}, te enviamos${clinic?.clinicName ? ` desde ${clinic.clinicName}` : ""} tu ${noun} en PDF.`;
       if (typeof navigator.canShare === "function" && navigator.canShare({ files: [file] })) {
         try { await navigator.share({ files: [file], text: message }); setNotice(`Elige WhatsApp y luego el chat de ${patient.name}.`); }
@@ -309,13 +312,13 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
           {activeDocument.status === "borrador" && <button type="button" disabled={busy || (requiresHabilitacionQr(activeDocument.kind) && !canIssueReceta)} title={requiresHabilitacionQr(activeDocument.kind) && !canIssueReceta ? `Sube y espera la aprobación de tu certificado de inscripción para emitir ${habilitacionNoun(activeDocument.kind).emitir}` : undefined} onClick={() => issue(activeDocument)} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-[#473a6d] px-4 text-sm font-semibold text-[#473a6d] hover:bg-[#f3f1f7] disabled:opacity-50">{busy ? <LoaderCircle className="size-4 animate-spin"/> : <ShieldCheck className="size-4"/>}Emitir con QR</button>}
           <button type="button" data-testid="documentation-save-pdf" disabled={busy || printBlocked(activeDocument)} onClick={() => void printDocument(activeDocument)} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-[#473a6d] px-4 text-sm font-semibold text-white hover:bg-[#3a2f5a] disabled:opacity-50"><FileDown className="size-4"/>Guardar en PDF</button>
           <button type="button" data-testid="documentation-print-button" disabled={busy || printBlocked(activeDocument)} onClick={() => void printDocument(activeDocument)} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-[#473a6d] px-4 text-sm font-semibold text-white hover:bg-[#3a2f5a] disabled:opacity-50"><Printer className="size-4"/>Imprimir</button>
-          {activeDocument.status === "emitido" && (isPrescriptionKind(activeDocument.kind) || activeDocument.kind === "consentimiento") && !printBlocked(activeDocument) && (() => {
+          {activeDocument.status === "emitido" && !printBlocked(activeDocument) && (() => {
             const doc = activeDocument;
             const buttonClass = "inline-flex min-h-11 items-center gap-2 rounded-lg border border-[#b9b1ce] px-4 text-sm font-semibold text-[#473a6d] hover:bg-[#f3f1f7] disabled:cursor-not-allowed disabled:opacity-50";
-            const noun = doc.kind === "consentimiento" ? "consentimiento" : "receta";
+            const noun = SHARE_NOUN[doc.kind];
             return <>
-              <button type="button" data-testid="documentation-send-whatsapp" disabled={busy} onClick={() => void shareDocumentPdf(doc)} className={buttonClass}>Enviar PDF por WhatsApp</button>
-              <button type="button" data-testid="documentation-send-email" disabled={busy || !patient.email} title={patient.email ? undefined : "Agrega un correo al paciente"} onClick={() => void emailDocumentPdf(doc)} className={buttonClass}>Enviar PDF por correo</button>
+              <button type="button" data-testid="documentation-send-whatsapp" disabled={busy} onClick={() => void shareDocumentPdf(doc)} className={buttonClass}><WhatsAppIcon/>Enviar PDF por WhatsApp</button>
+              <button type="button" data-testid="documentation-send-email" disabled={busy || !patient.email} title={patient.email ? undefined : "Agrega un correo al paciente"} onClick={() => void emailDocumentPdf(doc)} className={buttonClass}><Mail className="size-5" aria-hidden="true"/>Enviar PDF por correo</button>
               {!patient.email && <p className="basis-full text-xs text-[#615f73]" data-testid="documentation-send-missing">{`Agrega el correo del paciente para enviar el ${noun} por correo.`}</p>}
             </>;
           })()}

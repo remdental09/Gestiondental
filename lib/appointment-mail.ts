@@ -145,14 +145,15 @@ ${note ? `<p style="margin:0 0 20px;font-size:14px;line-height:1.5">${esc(note).
   return { subject, text, html };
 }
 
-export type DocumentEmailInput = { patientName: string; clinicName?: string; doctorName?: string; consent?: boolean };
+export type DocumentEmailInput = { patientName: string; clinicName?: string; doctorName?: string; kind?: string };
+const DOCUMENT_EMAIL_NAME: Record<string, string> = { consentimiento: "consentimiento informado", orden: "orden médica", certificado: "certificado médico", receta_magistral: "receta magistral" };
 
 /** Correo con el PDF de una receta o consentimiento emitido. */
 export function documentEmail(input: DocumentEmailInput): { subject: string; text: string; html: string } {
   const first = header(input.patientName).split(/\s+/)[0] ?? "";
   const clinic = header(input.clinicName ?? "");
   const who = header(input.doctorName ?? "");
-  const what = input.consent ? "consentimiento informado" : "receta médica";
+  const what = DOCUMENT_EMAIL_NAME[input.kind ?? ""] ?? "receta médica";
   const subject = `Su ${what}${clinic ? ` · ${clinic}` : ""}`;
   const text = [`Estimado(a) ${first}:`, "", `Adjuntamos en PDF su ${what}${clinic ? ` de ${clinic}` : ""}.`, "Puede verificar su autenticidad escaneando el código QR del documento.", "", who ? `Saludos cordiales,\n${who}` : "Saludos cordiales."].join("\n");
   const html = `<!doctype html><html lang="es"><body style="margin:0;background:#f3f1f7;font-family:Arial,Helvetica,sans-serif;color:#35343f">
