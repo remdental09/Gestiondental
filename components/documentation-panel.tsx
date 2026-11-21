@@ -4,11 +4,11 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { FileDown, Search, ArrowLeft, ChevronRight, ClipboardCheck, ClipboardList, FlaskConical, Pill, FileCheck2, FilePlus2, FileText, LoaderCircle, Pencil, Printer, ScrollText, ShieldCheck, Trash2 } from "lucide-react";
 import Image from "next/image";
 import qrcode from "qrcode-generator";
-import { ageFromBirthDate, parseMedications, MEDICATION_MAX, VIAS, VIAS_FRECUENTES, DOSE_UNITS, DOSE_UNIT_KEYS, TIME_UNITS, TIME_UNIT_KEYS, autoQuantityText, medicationDosis, medicationLine, type Medication, splitPrescriptionLines, isPrescriptionKind, requiresHabilitacionQr, habilitacionNoun, CLINICAL_DOCUMENT_KINDS, CLINICAL_DOCUMENT_LABEL, type ClinicalDocumentContent, type ClinicalDocumentKind } from "@/lib/clinical-documents";
+import { ageFromBirthDate, parseMedications, MEDICATION_MAX, VIAS, VIAS_FRECUENTES, DOSE_UNITS, DOSE_UNIT_KEYS, TIME_UNITS, TIME_UNIT_KEYS, autoQuantityText, medicationDosis, medicationLine, type Medication, splitPrescriptionLines, prescriptionShareText, isPrescriptionKind, requiresHabilitacionQr, habilitacionNoun, CLINICAL_DOCUMENT_KINDS, CLINICAL_DOCUMENT_LABEL, type ClinicalDocumentContent, type ClinicalDocumentKind } from "@/lib/clinical-documents";
 import { shortCode, verificationUrl } from "@/lib/document-verification";
 import { ConsentSigningCard, PatientSignatureImage } from "@/components/consent-signing";
 import { ConsentTemplatePicker } from "@/components/consent-template-picker";
-import { SIGNER_ROLE_LABEL, SIGN_METHOD_LABEL, isSignMethod, isSignerRole, type SignatureView } from "@/lib/consent-signature";
+import { whatsappSignLink, SIGNER_ROLE_LABEL, SIGN_METHOD_LABEL, isSignMethod, isSignerRole, type SignatureView } from "@/lib/consent-signature";
 import { formatAddress, type PatientAddress } from "@/lib/patient-address";
 import { registrationLine, type PublicRegistration } from "@/lib/prestador-certificate";
 import { formatChileanRut, isValidChileanRut } from "@/lib/patient-document";
@@ -269,6 +269,17 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
           {activeDocument.status === "borrador" && <button type="button" disabled={busy || (requiresHabilitacionQr(activeDocument.kind) && !canIssueReceta)} title={requiresHabilitacionQr(activeDocument.kind) && !canIssueReceta ? `Sube y espera la aprobación de tu certificado de inscripción para emitir ${habilitacionNoun(activeDocument.kind).emitir}` : undefined} onClick={() => issue(activeDocument)} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-[#473a6d] px-4 text-sm font-semibold text-[#473a6d] hover:bg-[#f3f1f7] disabled:opacity-50">{busy ? <LoaderCircle className="size-4 animate-spin"/> : <ShieldCheck className="size-4"/>}Emitir con QR</button>}
           <button type="button" data-testid="documentation-save-pdf" disabled={busy || printBlocked(activeDocument)} onClick={() => void printDocument(activeDocument)} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-[#473a6d] px-4 text-sm font-semibold text-white hover:bg-[#3a2f5a] disabled:opacity-50"><FileDown className="size-4"/>Guardar en PDF</button>
           <button type="button" data-testid="documentation-print-button" disabled={busy || printBlocked(activeDocument)} onClick={() => void printDocument(activeDocument)} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-[#473a6d] px-4 text-sm font-semibold text-white hover:bg-[#3a2f5a] disabled:opacity-50"><Printer className="size-4"/>Imprimir</button>
+          {activeDocument.status === "emitido" && isPrescriptionKind(activeDocument.kind) && !printBlocked(activeDocument) && (() => {
+            const doc = activeDocument;
+            const doctor = doc.registration?.fullName ? `${doctorTitle(doc)} ${doc.registration.fullName}` : authorName(doc);
+            const text = prescriptionShareText({ patientName: patient.name, clinic: clinic?.clinicName ?? "", doctor, dateText: formatDate(doc.issuedAt || doc.createdAt), medications: doc.kind === "receta" ? parseMedications(activeContent.medicamentos) : [], extra: activeContent.prescripcion ?? "", url: verificationUrl(window.location.origin, doc.verifyToken ?? "") });
+            const wa = whatsappSignLink(patient.phone, text);
+            const buttonClass = "inline-flex min-h-11 items-center gap-2 rounded-lg border border-[#b9b1ce] px-4 text-sm font-semibold text-[#473a6d] hover:bg-[#f3f1f7]";
+            return <>
+              {wa ? <a data-testid="documentation-send-whatsapp" href={wa} target="_blank" rel="noreferrer" className={buttonClass}>Enviar por WhatsApp</a> : <span data-testid="documentation-send-whatsapp-missing" className="inline-flex min-h-11 items-center rounded-lg border border-dashed border-[#d2d4df] px-4 text-sm text-[#615f73]">Agrega un teléfono al paciente para enviar por WhatsApp</span>}
+              {patient.email ? <a data-testid="documentation-send-email" href={`mailto:${patient.email}?subject=${encodeURIComponent(`Receta médica${clinic?.clinicName ? ` — ${clinic.clinicName}` : ""}`)}&body=${encodeURIComponent(text)}`} className={buttonClass}>Enviar por correo</a> : <span data-testid="documentation-send-email-missing" className="inline-flex min-h-11 items-center rounded-lg border border-dashed border-[#d2d4df] px-4 text-sm text-[#615f73]">Agrega un correo al paciente para enviar por correo</span>}
+            </>;
+          })()}
           {activeDocument.status === "borrador" && <button type="button" data-testid="documentation-delete-draft" disabled={busy} onClick={() => void removeDraft(activeDocument)} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-rose-300 px-4 text-sm font-semibold text-rose-800 hover:bg-rose-50 disabled:opacity-50"><Trash2 className="size-4"/>Borrar</button>}
           {activeDocument.status === "emitido" && <button type="button" disabled={busy} onClick={() => annul(activeDocument)} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-rose-300 px-4 text-sm font-semibold text-rose-800 hover:bg-rose-50 disabled:opacity-50"><Trash2 className="size-4"/>Anular</button>}
         </>}

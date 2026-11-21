@@ -217,3 +217,17 @@ test("la receta no lleva la leyenda de firma electrónica avanzada; el consentim
   const panel = readFileSync(new URL("../components/documentation-panel.tsx", import.meta.url), "utf8");
   assert.match(panel, /\{!prescription && " No es firma electrónica avanzada\."\}/);
 });
+
+test("la receta emitida se envía por WhatsApp o correo con botones inmediatos y enlace de verificación", async () => {
+  const { prescriptionShareText } = await import("../lib/clinical-documents.ts");
+  const text = prescriptionShareText({ patientName: "ANA PEREZ GUZMAN", clinic: "Odontología CAD-CAM", doctor: "Dr. Luis Rodríguez", dateText: "21 de noviembre de 2026",
+    medications: [{ nombre: "Paracetamol", dosis: "1 comprimido cada 8 horas por 1 día", via: "oral", cantidad: "3 comprimidos" }], extra: "", url: "https://speakdent.cl/api/verificar?t=abc" });
+  assert.match(text, /^Hola ANA, te enviamos desde Odontología CAD-CAM tu receta médica, emitida por Dr\. Luis Rodríguez el 21 de noviembre de 2026\./);
+  assert.match(text, /1\. Paracetamol — .*Cantidad a dispensar: 3 comprimidos/);
+  assert.match(text, /verificar la receta aquí: https:\/\/speakdent\.cl\/api\/verificar\?t=abc$/);
+  const { readFileSync } = await import("node:fs");
+  const panel = readFileSync(new URL("../components/documentation-panel.tsx", import.meta.url), "utf8");
+  assert.match(panel, /documentation-send-whatsapp/);
+  assert.match(panel, /documentation-send-email/);
+  assert.match(panel, /activeDocument\.status === "emitido" && isPrescriptionKind\(activeDocument\.kind\) && !printBlocked\(activeDocument\)/);
+});
