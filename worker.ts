@@ -7,6 +7,7 @@ import {
   SESSION_COOKIE, STATE_COOKIE, SESSION_DAYS, LOGIN_PATH, CALLBACK_PATH, LOGOUT_PATH,
   signSession, verifySession, readCookie, cookie, randomToken, googleAuthUrl, acceptedGoogleProfile,
 } from "./lib/google-login";
+import { allowLogin, createSession, crossSiteWrite, isStoredToken, readSession, revokeSession, sameSiteNavigation, SESSION_TTL_MS, type SessionDb } from "./lib/session-store";
 import { resolveOwner, resolveOwnerWithRegistration, type OwnerConfig, type ClinicOwner } from "./app/access-owners";
 import { activeMemberships, type TeamDb } from "./app/clinic-team-db";
 import { ENTRY_COOKIE, chooseSpaceForEntry, parseEntry, type Space } from "./lib/clinic-team";
@@ -185,6 +186,10 @@ function googleLoginConfig(env: OAuthEnv) {
   return { clientId, clientSecret, sessionSecret, configured: Boolean(clientId && clientSecret && sessionSecret) };
 }
 
+const sessionDb = (env: OAuthEnv) => (env as unknown as { DB?: SessionDb }).DB ?? null;
+const clientIp = (request: Request) => request.headers.get("CF-Connecting-IP") || "";
+const sessionCookie = (token: string) => cookie(SESSION_COOKIE, token, SESSION_TTL_MS / 1000);
+
 function portadaResponse(errorCode: string | null, method = "GET", status = 200) {
   const headers = securePageHeaders();
   headers.set("Content-Security-Policy", PORTADA_CSP);
@@ -200,9 +205,11 @@ function redirect(location: string, cookies: string[] = []) {
 /** Puerta elegida en la portada («mi consulta» o «una clínica»); dura lo que la sesión. */
 const entryCookie = (entry: "personal" | "clinica") => cookie(ENTRY_COOKIE, entry, SESSION_DAYS * 86_400);
 
-function startGoogleLogin(request: Request, env: OAuthEnv): Response {
+async function startGoogleLogin(request: Request, env: OAuthEnv): Promise<Response> {
   const config = googleLoginConfig(env);
   if (!config.configured) return redirect("/?error=configuracion");
+  const db = sessionDb(env);
+  if (db && !(await allowLogin(db, clientIp(request)))) return redirect("/?error=demasiados");
   const state = randomToken();
   const redirectUri = new URL(CALLBACK_PATH, request.url).toString();
   const entry = parseEntry(new URL(request.url).searchParams.get("entrada"));
@@ -225,6 +232,8 @@ async function finishGoogleLogin(request: Request, env: OAuthEnv): Promise<Respo
   const state = url.searchParams.get("state") || "";
   const expected = readCookie(request.headers.get("Cookie"), STATE_COOKIE);
   if (!code || !state || !expected || state !== expected) return redirect("/?error=vencido", [clearState]);
+  const db = sessionDb(env);
+  if (db && !(await allowLogin(db, clientIp(request)))) return redirect("/?error=demasiados", [clearState]);
   try {
     const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
@@ -246,30 +255,60 @@ async function finishGoogleLogin(request: Request, env: OAuthEnv): Promise<Respo
     if (!profile) return redirect("/?error=no-verificado", [clearState]);
     const resolved = await resolveOwnerWithRegistration(profile.email, ownerConfig(env));
     if (!resolved.ok) return redirect(resolved.status === 503 ? "/?error=configuracion" : "/?error=sin-acceso", [clearState]);
-    const token = await signSession({ email: profile.email, name: profile.name, exp: Date.now() + SESSION_DAYS * 86_400_000 }, config.sessionSecret);
+    // Sesión guardada en D1 (revocable, vence a los 30 días sin uso). Si D1 fallara, cookie firmada como respaldo.
+    const stored = db ? await createSession(db, { email: profile.email, name: profile.name }).catch(() => null) : null;
+    const token = stored ?? await signSession({ email: profile.email, name: profile.name, exp: Date.now() + SESSION_DAYS * 86_400_000 }, config.sessionSecret);
     return redirect("/", [clearState, cookie(SESSION_COOKIE, token, SESSION_DAYS * 86_400)]);
   } catch {
     return redirect("/?error=vencido", [clearState]);
   }
 }
 
-function logout(request: Request): Response {
+async function logout(request: Request, env: OAuthEnv): Promise<Response> {
+  // Un enlace desde otro sitio no puede cerrar la sesión (CSRF); desde la app sí.
+  if (request.method === "GET" ? !sameSiteNavigation(request) : crossSiteWrite(request)) return redirect("/");
+  const token = readCookie(request.headers.get("Cookie"), SESSION_COOKIE);
+  const db = sessionDb(env);
+  if (db && isStoredToken(token)) await revokeSession(db, token).catch(() => undefined);
   // Si aún se entró por Cloudflare Access, también se cierra esa sesión.
   const viaAccess = Boolean(request.headers.get("Cf-Access-Jwt-Assertion"));
   return redirect(viaAccess ? "/cdn-cgi/access/logout" : "/", [cookie(SESSION_COOKIE, "", 0), cookie(ENTRY_COOKIE, "", 0)]);
 }
 
-async function sessionOwner(request: Request, env: OAuthEnv, allowRegistration: boolean): Promise<{ email: string; owner: ClinicOwner } | null> {
-  const config = googleLoginConfig(env);
-  const session = await verifySession(readCookie(request.headers.get("Cookie"), SESSION_COOKIE), config.sessionSecret);
-  if (!session) return null;
+type Identity = { email: string; owner: ClinicOwner; setCookies?: string[] };
+
+/**
+ * Sesión propia: token «v2.» guardado en D1 (deslizante); las cookies firmadas antiguas siguen valiendo
+ * y se cambian por una sesión en D1 la primera vez que se usan (nadie tiene que volver a entrar).
+ */
+async function sessionOwner(request: Request, env: OAuthEnv, allowRegistration: boolean): Promise<Identity | null> {
+  const token = readCookie(request.headers.get("Cookie"), SESSION_COOKIE);
+  if (!token) return null;
+  const db = sessionDb(env);
+  let email = "", name = "";
+  const setCookies: string[] = [];
+  if (isStoredToken(token)) {
+    if (!db) return null;
+    const found = await readSession(db, token).catch(() => null);
+    if (!found) return null;
+    ({ email, name } = found.session);
+    if (found.refresh) setCookies.push(sessionCookie(token));
+  } else {
+    const config = googleLoginConfig(env);
+    const legacy = await verifySession(token, config.sessionSecret);
+    if (!legacy) return null;
+    ({ email, name } = legacy);
+    // Solo en la app (no en la pantalla de autorización de MCP, que no reenvía cookies).
+    const upgraded = db && allowRegistration ? await createSession(db, { email, name }).catch(() => null) : null;
+    if (upgraded) setCookies.push(sessionCookie(upgraded));
+  }
   const owners = ownerConfig(env);
-  const resolved = allowRegistration ? await resolveOwnerWithRegistration(session.email, owners) : resolveOwner(session.email, owners);
-  return resolved.ok ? { email: session.email, owner: resolved.owner } : null;
+  const resolved = allowRegistration ? await resolveOwnerWithRegistration(email, owners) : resolveOwner(email, owners);
+  return resolved.ok ? { email, owner: resolved.owner, ...(setCookies.length ? { setCookies } : {}) } : null;
 }
 
 /** Sesión de Google primero; Cloudflare Access sigue sirviendo mientras se retira. Sin ninguna: portada (páginas) o 401 (API). */
-async function identify(request: Request, env: OAuthEnv, context: ExecutionContext, allowRegistration = true): Promise<{ email: string; owner: ClinicOwner } | Response> {
+async function identify(request: Request, env: OAuthEnv, context: ExecutionContext, allowRegistration = true): Promise<Identity | Response> {
   const fromSession = await sessionOwner(request, env, allowRegistration);
   if (fromSession) return fromSession;
   const hasAccess = Boolean((context as WorkerContext).access) || Boolean(request.headers.get("Cf-Access-Jwt-Assertion"));
@@ -302,6 +341,8 @@ async function resolveSpace(request: Request, env: OAuthEnv, identity: { email: 
 }
 
 async function privateAppFetch(request: Request, env: OAuthEnv, context: ExecutionContext): Promise<Response> {
+  // CSRF: ninguna escritura desde otro sitio, aunque el navegador mandara la cookie.
+  if (crossSiteWrite(request)) return Response.json({ error: "Origen no permitido." }, { status: 403, headers: { "Cache-Control": "no-store" } });
   const identity = await identify(request, env, context);
   if (identity instanceof Response) return identity;
   const space = await resolveSpace(request, env, identity);
@@ -313,7 +354,12 @@ async function privateAppFetch(request: Request, env: OAuthEnv, context: Executi
   headers.set(PERSONAL_ID_HEADER, identity.owner.ownerId);
   headers.set(SPACE_ROLE_HEADER, space.role);
   headers.set(ACCESS_NAME_HEADER, encodeURIComponent(identity.owner.name));
-  return app.fetch(new Request(request, { headers }), env, context);
+  const response = await app.fetch(new Request(request, { headers }), env, context);
+  if (!identity.setCookies?.length) return response;
+  // Sesión renovada (30 días más) o recién pasada a D1: se reenvía la cookie.
+  const withCookies = new Response(response.body, response);
+  for (const value of identity.setCookies) withCookies.headers.append("Set-Cookie", value);
+  return withCookies;
 }
 
 function escapeHtml(value: string) {
@@ -466,7 +512,7 @@ const oauthProvider = new OAuthProvider<OAuthEnv>({
       if (path.startsWith("/portada/") && (request.method === "GET" || request.method === "HEAD")) return (env as unknown as { ASSETS: Fetcher }).ASSETS.fetch(request);
       if (path === LOGIN_PATH && request.method === "GET") return startGoogleLogin(request, env);
       if (path === CALLBACK_PATH && request.method === "GET") return finishGoogleLogin(request, env);
-      if (path === LOGOUT_PATH && (request.method === "GET" || request.method === "POST")) return logout(request);
+      if (path === LOGOUT_PATH && (request.method === "GET" || request.method === "POST")) return logout(request, env);
       if (path === "/auth/entrada" && request.method === "GET") return switchEntry(request);
       if (path === "/authorize") return authorize(request, env, context);
       return privateAppFetch(request, env, context);
