@@ -100,8 +100,8 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => ({})) as { key?: unknown; decision?: unknown; accion?: unknown; desde?: unknown };
   // «revisar»: la IA lee unas pocas evoluciones recientes aún sin revisar (la pantalla lo repite hasta que no queden).
   if (body.accion === "revisar") {
-    if (!(await aiWithinLimit(personalIdOf(user)))) return json({ revisadas: 0, pendientes: 0, fallidas: 0, limiteIa: true });
-    void trackAi(personalIdOf(user), { calls: 1 });
+    if (!(await aiWithinLimit(user.userId))) return json({ revisadas: 0, pendientes: 0, fallidas: 0, limiteIa: true });
+    void trackAi(user.userId, { calls: 1 });
   }
   if (body.accion === "revisar") return json(await reviewPendingNotes(user.userId, BATCH).catch(() => ({ revisadas: 0, pendientes: 0, fallidas: 0 })));
   // «probar» (solo el titular): corre el banco de evoluciones con la IA real y dice si el lector acierta.

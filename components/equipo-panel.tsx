@@ -8,7 +8,16 @@ import type { ClinicianProfile } from "@/lib/clinician-profile";
 /** El diálogo de perfil (con firma y QR) se descarga solo cuando se abre. */
 const ProfileDialog = lazy(() => import("@/components/profile-dialog").then(module => ({ default: module.ProfileDialog })));
 
-type Role = "admin" | "dentista";
+type Role = "admin" | "dentista" | "recepcion" | "asistente";
+const support = (role: string) => role === "recepcion" || role === "asistente";
+const ROLE_OPTIONS: Array<[Role, string]> = [["recepcion", "Recepción"], ["asistente", "Asistente"], ["dentista", "Dentista colaborador"], ["admin", "Administrador"]];
+/** Qué puede hacer cada rol (se aplica en el servidor; aquí solo se explica). */
+const ROLE_HELP: Record<Role, string> = {
+  recepcion: "Agenda completa, datos de contacto del paciente, presupuestos, pagos, controles y dashboard. No ve evoluciones, anamnesis, odontograma, imágenes ni recetas.",
+  asistente: "Ve la agenda y marca llegó, en box y atendida; abre la ficha en lectura y sube imágenes. No escribe evoluciones, no cobra ni cambia la configuración.",
+  dentista: "Atiende a los pacientes de la clínica; sus evoluciones quedan firmadas a su nombre.",
+  admin: "Todo lo del dentista, y además invita y quita personas del equipo.",
+};
 type Member = { email: string; name: string; specialty: string; role: Role; roleLabel: string; status: "invitada" | "activa" | "revocada" | "rechazada" | "vencida"; invitedAt: string; acceptedAt: string | null; expiresAt: string; isMe: boolean };
 type TeamState = {
   /** Puerta por la que se entró desde la portada. */
@@ -77,9 +86,9 @@ function InvitationCards({ state, busy, act }: { state: TeamState; busy: boolean
   return <>{state.invitations.map(inv => (
     <section key={inv.clinicId} className="flex flex-wrap items-center gap-3 rounded-xl border border-[#c9c2e3] bg-[#efedf7] p-4" aria-label="Invitación a una clínica" data-testid="clinic-invitation">
       <Building2 className="size-5 shrink-0 text-[#473a6d]" aria-hidden="true"/>
-      <p className="min-w-0 flex-1 text-sm text-[#2b2540]"><strong>{inv.invitedBy}</strong> te invitó a atender pacientes de <strong>{inv.clinicName}</strong> como {inv.roleLabel.toLowerCase()}. Vence el {day(inv.expiresAt)}.</p>
+      <p className="min-w-0 flex-1 text-sm text-[#2b2540]"><strong>{inv.invitedBy}</strong> te invitó a {support(inv.role) ? "trabajar en" : "atender pacientes de"} <strong>{inv.clinicName}</strong> como {inv.roleLabel.toLowerCase()}. Vence el {day(inv.expiresAt)}.</p>
       <div className="flex gap-2">
-        {!profileComplete
+        {!profileComplete && !support(inv.role)
           ? <Button type="button" size="sm" disabled={busy} className="bg-[#473a6d] text-white hover:bg-[#3a2f5a]" onClick={() => setIdentify(true)}>Identificarme</Button>
           : <Button type="button" size="sm" disabled={busy} className="bg-[#473a6d] text-white hover:bg-[#3a2f5a]" onClick={() => act({ action: "aceptar", clinicId: inv.clinicId })} data-testid="accept-invitation"><Check className="mr-1.5 size-4"/>Aceptar</Button>}
         <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => act({ action: "rechazar", clinicId: inv.clinicId })}>Rechazar</Button>
@@ -118,13 +127,13 @@ export function ClinicSpaceBar() {
       <div className="mb-5 space-y-3" data-testid="clinic-space-bar">
         <div className="flex flex-wrap items-center gap-3 rounded-xl border border-[#f0b49a] bg-gradient-to-r from-[#fde7dc] to-[#fbeee8] px-4 py-3" data-testid="clinic-entry-badge">
           <Building2 className="size-5 shrink-0 text-[#c95f35]" aria-hidden="true"/>
-          <p className="min-w-0 flex-1 text-sm text-[#5a2a16]">Estás en <strong>{state.space.name}</strong> como {state.space.roleLabel.toLowerCase()}. Lo que escribas queda en las fichas de esta clínica, firmado por ti.</p>
+          <p className="min-w-0 flex-1 text-sm text-[#5a2a16]" data-testid="connected-as">Estás en <strong>{state.space.name}</strong> como <strong>{state.space.roleLabel.toLowerCase()}</strong> ({state.email}). {support(state.space.role) ? "Ves solo lo que tu rol permite." : "Lo que escribas queda en las fichas de esta clínica, firmado por ti."}</p>
           {several && (
             <select className="min-h-10 rounded-lg border border-[#f0b49a] bg-white px-3 text-base font-semibold text-[#c95f35] sm:text-sm" disabled={busy} value={state.spaces.find(s => s.current)?.id ?? ""} onChange={e => act({ action: "espacio", spaceId: e.target.value })} aria-label="Cambiar de clínica" data-testid="space-switcher">
               {state.spaces.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           )}
-          <a href="/auth/entrada?tipo=personal" className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-[#f0b49a] bg-white px-3 text-sm font-semibold text-[#473a6d] hover:bg-[#efedf7]" data-testid="go-personal"><Stethoscope className="size-4"/>Ir a mi consulta</a>
+          {!support(state.space.role) && <a href="/auth/entrada?tipo=personal" className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-[#f0b49a] bg-white px-3 text-sm font-semibold text-[#473a6d] hover:bg-[#efedf7]" data-testid="go-personal"><Stethoscope className="size-4"/>Ir a mi consulta</a>}
         </div>
         <InvitationCards state={state} busy={busy} act={act}/>
         {errorLine}
@@ -147,11 +156,37 @@ export function ClinicSpaceBar() {
   );
 }
 
+const KIND_LABEL: Record<string, string> = {
+  "cita.crear": "Agendó una cita", "cita.editar": "Editó una cita", "cita.borrar": "Borró una cita", "cita.motivo": "Cambió el motivo de una cita", "cita.mover": "Movió una cita", "cita.estado": "Cambió el estado de una cita",
+  "pago.crear": "Registró un pago", "presupuesto.crear": "Creó un presupuesto", "presupuesto.editar": "Editó un presupuesto", "presupuesto.estado": "Cambió el estado de un presupuesto", "presupuesto.items": "Agregó prestaciones a un presupuesto",
+  "presupuesto.alternativa": "Eligió una alternativa de presupuesto", "presupuesto.avance": "Marcó avance de una prestación", "presupuesto.realizado": "Marcó una prestación realizada",
+  "paciente.crear": "Creó un paciente", "paciente.editar": "Editó datos de un paciente", "agenda.bloquear": "Bloqueó un horario", "agenda.desbloquear": "Quitó un bloqueo", "agenda.horario": "Cambió horarios",
+  "espera.agregar": "Agregó a la lista de espera", "espera.quitar": "Quitó de la lista de espera",
+};
+const ROLE_SHORT: Record<string, string> = { titular: "Titular", admin: "Administrador", dentista: "Dentista", recepcion: "Recepción", asistente: "Asistente" };
+
+/** Quién hizo cada cambio (citas, pagos, presupuestos, pacientes). Se carga solo al abrirlo. */
+function TeamActivity() {
+  type Event = { id: number; actor_email: string; actor_role: string; kind: string; at: string };
+  const [events, setEvents] = useState<Event[] | null>(null);
+  const load = () => { if (events) return; fetch("/api/actividad", { cache: "no-store" }).then(async r => (r.ok ? await r.json() as { events?: Event[] } : { events: [] })).then(d => setEvents(d.events ?? [])).catch(() => setEvents([])); };
+  return (
+    <details className="text-sm text-[#615f73]" onToggle={e => { if ((e.target as HTMLDetailsElement).open) load(); }} data-testid="team-activity">
+      <summary className="cursor-pointer font-medium text-[#473a6d]">Actividad del equipo (quién hizo cada cambio)</summary>
+      {!events ? <p className="mt-2">Cargando…</p> : !events.length ? <p className="mt-2">Aún no hay cambios registrados.</p> : (
+        <ul className="mt-2 max-h-72 space-y-1 overflow-y-auto">{events.map(ev => (
+          <li key={ev.id} className="flex flex-wrap gap-x-2"><span className="text-[#6b6a7c]">{new Date(ev.at).toLocaleString("es-CL", { timeZone: "America/Santiago", dateStyle: "short", timeStyle: "short" })}</span><span className="text-[#35343f]">{KIND_LABEL[ev.kind] ?? ev.kind}</span><span className="text-[#6b6a7c]">· {ev.actor_email} ({ROLE_SHORT[ev.actor_role] ?? ev.actor_role})</span></li>
+        ))}</ul>
+      )}
+    </details>
+  );
+}
+
 /** Configuración → Equipo: invitar colegas por su Gmail, ver el estado de cada uno, cambiar su rol o quitarle el acceso. */
 export function EquipoPanel() {
   const { state, error, busy, act } = useTeam();
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<Role>("dentista");
+  const [role, setRole] = useState<Role>("recepcion");
   const [invited, setInvited] = useState("");
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
   const [confirmLeave, setConfirmLeave] = useState(false);
@@ -179,8 +214,8 @@ export function EquipoPanel() {
         <h3 id="equipo-titulo" className="flex items-center gap-2 text-base font-semibold text-[#2b2540]"><Users className="size-5 text-[#473a6d]"/>Equipo de la clínica</h3>
         <p className="mt-1 text-sm text-[#615f73]">
           {space.manage
-            ? "Invita a otros dentistas a atender a los pacientes de esta clínica. Entran con su propio Gmail; cada evolución queda firmada por quien la escribe y solo esa persona puede corregirla."
-            : `Trabajas en ${space.name} como ${space.roleLabel.toLowerCase()}. Ves a sus pacientes y tus evoluciones quedan a tu nombre.`}
+            ? "Invita a tu recepcionista, asistente u otros dentistas. Cada uno entra con su propio Gmail y ve solo lo que su rol permite; cada evolución queda firmada por quien la escribe."
+            : space.role === "recepcion" || space.role === "asistente" ? `Trabajas en ${space.name} como ${space.roleLabel.toLowerCase()}. ${ROLE_HELP[space.role]}` : `Trabajas en ${space.name} como ${space.roleLabel.toLowerCase()}. Ves a sus pacientes y tus evoluciones quedan a tu nombre.`}
         </p>
       </div>
 
@@ -192,7 +227,7 @@ export function EquipoPanel() {
             {space.manage && !m.isMe ? (
               <span className="flex flex-wrap items-center gap-2">
                 <select aria-label={`Rol de ${m.email}`} className="min-h-9 rounded-lg border border-[#dddbe6] bg-white px-2 text-sm" disabled={busy || m.status === "vencida"} value={m.role} onChange={e => act({ action: "rol", email: m.email, role: e.target.value })}>
-                  <option value="dentista">Dentista</option><option value="admin">Administrador</option>
+                  {ROLE_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                 </select>
                 {(m.status === "invitada" || m.status === "vencida") && <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={async () => { if (await (m.status === "vencida" ? act({ action: "invitar", email: m.email, role: m.role }) : act({ action: "reenviar", email: m.email }))) { setInvited(m.email); setCopied(false); } }}><RefreshCw className="mr-1 size-4"/>{m.status === "vencida" ? "Renovar plazo" : "Renovar y reenviar"}</Button>}
                 {confirmRemove === m.email
@@ -206,15 +241,16 @@ export function EquipoPanel() {
 
       {space.manage && (
         <form onSubmit={invite} className="space-y-3 rounded-xl border border-[#e6e4ee] bg-[#f7f6fa] p-4" data-testid="team-invite">
-          <h4 className="flex items-center gap-2 text-sm font-semibold text-[#2b2540]"><UserPlus className="size-4"/>Invitar a un colega</h4>
+          <h4 className="flex items-center gap-2 text-sm font-semibold text-[#2b2540]"><UserPlus className="size-4"/>Invitar a alguien del equipo</h4>
           <div className="flex flex-wrap gap-2">
-            <input type="email" required inputMode="email" autoComplete="off" placeholder="correo@gmail.com" value={email} onChange={e => setEmail(e.target.value)} aria-label="Gmail del colega" className="min-h-11 min-w-[14rem] flex-1 rounded-lg border border-[#d2d4df] bg-white px-3 text-base sm:text-sm"/>
+            <input type="email" required inputMode="email" autoComplete="off" placeholder="correo@gmail.com" value={email} onChange={e => setEmail(e.target.value)} aria-label="Gmail de la persona" className="min-h-11 min-w-[14rem] flex-1 rounded-lg border border-[#d2d4df] bg-white px-3 text-base sm:text-sm"/>
             <select value={role} onChange={e => setRole(e.target.value as Role)} aria-label="Rol" className="min-h-11 rounded-lg border border-[#d2d4df] bg-white px-3 text-base sm:text-sm">
-              <option value="dentista">Dentista</option><option value="admin">Administrador</option>
+              {ROLE_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
             <Button type="submit" disabled={busy || !email.trim()} className="min-h-11 bg-[#473a6d] text-white hover:bg-[#3a2f5a]">Invitar</Button>
           </div>
-          <p className="text-xs text-[#6b6a7c]">El colega entra a la app con «Entrar con Google» usando ese mismo correo y acepta. No necesita configurar nada. El administrador además puede invitar y quitar personas.</p>
+          <p className="text-xs text-[#4b4a5c]" data-testid="role-help"><strong>{ROLE_OPTIONS.find(([value]) => value === role)?.[1]}:</strong> {ROLE_HELP[role]}</p>
+          <p className="text-xs text-[#6b6a7c]">La persona entra a la app con «Entrar con Google» usando ese mismo correo, elige «Entrar a una clínica» y acepta. No necesita configurar nada.</p>
           {invited && team.message && (
             <div className="space-y-2 rounded-lg border border-[#c9c2e3] bg-white p-3 text-sm" role="status">
               {sentMail?.sent
@@ -238,6 +274,7 @@ export function EquipoPanel() {
           : <Button type="button" variant="ghost" size="sm" className="text-[#a43542] hover:bg-rose-50" onClick={() => setConfirmLeave(true)}>Salir de esta clínica</Button>
       )}
 
+      {space.manage && <TeamActivity/>}
       {space.manage && past.length > 0 && (
         <details className="text-sm text-[#615f73]"><summary className="cursor-pointer">Historial ({past.length})</summary>
           <ul className="mt-2 space-y-1">{past.map(m => <li key={m.email}>{m.name || m.email} · {STATUS_LABEL[m.status]}</li>)}</ul>

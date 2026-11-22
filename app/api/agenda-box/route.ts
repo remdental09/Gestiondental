@@ -1,4 +1,6 @@
-import { getChatGPTUser } from "@/app/chatgpt-auth";
+import { getChatGPTUser, spaceRoleOf } from "@/app/chatgpt-auth";
+import { agendaActionDenied, statusDenied } from "@/lib/role-policy";
+import { recordEvent } from "@/app/account-events";
 import { listBoxes } from "@/app/box-db";
 import { addBlock, createBoxAppointment, deleteSchedule, listBlocks, listSchedules, loadBoxAppointments, removeBlock, saveSchedule, setBoxStatus, updateBoxAppointment } from "@/app/agenda-box-db";
 import { isIsoDay, addDays } from "@/lib/agenda-box";
@@ -45,6 +47,17 @@ export async function POST(request: Request) {
   let body: Record<string, unknown>;
   try { body = await request.json(); } catch { return fail("Solicitud no válida."); }
   const owner = user.userId;
+  const role = spaceRoleOf(user);
+  const denied = agendaActionDenied(role, body.action) ?? (body.action === "estado" ? statusDenied(role, body.status) : null);
+  if (denied) return fail(denied, 403);
+  const response = await runAction(user, owner, body);
+  if (response.ok && AGENDA_AUDIT[String(body.action)]) await recordEvent(user, AGENDA_AUDIT[String(body.action)], body.id ?? body.patientId ?? "", { ...(typeof body.status === "string" ? { status: body.status } : {}), ...(body.day ? { day: body.day } : {}), ...(body.time ? { time: body.time } : {}), ...(body.boxId !== undefined ? { boxId: body.boxId } : {}) });
+  return response;
+}
+
+const AGENDA_AUDIT: Record<string, string> = { cita: "cita.crear", mover: "cita.mover", estado: "cita.estado", bloquear: "agenda.bloquear", quitarBloqueo: "agenda.desbloquear", horario: "agenda.horario", borrarHorario: "agenda.horario" };
+
+async function runAction(user: NonNullable<Awaited<ReturnType<typeof getChatGPTUser>>>, owner: string, body: Record<string, unknown>): Promise<Response> {
   switch (body.action) {
     case "cita": {
       const result = await createBoxAppointment(owner, body as never, await ownerSeedOf(user));

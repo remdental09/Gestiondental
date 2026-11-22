@@ -1,13 +1,16 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
+/** «recepcion» y «asistente»: roles de apoyo (permisos en lib/role-policy.ts). */
+export type SpaceRoleName = "titular" | "admin" | "dentista" | "recepcion" | "asistente";
+
 export type ChatGPTUser = {
   /** Espacio de datos en que se trabaja: el personal o el de la clínica a la que pertenece (pacientes, agenda, imágenes). */
   userId: string;
   /** owner_id propio de la persona: su perfil profesional, sus aranceles y la autoría de sus evoluciones. */
   personalId?: string;
   /** Rol en el espacio actual: «titular» en el propio; «admin» o «dentista» en una clínica ajena. */
-  spaceRole?: "titular" | "admin" | "dentista";
+  spaceRole?: SpaceRoleName;
   displayName: string;
   email: string;
   fullName: string | null;
@@ -38,7 +41,7 @@ export async function getChatGPTUser(): Promise<ChatGPTUser | null> {
     const accessName = encodedName ? safeDecodeURIComponent(encodedName) : null;
     const personalId = requestHeaders.get(ACCESS_PERSONAL_ID_HEADER) || accessUserId;
     const rawRole = requestHeaders.get(ACCESS_SPACE_ROLE_HEADER);
-    const spaceRole = rawRole === "admin" || rawRole === "dentista" ? rawRole : "titular";
+    const spaceRole: SpaceRoleName = rawRole === "admin" || rawRole === "dentista" || rawRole === "recepcion" || rawRole === "asistente" ? rawRole : "titular";
     return {
       userId: accessUserId,
       personalId,
@@ -74,7 +77,7 @@ export function personalIdOf(user: ChatGPTUser): string {
 }
 
 /** Rol en el espacio actual. Sin cabecera de rol (MCP, sesión ChatGPT) la persona trabaja en su propio espacio. */
-export function spaceRoleOf(user: ChatGPTUser): "titular" | "admin" | "dentista" {
+export function spaceRoleOf(user: ChatGPTUser): SpaceRoleName {
   return user.spaceRole ?? "titular";
 }
 
@@ -83,7 +86,8 @@ export function spaceRoleOf(user: ChatGPTUser): "titular" | "admin" | "dentista"
  * Dentro de una clínica solo el titular y los administradores; un dentista invitado no reemplaza las de la clínica.
  */
 export function managesSpace(user: ChatGPTUser): boolean {
-  return spaceRoleOf(user) !== "dentista";
+  const role = spaceRoleOf(user);
+  return role === "titular" || role === "admin";
 }
 export const SPACE_ADMIN_ONLY = "Solo un administrador de la clínica puede cambiar esta conexión.";
 

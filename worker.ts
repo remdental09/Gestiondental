@@ -9,8 +9,9 @@ import {
 } from "./lib/google-login";
 import { allowLogin, createSession, crossSiteWrite, isStoredToken, readSession, revokeSession, sameSiteNavigation, SESSION_TTL_MS, type SessionDb } from "./lib/session-store";
 import { resolveOwner, resolveOwnerWithRegistration, type OwnerConfig, type ClinicOwner } from "./app/access-owners";
-import { activeMemberships, type TeamDb } from "./app/clinic-team-db";
-import { ENTRY_COOKIE, chooseSpaceForEntry, parseEntry, type Space } from "./lib/clinic-team";
+import { activeMemberships, membershipsOf, type TeamDb } from "./app/clinic-team-db";
+import { ENTRY_COOKIE, chooseSpaceForEntry, isSupportRole, parseEntry, type Space } from "./lib/clinic-team";
+import { apiDenied } from "./lib/role-policy";
 
 type AccessIdentity = { email?: string | null };
 type AccessContext = {
@@ -258,7 +259,10 @@ async function finishGoogleLogin(request: Request, env: OAuthEnv): Promise<Respo
     // Sesión guardada en D1 (revocable, vence a los 30 días sin uso). Si D1 fallara, cookie firmada como respaldo.
     const stored = db ? await createSession(db, { email: profile.email, name: profile.name }).catch(() => null) : null;
     const token = stored ?? await signSession({ email: profile.email, name: profile.name, exp: Date.now() + SESSION_DAYS * 86_400_000 }, config.sessionSecret);
-    return redirect("/", [clearState, cookie(SESSION_COOKIE, token, SESSION_DAYS * 86_400)]);
+    // Recepción y asistentes no tienen consulta propia: entran siempre por la puerta de la clínica que los invitó.
+    const team = (env as unknown as { DB?: TeamDb }).DB;
+    const support = team ? await membershipsOf(team, profile.email.trim().toLowerCase()).then(rows => rows.some(m => isSupportRole(m.role))).catch(() => false) : false;
+    return redirect("/", [clearState, cookie(SESSION_COOKIE, token, SESSION_DAYS * 86_400), ...(support ? [entryCookie("clinica")] : [])]);
   } catch {
     return redirect("/?error=vencido", [clearState]);
   }
@@ -346,6 +350,9 @@ async function privateAppFetch(request: Request, env: OAuthEnv, context: Executi
   const identity = await identify(request, env, context);
   if (identity instanceof Response) return identity;
   const space = await resolveSpace(request, env, identity);
+  // Permisos por rol aplicados en el servidor: Recepción y Asistente solo llegan a las rutas de su rol.
+  const denied = apiDenied(space.role, request.method, new URL(request.url).pathname);
+  if (denied) return Response.json({ error: denied }, { status: 403, headers: { "Cache-Control": "no-store" } });
 
   const headers = new Headers(request.headers);
   clearInboundIdentityHeaders(headers);

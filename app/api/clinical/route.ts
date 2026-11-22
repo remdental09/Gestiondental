@@ -4,7 +4,9 @@ import { isCariesDepth } from "@/lib/caries";
 import { env } from "cloudflare:workers";
 import { getChatGPTUser, personalIdOf, spaceRoleOf, type ChatGPTUser } from "@/app/chatgpt-auth";
 import { authorOf, authorsOf, budgetAuthorOf, budgetAuthors, budgetAuthorsOf, ensureTeamTables, evolutionAuthors, type TeamDb } from "@/app/clinic-team-db";
-import { canChangeBudget, canChangeEvolution, canManageTeam, evolutionAuthor } from "@/lib/clinic-team";
+import { canChangeBudget, canChangeEvolution, canManageTeam, evolutionAuthor, isSupportRole } from "@/lib/clinic-team";
+import { clinicalActionDenied, filterClinicalLoad } from "@/lib/role-policy";
+import { CLINICAL_AUDIT, recordEvent } from "@/app/account-events";
 import { loadProfile } from "@/app/clinician-profile-db";
 import { touchAppUser } from "@/app/app-users-db";
 import { isDeveloperEmail } from "@/lib/developer-dashboard";
@@ -335,7 +337,7 @@ export async function GET() {
       }
       return [p.id, chart];
     }));
-    return Response.json({
+    return Response.json(filterClinicalLoad(spaceRole, {
       patients: ps.map(p => ({ ...p, rut: p.rut || "", address: addresses.get(p.id) ?? emptyAddress(), profile: profiles.get(p.id) ?? emptyProfile() })),
       notes: ns.map(n => ({ id: n.id, patientId: n.patientId, date: displayDate(n.clinicalDate), clinicalDate: n.clinicalDate, recordedAt: n.recordedAt, title: n.title, body: n.body, sourceDocumentId: n.sourceDocumentId, backupStatus: n.backupStatus, diagnoses: diagnosesByNote.get(n.id) ?? [], pieces: piecesByNote.get(n.id) ?? [], ...annulView(n), ...authorView(n.id) })),
       budgets: await (async () => {
@@ -344,7 +346,7 @@ export async function GET() {
         return bs.map(b => {
           const row = budgetAuthorMap.get(b.id);
           const author = row?.author_id || ownerId;
-          return { ...budgetView(b), authorName: row?.author_name || "", mine: author === personalId, editable: author === personalId || canManageTeam(spaceRole) };
+          return { ...budgetView(b), authorName: row?.author_name || "", mine: author === personalId, editable: canChangeBudget(row?.author_id, ownerId, personalId, spaceRole) };
         });
       })(),
       appointments: as.map(a => ({ id: a.id, patientId: a.patientId, day: a.day.split("-").reverse().join("-"), time: a.time, reason: a.reason, ...(agendaSync.minutes[a.id] ? { minutes: agendaSync.minutes[a.id] } : {}) })),
@@ -362,17 +364,34 @@ export async function GET() {
       calendarEvents: [...ces.filter(e => e.status !== "cancelled").map(e => ({ id: e.id, title: e.title, startAt: e.startAt, endAt: e.endAt, sourceTimeZone: e.sourceTimeZone, htmlLink: e.htmlLink, status: e.status, allDay: e.allDay, patientId: e.patientId })), ...snapshot.events],
       calendarSnapshotAt: snapshot.events.length ? snapshot.capturedAt : null,
       calendarSyncedAt: ces.reduce<string | null>((latest, e) => (e.importedAt && (!latest || e.importedAt > latest) ? e.importedAt : latest), null),
-      viewer: { name: profile ? displayName(profile) : viewer?.displayName || "", email: viewer?.email || "", registered: Boolean(profile) || profileFailed, specialty: profile?.specialty || "", clinicName: (personalId === ownerId ? profile?.clinicName : (await loadProfile(ownerId).catch(() => null))?.clinicName) || "", developer: isDeveloperEmail(viewer?.email, (env as unknown as { DEVELOPER_EMAILS?: string }).DEVELOPER_EMAILS), spaceRole, inClinic: personalId !== ownerId, manageTeam: canManageTeam(spaceRole) },
+      viewer: { name: profile ? displayName(profile) : viewer?.displayName || "", email: viewer?.email || "", registered: Boolean(profile) || profileFailed || isSupportRole(spaceRole), personalName: viewer?.fullName || viewer?.displayName || "", specialty: profile?.specialty || "", clinicName: (personalId === ownerId ? profile?.clinicName : (await loadProfile(ownerId).catch(() => null))?.clinicName) || "", developer: isDeveloperEmail(viewer?.email, (env as unknown as { DEVELOPER_EMAILS?: string }).DEVELOPER_EMAILS), spaceRole, inClinic: personalId !== ownerId, manageTeam: canManageTeam(spaceRole) },
       periodontalExams: Object.fromEntries(ps.map(p => [p.id, (examsByPatient.get(p.id) ?? []).map(x => ({ id: x.id, recordedAt: x.recordedAt, ...normalizePerio(JSON.parse(x.teeth)) }))])),
       toothStatuses: charts,
       clinicalImages: imgs.map(i => ({ id: i.id, patientId: i.patientId, url: "/api/images/" + i.id, name: i.name, kind: i.kind, note: i.note, addedAt: displayDate(i.addedAt.slice(0, 10)), size: i.size, contentType: i.contentType })),
-    }, { headers: { "Cache-Control": "no-store" } });
+    }), { headers: { "Cache-Control": "no-store" } });
   } catch {
     return error("No se pudo cargar la base de datos. Intenta de nuevo.", 503);
   }
 }
 
+/**
+ * Permisos por rol (Recepción / Asistente) antes de cualquier acción, y auditoría de quién hizo cada cambio relevante.
+ * La acción misma está en `handlePost`.
+ */
 export async function POST(request: Request) {
+  const actor = await getChatGPTUser();
+  if (!actor?.userId) return error("Inicia sesión para guardar.", 401);
+  const peek = await request.clone().json().catch(() => null) as Record<string, unknown> | null;
+  const action = peek && typeof peek === "object" ? peek.action : undefined;
+  const denied = clinicalActionDenied(spaceRoleOf(actor), action);
+  if (denied) return error(denied, 403);
+  const response = await handlePost(request);
+  const kind = typeof action === "string" ? CLINICAL_AUDIT[action] : undefined;
+  if (kind && response.ok) await recordEvent(actor, kind, peek?.appointmentId ?? peek?.budgetId ?? peek?.patientId ?? "", { patientId: peek?.patientId ?? null, ...(typeof peek?.status === "string" ? { status: peek.status } : {}), ...(typeof peek?.amount === "number" ? { amount: peek.amount } : {}) });
+  return response;
+}
+
+async function handlePost(request: Request) {
   const ownerId = await protect();
   if (!ownerId) return error("Inicia sesión para guardar.", 401);
   const origin = request.headers.get("origin");

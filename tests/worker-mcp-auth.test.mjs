@@ -11,6 +11,7 @@ import * as sessionStore from '../lib/session-store.ts';
 import { DatabaseSync } from 'node:sqlite';
 import * as clinicTeamDb from '../app/clinic-team-db.ts';
 import * as clinicTeam from '../lib/clinic-team.ts';
+import * as rolePolicy from '../lib/role-policy.ts';
 
 const source = readFileSync(new URL('../worker.ts', import.meta.url), 'utf8');
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText;
@@ -42,6 +43,7 @@ function worker() {
     './lib/session-store': sessionStore,
     './app/clinic-team-db': clinicTeamDb,
     './lib/clinic-team': clinicTeam,
+    './lib/role-policy': rolePolicy,
   };
   runInNewContext(compiled, { exports: exported, require: name => { assert.ok(name in imports, name); return imports[name]; }, Request, Response, Headers, URL, URLSearchParams, Map, atob, btoa, console, crypto, TextEncoder, TextDecoder, Date, fetch: async () => { throw new Error('sin red en pruebas'); } });
   return {
@@ -200,6 +202,42 @@ test('equipo: puede volver a su espacio personal con la cookie; una invitación 
 test('equipo: revocado, la cookie de la clínica ya no abre sus fichas; ni se puede forjar espacio o rol por cabecera', async () => {
   const revoked = await worker().fetch(await clinicReq('; gd_espacio=' + CLINICA, { 'x-clinic-personal-id': 'forjado', 'x-clinic-space-role': 'admin', 'x-clinic-access-owner-id': CLINICA }), { ...googleEnv, DB: fakeDb([row({ status: 'revocada' })]) }, {});
   assert.deepEqual(await revoked.json(), { owner: null, clinic: ownerId, personal: ownerId, role: 'titular' });
+});
+
+const apiReq = async (path, method = 'GET', cookieExtra = '; gd_entrada=clinica') => new Request('https://example.test' + path, { method, headers: { Cookie: (await sessionCookie(email)) + cookieExtra, ...(method !== 'GET' ? { Origin: 'https://example.test', 'Sec-Fetch-Site': 'same-origin', 'Content-Type': 'application/json' } : {}) }, ...(method !== 'GET' ? { body: '{}' } : {}) });
+
+test('roles: Recepción no llega a rutas clínicas (403 en el Worker), sí a agenda, presupuestos y pagos', async () => {
+  const db = fakeDb([row({ role: 'recepcion' })]);
+  for (const [path, method] of [['/api/anamnesis', 'GET'], ['/api/images/5', 'GET'], ['/api/images', 'POST'], ['/api/dictation/structure', 'POST'], ['/api/documentos', 'GET'], ['/api/endodontics', 'GET'], ['/api/clinical/export', 'GET'], ['/api/box', 'POST'], ['/api/equipo', 'GET', 'x'], ['/api/aranceles', 'PUT'], ['/api/audio-transcription', 'POST'], ['/api/drive/connect', 'GET']]) {
+    if (path === '/api/equipo') continue;
+    const response = await worker().fetch(await apiReq(path, method), { ...googleEnv, DB: db }, {});
+    assert.equal(response.status, 403, `${method} ${path}`);
+    assert.match((await response.json()).error, /rol/);
+  }
+  for (const [path, method] of [['/api/clinical', 'GET'], ['/api/clinical', 'POST'], ['/api/agenda-box?from=2026-11-01&to=2026-11-02', 'GET'], ['/api/agenda-box', 'POST'], ['/api/asistencia', 'PUT'], ['/api/dashboard', 'GET'], ['/api/presupuesto/pdf', 'GET'], ['/api/lista-espera', 'POST'], ['/api/equipo', 'POST']]) {
+    const response = await worker().fetch(await apiReq(path, method), { ...googleEnv, DB: db }, {});
+    assert.equal(response.status, 200, `${method} ${path}`);
+    assert.equal((await response.json()).role, 'recepcion');
+  }
+});
+
+test('roles: Asistente lee la ficha y sube imágenes, pero no cobra, no dicta ni configura', async () => {
+  const db = fakeDb([row({ role: 'asistente' })]);
+  for (const [path, method] of [['/api/clinical', 'GET'], ['/api/images/5', 'GET'], ['/api/images', 'POST'], ['/api/anamnesis', 'GET'], ['/api/asistencia', 'PUT'], ['/api/agenda-box', 'POST']]) {
+    assert.equal((await worker().fetch(await apiReq(path, method), { ...googleEnv, DB: db }, {})).status, 200, `${method} ${path}`);
+  }
+  for (const [path, method] of [['/api/anamnesis', 'POST'], ['/api/dashboard', 'GET'], ['/api/presupuesto/enviar', 'POST'], ['/api/dictation/structure', 'POST'], ['/api/box', 'POST'], ['/api/images/5', 'DELETE'], ['/api/documentos/emitir', 'POST'], ['/api/lista-espera', 'POST']]) {
+    assert.equal((await worker().fetch(await apiReq(path, method), { ...googleEnv, DB: db }, {})).status, 403, `${method} ${path}`);
+  }
+});
+
+test('roles: el titular y el dentista colaborador no tienen restricciones nuevas', async () => {
+  for (const role of ['dentista', 'admin']) {
+    const response = await worker().fetch(await apiReq('/api/anamnesis', 'POST'), { ...googleEnv, DB: fakeDb([row({ role })]) }, {});
+    assert.equal(response.status, 200, role);
+  }
+  const personal = await worker().fetch(await apiReq('/api/dictation/structure', 'POST', ''), { ...googleEnv, DB: fakeDb([row({ role: 'recepcion' })]) }, {});
+  assert.equal((await personal.json()).role, 'titular', 'en su propia consulta nadie es recepción');
 });
 
 test('equipo: si la base falla, se trabaja en el espacio personal (nunca en uno ajeno)', async () => {

@@ -1,6 +1,6 @@
 import { parseSensitivity } from "@/lib/dictation/sensitivity";
 import { env } from "cloudflare:workers";
-import { getChatGPTUser, personalIdOf } from "@/app/chatgpt-auth";
+import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { aiLimitResponse, trackAi } from "@/app/ai-guard";
 import { usageCollector } from "@/lib/ai-usage";
 import { focusedToothReview, proposeFromTranscript, sanitizeChart } from "@/lib/dictation/proposal";
@@ -33,7 +33,8 @@ export async function POST(request: Request) {
   if (!body || typeof body !== "object" || Array.isArray(body)) return error("Solicitud inválida.");
   const record = body as Record<string, unknown>;
   const transcript = typeof record.transcript === "string" ? record.transcript : "";
-  const account = personalIdOf(user);
+  // El uso de IA cuenta contra la cuenta (espacio) en que se trabaja: en una clínica, la del titular.
+  const account = user.userId;
   const limited = await aiLimitResponse(account);
   if (limited) return limited;
   const usage = usageCollector();
