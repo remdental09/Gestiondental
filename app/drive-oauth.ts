@@ -10,7 +10,17 @@ type DriveStatement = {
   run(): Promise<unknown>;
   all<T = unknown>(): Promise<{ results: T[] }>;
 };
-type DriveDatabase = { prepare(sql: string): DriveStatement };
+type DriveDatabase = { prepare(sql: string): DriveStatement; batch?(statements: DriveStatement[]): Promise<unknown> };
+
+/** Escrituras en tandas (db.batch) en vez de una por una; si el binding no tiene batch, se ejecutan en orden. */
+async function runBatched(statements: DriveStatement[]) {
+  const db = database();
+  const { chunks } = await import("@/lib/cron-budget");
+  for (const part of chunks(statements)) {
+    if (db.batch) await db.batch(part);
+    else for (const statement of part) await statement.run();
+  }
+}
 type DriveEnvironment = {
   DB?: DriveDatabase;
   BUCKET?: { get(key: string): Promise<{ arrayBuffer(): Promise<ArrayBuffer> } | null> };
@@ -981,10 +991,14 @@ export async function syncGoogleCalendars(ownerId?: string) {
   const { UPSERT_EVENT, PRUNE_EVENTS } = await import("@/app/calendar-sync");
   const query = ownerId
     ? database().prepare("SELECT * FROM google_calendar_connections WHERE owner_id = ?").bind(ownerId)
-    : database().prepare("SELECT * FROM google_calendar_connections").bind();
+    // Cron: todas las cuentas, la que lleva más tiempo sin sincronizar primero; el presupuesto de la pasada decide dónde parar.
+    : database().prepare("SELECT * FROM google_calendar_connections ORDER BY COALESCE(last_sync_at, '') ASC").bind();
   const { results } = await query.all<CalendarConnection>();
+  const { cronBudget, oldestFirst } = await import("@/lib/cron-budget");
+  const budget = cronBudget(ownerId ? { maxItems: 20 } : {});
   const out: Array<{ email: string; ok: boolean; detail: string }> = [];
-  for (const row of results.slice(0, 20)) {
+  for (const row of oldestFirst(results, item => item.last_sync_at)) {
+    if (!budget.take()) continue;
     const user: ChatGPTUser = { userId: row.owner_id, displayName: "", email: row.google_email, fullName: null };
     let detail: string, ok = false;
     try {
@@ -994,7 +1008,7 @@ export async function syncGoogleCalendars(ownerId?: string) {
       // Solo se importan los calendarios que la clínica eligió; por defecto, solo el principal de la cuenta.
       // Los compartidos (p. ej. el de la técnico) o personales (familia) no entran a la agenda clínica a menos que se marquen.
       const all = list.items ?? [];
-      for (const cal of all) await database().prepare("INSERT INTO calendar_choices (owner_id, google_sub, calendar_id, summary, is_primary, enabled) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(owner_id, google_sub, calendar_id) DO UPDATE SET summary = excluded.summary, is_primary = excluded.is_primary").bind(row.owner_id, row.google_sub, cal.id, (cal.summary ?? "").slice(0, 120), cal.primary ? 1 : 0, cal.primary ? 1 : 0).run();
+      await runBatched(all.map(cal => database().prepare("INSERT INTO calendar_choices (owner_id, google_sub, calendar_id, summary, is_primary, enabled) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(owner_id, google_sub, calendar_id) DO UPDATE SET summary = excluded.summary, is_primary = excluded.is_primary").bind(row.owner_id, row.google_sub, cal.id, (cal.summary ?? "").slice(0, 120), cal.primary ? 1 : 0, cal.primary ? 1 : 0)));
       const chosen = await database().prepare("SELECT calendar_id FROM calendar_choices WHERE owner_id = ? AND google_sub = ? AND enabled = 1").bind(row.owner_id, row.google_sub).all<{ calendar_id: string }>();
       const enabledIds = new Set(chosen.results.map(item => item.calendar_id));
       const calendars = all.filter(cal => enabledIds.has(cal.id)).slice(0, 5);
@@ -1015,18 +1029,17 @@ export async function syncGoogleCalendars(ownerId?: string) {
           return database().prepare(UPSERT_EVENT).bind(row.owner_id, calendarId, e.id, (e.summary || "(sin título)").slice(0, 300), startAt, endAt, "America/Santiago", e.status === "cancelled" ? "cancelled" : "confirmed", allDay ? 1 : 0, stamp, e.updated ?? null);
         });
         stmts.push(database().prepare(PRUNE_EVENTS).bind(stamp, row.owner_id, calendarId, win.fromIso, win.toIso, JSON.stringify(rows.map(e => e.id))));
-        for (const stmt of stmts) await stmt.run();
+        await runBatched(stmts);
         // Celulares y correos de la descripción o de los invitados, para reconocer al paciente de cada cita (solo esos datos, no el texto).
         try {
           const { HINTS_DDL, HINTS_UPSERT, HINTS_DELETE } = await import("@/app/calendar-hints-db");
           const { contactTokens } = await import("@/lib/today-agenda");
           await database().prepare(HINTS_DDL).run();
-          for (const e of rows) {
+          await runBatched(rows.map(e => {
             const guests = (e.attendees ?? []).filter(a => a.email && !a.self && !a.resource).map(a => a.email!.toLowerCase());
             const tokens = [...new Set([...contactTokens(e.description ?? ""), ...guests])].slice(0, 12);
-            if (tokens.length) await database().prepare(HINTS_UPSERT).bind(row.owner_id, calendarId, e.id, tokens.join(" ")).run();
-            else await database().prepare(HINTS_DELETE).bind(row.owner_id, calendarId, e.id).run();
-          }
+            return tokens.length ? database().prepare(HINTS_UPSERT).bind(row.owner_id, calendarId, e.id, tokens.join(" ")) : database().prepare(HINTS_DELETE).bind(row.owner_id, calendarId, e.id);
+          }));
         } catch { /* las pistas son un extra: la agenda ya quedó importada */ }
         count += rows.length;
       }
@@ -1046,6 +1059,7 @@ export async function syncGoogleCalendars(ownerId?: string) {
     await database().prepare("UPDATE google_calendar_connections SET last_sync_at = ?, last_result = ?, ok = ? WHERE owner_id = ? AND google_sub = ?").bind(now(), detail, ok ? 1 : 0, row.owner_id, row.google_sub).run();
     out.push({ email: row.google_email, ok, detail });
   }
+  if (budget.skipped) out.push({ email: "", ok: true, detail: `${budget.skipped} cuentas quedan primeras para la próxima pasada` });
   return out;
 }
 
@@ -1378,10 +1392,14 @@ export async function syncAppEventsFromGoogle(ownerId?: string, options: { onDem
   const { shouldSyncNow } = await import("@/lib/calendar-two-way");
   const query = ownerId
     ? database().prepare("SELECT * FROM google_calendar_connections WHERE owner_id = ? AND can_write = 1").bind(ownerId)
-    : database().prepare("SELECT * FROM google_calendar_connections WHERE can_write = 1").bind();
+    // Cron: todas las cuentas con escritura, la de lectura más antigua primero (estado en google_calendar_sync).
+    : database().prepare("SELECT c.* FROM google_calendar_connections c LEFT JOIN google_calendar_sync s ON s.owner_id = c.owner_id AND s.google_sub = c.google_sub WHERE c.can_write = 1 ORDER BY COALESCE(s.last_run_at, '') ASC").bind();
   const { results } = await query.all<CalendarConnection>();
+  const { cronBudget } = await import("@/lib/cron-budget");
+  const runBudget = cronBudget(ownerId ? { maxItems: 20 } : {});
   const out: Array<{ ok: boolean; moved: number; cancelled: number; restored: number; imported: number; unassigned: number; calendars: number; detail: string }> = [];
-  for (const row of results.slice(0, 20)) {
+  for (const row of results) {
+    if (!runBudget.take()) continue;
     const state = await twoWay.readSyncState(row.owner_id, row.google_sub);
     if (options.onDemand && !shouldSyncNow(state.last_run_at, new Date())) continue;
     await twoWay.writeSyncState(row.owner_id, row.google_sub, { last_run_at: now() });

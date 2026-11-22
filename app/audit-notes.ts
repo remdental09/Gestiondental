@@ -63,13 +63,18 @@ export async function runNoteAudits(maxNotes = 6) {
   const db = config.DB;
   if (!db || !noteReviewAvailable()) return [{ ok: false, detail: "sin IA configurada" }];
   const since = new Date(Date.now() - REVIEW_WINDOW_DAYS * 86400_000).toISOString().slice(0, 10);
-  const owners = (await db.prepare("SELECT DISTINCT owner_id FROM evolutions WHERE status != 'anulada' AND clinical_date >= ? LIMIT 20").bind(since).all<{ owner_id: string }>().catch(() => ({ results: [] as { owner_id: string }[] }))).results;
+  // Todas las cuentas con actividad reciente (sin tope fijo), la revisada hace más tiempo primero (tabla aditiva cron_rotation).
+  await db.prepare("CREATE TABLE IF NOT EXISTS cron_rotation (job TEXT NOT NULL, owner_id TEXT NOT NULL, last_run_at TEXT NOT NULL, PRIMARY KEY (job, owner_id))").run().catch(() => undefined);
+  const owners = (await db.prepare("SELECT e.owner_id AS owner_id FROM (SELECT DISTINCT owner_id FROM evolutions WHERE status != 'anulada' AND clinical_date >= ?) e LEFT JOIN cron_rotation r ON r.job = 'note-audits' AND r.owner_id = e.owner_id ORDER BY COALESCE(r.last_run_at, '') ASC").bind(since).all<{ owner_id: string }>().catch(() => ({ results: [] as { owner_id: string }[] }))).results;
+  const { cronBudget } = await import("@/lib/cron-budget");
+  const budget = cronBudget();
   const out: Array<{ ok: boolean; detail: string }> = [];
   let left = maxNotes;
   for (const { owner_id } of owners) {
-    if (left <= 0) break;
+    if (left <= 0 || !budget.take()) break;
     const result = await reviewPendingNotes(owner_id, Math.min(3, left));
     left -= result.revisadas + result.fallidas;
+    await db.prepare("INSERT INTO cron_rotation (job, owner_id, last_run_at) VALUES ('note-audits', ?, ?) ON CONFLICT(job, owner_id) DO UPDATE SET last_run_at = excluded.last_run_at").bind(owner_id, new Date().toISOString()).run().catch(() => undefined);
     out.push({ ok: true, detail: `${result.revisadas} revisadas, ${result.pendientes} pendientes, ${result.fallidas} fallidas` });
   }
   return out;
