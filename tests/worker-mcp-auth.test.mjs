@@ -12,6 +12,7 @@ import { DatabaseSync } from 'node:sqlite';
 import * as clinicTeamDb from '../app/clinic-team-db.ts';
 import * as clinicTeam from '../lib/clinic-team.ts';
 import * as rolePolicy from '../lib/role-policy.ts';
+import * as buildAssets from '../lib/build-assets.ts';
 
 const source = readFileSync(new URL('../worker.ts', import.meta.url), 'utf8');
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText;
@@ -44,6 +45,7 @@ function worker() {
     './app/clinic-team-db': clinicTeamDb,
     './lib/clinic-team': clinicTeam,
     './lib/role-policy': rolePolicy,
+    './lib/build-assets': buildAssets,
   };
   runInNewContext(compiled, { exports: exported, require: name => { assert.ok(name in imports, name); return imports[name]; }, Request, Response, Headers, URL, URLSearchParams, Map, atob, btoa, console, crypto, TextEncoder, TextDecoder, Date, fetch: async () => { throw new Error('sin red en pruebas'); } });
   return {
@@ -325,4 +327,16 @@ test('demasiados intentos de inicio de sesión desde una IP → aviso, sin ir a 
   const other = await instance.fetch(new Request('https://example.test/auth/google', { headers: { 'CF-Connecting-IP': '203.0.113.10' } }), { ...googleEnv, DB }, {});
   assert.match(other.headers.get('location'), /^https:\/\/accounts\.google\.com\//);
   assert.equal(DB.raw.prepare('SELECT count(*) n FROM auth_rate_limits WHERE key LIKE ?').get('%203.0.113%').n, 0, 'la IP se guarda solo como hash');
+});
+
+test('los archivos del build van directo al asset server sin sesión, y un faltante no queda en caché', async () => {
+  const instance = worker();
+  const assets = { fetch: async request => new URL(request.url).pathname.endsWith('existe.js') ? new Response('ok', { status: 200 }) : new Response(null, { status: 404, headers: { 'Cache-Control': 'public, max-age=31536000, immutable' } }) };
+  const ok = await instance.fetch(new Request('https://speakdent.cl/_next/static/chunks/existe.js'), { ...env, ASSETS: assets }, {});
+  assert.equal(ok.status, 200);
+  assert.match(ok.headers.get('Cache-Control'), /immutable/);
+  const missing = await instance.fetch(new Request('https://speakdent.cl/_next/static/chunks/falta.js'), { ...env, ASSETS: assets }, {});
+  assert.equal(missing.status, 404);
+  assert.equal(missing.headers.get('Cache-Control'), 'no-store');
+  assert.equal(instance.count(), 0);
 });
