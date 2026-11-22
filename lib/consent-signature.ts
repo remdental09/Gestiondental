@@ -96,3 +96,11 @@ export type SignatureView = {
   image: string; signedAt: string; method: string; signatureHash: string;
   tokenExpiresAt: string; linkActive: boolean;
 };
+
+/** Marca para la lista de documentos guardados: deja a la vista si el consentimiento ya está firmado y autorizado por el paciente. */
+export function signatureListMark(kind: string, status: string, signature: { status: string; signerRole: string; linkActive?: boolean } | null | undefined): { tone: "firmado" | "pendiente"; text: string } | null {
+  if (kind !== "consentimiento") return null;
+  if (signature?.status === "firmado") return { tone: "firmado", text: signature.signerRole === "representante" ? "Firmado y autorizado por su representante legal" : "Firmado y autorizado por el paciente" };
+  if (status !== "emitido") return null;
+  return { tone: "pendiente", text: signature?.status === "pendiente" && signature.linkActive ? "Esperando la firma del paciente" : "Falta la firma del paciente" };
+}
