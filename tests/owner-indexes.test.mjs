@@ -11,7 +11,7 @@ test("migración 0013 aditiva con índices por owner_id", () => {
   assert.doesNotMatch(sql, /DROP|ALTER|DELETE|UPDATE/i);
   for (const line of sql.split("\n").filter(Boolean)) assert.match(line, /^CREATE INDEX IF NOT EXISTS/);
   const journal = JSON.parse(readFileSync(new URL("../drizzle/meta/_journal.json", import.meta.url), "utf8"));
-  assert.equal(journal.entries.at(-1).tag, "0013_owner_indexes");
+  assert.ok(journal.entries.some((entry) => entry.tag === "0013_owner_indexes" && entry.idx === 13));
   const schema = readFileSync(new URL("../db/schema.ts", import.meta.url), "utf8");
   for (const name of ["budgets_owner_id_idx", "appointments_owner_day_idx", "periodontal_owner_id_idx", "tooth_statuses_owner_patient_idx", "images_owner_id_idx", "evolution_diagnoses_owner_id_idx", "evolutions_owner_date_idx", "payments_owner_paid_idx"]) assert.ok(schema.includes(`"${name}"`), name);
 });
