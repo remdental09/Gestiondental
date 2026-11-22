@@ -14,13 +14,16 @@
  * - Nunca se fusionan datos de un espacio con otro.
  */
 
-export type TeamRole = "admin" | "dentista";
+/** «recepcion» y «asistente»: roles de apoyo (sin perfil profesional); sus permisos están en lib/role-policy.ts. */
+export type TeamRole = "admin" | "dentista" | "recepcion" | "asistente";
 export type MemberStatus = "invitada" | "activa" | "revocada" | "rechazada";
 /** Rol efectivo en el espacio en que se trabaja: el titular es el dueño del espacio. */
 export type SpaceRole = "titular" | TeamRole;
 
-export const TEAM_ROLES: TeamRole[] = ["admin", "dentista"];
-export const ROLE_LABEL: Record<SpaceRole, string> = { titular: "Titular", admin: "Administrador", dentista: "Dentista" };
+export const TEAM_ROLES: TeamRole[] = ["admin", "dentista", "recepcion", "asistente"];
+export const ROLE_LABEL: Record<SpaceRole, string> = { titular: "Titular", admin: "Administrador", dentista: "Dentista", recepcion: "Recepción", asistente: "Asistente" };
+/** Roles de apoyo: no escriben en la ficha clínica y no necesitan perfil profesional para aceptar la invitación. */
+export const isSupportRole = (role: unknown): role is "recepcion" | "asistente" => role === "recepcion" || role === "asistente";
 export const INVITE_DAYS = 14;
 export const MAX_MEMBERS = 30;
 
@@ -48,7 +51,7 @@ export function normalizeEmail(value: unknown): string {
 }
 
 export function isTeamRole(value: unknown): value is TeamRole {
-  return value === "admin" || value === "dentista";
+  return value === "admin" || value === "dentista" || value === "recepcion" || value === "asistente";
 }
 
 /** Plazo de una invitación nueva o reenviada. */
@@ -72,7 +75,7 @@ export function checkInvite(input: { email?: unknown; role?: unknown }, ctx: { i
   const email = normalizeEmail(input.email);
   if (!email || !EMAIL.test(email) || email.length > 200) return { ok: false, error: "Escribe un correo válido." };
   const role = input.role ?? "dentista";
-  if (!isTeamRole(role)) return { ok: false, error: "Elige si será dentista o administrador." };
+  if (!isTeamRole(role)) return { ok: false, error: "Elige el rol: dentista, administrador, recepción o asistente." };
   if (email === normalizeEmail(ctx.inviterEmail)) return { ok: false, error: "Ya eres parte de esta clínica." };
   const current = ctx.existing.find(m => m.email === email);
   if (current?.status === "activa") return { ok: false, error: "Ese correo ya es parte del equipo." };
@@ -110,7 +113,8 @@ export function canChangeEvolution(recordedAuthorId: string | null | undefined, 
  * Otro dentista invitado no lo toca: el ortodoncista invitado establece sus presupuestos, pero no los de otros.
  */
 export function canChangeBudget(recordedAuthorId: string | null | undefined, spaceId: string, viewerPersonalId: string, viewerRole: SpaceRole): boolean {
-  return evolutionAuthor(recordedAuthorId, spaceId) === viewerPersonalId || canManageTeam(viewerRole);
+  // Recepción arma y modifica presupuestos de la clínica (los cobra y los confirma con el paciente).
+  return evolutionAuthor(recordedAuthorId, spaceId) === viewerPersonalId || canManageTeam(viewerRole) || viewerRole === "recepcion";
 }
 
 /**

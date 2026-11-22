@@ -58,7 +58,7 @@ export async function ensureTeamTables(db: TeamDb) {
 }
 
 const toMember = (row: Row): TeamMember => ({
-  clinicId: row.clinic_id, email: row.email, role: row.role === "admin" ? "admin" : "dentista",
+  clinicId: row.clinic_id, email: row.email, role: row.role === "admin" || row.role === "recepcion" || row.role === "asistente" ? row.role : "dentista",
   status: (["invitada", "activa", "revocada", "rechazada"].includes(row.status) ? row.status : "revocada") as TeamMember["status"],
   invitedBy: row.invited_by, invitedAt: row.invited_at, expiresAt: row.expires_at, acceptedAt: row.accepted_at,
   revokedAt: row.revoked_at, memberId: row.member_id, name: row.name,
