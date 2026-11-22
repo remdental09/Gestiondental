@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import type { ClinicalImage } from "@/app/clinical-data";
+import { thumbUrl } from "@/lib/image-compress";
 import {
   CANAL_NAMES, CASE_TYPES, CORONAL_SEALS, DIFFICULTY, IRRIGANTS, MEDICATIONS, OBTURATION_TECHNIQUES, OUTCOMES, PAI, PERIAPICAL_DX, PULPAL_DX, REFERENCE_POINTS, RX_STAGES, SEALERS, SESSION_STEPS, TESTS,
   canalLine, caseStatus, followUpEvolutionText, missingDocumentation, newCase, sessionEvolutionText, suggestedNextControl,
@@ -229,7 +230,7 @@ export function EndodonticsPanel({ data: saved, onSave, focusTooth, patientName,
     if (!image) return null;
     const pdf = image.contentType === "application/pdf";
     return <figure key={r.imageId} className="overflow-hidden rounded-xl border border-[#e6e4ee] bg-white">
-      <a href={image.url} target="_blank" rel="noreferrer" className="block bg-[#111]">{pdf ? <span className="flex aspect-[4/3] items-center justify-center gap-2 bg-[#f7f6fa] text-sm font-medium text-[#473a6d]"><FileText className="size-5" />Abrir PDF</span> : <img src={image.url} alt={`RX ${r.stage}`} className="aspect-[4/3] w-full object-contain" />}</a>
+      <a href={image.url} target="_blank" rel="noreferrer" className="block bg-[#111]">{pdf ? <span className="flex aspect-[4/3] items-center justify-center gap-2 bg-[#f7f6fa] text-sm font-medium text-[#473a6d]"><FileText className="size-5" />Abrir PDF</span> : <img src={thumbUrl(image.url)} loading="lazy" alt={`RX ${r.stage}`} className="aspect-[4/3] w-full object-contain" />}</a>
       <figcaption className="flex items-center justify-between gap-2 p-2 text-xs"><span><strong className="text-sm">{r.stage}</strong><span className="block text-[#6b6a7c]">{fdate(r.date)}</span></span>{removable && <button type="button" aria-label={`Quitar RX ${r.stage}`} className="rounded p-1 text-[#8c4a51] hover:bg-rose-50" onClick={() => void removeRx(r.imageId)}><Trash2 className="size-4" /></button>}</figcaption>
     </figure>;
   };

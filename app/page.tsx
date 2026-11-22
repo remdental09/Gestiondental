@@ -562,8 +562,10 @@ export default function Home(){
     setSelectedId(previous.patientId);setActiveTab(previous.tab);setSection(previous.section);setMobileNav(false);
   };
   const addImages=async(files:File[],kind:ClinicalImage["kind"],note:string)=>{
-    for(const file of files){
-      const data=new FormData();data.set("file",file);data.set("name",file.name);data.set("patientId",String(selectedId));data.set("kind",kind);data.set("note",note);
+    const {prepareImageUpload}=await import("@/lib/image-compress");
+    for(const original of files){
+      const {file,thumb}=await prepareImageUpload(original);
+      const data=new FormData();data.set("file",file);data.set("name",file.name);data.set("patientId",String(selectedId));data.set("kind",kind);data.set("note",note);if(thumb)data.set("thumb",thumb,"miniatura.jpg");
       const response=await fetch("/api/images",{method:"POST",body:data});
       const result=await response.json() as {error?:string;image:ClinicalImage};
       if(!response.ok)throw new Error(result.error||"No se pudo guardar la imagen.");
@@ -594,8 +596,11 @@ export default function Home(){
     const day=new Date().toISOString().slice(0,10);
     await saveEndo({...base,cases:[...rest,...items.map(item=>priorCase(crypto.randomUUID(),item.tooth,day,item.year))]});
   };
-  const uploadOrthoImage=async(file:File,kind:"Foto ortodoncia"|"RX ortodoncia"|"RX endodoncia",note:string)=>{
-    const patientId=selectedId,data=new FormData();data.set("file",file);data.set("name",file.name);data.set("patientId",String(patientId));data.set("kind",kind);data.set("note",note);
+  const uploadOrthoImage=async(original:File,kind:"Foto ortodoncia"|"RX ortodoncia"|"RX endodoncia",note:string)=>{
+    const patientId=selectedId;
+    const {prepareImageUpload}=await import("@/lib/image-compress");
+    const {file,thumb}=await prepareImageUpload(original);
+    const data=new FormData();data.set("file",file);data.set("name",file.name);data.set("patientId",String(patientId));data.set("kind",kind);data.set("note",note);if(thumb)data.set("thumb",thumb,"miniatura.jpg");
     const response=await fetch("/api/images",{method:"POST",body:data});
     const result=await response.json() as {error?:string;image:ClinicalImage};
     if(!response.ok)throw new Error(result.error||"No se pudo guardar la imagen.");
