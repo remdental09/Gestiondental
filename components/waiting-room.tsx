@@ -77,11 +77,14 @@ export function WaitlistSheet({ patients, canEdit, onClose }: { patients: Patien
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [info, setInfo] = useState("");
   const matches = query.trim().length >= 2 ? patients.filter(p => fold(p.name).includes(fold(query)) || (p.rut ?? "").replace(/\W/g, "").includes(query.replace(/\W/g, ""))).slice(0, 6) : [];
   const add = async () => {
-    setBusy(true); setMessage("");
+    setBusy(true); setMessage(""); setInfo("");
     try {
-      await waitlistCall({ action: "agregar", ...(patient ? { patientId: patient.id } : { name: name || query, phone }), preference, note });
+      const result = await waitlistCall({ action: "agregar", ...(patient ? { patientId: patient.id } : { name: name || query, phone }), preference, note });
+      const entry = result.entry as WaitEntry | undefined;
+      setInfo(result.reused && entry ? `${entry.name} ya estaba en la lista de espera (desde el ${new Date(entry.createdAt).toLocaleDateString("es-CL", { timeZone: "America/Santiago" })}); se mantuvo su lugar y no se duplicó.` : "");
       setPatient(null); setQuery(""); setName(""); setPhone(""); setNote(""); setPreference("cualquiera"); reload();
     } catch (cause) { setMessage(cause instanceof Error ? cause.message : "No se pudo agregar."); } finally { setBusy(false); }
   };
@@ -100,6 +103,7 @@ export function WaitlistSheet({ patients, canEdit, onClose }: { patients: Patien
       <label className="block space-y-1 text-sm font-medium">Nota<input className={fieldCls} value={note} maxLength={300} placeholder="Ej: solo martes, urgencia leve, con la Dra. Pérez" onChange={event => setNote(event.target.value)} /></label>
       <Button type="button" className="min-h-11 w-full bg-[#473a6d] hover:bg-[#3a2f5a]" disabled={busy || !(patient || query.trim().length >= 3)} onClick={() => void add()} data-testid="waitlist-add"><ListPlus className="mr-1 size-4" />{busy ? "Guardando…" : "Agregar a la lista"}</Button>
     </div>}
+    {info && <p role="status" className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-950" data-testid="waitlist-reused">{info}</p>}
     {(message || error) && <p role="alert" className="mt-3 rounded-lg bg-rose-50 p-3 text-sm text-rose-950">{message || error}</p>}
     {!entries && !error && <p className="mt-3 text-sm text-[#6b6a7c]">Cargando…</p>}
     {entries && (entries.length === 0 ? <p className="mt-3 text-sm text-[#6b6a7c]">La lista está vacía.</p> :

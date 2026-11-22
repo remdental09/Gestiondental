@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 import path from 'node:path';
 import * as nodeModule from 'node:module';
 import {
-  nextTimes, NO_TIMES, minutesBetween, waitLabel, waitingRoom, averageWait, checkWaitEntry, suggestForSlot, preferenceFits, offerMessage, waLink, chileClock,
+  nextTimes, NO_TIMES, normalizePhone, normalizeName, findWaitDuplicate, minutesBetween, waitLabel, waitingRoom, averageWait, checkWaitEntry, suggestForSlot, preferenceFits, offerMessage, waLink, chileClock,
 } from '../lib/appointment-cycle.ts';
 import { ATTENDANCE_STATUSES, ATTENDANCE_LABEL, baseAttendance, appointmentStats } from '../lib/dashboard.ts';
 import { STATUS_COLOR, QUICK_STATUS, LEGEND, freesSlot } from '../lib/agenda-box.ts';
@@ -93,6 +93,14 @@ test('lista de espera: validación, sugerencias por preferencia y WhatsApp manua
   const msg = offerMessage('Ana Pérez', { dayLabel: 'martes 24 de noviembre', start: '10:30' });
   assert.match(msg, /^Hola Ana, /); assert.match(msg, /martes 24 de noviembre a las 10:30/);
   assert.equal(waLink('56912345678', 'Hola a&b'), 'https://wa.me/56912345678?text=Hola%20a%26b');
+  assert.equal(normalizePhone('+56 9 1234 5678'), '912345678');
+  assert.equal(normalizePhone('912345678'), '912345678');
+  assert.equal(normalizePhone('123'), '');
+  assert.equal(normalizeName('  José   PEÑA-Ñandú '), 'jose pena nandu');
+  const list = [{ id: 1, patientId: null, name: 'José Peña', phone: '+56 9 1111 2222', preference: 'cualquiera', note: '', createdAt: 'x' }];
+  assert.equal(findWaitDuplicate(list, { patientId: null, name: 'jose pena', phone: '' })?.id, 1);
+  assert.equal(findWaitDuplicate(list, { patientId: null, name: 'Otra', phone: '911112222' })?.id, 1);
+  assert.equal(findWaitDuplicate(list, { patientId: null, name: 'Otra', phone: '' }), null);
 });
 
 test('permisos: asistente marca llegó / en box / atendida; recepción gestiona la lista de espera', () => {
@@ -169,13 +177,25 @@ test('con base real: las horas se guardan al cambiar el estado, la lista de espe
   // Lista de espera aislada por espacio.
   const added = await cycle.addToWaitlist('A', { patientId: 1, preference: 'manana', note: 'solo martes' }, 'recepcion@example.com');
   assert.ok(added.ok); assert.equal(added.entry.name, 'Paciente Sintético Uno');
-  assert.equal((await cycle.addToWaitlist('A', { patientId: 1 }, 'x')).ok, false, 'sin duplicados');
+  const again = await cycle.addToWaitlist('A', { patientId: 1 }, 'x');
+  assert.ok(again.ok && again.reused && again.entry.id === added.entry.id, 'mismo paciente: se reusa');
   assert.equal((await cycle.addToWaitlist('B', { patientId: 1 }, 'x')).ok, false, 'paciente de otro espacio');
   assert.ok((await cycle.addToWaitlist('A', { name: 'Persona Nueva Sintética', phone: '912345678' }, 'x')).ok);
   assert.equal((await cycle.listWaitlist('A')).length, 2);
-  assert.equal((await cycle.listWaitlist('B')).length, 0);
+  // No-pacientes: mismo teléfono (otro formato) o mismo nombre (sin tildes / mayúsculas) → se reusa, no se duplica.
+  const samePhone = await cycle.addToWaitlist('A', { name: 'Otra Forma De Escribir', phone: '+56 9 1234 5678' }, 'x');
+  assert.ok(samePhone.ok && samePhone.reused); assert.equal(samePhone.entry.name, 'Persona Nueva Sintética');
+  const sameName = await cycle.addToWaitlist('A', { name: '  persona   nueva SINTETICA ' }, 'x');
+  assert.ok(sameName.ok && sameName.reused);
+  const patientPhone = await cycle.addToWaitlist('A', { name: 'Alguien', phone: '911112222' }, 'x');
+  assert.ok(patientPhone.ok && patientPhone.reused && patientPhone.entry.id === added.entry.id, 'teléfono del paciente ya en lista');
+  assert.equal((await cycle.listWaitlist('A')).length, 2);
+  // Otra cuenta con el mismo nombre/teléfono sí puede agregarlo (la regla es por cuenta).
+  const other = await cycle.addToWaitlist('B', { name: 'Persona Nueva Sintética', phone: '912345678' }, 'x');
+  assert.ok(other.ok && !other.reused);
+  assert.equal((await cycle.listWaitlist('B')).length, 1, 'B solo ve lo suyo');
   assert.equal(await cycle.removeFromWaitlist('B', added.entry.id), false);
   assert.equal(await cycle.removeFromWaitlist('A', added.entry.id), true);
   assert.equal((await cycle.listWaitlist('A')).length, 1);
-  assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM waitlist_entries').get().n, 2, 'quitar no borra la fila');
+  assert.equal(sqlite.prepare("SELECT COUNT(*) AS n FROM waitlist_entries WHERE owner_id = 'A'").get().n, 2, 'quitar no borra la fila');
 });

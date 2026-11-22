@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { agendaActionDenied, apiDenied, clinicalActionDenied, filterClinicalLoad, navAllowed, statusDenied, tabAllowed, firstTab } from "../lib/role-policy.ts";
+import { agendaActionDenied, apiDenied, clinicalActionDenied, filterClinicalLoad, navAllowed, selectableStatuses, statusDenied, tabAllowed, firstTab } from "../lib/role-policy.ts";
 import { canChangeBudget, checkInvite, isSupportRole, isTeamRole, ROLE_LABEL } from "../lib/clinic-team.ts";
 
 test("titular, administrador y dentista: sin restricciones nuevas", () => {
@@ -94,4 +94,38 @@ test("el servidor aplica los permisos (no solo la interfaz) y audita quién hizo
   assert.match(events, /WHERE owner_id = \? ORDER BY id DESC/);
   // El uso de IA cuenta contra la cuenta del titular (el espacio), no contra la persona.
   for (const route of ["dictation/structure", "text-correction", "anamnesis", "dictation/tooth-answer"]) assert.match(readFileSync(new URL(`../app/api/${route}/route.ts`, import.meta.url), "utf8"), /const account = user\.userId;/, route);
+});
+
+test("GES-10 cierre: recepción usa la agenda semanal; asistente solo ve estados permitidos", () => {
+  assert.equal(apiDenied("recepcion", "POST", "/api/calendar"), null);
+  assert.ok(apiDenied("asistente", "POST", "/api/calendar"));
+  // Conectar / quitar calendarios sigue siendo solo del dueño dentro de la ruta.
+  assert.match(readFileSync(new URL("../app/api/calendar/route.ts", import.meta.url), "utf8"), /\(body\?\.action === "setCalendar" \|\| body\?\.action === "remove"\) && !managesSpace\(user\)/);
+  const all = ["agendada", "confirmada", "en_espera", "ingresada", "atendida", "cancelada", "reagendada"];
+  assert.deepEqual(selectableStatuses("asistente", all, "agendada"), ["agendada", "confirmada", "en_espera", "ingresada", "atendida"]);
+  assert.deepEqual(selectableStatuses("asistente", all, "cancelada"), ["confirmada", "en_espera", "ingresada", "atendida", "cancelada"]);
+  assert.deepEqual(selectableStatuses("recepcion", all), all);
+  assert.deepEqual(selectableStatuses("titular", all), all);
+});
+
+test("GES-10 cierre: la interfaz oculta al personal lo que el servidor le rechaza y los avisos de configuración del dueño", () => {
+  const page = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.ok(page.includes('{!isStaffRole(spaceRole)&&<Suspense fallback={null}><GoogleDriveBackup/></Suspense>}'));
+  assert.ok(page.includes('{!isStaffRole(spaceRole)&&<Suspense fallback={null}><SystemStatus/></Suspense>}'));
+  assert.ok(page.includes('{!isStaffRole(spaceRole)&&<details className="mt-4 rounded-xl border border-[#e6e4ee] p-3" data-testid="agenda-ajustes">'));
+  assert.equal(page.split('<CalendarFreshness syncedAt={calendarSyncedAt} staff={isStaffRole(spaceRole)}/>').length - 1, 3);
+  for (const m of page.matchAll(/<CalendarSources /g)) assert.ok(page.slice(Math.max(0, m.index - 400), m.index).includes("!isStaffRole(spaceRole)&&"), "CalendarSources siempre bajo !isStaffRole");
+  assert.equal(page.split('onEdit={spaceRole==="asistente"?undefined:startEditAgendaEvent}').length - 1, 3);
+  assert.ok(page.includes('selectableStatuses(spaceRole,ATTENDANCE_STATUSES,value)'));
+  assert.ok(page.includes('<SpaceRoleContext.Provider value={spaceRole}>'));
+  // Botón principal del encabezado: recepción solo «Nueva cita» / «Nuevo paciente» (nunca «Nueva evolución»); asistente ninguno.
+  assert.ok(page.includes('spaceRole!=="asistente"&&!(spaceRole==="recepcion"&&!["Agenda","Pacientes","Inicio"].includes(section))&&<Button className="fx-shine'));
+  assert.ok(page.includes('{!isStaffRole(spaceRole)&&<p className="mt-10 text-center text-xs text-[#86829f]">La ficha se guarda'));
+  const box = readFileSync(new URL("../components/agenda-box-day.tsx", import.meta.url), "utf8");
+  assert.ok(box.includes('{appt.source === "app" && !assistant && <div className="mt-3 grid grid-cols-2 gap-2">'), "asistente: sin cambiar box / hora / profesional / duración");
+  assert.ok(box.includes("{!assistant && <Button") && box.includes('action: "quitarBloqueo"'));
+  assert.ok(box.includes("selectableStatuses(spaceRole, [item.status], appt.status)"));
+  assert.ok(box.includes("!isStaffRole(spaceRole) && <p"), "sin tip de Configuración → Box para el personal");
+  const controls = readFileSync(new URL("../components/next-controls.tsx", import.meta.url), "utf8");
+  assert.ok(controls.includes("{!staff && (status === \"solo-lectura\" || status === \"sin-conexion\")"));
 });
