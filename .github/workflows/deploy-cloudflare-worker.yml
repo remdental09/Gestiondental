@@ -49,6 +49,7 @@ jobs:
           pnpm exec wrangler d1 execute DB --remote --yes --config wrangler.cloudflare.jsonc --file drizzle/0008_awesome_whirlwind.sql
           pnpm exec wrangler d1 execute DB --remote --yes --config wrangler.cloudflare.jsonc --file drizzle/0009_windy_jackal.sql
           pnpm exec wrangler d1 execute DB --remote --yes --config wrangler.cloudflare.jsonc --file drizzle/0013_owner_indexes.sql
+          pnpm exec wrangler d1 execute DB --remote --yes --config wrangler.cloudflare.jsonc --file drizzle/0014_auth_sessions.sql
       - name: Desplegar Worker compilado
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN || secrets.CLOUDFLARE_TOKEN || secrets.CF_TOKEN || secrets.WRANGLER_API_TOKEN }}

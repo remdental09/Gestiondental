@@ -7,6 +7,8 @@ import { resolveOwner, resolveOwnerWithRegistration } from '../app/access-owners
 import { aboutPage, privacyPage } from '../lib/public-pages.ts';
 import * as portada from '../lib/portada-page.ts';
 import * as googleLogin from '../lib/google-login.ts';
+import * as sessionStore from '../lib/session-store.ts';
+import { DatabaseSync } from 'node:sqlite';
 import * as clinicTeamDb from '../app/clinic-team-db.ts';
 import * as clinicTeam from '../lib/clinic-team.ts';
 
@@ -37,6 +39,7 @@ function worker() {
     './lib/public-pages': { aboutPage, privacyPage },
     './lib/portada-page': portada,
     './lib/google-login': googleLogin,
+    './lib/session-store': sessionStore,
     './app/clinic-team-db': clinicTeamDb,
     './lib/clinic-team': clinicTeam,
   };
@@ -212,4 +215,76 @@ test('Access falla cerrado si faltan ACCESS_TEAM_DOMAIN o ACCESS_POLICY_AUD', as
     assert.equal(response.status, 503, missing);
     assert.equal(instance.count(), 0);
   }
+});
+
+// ---------- Sesiones propias en D1 (Fase 3) ----------
+const sqliteDb = () => {
+  const raw = new DatabaseSync(':memory:');
+  raw.exec(sessionStore.AUTH_SESSIONS_DDL); raw.exec(sessionStore.AUTH_RATE_DDL);
+  return { raw, prepare: sql => ({ bind: (...values) => ({ first: async () => raw.prepare(sql).get(...values) ?? null, run: async () => raw.prepare(sql).run(...values), all: async () => ({ results: raw.prepare(sql).all(...values) }) }) }) };
+};
+
+test('sesión v2 en D1: entra, se revoca al salir y la cookie copiada ya no sirve', async () => {
+  sessionStore.forgetCachedSessions();
+  const DB = sqliteDb();
+  const token = await sessionStore.createSession(DB, { email, name: 'Prueba' });
+  const instance = worker();
+  const withCookie = (path, init = {}) => new Request(`https://example.test${path}`, { ...init, headers: { Cookie: 'sd_session=' + token, ...(init.headers ?? {}) } });
+  const ok = await instance.fetch(withCookie('/api/clinical'), { ...googleEnv, DB }, {});
+  assert.equal(ok.status, 200);
+  assert.deepEqual(await ok.json(), { owner: null, clinic: ownerId, personal: ownerId, role: 'titular' });
+  assert.equal(DB.raw.prepare('SELECT count(*) n FROM auth_sessions WHERE id = ?').get(await sessionStore.sha256Hex(token)).n, 1, 'solo el hash queda en la base');
+  assert.equal(DB.raw.prepare('SELECT count(*) n FROM auth_sessions WHERE id = ?').get(token).n, 0);
+  const out = await instance.fetch(withCookie('/auth/salir', { headers: { 'Sec-Fetch-Site': 'same-origin' } }), { ...googleEnv, DB }, {});
+  assert.equal(out.status, 302);
+  assert.match(out.headers.get('set-cookie'), /sd_session=;/);
+  const again = await instance.fetch(withCookie('/api/clinical'), { ...googleEnv, DB }, {});
+  assert.equal(again.status, 401);
+});
+
+test('salir por un enlace de otro sitio no cierra la sesión (CSRF)', async () => {
+  sessionStore.forgetCachedSessions();
+  const DB = sqliteDb();
+  const token = await sessionStore.createSession(DB, { email, name: '' });
+  const instance = worker();
+  const out = await instance.fetch(new Request('https://example.test/auth/salir', { headers: { Cookie: 'sd_session=' + token, 'Sec-Fetch-Site': 'cross-site' } }), { ...googleEnv, DB }, {});
+  assert.equal(out.headers.get('set-cookie'), null);
+  assert.equal(DB.raw.prepare('SELECT revoked_at FROM auth_sessions').get().revoked_at, null);
+});
+
+test('una escritura desde otro sitio se rechaza antes de tocar la app (CSRF)', async () => {
+  sessionStore.forgetCachedSessions();
+  const DB = sqliteDb();
+  const token = await sessionStore.createSession(DB, { email, name: '' });
+  for (const headers of [{ 'Sec-Fetch-Site': 'cross-site' }, { Origin: 'https://malicioso.example' }, { Origin: 'null' }]) {
+    const instance = worker();
+    const response = await instance.fetch(new Request('https://example.test/api/clinical', { method: 'POST', headers: { Cookie: 'sd_session=' + token, ...headers }, body: '{}' }), { ...googleEnv, DB }, {});
+    assert.equal(response.status, 403);
+    assert.equal(instance.count(), 0);
+  }
+  const instance = worker();
+  const same = await instance.fetch(new Request('https://example.test/api/clinical', { method: 'POST', headers: { Cookie: 'sd_session=' + token, Origin: 'https://example.test', 'Sec-Fetch-Site': 'same-origin' }, body: '{}' }), { ...googleEnv, DB }, {});
+  assert.equal(same.status, 200);
+});
+
+test('una cookie firmada antigua sigue entrando y se cambia por una sesión v2 en D1 (nadie tiene que volver a entrar)', async () => {
+  sessionStore.forgetCachedSessions();
+  const DB = sqliteDb();
+  const instance = worker();
+  const response = await instance.fetch(new Request('https://example.test/api/clinical', { headers: { Cookie: await sessionCookie(email) } }), { ...googleEnv, DB }, {});
+  assert.equal(response.status, 200);
+  const set = response.headers.get('set-cookie') ?? '';
+  assert.match(set, /^sd_session=v2\.[A-Za-z0-9_-]{40,}; Path=\/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000$/);
+  assert.equal(DB.raw.prepare('SELECT count(*) n FROM auth_sessions').get().n, 1);
+});
+
+test('demasiados intentos de inicio de sesión desde una IP → aviso, sin ir a Google', async () => {
+  const DB = sqliteDb();
+  const instance = worker();
+  let last;
+  for (let i = 0; i <= sessionStore.LOGIN_LIMIT; i++) last = await instance.fetch(new Request('https://example.test/auth/google', { headers: { 'CF-Connecting-IP': '203.0.113.9' } }), { ...googleEnv, DB }, {});
+  assert.equal(last.headers.get('location'), '/?error=demasiados');
+  const other = await instance.fetch(new Request('https://example.test/auth/google', { headers: { 'CF-Connecting-IP': '203.0.113.10' } }), { ...googleEnv, DB }, {});
+  assert.match(other.headers.get('location'), /^https:\/\/accounts\.google\.com\//);
+  assert.equal(DB.raw.prepare('SELECT count(*) n FROM auth_rate_limits WHERE key LIKE ?').get('%203.0.113%').n, 0, 'la IP se guarda solo como hash');
 });
