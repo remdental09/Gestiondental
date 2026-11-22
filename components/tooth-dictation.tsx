@@ -72,6 +72,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<Step>("diagnosis");
   const [mode, setMode] = useState<DictationMode | null>(null);
+  const [choosing, setChoosing] = useState(false);
   const [diagnosisText, setDiagnosisText] = useState("");
   const [planText, setPlanText] = useState("");
   const [audioStatus, setAudioStatus] = useState<AudioStatus>("idle");
@@ -306,17 +307,16 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
     }
   };
 
-  const startGuidedEvaluation = () => {
+  // Se elige antes de abrir: el botón «Dictar esta pieza» se abre en dos (planificar / realizar) y el dictado parte ya con el modo.
+  const startGuidedEvaluation = (next: DictationMode) => {
     reset();
+    setChoosing(false);
+    modeRef.current = next;
+    setMode(next);
     telemetryFlowActive.current = true;
     telemetryFlowCompleted.current = false;
     recordDictationHealthEvent("flow_started", "flow");
     setOpen(true);
-  };
-
-  const chooseMode = (next: DictationMode) => {
-    modeRef.current = next;
-    setMode(next);
     askStep("diagnosis");
   };
 
@@ -789,23 +789,26 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
                   : toothSpeechPrompt(promptStep(step), tooth);
 
   return <>
-    {onApply && <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={startGuidedEvaluation} data-testid="dictate-selected-tooth">
+    {onApply && !choosing && <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={() => setChoosing(true)} data-testid="dictate-selected-tooth">
       <Mic className="mr-2 size-4"/>Dictar esta pieza
     </Button>}
+    {onApply && choosing && <div className="flex w-full flex-col gap-2 rounded-xl border border-[#d8d3e3] bg-[#f7f6fa] p-3" data-testid="tooth-mode-picker" role="group" aria-label="¿Qué vas a dictar?">
+      <p className="text-sm font-semibold text-[#3b3355]">¿Qué vas a dictar en esta pieza?</p>
+      <div className="grid grid-cols-2 gap-2">
+        <button type="button" data-testid="mode-plan" disabled={disabled} onClick={() => startGuidedEvaluation("plan")} className="min-h-14 rounded-lg border border-[#d8d3e3] bg-white px-3 py-2 text-left disabled:opacity-50">
+          <span className="block text-sm font-semibold text-[#3b3355]">Planificar tratamiento</span>
+          <span className="block text-xs text-[#615f73]">Queda pendiente, en el presupuesto</span>
+        </button>
+        <button type="button" data-testid="mode-done" disabled={disabled} onClick={() => startGuidedEvaluation("done")} className="min-h-14 rounded-lg bg-[#473a6d] px-3 py-2 text-left text-white disabled:opacity-50">
+          <span className="block text-sm font-semibold">Realizar tratamiento hoy</span>
+          <span className="block text-xs text-white/80">Cambia el odontograma y lo cierra</span>
+        </button>
+      </div>
+      <button type="button" className="self-start text-xs font-semibold text-[#473a6d] underline" onClick={() => setChoosing(false)}>Cancelar</button>
+    </div>}
     <Dialog open={open} onOpenChange={changeOpen}>
       <DialogContent className="flex h-[calc(100dvh-1rem)] max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[96vw] flex-col gap-0 overflow-hidden border-[#dddbe6] bg-white p-0 sm:max-w-[96vw] 2xl:max-w-[90rem]">
-        {mode === null && <div className="absolute inset-0 z-20 flex flex-col justify-center gap-4 overflow-y-auto bg-white p-5 sm:p-8" data-testid="tooth-mode-picker">
-          <h2 className="text-2xl font-semibold text-[#302747] sm:text-3xl">¿Qué vas a registrar en la pieza FDI {formatFdi(tooth)} · Chile {fdiToChile(tooth)}?</h2>
-          <button type="button" data-testid="mode-plan" onClick={() => chooseMode("plan")} className="rounded-xl border border-[#d8d3e3] bg-[#f7f6fa] p-5 text-left hover:border-[#473a6d]">
-            <span className="block text-xl font-semibold text-[#3b3355]">Planificar tratamiento</span>
-            <span className="mt-1 block text-base text-[#615f73]">Lo propones para más adelante: queda como plan y presupuesto en borrador. El odontograma no cambia.</span>
-          </button>
-          <button type="button" data-testid="mode-done" onClick={() => chooseMode("done")} className="rounded-xl border border-[#473a6d] bg-violet-50 p-5 text-left hover:bg-violet-100">
-            <span className="block text-xl font-semibold text-[#3b3355]">Ya lo realicé hoy</span>
-            <span className="mt-1 block text-base text-[#615f73]">Queda como procedimiento realizado: cambia el odontograma, la pieza gana una etapa en su película y la prestación se cierra en el presupuesto en vez de duplicarse.</span>
-          </button>
-          <Button type="button" variant="ghost" className="self-start" onClick={() => changeOpen(false)}>Cancelar</Button>
-        </div>}
+
         <div className="shrink-0 border-b border-[#ebe9f2] bg-white px-4 py-4 sm:px-7 sm:py-5">
         <DialogHeader className="pr-10">
           <DialogTitle className="text-xl sm:text-2xl">Evaluación guiada por pieza</DialogTitle>
