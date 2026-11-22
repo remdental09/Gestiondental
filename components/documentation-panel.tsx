@@ -6,6 +6,8 @@ import Image from "next/image";
 import qrcode from "qrcode-generator";
 import { ageFromBirthDate, parseMedications, MEDICATION_MAX, VIAS, VIAS_FRECUENTES, DOSE_UNITS, DOSE_UNIT_KEYS, TIME_UNITS, TIME_UNIT_KEYS, autoQuantityText, medicationDosis, medicationLine, type Medication, splitPrescriptionLines, isPrescriptionKind, requiresHabilitacionQr, habilitacionNoun, CLINICAL_DOCUMENT_KINDS, CLINICAL_DOCUMENT_LABEL, type ClinicalDocumentContent, type ClinicalDocumentKind } from "@/lib/clinical-documents";
 import { shortCode, verificationUrl } from "@/lib/document-verification";
+import { MedicationNameInput } from "@/components/medication-search";
+import { controlNotice, type MedicationSuggestion } from "@/lib/medication-catalog";
 import { ConsentSigningCard, PatientSignatureImage } from "@/components/consent-signing";
 import { ConsentTemplatePicker } from "@/components/consent-template-picker";
 import { SIGNER_ROLE_LABEL, SIGN_METHOD_LABEL, isSignMethod, isSignerRole, signatureListMark, type SignatureView } from "@/lib/consent-signature";
@@ -518,6 +520,23 @@ function MedicationEditor({ value, onChange }: { value: string; onChange: (next:
     }
     return next;
   }));
+  // Al elegir del catálogo ISP: nombre y, si la forma farmacéutica es clara, unidad y vía. La dosis, la frecuencia y la duración las decide el profesional.
+  const [controlNotes, setControlNotes] = useState<Record<string, string>>({});
+  const pick = (index: number, suggestion: MedicationSuggestion) => {
+    const notice = controlNotice(suggestion.control);
+    setControlNotes(previous => { const { [suggestion.nombre]: _removed, ...rest } = previous; return notice ? { ...rest, [suggestion.nombre]: notice } : rest; });
+    emit(rows.map((row, i) => {
+      if (i !== index) return row;
+      const next: Medication = { ...row, nombre: suggestion.nombre, via: row.via || suggestion.forma.via };
+      if (suggestion.forma.unidad && suggestion.forma.unidad !== row.unidad) {
+        const previousAuto = autoQuantityText(row);
+        next.unidad = suggestion.forma.unidad;
+        if (!row.cantidad || row.cantidad === previousAuto) next.cantidad = autoQuantityText(next);
+        next.dosis = medicationDosis(next);
+      }
+      return next;
+    }));
+  };
   const field = "mt-1 min-h-11 w-full rounded-lg border border-[#d2d4df] bg-white px-3 py-2 text-base text-[#35343f] outline-none focus:border-[#75669d] focus:ring-2 focus:ring-[#473a6d]/15";
   const label = "block text-sm font-semibold text-[#35343f]";
   const number = (index: number, key: "posologia" | "cada" | "duracion", value: string, testId: string, aria: string) =>
@@ -535,7 +554,9 @@ function MedicationEditor({ value, onChange }: { value: string; onChange: (next:
       const line = medicationLine({ ...row, dosis: row.unidad ? medicationDosis(row) : row.dosis });
       return <div key={index} className="space-y-3 rounded-xl border border-[#e6e4ee] bg-[#faf9fc] p-3 sm:p-4" data-testid="medication-row">
         <div className="flex items-center justify-between gap-2"><p className="text-xs font-bold uppercase tracking-wider text-[#6b5d8e]">Medicamento {index + 1}</p>{rows.length > 1 && <button type="button" onClick={() => emit(rows.filter((_, i) => i !== index))} className="inline-flex min-h-11 items-center gap-1 rounded-lg px-2 text-sm font-semibold text-rose-800 hover:bg-rose-50" aria-label={`Quitar medicamento ${index + 1}`}><Trash2 className="size-4"/>Quitar</button>}</div>
-        <label className={label}>Medicamento<input className={field} value={row.nombre} onChange={event => update(index, "nombre", event.target.value)} placeholder="Ej. Amoxicilina 500 mg" autoComplete="off" data-testid="medication-nombre"/></label>
+        <div><p className={label}>Medicamento</p>
+          <MedicationNameInput value={row.nombre} className={field} onChange={text => update(index, "nombre", text)} onPick={suggestion => pick(index, suggestion)}/>
+          {controlNotes[row.nombre] && <p className="mt-1 rounded-lg bg-amber-50 p-2 text-xs font-semibold text-amber-900 ring-1 ring-amber-200" role="note" data-testid="medication-control">{controlNotes[row.nombre]}</p>}</div>
         <div><p className={label} id={`pos-${index}`}>Posología</p>
           <div className="grid grid-cols-[5.5rem_1fr] gap-2" role="group" aria-labelledby={`pos-${index}`}>
             {number(index, "posologia", row.posologia ?? "", "medication-posologia", "Cantidad por toma")}
