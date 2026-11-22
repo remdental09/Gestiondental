@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { IMPLANT_BRANDS, IMPLANT_BRAND_TERMS, findImplantBrand } from "../lib/dictation/implant-brands.ts";
-import { DENTAL_DICTIONARY, DENTAL_DICTIONARY_HINTS, DENTAL_SPEECH_HINTS, DENTAL_PROTECTED_WORDS } from "../lib/dictation/dental-lexicon.ts";
+import { dentalDictionary, dentalDictionaryHints, DENTAL_SPEECH_HINTS, dentalProtectedWords } from "../lib/dictation/dental-lexicon.ts";
 
 test("el catálogo de marcas cubre Europa, Estados Unidos, Brasil y Asia sin repetir marcas", () => {
   assert.ok(IMPLANT_BRANDS.length >= 75);
@@ -12,10 +12,10 @@ test("el catálogo de marcas cubre Europa, Estados Unidos, Brasil y Asia sin rep
 });
 
 test("las marcas llegan al diccionario, a las pistas de voz y a las palabras protegidas", () => {
-  assert.ok(DENTAL_DICTIONARY.marcas_y_empresas_de_implantes.includes("Straumann"));
-  assert.match(DENTAL_DICTIONARY_HINTS, /Marcas y empresas de implantes/);
+  assert.ok(dentalDictionary().marcas_y_empresas_de_implantes.includes("Straumann"));
+  assert.match(dentalDictionaryHints(), /Marcas y empresas de implantes/);
   assert.ok(DENTAL_SPEECH_HINTS.some((hint) => hint.phrase === "Neodent"));
-  assert.ok(DENTAL_PROTECTED_WORDS.has("straumann"));
+  assert.ok(dentalProtectedWords().has("straumann"));
   assert.ok(IMPLANT_BRAND_TERMS.includes("Osstem Implant"));
 });
 

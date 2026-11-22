@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { diagnosisMatches } from "../lib/icd11.ts";
-import { DENTAL_DICTIONARY_HINTS } from "../lib/dictation/dental-lexicon.ts";
+import { dentalDictionaryHints } from "../lib/dictation/dental-lexicon.ts";
 import { CLINICAL_WRITING_PROMPT } from "../lib/dictation/clinical-writing.ts";
 
 test("el orden «crónica apical» y «apical crónica» dan el mismo código CIE-11", () => {
@@ -16,7 +16,7 @@ test("un hallazgo radiográfico de granuloma no se codifica como diagnóstico po
 
 test("el vocabulario de endodoncia incluye medicación intraconducto y acceso", () => {
   for (const term of ["paramonoclorofenol alcanforado", "trepanación", "apertura cameral", "sesión endodóntica", "vidrio ionómero"]) {
-    assert.ok(DENTAL_DICTIONARY_HINTS.includes(term), term);
+    assert.ok(dentalDictionaryHints().includes(term), term);
   }
 });
 
