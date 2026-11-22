@@ -1,4 +1,4 @@
-import { AI_SYSTEM_PROMPT, buildModelUserPrompt, AI_JSON_SCHEMA, type StructureInput } from "./proposal.ts";
+import { aiSystemPrompt, buildModelUserPrompt, AI_JSON_SCHEMA, type StructureInput } from "./proposal.ts";
 import { OPENAI_CHAT_URL, OPENAI_STRUCTURE_MODEL, isReasoningModel, type OpenAiUsage } from "./openai-structure.ts";
 import { AGENT_TOOLS, runAgentTool } from "./agent-tools.ts";
 
@@ -66,7 +66,7 @@ export async function runOpenAiAgent(
   const maxTurns = Math.max(1, options.maxTurns ?? AGENT_MAX_TURNS);
   const trace: AgentTrace = { turns: 0, toolCalls: [] };
   const messages: ChatMessage[] = [
-    { role: "system", content: AI_SYSTEM_PROMPT + AGENT_PROMPT_ADDENDUM },
+    { role: "system", content: aiSystemPrompt() + AGENT_PROMPT_ADDENDUM },
     { role: "user", content: buildModelUserPrompt(input) },
   ];
   let dropReasoning = false;
