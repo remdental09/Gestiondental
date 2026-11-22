@@ -272,19 +272,30 @@ export async function GET() {
     let profileFailed = false;
     const personalId = viewer ? personalIdOf(viewer) : ownerId;
     const spaceRole = viewer ? spaceRoleOf(viewer) : "titular";
-    const profile = await loadProfile(personalId).catch(() => { profileFailed = true; return null; });
+    // Todo lo que no depende de lo demás se pide a la vez: cada consulta a la base tiene su propia ida y vuelta.
+    const profileP = loadProfile(personalId).catch(() => { profileFailed = true; return null; });
     // Registro de ingresos para el panel del desarrollador; si falla, la ficha carga igual.
-    await touchAppUser(personalId, viewer?.email || "", viewer?.fullName || "").catch(() => undefined);
+    const touchP = touchAppUser(personalId, viewer?.email || "", viewer?.fullName || "").catch(() => undefined);
     const authorDb = teamDb();
-    const authors = authorDb ? await authorsOf(authorDb, ownerId).catch(() => new Map()) : new Map();
+    const authorsP = authorDb ? authorsOf(authorDb, ownerId).catch(() => new Map()) : Promise.resolve(new Map());
+    const budgetAuthorsP = authorDb ? budgetAuthorsOf(authorDb, ownerId).catch(() => new Map()) : Promise.resolve(new Map());
+    const addressesP = loadAddresses(ownerId);
+    const profilesP = loadProfiles(ownerId);
+    const rawDb = (env as unknown as { DB?: { prepare(sql: string): { bind(...v: unknown[]): { all<T>(): Promise<{ results: T[] }> } } } }).DB;
+    const allocationRowsP = rawDb
+      ? rawDb.prepare("SELECT payment_id, item_index, item_label, amount FROM payment_allocations WHERE owner_id = ? ORDER BY id").bind(ownerId).all<{ payment_id: number; item_index: number; item_label: string; amount: number }>().catch(() => ({ results: [] as { payment_id: number; item_index: number; item_label: string; amount: number }[] }))
+      : Promise.resolve({ results: [] as { payment_id: number; item_index: number; item_label: string; amount: number }[] });
+    const pieceRowsP = rawDb
+      ? rawDb.prepare("SELECT evolution_id, pieces FROM evolution_pieces WHERE owner_id = ?").bind(ownerId).all<{ evolution_id: number; pieces: string }>().catch(() => ({ results: [] as { evolution_id: number; pieces: string }[] }))
+      : Promise.resolve({ results: [] as { evolution_id: number; pieces: string }[] });
+    // Ida y vuelta con Google: duración real, citas sin paciente y marcas «pendiente de sincronizar» (si falla, la agenda carga igual).
+    const agendaSyncP = import("@/app/calendar-two-way").then(m => m.agendaSyncFlags(ownerId)).catch(() => ({ minutes: {} as Record<number, number>, needsPatient: [] as number[], pendingAppointments: [] as number[], pendingEvents: [] as number[] }));
     const authorView = (id: number) => {
       const row = authors.get(id);
       const authorId = evolutionAuthor(row?.author_id, ownerId);
       return { authorName: row?.author_name || "", authorEmail: row?.author_email || "", mine: authorId === personalId };
     };
-    const addresses = await loadAddresses(ownerId);
-    const profiles = await loadProfiles(ownerId);
-    const [ps, ns, bs, as, pe, ts, imgs, ces, pays, dxs] = await Promise.all([
+    const [ps, ns, bs, as, pe, ts, imgs, ces, pays, dxs, profile, , authors, addresses, profiles, budgetAuthorMap, allocationRows, pieceRows, agendaSync] = await Promise.all([
       db.select().from(patients).where(eq(patients.ownerId, ownerId)).orderBy(patients.name),
       db.select().from(evolutions).where(eq(evolutions.ownerId, ownerId)).orderBy(desc(evolutions.clinicalDate), desc(evolutions.recordedAt)),
       db.select().from(budgets).where(eq(budgets.ownerId, ownerId)).orderBy(desc(budgets.id)),
@@ -297,18 +308,11 @@ export async function GET() {
       db.select().from(payments).where(eq(payments.ownerId, ownerId)).orderBy(desc(payments.paidOn), desc(payments.id)).catch(() => [] as (typeof payments.$inferSelect)[]),
       // Igual con las etiquetas de diagnóstico (migración 0005).
       db.select().from(evolutionDiagnoses).where(eq(evolutionDiagnoses.ownerId, ownerId)).orderBy(evolutionDiagnoses.id).catch(() => [] as (typeof evolutionDiagnoses.$inferSelect)[]),
+      profileP, touchP, authorsP, addressesP, profilesP, budgetAuthorsP, allocationRowsP, pieceRowsP, agendaSyncP,
     ]);
-    // Ida y vuelta con Google: duración real, citas sin paciente y marcas «pendiente de sincronizar» (si falla, la agenda carga igual).
-    const agendaSync = await import("@/app/calendar-two-way").then(m => m.agendaSyncFlags(ownerId)).catch(() => ({ minutes: {} as Record<number, number>, needsPatient: [] as number[], pendingAppointments: [] as number[], pendingEvents: [] as number[] }));
     // Resumen por pieza de cada evolución (tabla aditiva; si no existe aún, la ficha carga igual).
-    const piecesByNote = await (async () => {
-      const map = new Map<number, PieceChip[]>();
-      const raw = (env as unknown as { DB?: { prepare(sql: string): { bind(...v: unknown[]): { all<T>(): Promise<{ results: T[] }> } } } }).DB;
-      if (!raw) return map;
-      const rows = await raw.prepare("SELECT evolution_id, pieces FROM evolution_pieces WHERE owner_id = ?").bind(ownerId).all<{ evolution_id: number; pieces: string }>().catch(() => ({ results: [] as { evolution_id: number; pieces: string }[] }));
-      for (const row of rows.results) { try { map.set(row.evolution_id, sanitizeChips(JSON.parse(row.pieces))); } catch { /* fila dañada: se omite */ } }
-      return map;
-    })();
+    const piecesByNote = new Map<number, PieceChip[]>();
+    for (const row of pieceRows.results) { try { piecesByNote.set(row.evolution_id, sanitizeChips(JSON.parse(row.pieces))); } catch { /* fila dañada: se omite */ } }
     const diagnosesByNote = new Map<number, ReturnType<typeof diagnosisView>[]>();
     for (const dx of dxs) diagnosesByNote.set(dx.evolutionId, [...(diagnosesByNote.get(dx.evolutionId) ?? []), diagnosisView(dx)]);
     const notesByPatient = new Map<number, typeof ns>();
@@ -343,7 +347,6 @@ export async function GET() {
       notes: ns.map(n => ({ id: n.id, patientId: n.patientId, date: displayDate(n.clinicalDate), clinicalDate: n.clinicalDate, recordedAt: n.recordedAt, title: n.title, body: n.body, sourceDocumentId: n.sourceDocumentId, backupStatus: n.backupStatus, diagnoses: diagnosesByNote.get(n.id) ?? [], pieces: piecesByNote.get(n.id) ?? [], ...annulView(n), ...authorView(n.id) })),
       budgets: await (async () => {
         // Quién armó cada presupuesto (en una clínica, el colega que lo estableció); los antiguos, del titular.
-        const budgetAuthorMap = authorDb ? await budgetAuthorsOf(authorDb, ownerId).catch(() => new Map()) : new Map();
         return bs.map(b => {
           const row = budgetAuthorMap.get(b.id);
           const author = row?.author_id || ownerId;
@@ -352,14 +355,10 @@ export async function GET() {
       })(),
       appointments: as.map(a => ({ id: a.id, patientId: a.patientId, day: a.day.split("-").reverse().join("-"), time: a.time, reason: a.reason, ...(agendaSync.minutes[a.id] ? { minutes: agendaSync.minutes[a.id] } : {}) })),
       agendaSync: { needsPatient: agendaSync.needsPatient, pendingAppointments: agendaSync.pendingAppointments, pendingEvents: agendaSync.pendingEvents },
-      payments: await (async () => {
+      payments: (() => {
         // Abonos aplicados a ítems (tabla aditiva); los abonos sin asignación son «libres».
         const byPayment = new Map<number, Allocation[]>();
-        const raw = (env as unknown as { DB?: { prepare(sql: string): { bind(...v: unknown[]): { all<T>(): Promise<{ results: T[] }> } } } }).DB;
-        if (raw) {
-          const rows = await raw.prepare("SELECT payment_id, item_index, item_label, amount FROM payment_allocations WHERE owner_id = ? ORDER BY id").bind(ownerId).all<{ payment_id: number; item_index: number; item_label: string; amount: number }>().catch(() => ({ results: [] as { payment_id: number; item_index: number; item_label: string; amount: number }[] }));
-          for (const row of rows.results) byPayment.set(row.payment_id, [...(byPayment.get(row.payment_id) ?? []), { index: row.item_index, label: row.item_label, amount: row.amount }]);
-        }
+        for (const row of allocationRows.results) byPayment.set(row.payment_id, [...(byPayment.get(row.payment_id) ?? []), { index: row.item_index, label: row.item_label, amount: row.amount }]);
         return pays.map(p => ({ ...paymentView(p), ...(byPayment.has(p.id) ? { allocations: byPayment.get(p.id) } : {}) }));
       })(),
       calendarEvents: [...ces.filter(e => e.status !== "cancelled").map(e => ({ id: e.id, title: e.title, startAt: e.startAt, endAt: e.endAt, sourceTimeZone: e.sourceTimeZone, htmlLink: e.htmlLink, status: e.status, allDay: e.allDay, patientId: e.patientId })), ...snapshot.events],
