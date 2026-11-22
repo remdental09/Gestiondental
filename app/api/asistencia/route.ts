@@ -1,4 +1,6 @@
-import { getChatGPTUser } from "@/app/chatgpt-auth";
+import { getChatGPTUser, spaceRoleOf } from "@/app/chatgpt-auth";
+import { statusDenied } from "@/lib/role-policy";
+import { recordEvent } from "@/app/account-events";
 import { loadAttendance, setAttendance } from "@/app/attendance-db";
 import { json, positiveId, sameOrigin } from "@/app/followup-http";
 import { isAttendanceStatus } from "@/lib/dashboard";
@@ -22,8 +24,11 @@ export async function PUT(request: Request) {
   const source = body?.source === "cal" || body?.source === "app" ? body.source : null;
   const refId = positiveId(body?.refId);
   if (!source || !refId || !isAttendanceStatus(body?.status)) return json({ error: "Solicitud inválida." }, 400);
+  const denied = statusDenied(spaceRoleOf(user), body.status);
+  if (denied) return json({ error: denied }, 403);
   try {
     if (!(await setAttendance(user.userId, source, refId, body.status))) return json({ error: "Cita no encontrada." }, 404);
+    await recordEvent(user, "cita.estado", `${source}:${refId}`, { status: body.status });
     return json({ ok: true });
   } catch { return json({ error: "No se pudo guardar el estado de la cita." }, 500); }
 }
