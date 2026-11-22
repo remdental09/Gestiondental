@@ -3,6 +3,7 @@
 // sobre cada observación («Real» / «Falsa alarma»), que sirve para medir cuánto acierta el auditor.
 import { env } from "cloudflare:workers";
 import { getChatGPTUser, personalIdOf } from "@/app/chatgpt-auth";
+import { aiWithinLimit, trackAi } from "@/app/ai-guard";
 import { auditRecord, type AuditFinding } from "@/lib/audit/record-audit";
 import { decodeBudgetData } from "@/lib/budget-plans";
 import type { OdontogramData } from "@/app/clinical-data";
@@ -98,6 +99,10 @@ export async function POST(request: Request) {
   if (!db) return json({ error: "Base de datos no disponible." }, 503);
   const body = await request.json().catch(() => ({})) as { key?: unknown; decision?: unknown; accion?: unknown; desde?: unknown };
   // «revisar»: la IA lee unas pocas evoluciones recientes aún sin revisar (la pantalla lo repite hasta que no queden).
+  if (body.accion === "revisar") {
+    if (!(await aiWithinLimit(personalIdOf(user)))) return json({ revisadas: 0, pendientes: 0, fallidas: 0, limiteIa: true });
+    void trackAi(personalIdOf(user), { calls: 1 });
+  }
   if (body.accion === "revisar") return json(await reviewPendingNotes(user.userId, BATCH).catch(() => ({ revisadas: 0, pendientes: 0, fallidas: 0 })));
   // «probar» (solo el titular): corre el banco de evoluciones con la IA real y dice si el lector acierta.
   if (body.accion === "probar") {

@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { env } from "cloudflare:workers";
-import { getChatGPTUser } from "@/app/chatgpt-auth";
+import { getChatGPTUser, personalIdOf } from "@/app/chatgpt-auth";
+import { aiLimitResponse, trackAi } from "@/app/ai-guard";
 import { getDb } from "@/db";
 import { evolutions, patients } from "@/db/schema";
 import { loadAnamnesis, saveAnamnesis } from "@/app/anamnesis-db";
@@ -46,6 +47,10 @@ export async function POST(request: Request) {
   if (!user?.userId) return json({ error: "Inicia sesión." }, 401);
   if (request.headers.get("origin") !== new URL(request.url).origin) return json({ error: "Origen no permitido." }, 403);
   const body = await request.json().catch(() => null) as { transcript?: unknown; patientId?: unknown; fromEvolutions?: unknown; mode?: unknown } | null;
+  const account = personalIdOf(user);
+  const limited = await aiLimitResponse(account);
+  if (limited) return limited;
+  if (env.OPENAI_API_KEY?.trim()) void trackAi(account, { calls: 1 });
   if (body?.fromEvolutions === true) {
     const patientId = await ownedPatient(user.userId, body.patientId);
     if (!patientId) return json({ error: "Paciente no encontrado." }, 404);
