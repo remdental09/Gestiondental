@@ -107,6 +107,7 @@ import { bestStoredNameMatches, hasFourNameParts, normalizePatientName } from "@
 import type { DictatedIdentity } from "@/lib/dictation/patient-identify";
 import { nameSimilarity } from "@/lib/dictation/name-similarity";
 import { endoMarksByTooth, priorCase, type EndoData } from "@/lib/endodontics";
+import { endoFromDictation, applyEndoDictation } from "@/lib/tooth-performed";
 import { agendaWeekDays, agendaWeekRangeLabel, mondayOfAgendaWeek, santiagoDateISO, shiftAgendaWeek } from "@/app/agenda-week";
 import { AppointmentWeekMini } from "@/components/appointment-week-mini";
 
@@ -691,6 +692,15 @@ export default function Home(){
     if(result.budget)setBudgets(previous=>[result.budget!,...previous]);
     if(result.note)setNotes(previous=>[result.note,...previous.filter(note=>note.id!==result.note.id)]);
     requestDriveBackup(selectedId);
+    // Endodoncia dictada como realizada: queda marcada en el endograma (en curso u obturada) y cambia la imagen de la pieza.
+    const endo=performed?endoFromDictation([...budgetItems.map(item=>item.label),evolution.body].join(". ")):null;
+    if(endo){
+      try{
+        let base:EndoData|undefined=endoByPatient[selectedId];
+        if(!base){const response=await fetch(`/api/endodontics?patientId=${selectedId}`,{cache:"no-store"});const loaded=await response.json() as {data?:EndoData};base=loaded.data;}
+        if(base)await saveEndo(applyEndoDictation(base,tooth,endo,new Date().toISOString().slice(0,10),()=>crypto.randomUUID()));
+      }catch{/* la evolución ya quedó guardada; el endograma se puede completar a mano */}
+    }
   };
   const savePerio=async(exam:PerioExam)=>{
     const rows=Object.entries(exam.teeth).sort(([a],[b])=>Number(a)-Number(b)).map(([tooth,record])=>{
