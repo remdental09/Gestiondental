@@ -1,10 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { Building2, Check, Copy, LogOut, Mail, MessageCircle, RefreshCw, Stethoscope, UserPlus, Users, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ProfileDialog } from "@/components/profile-dialog";
 import type { ClinicianProfile } from "@/lib/clinician-profile";
+
+/** El diálogo de perfil (con firma y QR) se descarga solo cuando se abre. */
+const ProfileDialog = lazy(() => import("@/components/profile-dialog").then(module => ({ default: module.ProfileDialog })));
 
 type Role = "admin" | "dentista";
 type Member = { email: string; name: string; specialty: string; role: Role; roleLabel: string; status: "invitada" | "activa" | "revocada" | "rechazada" | "vencida"; invitedAt: string; acceptedAt: string | null; expiresAt: string; isMe: boolean };
@@ -83,7 +85,7 @@ function InvitationCards({ state, busy, act }: { state: TeamState; busy: boolean
         <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => act({ action: "rechazar", clinicId: inv.clinicId })}>Rechazar</Button>
       </div>
     </section>
-  ))}{identify && <ProfileDialog email={state.email} onClose={() => setIdentify(false)} onSaved={(_profile: ClinicianProfile) => setProfileComplete(true)}/>}</>;
+  ))}{identify && <Suspense fallback={null}><ProfileDialog email={state.email} onClose={() => setIdentify(false)} onSaved={(_profile: ClinicianProfile) => setProfileComplete(true)}/></Suspense>}</>;
 }
 
 export function ClinicSpaceBar() {
