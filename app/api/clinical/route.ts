@@ -21,6 +21,7 @@ import { cementedCrownFromEvolution } from "@/app/crown-evidence";
 import { fullNameRequiredMessage, hasFourNameParts } from "@/app/patient-identity";
 import { getDb } from "@/db";
 import { appointments, budgets, calendarEvents, clinicalImages, evolutionDiagnoses, evolutions, patients, payments, periodontalExams, toothStatuses } from "@/db/schema";
+import { settlePerformed, type Settled } from "@/lib/tooth-performed";
 import { budgetTotals, decodeBudgetData, encodeBudgetData, ITEM_STATUSES, normalizeBudgetItems, validIsoDate, withItemStatus, type ItemStatus } from "@/lib/budget-plans";
 import { sanitizeDiagnosisTags } from "@/lib/evolution-diagnoses";
 import { EVOLUTION_PIECES_DDL, sanitizeChips, type PieceChip } from "@/lib/evolution-lines";
@@ -641,8 +642,18 @@ async function handlePost(request: Request) {
       const noteAuthor = await currentAuthor();
       const evolutionWrite = db.insert(evolutions).values({ ownerId, patientId, clinicalDate, recordedAt: updatedAt, title: evolutionTitle, body: evolutionBody, requestId: evolutionRequestId, backupStatus: "not_configured" }).returning();
       const evolutionAuthorWrite = db.insert(evolutionAuthors).values({ ownerId, evolutionId: sql`last_insert_rowid()`, ...noteAuthor });
-      if (normalizedBudget) {
-        const itemsData = encodeBudgetData(normalizedBudget.map(item => ({ ...item, teeth: [tooth] })), { isAlternative: false, parentBudgetId: null });
+      // «Ya realizado hoy»: la prestación pendiente de esta pieza que coincide se cierra en su presupuesto; lo que no tenía plan queda como prestación ya realizada.
+      const performed = input.performed === true;
+      let settled: Settled | null = null;
+      const storedBudgetData = new Map<number, ReturnType<typeof decodeBudgetData>>();
+      if (performed && normalizedBudget) {
+        const stored = await db.select().from(budgets).where(and(eq(budgets.ownerId, ownerId), eq(budgets.patientId, patientId)));
+        const views = stored.flatMap(row => { try { const decoded = decodeBudgetData(row.items); storedBudgetData.set(row.id, decoded); return [{ id: row.id, items: decoded.items, isAlternative: decoded.isAlternative }]; } catch { return []; } });
+        settled = settlePerformed(views, tooth, normalizedBudget.map(item => ({ ...item, teeth: [tooth] })), clinicalDate);
+      }
+      const budgetToInsert = settled ? settled.remaining : normalizedBudget;
+      if (budgetToInsert && budgetToInsert.length) {
+        const itemsData = encodeBudgetData(budgetToInsert.map(item => ({ ...item, teeth: [tooth] })), { isAlternative: false, parentBudgetId: null });
         const budgetAuthor = await budgetAuthorStatement(db, ownerId);
         const [, inserted, , insertedNote] = await db.batch([
           chartWrite,
@@ -659,10 +670,17 @@ async function handlePost(request: Request) {
       }
       const [verified] = await db.select({ data: toothStatuses.data }).from(toothStatuses).where(and(eq(toothStatuses.ownerId, ownerId), eq(toothStatuses.patientId, patientId))).limit(1);
       if (!verified) return error("No se pudo verificar el odontograma actualizado.", 503);
-      if (normalizedBudget) {
+      if (budgetToInsert && budgetToInsert.length) {
         const [verifiedBudget] = await db.select().from(budgets).where(and(eq(budgets.id, savedBudget?.id ?? -1), eq(budgets.ownerId, ownerId), eq(budgets.patientId, patientId))).limit(1);
         if (!verifiedBudget) return error("El odontograma se guardó, pero no se pudo verificar el presupuesto preliminar.", 503);
         savedBudget = verifiedBudget;
+      }
+      const closedBudgets: Awaited<ReturnType<typeof budgetViewWithAuthor>>[] = [];
+      for (const update of settled?.updates ?? []) {
+        const base = storedBudgetData.get(update.budgetId);
+        const [row] = await db.update(budgets).set({ items: encodeBudgetData(update.items, { isAlternative: base?.isAlternative ?? false, parentBudgetId: base?.parentBudgetId ?? null }) }).where(and(eq(budgets.id, update.budgetId), eq(budgets.ownerId, ownerId), eq(budgets.patientId, patientId))).returning();
+        if (!row) return error("La evolución se guardó, pero no se pudo cerrar la prestación en el presupuesto.", 503);
+        closedBudgets.push(await budgetViewWithAuthor(row, ownerId));
       }
       const [verifiedNote] = savedNote
         ? await db.select().from(evolutions).where(and(eq(evolutions.id, savedNote.id), eq(evolutions.ownerId, ownerId), eq(evolutions.patientId, patientId))).limit(1)
@@ -671,6 +689,7 @@ async function handlePost(request: Request) {
       return Response.json({
         odontogram: normalizeOdontogram(JSON.parse(verified.data)),
         ...(savedBudget ? { budget: await budgetViewWithAuthor(savedBudget, ownerId) } : {}),
+        ...(closedBudgets.length ? { updatedBudgets: closedBudgets, closedItems: settled?.closed.map(item => item.label) ?? [] } : {}),
         note: { id: verifiedNote.id, patientId, date: displayDate(verifiedNote.clinicalDate), clinicalDate: verifiedNote.clinicalDate, recordedAt: verifiedNote.recordedAt, title: verifiedNote.title, body: verifiedNote.body, backupStatus: verifiedNote.backupStatus, status: verifiedNote.status, authorName: noteAuthor.authorName, authorEmail: noteAuthor.authorEmail, mine: true },
       });
     }

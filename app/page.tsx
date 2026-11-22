@@ -683,9 +683,11 @@ export default function Home(){
       setToothStatuses(previous=>({...previous,[selectedId]:data.odontogram}));
     }
   };
-  const applyToothDictation=async(tooth:number,operations:ToothDictationOperation[],budgetTitle:string,budgetItems:BudgetPlan["items"],evolution:{title:string;body:string})=>{
-    const result=await persist({action:"applyToothDictation",patientId:selectedId,tooth,changes:operations,budgetTitle,budgetItems,evolution:{...evolution,requestId:crypto.randomUUID()}});
+  const applyToothDictation=async(tooth:number,operations:ToothDictationOperation[],budgetTitle:string,budgetItems:BudgetPlan["items"],evolution:{title:string;body:string},performed=false)=>{
+    const result=await persist({action:"applyToothDictation",patientId:selectedId,tooth,changes:operations,budgetTitle,budgetItems,performed,evolution:{...evolution,requestId:crypto.randomUUID()}});
     setToothStatuses(previous=>({...previous,[selectedId]:result.odontogram}));
+    const closed=(result as {updatedBudgets?:Budget[]}).updatedBudgets??[];
+    if(closed.length)setBudgets(previous=>previous.map(budget=>closed.find(item=>item.id===budget.id)??budget));
     if(result.budget)setBudgets(previous=>[result.budget!,...previous]);
     if(result.note)setNotes(previous=>[result.note,...previous.filter(note=>note.id!==result.note.id)]);
     requestDriveBackup(selectedId);
