@@ -84,9 +84,9 @@ test("sin bucket de respaldo no hace nada; con él respalda D1 e imágenes", asy
   assert.equal(result.imagenes.copiadas, 1);
 });
 
-// El binding BACKUP_BUCKET se agrega cuando el token de despliegue tenga permiso sobre gestion-dental-respaldos;
-// mientras tanto la tarea queda inactiva (devuelve «sin BACKUP_BUCKET»).
-test("tarea en el cron nocturno", () => {
+test("binding del bucket separado y tarea en el cron nocturno", () => {
+  const cfg = readFileSync(new URL("../wrangler.cloudflare.jsonc", import.meta.url), "utf8");
+  assert.match(cfg, /"binding": "BACKUP_BUCKET",\s*"bucket_name": "gestion-dental-respaldos"/);
   const scheduled = readFileSync(new URL("../app/scheduled.ts", import.meta.url), "utf8");
   assert.match(scheduled, /cron === BACKUP_CRON\) \{\s*const \{ runNightlyBackup \}/);
 });
