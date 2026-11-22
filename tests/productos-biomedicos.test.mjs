@@ -58,3 +58,31 @@ test("productos: migración 0021 registrada en el journal", () => {
   const journal = JSON.parse(read("drizzle/meta/_journal.json"));
   assert.ok(journal.entries.some(entry => entry.tag === "0021_biomedical_products"));
 });
+
+import { parseProductCode, codeHasFields, gs1Date } from "../lib/product-code.ts";
+
+test("QR: GS1 con paréntesis, sin paréntesis (FNC1) y Digital Link entregan lote, serie y vencimiento", () => {
+  for (const payload of ["(01)07612345678901(17)280500(10)AB123(21)SN99", "01076123456789011728050010AB123\x1d21SN99", "https://id.gs1.org/01/07612345678901/10/AB123/21/SN99?17=280500"]) {
+    const code = parseProductCode(payload);
+    assert.deepEqual([code.lot, code.serial, code.expiry, code.gtin], ["AB123", "SN99", "2028-05", "7612345678901"], payload);
+  }
+  assert.equal(gs1Date("281231"), "2028-12-31");
+  assert.equal(gs1Date("281340"), "");
+});
+
+test("QR: texto con LOT/SN/REF/EXP se lee; un QR sin datos solo conserva el texto bruto", () => {
+  const code = parseProductCode("LOT: A55 SN: 123 REF: X-1 EXP: 2028-05");
+  assert.deepEqual([code.lot, code.serial, code.reference, code.expiry], ["A55", "123", "X-1", "2028-05"]);
+  const plain = parseProductCode("https://ejemplo.cl/p/1");
+  assert.equal(codeHasFields(plain), false);
+  assert.equal(plain.raw, "https://ejemplo.cl/p/1");
+  assert.equal(parseProductCode(null).raw, "");
+});
+
+test("QR: el formulario lee el QR en el teléfono, el QR manda sobre la IA y la IA recibe el texto del QR", () => {
+  const form = read("components/biomedical-products.tsx");
+  assert.match(form, /extractQrFromImage\(file\)/);
+  assert.match(form, /fromCode/);
+  assert.match(form, /code: code\?\.raw/);
+  assert.match(read("app/api/productos/leer/route.ts"), /body\?\.code/);
+});

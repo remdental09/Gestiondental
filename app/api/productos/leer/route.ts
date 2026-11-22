@@ -28,8 +28,10 @@ export async function POST(request: Request) {
   const user = await getChatGPTUser();
   if (!user?.userId) return json({ error: "Inicia sesión para leer la etiqueta." }, 401);
   if (request.headers.get("origin") !== new URL(request.url).origin) return json({ error: "Origen no permitido." }, 403);
-  const body = await request.json().catch(() => null) as { imageId?: unknown } | null;
+  const body = await request.json().catch(() => null) as { imageId?: unknown; code?: unknown } | null;
   const imageId = Number(body?.imageId);
+  // Texto del QR de la etiqueta (ya leído en el teléfono): ayuda a identificar el producto, pero no sustituye lo impreso.
+  const code = typeof body?.code === "string" ? body.code.replace(/[\u0000-\u001F\u007F]/g, " ").trim().slice(0, 600) : "";
   if (!Number.isSafeInteger(imageId) || imageId < 1) return json({ error: "Foto no válida." }, 400);
   if (!env.BUCKET) return json({ error: "Almacenamiento de imágenes no disponible." }, 503);
   const [image] = await getDb().select().from(clinicalImages).where(and(eq(clinicalImages.id, imageId), eq(clinicalImages.ownerId, user.userId))).limit(1);
@@ -50,7 +52,7 @@ export async function POST(request: Request) {
         model,
         messages: [
           { role: "system", content: LABEL_PROMPT },
-          { role: "user", content: [{ type: "text", text: "Transcribe la etiqueta de esta foto." }, { type: "image_url", image_url: { url: `data:${image.contentType};base64,${toBase64(bytes)}`, detail: "high" } }] },
+          { role: "user", content: [{ type: "text", text: code ? `Transcribe la etiqueta de esta foto. El QR de la etiqueta contiene este texto (úsalo solo para identificar marca o tipo de producto; lote, serie y vencimiento los toma la app del QR): ${code}` : "Transcribe la etiqueta de esta foto." }, { type: "image_url", image_url: { url: `data:${image.contentType};base64,${toBase64(bytes)}`, detail: "high" } }] },
         ],
         response_format: { type: "json_schema", json_schema: { name: "etiqueta_producto", strict: true, schema: LABEL_SCHEMA } },
         ...(isReasoning(model) ? { max_completion_tokens: 3000, reasoning_effort: "low" } : { temperature: 0, max_tokens: 600 }),

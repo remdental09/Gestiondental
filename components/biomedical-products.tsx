@@ -7,6 +7,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Camera, FileText, ImagePlus, LoaderCircle, Pencil, Sparkles, Trash2, TriangleAlert } from "lucide-react";
 import type { ClinicalImage } from "@/app/clinical-data";
+import { extractQrFromImage } from "@/components/certificate-qr";
+import { codeHasFields, parseProductCode } from "@/lib/product-code";
 import { PRODUCT_CATEGORIES, PRODUCT_IMAGE_KIND, categoryLabel, cleanTooth, missingTrace, type ProductCategory } from "@/lib/biomedical-products";
 
 export type ProductView = {
@@ -18,11 +20,11 @@ type Draft = {
   id: number | null; imageId: number | null; imageUrl: string; category: ProductCategory;
   brand: string; reference: string; lot: string; serial: string; expiry: string; manufacturer: string; tooth: string; note: string; placedOn: string;
   /** Campos que la IA propuso y el profesional aún no tocó: se marcan para que los compare con la foto. */
-  suggested: Set<string>; aiRead: boolean;
+  suggested: Set<string>; fromCode: Set<string>; aiRead: boolean;
 };
 
 const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Santiago", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
-const blank = (tooth = ""): Draft => ({ id: null, imageId: null, imageUrl: "", category: "implante", brand: "", reference: "", lot: "", serial: "", expiry: "", manufacturer: "", tooth, note: "", placedOn: today(), suggested: new Set(), aiRead: false });
+const blank = (tooth = ""): Draft => ({ id: null, imageId: null, imageUrl: "", category: "implante", brand: "", reference: "", lot: "", serial: "", expiry: "", manufacturer: "", tooth, note: "", placedOn: today(), suggested: new Set(), fromCode: new Set(), aiRead: false });
 const dayLabel = (iso: string) => { const d = new Date(`${iso}T12:00:00-03:00`); return Number.isNaN(d.getTime()) ? iso : new Intl.DateTimeFormat("es-CL", { dateStyle: "medium", timeZone: "America/Santiago" }).format(d); };
 const expiryLabel = (value: string) => value.length === 7 ? `${value.slice(5)}/${value.slice(0, 4)}` : value.split("-").reverse().join("/");
 
@@ -76,19 +78,36 @@ export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, o
       const base = draft && draft.id === null ? draft : blank(cleanTooth(startTooth));
       // Si ya había una foto sin guardar en el borrador, se descarta (cada producto tiene su foto).
       if (base.imageId && base.imageId !== image.id) void onRemoveImage(base.imageId).catch(() => undefined);
-      let next: Draft = { ...base, imageId: image.id, imageUrl: image.url, suggested: new Set(), aiRead: false };
-      try {
-        const read = await call<{ fields: Partial<Record<string, string>> | null; aiError?: string }>("/api/productos/leer", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ imageId: image.id }) });
-        if (read.fields) {
-          const f = read.fields, suggested = new Set<string>();
-          const take = (key: "brand" | "reference" | "lot" | "serial" | "manufacturer") => { if (f[key]) { next = { ...next, [key]: f[key]! }; suggested.add(key); } };
-          (["brand", "reference", "lot", "serial", "manufacturer"] as const).forEach(take);
-          if (f.expiry) { next = { ...next, expiry: f.expiry.slice(0, 7) }; suggested.add("expiry"); }
-          if (f.category && PRODUCT_CATEGORIES.some(item => item.id === f.category)) next = { ...next, category: f.category as ProductCategory };
-          next = { ...next, suggested, aiRead: suggested.size > 0 };
-          if (!suggested.size) setNotice("No se alcanzó a leer nada de la etiqueta: completa los datos mirando la foto.");
-        } else setNotice(read.aiError || "No se pudo leer la etiqueta: completa los datos mirando la foto.");
-      } catch { setNotice("No se pudo leer la etiqueta: completa los datos mirando la foto."); }
+      let next: Draft = { ...base, imageId: image.id, imageUrl: image.url, suggested: new Set(), fromCode: new Set(), aiRead: false };
+      // 1) QR de la etiqueta (lectura exacta, en el teléfono). 2) Texto impreso, leído por la IA. 3) La foto queda guardada como respaldo.
+      const qr = await extractQrFromImage(file).catch(() => null);
+      const code = qr ? parseProductCode(qr.payload) : null;
+      let aiProblem = "";
+      let read: { fields: Partial<Record<string, string>> | null; aiError?: string } = { fields: null };
+      try { read = await call("/api/productos/leer", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ imageId: image.id, code: code?.raw ?? "" }) }); }
+      catch { aiProblem = "No se pudo leer el texto de la etiqueta."; }
+      const suggested = new Set<string>(), fromCode = new Set<string>();
+      if (read.fields) {
+        const f = read.fields;
+        for (const key of ["brand", "reference", "lot", "serial", "manufacturer"] as const) if (f[key]) { next = { ...next, [key]: f[key]! }; suggested.add(key); }
+        if (f.expiry) { next = { ...next, expiry: f.expiry.slice(0, 7) }; suggested.add("expiry"); }
+        if (f.category && PRODUCT_CATEGORIES.some(item => item.id === f.category)) next = { ...next, category: f.category as ProductCategory };
+      } else aiProblem ||= read.aiError || "No se pudo leer el texto de la etiqueta.";
+      // El QR manda sobre el texto leído: es exacto. Lo que difiere de la IA se avisa para que se revise la foto.
+      let mismatch = false;
+      if (code && codeHasFields(code)) {
+        const apply = (key: "lot" | "serial" | "reference", value: string) => { if (!value) return; if (next[key] && next[key].toLowerCase() !== value.toLowerCase()) mismatch = true; next = { ...next, [key]: value }; suggested.delete(key); fromCode.add(key); };
+        apply("lot", code.lot); apply("serial", code.serial);
+        apply("reference", code.reference || (next.reference ? "" : code.gtin));
+        if (code.expiry) { next = { ...next, expiry: code.expiry.slice(0, 7) }; suggested.delete("expiry"); fromCode.add("expiry"); }
+      } else if (code?.raw && !next.note) next = { ...next, note: `QR de la etiqueta: ${code.raw.slice(0, 300)}` };
+      next = { ...next, suggested, fromCode, aiRead: suggested.size > 0 };
+      const parts: string[] = [];
+      if (fromCode.size) parts.push(`Se leyó el QR de la etiqueta (${[...fromCode].map(k => ({ lot: "lote", serial: "serie", expiry: "vencimiento", reference: "referencia" } as Record<string, string>)[k]).join(", ")}).`);
+      else if (qr) parts.push("Se encontró un QR, pero no trae lote ni serie reconocibles.");
+      if (mismatch) parts.push("El QR y el texto impreso no coinciden en algún dato: compáralos con la foto.");
+      if (!fromCode.size && !suggested.size) parts.push(`${aiProblem || "No se alcanzó a leer nada de la etiqueta."} Completa los datos mirando la foto, que queda guardada como respaldo.`);
+      setNotice(parts.join(" "));
       setDraft(next);
     } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo guardar la foto."); }
     finally { setBusy(""); }
@@ -96,8 +115,8 @@ export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, o
 
   const set = (key: keyof Draft, value: string) => setDraft(previous => {
     if (!previous) return previous;
-    const suggested = new Set(previous.suggested); suggested.delete(key);
-    return { ...previous, [key]: value, suggested };
+    const suggested = new Set(previous.suggested), fromCode = new Set(previous.fromCode); suggested.delete(key); fromCode.delete(key);
+    return { ...previous, [key]: value, suggested, fromCode };
   });
 
   const save = async () => {
@@ -139,7 +158,7 @@ export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, o
   };
 
   const working = busy === "photo" || busy === "reading";
-  const flagged = (key: string) => draft?.suggested.has(key) ? "border-amber-400 bg-amber-50" : "border-[#d8d5e4] bg-white";
+  const flagged = (key: string) => draft?.fromCode.has(key) ? "border-emerald-500 bg-emerald-50" : draft?.suggested.has(key) ? "border-amber-400 bg-amber-50" : "border-[#d8d5e4] bg-white";
 
   return <section className="space-y-4" data-testid="biomedical-products">
     <div className="surface">
@@ -163,6 +182,7 @@ export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, o
       <div className="grid gap-3 md:grid-cols-[minmax(0,260px)_minmax(0,1fr)]">
         <div>{draft.imageUrl ? <a href={draft.imageUrl} target="_blank" rel="noopener noreferrer" aria-label="Abrir la foto de la etiqueta en grande"><img src={draft.imageUrl} alt="Foto de la etiqueta del producto" className="max-h-80 w-full rounded-xl border border-[#e6e4ee] bg-white object-contain"/></a> : <p className="rounded-xl border border-dashed border-[#c9c4da] p-4 text-sm text-[#615f73]">Sin foto: puedes agregarla con «Tomar foto del producto».</p>}</div>
         <div className="space-y-3">
+          {draft.fromCode.size > 0 && <p className="flex items-start gap-2 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-950" data-testid="product-qr-note"><Sparkles className="mt-0.5 size-4 shrink-0" aria-hidden="true"/><span>Los campos en verde vienen del <strong>QR de la etiqueta</strong> (lectura exacta).</span></p>}
           {draft.suggested.size > 0 && <p className="flex items-start gap-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-950" data-testid="product-ai-note"><Sparkles className="mt-0.5 size-4 shrink-0" aria-hidden="true"/><span>La IA leyó los campos marcados en amarillo. <strong>Compáralos con la foto</strong>, sobre todo lote y serie, y corrige lo que haga falta antes de guardar.</span></p>}
           <fieldset><legend className="text-sm font-semibold">Tipo de producto</legend>
             <div className="mt-1 flex flex-wrap gap-2">{PRODUCT_CATEGORIES.map(item => <button key={item.id} type="button" onClick={() => set("category", item.id)} aria-pressed={draft.category === item.id} className={`min-h-11 rounded-full border px-3 text-sm font-medium ${draft.category === item.id ? "border-[#473a6d] bg-[#473a6d] text-white" : "border-[#d8d5e4] bg-white text-[#473a6d]"}`}>{item.label}</button>)}</div></fieldset>
