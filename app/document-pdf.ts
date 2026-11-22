@@ -54,7 +54,6 @@ export async function renderDocumentPdf(ownerId: string, documentId: number, ori
   const sections: DocumentPdfInput["sections"] = [];
   const text = (key: string) => (content[key] ?? "").trim();
   if (isPrescriptionKind(kind)) {
-    if (text("indicacion")) sections.push({ lines: [`Diagnóstico / indicación: ${text("indicacion")}`] });
     const items = [
       ...(kind === "receta" ? parseMedications(content.medicamentos) : []).map(m => ({ name: m.nombre, lines: [medicationLine(m), m.indicaciones ?? "", m.cantidad ? `Cantidad a dispensar: ${m.cantidad}` : ""].filter(Boolean) })),
       ...(kind === "receta" ? splitPrescriptionLines(text("prescripcion")).map(l => ({ name: l.name, lines: l.detail ? [l.detail] : [] })) : []),

@@ -27,12 +27,10 @@ type ClinicInfo = { clinicName: string; address: string; city: string; phone: st
 type Field = { key: string; label: string; hint: string; rows?: number };
 const fields: Record<ClinicalDocumentKind, Field[]> = {
   receta: [
-    { key: "indicacion", label: "Indicación o motivo", hint: "Completar según evaluación profesional" },
     { key: "prescripcion", label: "Otras prescripciones en texto libre (opcional)", hint: "Una por línea: medicamento — pauta", rows: 3 },
     { key: "instrucciones", label: "Instrucciones al paciente", hint: "Indicaciones complementarias", rows: 3 },
   ],
   receta_magistral: [
-    { key: "indicacion", label: "Indicación o motivo", hint: "Completar según evaluación profesional" },
     { key: "prescripcion", label: "Fórmula magistral", hint: "Componentes, concentración, forma farmacéutica y cantidad total", rows: 5 },
     { key: "instrucciones", label: "Instrucciones al paciente", hint: "Modo de uso, frecuencia y duración", rows: 3 },
   ],
@@ -397,7 +395,6 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
             <p className="sm:text-right print:text-right"><span className="font-semibold">Fecha emisión:</span><br className="hidden sm:inline print:inline"/> {formatDate(doc.issuedAt || doc.createdAt)}</p>
           </section>
           {prescription ? <div className="mt-3 space-y-3 text-[13px] leading-relaxed">
-            {activeContent.indicacion?.trim() && <p><span className="font-semibold">Diagnóstico / indicación:</span> {activeContent.indicacion.trim()}</p>}
             <section data-testid="prescription">
               <h3 className="font-serif text-2xl italic leading-none text-[#473a6d]">Rp.</h3>
               {medications.length + prescriptionLines.length ? <ol className="mt-2 space-y-2.5">

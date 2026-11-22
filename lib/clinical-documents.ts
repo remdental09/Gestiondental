@@ -3,8 +3,8 @@ export type ClinicalDocumentKind = typeof CLINICAL_DOCUMENT_KINDS[number];
 export type ClinicalDocumentContent = Record<string, string>;
 
 const FIELDS: Record<ClinicalDocumentKind, Record<string, number>> = {
-  receta: { indicacion: 800, medicamentos: 6000, prescripcion: 3000, instrucciones: 1800 },
-  receta_magistral: { indicacion: 800, prescripcion: 3000, instrucciones: 1800 },
+  receta: { medicamentos: 6000, prescripcion: 3000, instrucciones: 1800 },
+  receta_magistral: { prescripcion: 3000, instrucciones: 1800 },
   orden: { diagnostico: 800, examenes: 3000, observaciones: 1800 },
   certificado: { motivo: 800, observaciones: 1800, vigencia: 300 },
   consentimiento: { procedimiento: 800, descripcion: 2500, riesgos: 3000, alternativas: 2000, declaracion: 1500 },
