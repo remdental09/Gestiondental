@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { getChatGPTUser, personalIdOf } from "@/app/chatgpt-auth";
+import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { aiWithinLimit, trackAi } from "@/app/ai-guard";
 import { createWorkersAiModel } from "@/lib/dictation/workers-ai";
 import { proposeFromTranscript } from "@/lib/dictation/proposal";
@@ -35,7 +35,8 @@ export async function POST(request: Request) {
   const localCorrections = local.corrections;
 
   // Con el tope diario alcanzado se entrega igual la corrección del diccionario (sin IA).
-  const account = personalIdOf(user);
+  // El uso de IA cuenta contra la cuenta (espacio) en que se trabaja: en una clínica, la del titular.
+  const account = user.userId;
   if (env.OPENAI_API_KEY?.trim() && !(await aiWithinLimit(account))) {
     return Response.json({ source: transcript, text: local.text, corrections: localCorrections, provider: "dictionary", aiError: "Llegaste al límite diario de IA: se dejó la corrección del diccionario." }, { headers: { "Cache-Control": "no-store" } });
   }

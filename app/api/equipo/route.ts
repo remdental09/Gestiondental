@@ -6,7 +6,7 @@ import {
   acceptInvite, declineInvite, leaveClinic, listMembers, membershipsOf, renewInvite, revokeMember, setMemberRole, upsertInvite, type TeamDb,
 } from "@/app/clinic-team-db";
 import {
-  ENTRY_COOKIE, ROLE_LABEL, canManageTeam, checkInvite, clinicDisplayName, parseEntry, type Entry, checkRoleChange, inviteEmail, inviteExpiry, inviteMessage, isExpired, normalizeEmail, visibleStatus, type TeamRole,
+  ENTRY_COOKIE, ROLE_LABEL, isSupportRole, canManageTeam, checkInvite, clinicDisplayName, parseEntry, type Entry, checkRoleChange, inviteEmail, inviteExpiry, inviteMessage, isExpired, normalizeEmail, visibleStatus, type TeamRole,
 } from "@/lib/clinic-team";
 import { getSender } from "@/app/appointment-mail-db";
 import { sendMailWithSender } from "@/app/drive-oauth";
@@ -162,7 +162,8 @@ export async function POST(request: Request) {
       if (!invite || target === personalId) return fail("No hay una invitación pendiente para este correo.", 404);
       if (action === "rechazar") { await declineInvite(db, target, myEmail); return done(); }
       // Una invitación solo se activa cuando la identidad profesional del correo invitado está registrada.
-      if (!(await loadProfile(personalId).catch(() => null))) return fail("Completa tu perfil profesional antes de aceptar la invitación.", 409);
+      // Recepción y asistentes no tienen perfil profesional: entran sin él (no firman evoluciones).
+      if (!isSupportRole(invite.role) && !(await loadProfile(personalId).catch(() => null))) return fail("Completa tu perfil profesional antes de aceptar la invitación.", 409);
       if (isExpired(invite, now)) return fail("La invitación venció. Pide que te la reenvíen.", 410);
       const accepted = await acceptInvite(db, target, myEmail, personalId, await nameOf(personalId, user.displayName), stamp);
       if (!accepted) return fail("No se pudo aceptar la invitación. Pide que te la reenvíen.", 409);

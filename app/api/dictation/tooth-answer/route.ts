@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { getChatGPTUser, personalIdOf } from "@/app/chatgpt-auth";
+import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { aiLimitResponse, trackAi } from "@/app/ai-guard";
 import { redraftToothAnswer, ToothAnswerNumericMismatchError } from "@/lib/dictation/tooth-answer-redraft";
 import { isFdiTooth } from "@/lib/tooth-numbering";
@@ -25,7 +25,8 @@ export async function POST(request: Request) {
   const tooth = value.tooth;
   const transcript = value.transcript;
   if ((step !== "diagnosis" && step !== "plan") || typeof tooth !== "number" || !isFdiTooth(tooth) || typeof transcript !== "string" || transcript.trim().length < 3 || transcript.length > (step === "diagnosis" ? 1_000 : 4_000)) return error("Respuesta o pieza inválida.");
-  const account = personalIdOf(user);
+  // El uso de IA cuenta contra la cuenta (espacio) en que se trabaja: en una clínica, la del titular.
+  const account = user.userId;
   const limited = await aiLimitResponse(account);
   if (limited) return limited;
   void trackAi(account, { calls: 1 });
