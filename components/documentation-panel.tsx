@@ -22,7 +22,7 @@ import { mountPrintCopy, printNode, PRINT_CLASS } from "@/lib/print-node";
 import { scrollBelowHeader } from "@/lib/scroll-below-header";
 
 type Patient = { id: number; name: string; birthDate: string; rut: string; phone: string; email: string; address?: PatientAddress };
-type SavedDocument = { id: number; patientId: number; kind: ClinicalDocumentKind; title: string; content: string; status: string; createdBy: string; createdByName: string; authorTitle?: string | null; createdAt: string; documentMark: string; verifyToken?: string | null; contentHash?: string; issuedAt?: string; revokedAt?: string; revokedReason?: string; replacesId?: number | null; registration?: PublicRegistration | null; signature?: SignatureView | null };
+type SavedDocument = { id: number; patientId: number; kind: ClinicalDocumentKind; title: string; content: string; status: string; createdBy: string; createdByName: string; authorTitle?: string | null; createdAt: string; documentMark: string; stampMark?: string; verifyToken?: string | null; contentHash?: string; issuedAt?: string; revokedAt?: string; revokedReason?: string; replacesId?: number | null; registration?: PublicRegistration | null; signature?: SignatureView | null };
 type ClinicInfo = { clinicName: string; address: string; city: string; phone: string; email: string; logo: string };
 type Field = { key: string; label: string; hint: string; rows?: number };
 const fields: Record<ClinicalDocumentKind, Field[]> = {
@@ -128,6 +128,7 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
   const documents = documentsState.patientId === patientId ? documentsState.documents : [];
   const activeDocument = documents.find(item => item.id === activeDocumentId) ?? null;
   const printableMark = useTrimmedMark(activeDocument?.documentMark ?? "");
+  const printableStamp = useTrimmedMark(activeDocument?.stampMark ?? "");
   // Cmd+P o Compartir → Imprimir con un documento abierto: también se imprime solo el documento (no la app entera).
   useEffect(() => {
     if (!activeDocument) return;
@@ -350,6 +351,7 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
         const signature = <div className="flex w-[7cm] max-w-full flex-col items-center justify-end text-center [break-inside:avoid]" data-testid="signature-block">
           <div className="flex h-[2.8cm] w-[6.5cm] max-w-full items-end justify-center" data-testid="signature-box">{printableMark && <Image src={printableMark} alt="Firma o timbre del profesional" width={900} height={400} unoptimized className="h-full w-full object-contain object-bottom"/>}</div>
           <div className="mt-1 w-full border-t border-[#555] pt-1.5 text-[12px] leading-snug text-[#1f1d2b]" data-testid="signature-name"><p className="font-semibold">{doctorName}</p>{doctorRut && <p>RUT {doctorRut}</p>}{reg && <p>{professionLine}</p>}</div>
+          {printableStamp && <div className="mt-1.5 flex h-[2.5cm] w-[5cm] max-w-full items-start justify-center" data-testid="stamp-box"><Image src={printableStamp} alt="Timbre del profesional" width={900} height={400} unoptimized className="h-full w-full object-contain object-top"/></div>}
         </div>;
         const verificacion = doc.verifyToken && doc.contentHash && <div className="flex items-center gap-2 text-left [break-inside:avoid]" data-testid="verificacion-row">
           <div className="size-[1.6cm] shrink-0 bg-white [&_svg]:size-full" role="img" aria-label="Código QR de verificación del documento" dangerouslySetInnerHTML={{ __html: qrSvg(verificationUrl(window.location.origin, doc.verifyToken)) }}/>

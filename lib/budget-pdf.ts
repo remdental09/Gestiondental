@@ -1,7 +1,7 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import { budgetItemTotal, budgetPhases, budgetTotals, itemWhereText, type BudgetItem } from "./budget-plans.ts";
 import { DEFAULT_FORMAT, clinicContactGroups, hexToRgb01, shade, tint, type BudgetFormat } from "./budget-format.ts";
-import { SIGNATURE_BOX_CM, cmToPt, fitInBox } from "./signature-image.ts";
+import { SIGNATURE_BOX_CM, STAMP_BOX_CM, cmToPt, fitInBox } from "./signature-image.ts";
 
 /**
  * PDF del presupuesto / plan de tratamiento, con formato de presupuesto clínico: cabecera de la clínica, número y hora de emisión,
@@ -31,6 +31,8 @@ export type BudgetPdfInput = {
   logo?: string;
   /** Firma o timbre dibujado/subido desde Documentación, incrustado junto a la firma profesional. */
   documentMark?: string;
+  /** Timbre del profesional, bajo su firma y datos. */
+  stampMark?: string;
 };
 
 const PAGE_W = 595.28, PAGE_H = 841.89, M = 40, R = PAGE_W - M, FOOT = 52, BAND = 84;
@@ -170,6 +172,16 @@ export async function buildBudgetPdf(input: BudgetPdfInput): Promise<Uint8Array>
       } catch { /* una imagen inválida no debe impedir emitir el presupuesto */ }
     }
   }
+  let stampImage: Awaited<ReturnType<PDFDocument["embedPng"]>> | null = null;
+  if (input.stampMark) {
+    const match = /^data:image\/(png|jpeg);base64,([A-Za-z0-9+/=]+)$/.exec(input.stampMark);
+    if (match) {
+      try {
+        const bytes = Uint8Array.from(atob(match[2]), ch => ch.charCodeAt(0));
+        stampImage = match[1] === "png" ? await pdf.embedPng(bytes) : await pdf.embedJpg(bytes);
+      } catch { /* un timbre inválido no debe impedir emitir el presupuesto */ }
+    }
+  }
   const LOGO_BOX = 56;
   const headerX = logoImage ? M + LOGO_BOX + 14 : M;
   // El nombre de la clínica se achica (hasta 13 pt) para no montarse sobre el título y el número de la derecha.
@@ -244,7 +256,8 @@ export async function buildBudgetPdf(input: BudgetPdfInput): Promise<Uint8Array>
     ...fitLines(clinic, bold, 9, blockW, 1).map(t => ({ t, f: bold, size: 9 })),
     ...clinicParts.flatMap(part => fitLines(part, regular, 8, blockW, part === [format.clinic.address, format.clinic.city].filter(Boolean).join(", ") ? 2 : 1)).map(t => ({ t, f: regular, size: 8 })),
   ] : [];
-  const signH = 80 + Math.max(62 + 13 + (nameInSignature ? 12 * credentialLines.length : 0), 10 + 11 * signClinic.length) + 8;
+  const stampH = stampImage ? cmToPt(STAMP_BOX_CM.height) + 8 : 0;
+  const signH = stampH + 80 + Math.max(62 + 13 + (nameInSignature ? 12 * credentialLines.length : 0), 10 + 11 * signClinic.length) + 8;
 
   // Condiciones y observaciones (se dibujan después)
   const notes = [
@@ -354,7 +367,15 @@ export async function buildBudgetPdf(input: BudgetPdfInput): Promise<Uint8Array>
     y -= 12; page.drawText(line, { x: sx + ((R - sx) - regular.widthOfTextAtSize(line, 8)) / 2, y, size: 8, font: regular, color: MUTED });
   }
   signClinic.forEach((row, i) => { y = signTop - 10 - (i ? 3 : 0) - 11 * i; text(row.t, M, row.size, row.f, row.f === bold ? INK : MUTED); });
-  y = signTop - Math.max(102, 18 + 11 * signClinic.length);
+  let signEnd = signTop - Math.max(102, 18 + 11 * signClinic.length);
+  // El timbre va bajo el nombre y los datos del profesional, centrado bajo su firma.
+  if (stampImage) {
+    const fit = fitInBox(stampImage.width, stampImage.height, Math.min(cmToPt(STAMP_BOX_CM.width), R - sx), cmToPt(STAMP_BOX_CM.height));
+    const top = y - 6;
+    page.drawImage(stampImage, { x: sx + (R - sx - fit.width) / 2, y: top - fit.height, width: fit.width, height: fit.height });
+    signEnd = Math.min(signEnd, top - fit.height - 6);
+  }
+  y = signEnd;
 
   // ── Pie de cada página
   const footClinic = placement === "pie" ? groupLines(regular, 7.5, R - M, 1) : [];

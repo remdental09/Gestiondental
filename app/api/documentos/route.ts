@@ -6,7 +6,7 @@ import { loadProfile, loadProfileTitles } from "@/app/clinician-profile-db";
 import { displayName } from "@/lib/clinician-profile";
 import { getDb } from "@/db";
 import { patientDocuments, patients, professionalDocumentSettings } from "@/db/schema";
-import { loadDocumentMark } from "@/app/document-mark-db";
+import { loadDocumentMark, loadStampMark, loadStampMarks } from "@/app/document-mark-db";
 import { loadApprovedRegistrations } from "@/app/prestador-db";
 import { CLINICAL_DOCUMENT_LABEL, cleanClinicalDocumentContent, isClinicalDocumentKind, type ClinicalDocumentKind } from "@/lib/clinical-documents";
 
@@ -29,9 +29,9 @@ export async function GET(request: Request) {
       .where(and(eq(patientDocuments.ownerId, user.userId), eq(patientDocuments.patientId, patientId)))
       .orderBy(desc(patientDocuments.id)).limit(100);
     const authors = rows.map(row => row.document.createdBy);
-    const [registrations, titles, signatures] = await Promise.all([loadApprovedRegistrations(authors).catch(() => new Map()), loadProfileTitles(authors).catch(() => new Map()), loadSignatureViews(user.userId, patientId).catch(() => new Map())]);
+    const [registrations, titles, signatures, stamps] = await Promise.all([loadApprovedRegistrations(authors).catch(() => new Map()), loadProfileTitles(authors).catch(() => new Map()), loadSignatureViews(user.userId, patientId).catch(() => new Map()), loadStampMarks(authors).catch(() => new Map<string, string>())]);
     // authorTitle: el tratamiento que el profesional eligió hoy (solo para mostrar; el nombre guardado y su huella no cambian).
-    const documents = rows.map(row => ({ ...row.document, documentMark: row.documentMark ?? "", registration: registrations.get(row.document.createdBy) ?? null, authorTitle: titles.get(row.document.createdBy) ?? null, signature: signatures.get(row.document.id) ?? null }));
+    const documents = rows.map(row => ({ ...row.document, documentMark: row.documentMark ?? "", stampMark: stamps.get(row.document.createdBy) ?? "", registration: registrations.get(row.document.createdBy) ?? null, authorTitle: titles.get(row.document.createdBy) ?? null, signature: signatures.get(row.document.id) ?? null }));
     return Response.json({ documents }, { headers: { "Cache-Control": "no-store" } });
   } catch { return fail("No se pudieron cargar los documentos.", 500); }
 }
@@ -66,8 +66,9 @@ export async function POST(request: Request) {
       createdBy: personalId, createdByName: authorName, createdAt: new Date().toISOString(), replacesId: replaces,
     }).returning();
     const documentMark = await loadDocumentMark(personalId).catch(() => "");
+    const stampMark = await loadStampMark(personalId).catch(() => "");
     // La habilitación va con el documento desde el primer momento (antes llegaba solo al recargar: la receta recién creada salía sin el QR).
     const registration = (await loadApprovedRegistrations([personalId]).catch(() => new Map())).get(personalId) ?? null;
-    return Response.json({ document: { ...document, documentMark, registration, authorTitle: profile?.title ?? null } }, { status: 201, headers: { "Cache-Control": "no-store" } });
+    return Response.json({ document: { ...document, documentMark, registration, authorTitle: profile?.title ?? null, stampMark } }, { status: 201, headers: { "Cache-Control": "no-store" } });
   } catch { return fail("No se pudo guardar el borrador.", 500); }
 }

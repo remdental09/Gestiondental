@@ -4,6 +4,8 @@
  */
 /** Recuadro de firma impreso: ~6,5 × 2,7 cm, la imagen se escala para llenarlo sin deformarse. */
 export const SIGNATURE_BOX_CM = { width: 6.5, height: 2.7 } as const;
+/** Timbre impreso bajo la firma: ~5 × 2,5 cm (un timbre de goma típico), también escalado sin deformarse. */
+export const STAMP_BOX_CM = { width: 5, height: 2.5 } as const;
 /** Imagen guardada: hasta 900 px de ancho (nítida a 6,5 cm ≈ 350 ppp) y como data URL de hasta ~400 KB. */
 export const SIGNATURE_MAX_WIDTH = 900;
 export const SIGNATURE_MAX_HEIGHT = 400;

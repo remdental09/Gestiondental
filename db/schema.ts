@@ -129,6 +129,8 @@ export const consentSignatures = sqliteTable("consent_signatures", {
 export const professionalDocumentSettings = sqliteTable("professional_document_settings", {
   professionalId: text("professional_id").primaryKey(),
   documentMark: text("document_mark").notNull().default(""),
+  /** Timbre del profesional (imagen), se imprime bajo su firma; mismo formato y protección que la firma. */
+  stampMark: text("stamp_mark").notNull().default(""),
   updatedAt: text("updated_at").notNull(),
 });
 

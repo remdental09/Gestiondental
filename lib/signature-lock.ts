@@ -36,19 +36,23 @@ export const changesSavedMark = (saved: string, next: string) => !!saved && save
 const esc = (value: string) => value.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 
 export function unlockCodeEmail(code: string, clinicName?: string): { subject: string; text: string; html: string } {
-  const subject = `Código para cambiar tu firma: ${code}`;
-  const text = [`Tu código es ${code}.`, "", "Úsalo en la aplicación para cambiar o quitar tu firma. Vale 10 minutos y sirve una sola vez.", "Si no lo pediste tú, ignora este correo: tu firma sigue protegida."].join("\n");
+  const subject = `Código para cambiar tu firma o timbre: ${code}`;
+  const text = [`Tu código es ${code}.`, "", "Úsalo en la aplicación para cambiar o quitar tu firma o tu timbre. Vale 10 minutos y sirve una sola vez.", "Si no lo pediste tú, ignora este correo: tu firma sigue protegida."].join("\n");
   const html = `<!doctype html><html lang="es"><body style="margin:0;background:#f3f1f7;font-family:Arial,Helvetica,sans-serif;color:#35343f"><div style="max-width:480px;margin:0 auto;padding:24px"><div style="background:#fff;border-radius:12px;padding:28px;border:1px solid #e6e4ee">
-<p style="margin:0 0 12px;font-size:15px">Código para cambiar tu firma${clinicName ? ` · ${esc(clinicName)}` : ""}</p>
+<p style="margin:0 0 12px;font-size:15px">Código para cambiar tu firma o timbre${clinicName ? ` · ${esc(clinicName)}` : ""}</p>
 <p style="margin:0 0 16px;font-size:34px;font-weight:700;letter-spacing:6px;color:#473a6d">${esc(code)}</p>
 <p style="margin:0 0 8px;font-size:14px;line-height:1.5">Vale 10 minutos y sirve una sola vez.</p>
 <p style="margin:0;font-size:13px;color:#6b6a7c">Si no lo pediste tú, ignora este correo: tu firma sigue protegida.</p></div></div></body></html>`;
   return { subject, text, html };
 }
 
-export function signatureChangedEmail(action: "cambiada" | "quitada", whenLabel: string): { subject: string; text: string; html: string } {
-  const subject = `Tu firma fue ${action}`;
-  const text = [`Tu firma fue ${action} el ${whenLabel}.`, "La anterior quedó archivada.", "Si no fuiste tú, avísanos de inmediato."].join("\n");
-  const html = `<!doctype html><html lang="es"><body style="font-family:Arial,Helvetica,sans-serif;color:#35343f"><p>Tu firma fue <strong>${action}</strong> el ${esc(whenLabel)}.</p><p>La anterior quedó archivada.</p><p style="color:#6b6a7c">Si no fuiste tú, avísanos de inmediato.</p></body></html>`;
+export function signatureChangedEmail(action: "cambiada" | "quitada", whenLabel: string, what: "firma" | "timbre" = "firma"): { subject: string; text: string; html: string } {
+  // «firma cambiada / timbre cambiado»: el participio concuerda con el género de la imagen.
+  const done = what === "timbre" ? (action === "cambiada" ? "cambiado" : "quitado") : action;
+  const noun = what;
+  const previous = what === "timbre" ? "El anterior quedó archivado." : "La anterior quedó archivada.";
+  const subject = `Tu ${noun} fue ${done}`;
+  const text = [`Tu ${noun} fue ${done} el ${whenLabel}.`, previous, "Si no fuiste tú, avísanos de inmediato."].join("\n");
+  const html = `<!doctype html><html lang="es"><body style="font-family:Arial,Helvetica,sans-serif;color:#35343f"><p>Tu ${noun} fue <strong>${done}</strong> el ${esc(whenLabel)}.</p><p>${previous}</p><p style="color:#6b6a7c">Si no fuiste tú, avísanos de inmediato.</p></body></html>`;
   return { subject, text, html };
 }

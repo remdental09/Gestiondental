@@ -1,7 +1,7 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage, type PDFPage } from "pdf-lib";
 import qrcode from "qrcode-generator";
 import { pdfSafe, issuedParts } from "./budget-pdf.ts";
-import { SIGNATURE_BOX_CM, cmToPt, fitInBox } from "./signature-image.ts";
+import { SIGNATURE_BOX_CM, STAMP_BOX_CM, cmToPt, fitInBox } from "./signature-image.ts";
 
 /**
  * PDF de un documento clínico ya emitido (receta, receta magistral, consentimiento) con la misma información que la vista de impresión:
@@ -24,6 +24,8 @@ export type DocumentPdfInput = {
   note?: string;
   verification?: { url: string; code: string; text: string };
   doctorMark?: string;
+  /** Timbre del profesional: se imprime bajo su nombre y datos, debajo de la firma. */
+  doctorStamp?: string;
   patientSignature?: { image: string; name: string; lines: string[] };
   patientLabel?: string;
 };
@@ -71,7 +73,7 @@ export async function buildDocumentPdf(input: DocumentPdfInput): Promise<Uint8Ar
   pdf.setProducer("Gestión Dental");
   const regular = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
-  const [logo, mark, patientImage] = await Promise.all([embed(pdf, input.logo), embed(pdf, input.doctorMark), embed(pdf, input.patientSignature?.image)]);
+  const [logo, mark, patientImage, stampImage] = await Promise.all([embed(pdf, input.logo), embed(pdf, input.doctorMark), embed(pdf, input.patientSignature?.image), embed(pdf, input.doctorStamp)]);
   let page = pdf.addPage([PAGE_W, PAGE_H]);
   let y = PAGE_H - M;
   const newPage = () => { page = pdf.addPage([PAGE_W, PAGE_H]); y = PAGE_H - M; };
@@ -128,25 +130,28 @@ export async function buildDocumentPdf(input: DocumentPdfInput): Promise<Uint8Ar
   if (input.note) { y -= 6; paragraph(input.note, 8.5, regular, R - M, MUTED); }
 
   // Firmas: el profesional (timbre o firma dibujada) y, en consentimientos, la del paciente.
-  const sigBlock = (cx: number, lines: string[], image: PDFImage | null) => {
+  const stampBoxWidth = cmToPt(STAMP_BOX_CM.width), stampBoxHeight = cmToPt(STAMP_BOX_CM.height), stampSpace = stampImage ? stampBoxHeight + 8 : 0;
+  const sigBlock = (cx: number, lines: string[], image: PDFImage | null, stamp: PDFImage | null = null) => {
     const boxWidth = cmToPt(SIGNATURE_BOX_CM.width), boxHeight = cmToPt(SIGNATURE_BOX_CM.height);
     if (image) { const fit = fitInBox(image.width, image.height, boxWidth, boxHeight); page.drawImage(image, { x: cx - fit.width / 2, y: y - boxHeight + (boxHeight - fit.height) / 2, width: fit.width, height: fit.height }); }
     let ly = y - boxHeight - 4;
     page.drawLine({ start: { x: cx - 105, y: ly + 8 }, end: { x: cx + 105, y: ly + 8 }, thickness: 0.7, color: MUTED });
     lines.forEach((line, index) => { for (const part of wrap(line, index === 0 ? bold : regular, 9, 210)) { const font = index === 0 ? bold : regular; page.drawText(part, { x: cx - font.widthOfTextAtSize(part, 9) / 2, y: ly - 3, size: 9, font }); ly -= 11; } });
+    // El timbre va bajo la firma y los datos del profesional.
+    if (stamp) { const fit = fitInBox(stamp.width, stamp.height, stampBoxWidth, stampBoxHeight); page.drawImage(stamp, { x: cx - fit.width / 2, y: ly - 4 - fit.height, width: fit.width, height: fit.height }); }
   };
   const doctorLines = [input.doctorName, ...input.doctorLines.slice(0, 2)];
   const withPatient = Boolean(input.patientLabel);
   const verificationHeight = input.verification ? 12 + 46 + 4 : 0;
-  need(26 + cmToPt(SIGNATURE_BOX_CM.height) + 70 + (withPatient ? 24 : 0) + verificationHeight);
+  need(26 + cmToPt(SIGNATURE_BOX_CM.height) + 70 + (withPatient ? 24 : 0) + stampSpace + verificationHeight);
   y -= 26;
   const signTop = y;
   if (withPatient) {
-    sigBlock(M + 105, doctorLines, mark);
+    sigBlock(M + 105, doctorLines, mark, stampImage);
     y = signTop;
     sigBlock(R - 105, [input.patientSignature?.name || "", input.patientLabel!, ...(input.patientSignature?.lines ?? [])], patientImage);
-  } else sigBlock(R - 105, doctorLines, mark);
-  y = signTop - cmToPt(SIGNATURE_BOX_CM.height) - 70 - (withPatient ? 24 : 0);
+  } else sigBlock(R - 105, doctorLines, mark, stampImage);
+  y = signTop - cmToPt(SIGNATURE_BOX_CM.height) - 70 - (withPatient ? 24 : 0) - stampSpace;
 
   if (input.verification) {
     const size = 46; y -= 12;

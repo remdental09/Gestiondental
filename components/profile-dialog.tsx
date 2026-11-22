@@ -108,6 +108,7 @@ export function ProfileDialog({ email, onClose, onSaved }: { email: string; onCl
           </label>
         </div>
         <div className="mt-5 border-t border-[#e6e4ee] pt-4"><SignatureEditor compact/></div>
+        <div className="mt-5 border-t border-[#e6e4ee] pt-4"><SignatureEditor kind="timbre" compact/></div>
         <div className="mt-5 border-t border-[#e6e4ee] pt-4"><PrestadorPanel/></div>
         <p className="mt-3 text-xs text-[#6b6a7c]">Se mostrará como {form.firstName.trim() && form.lastName.trim() ? displayName(form) : `${form.title} Nombre Apellido`}.</p>
         {error && <p role="alert" className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-800">{error}</p>}
