@@ -92,6 +92,13 @@
       "when": 1795300411780,
       "tag": "0012_firma_protegida",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1795300412780,
+      "tag": "0013_owner_indexes",
+      "breakpoints": true
     }
   ]
 }
