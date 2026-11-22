@@ -27,8 +27,8 @@ test('estados de Dentalsoft con su color, y equivalencia con los del Dashboard',
   for (const s of ATTENDANCE_STATUSES) { assert.ok(STATUS_COLOR[s], s); assert.ok(ATTENDANCE_LABEL[s], s); }
   assert.equal(LEGEND.length, ATTENDANCE_STATUSES.length);
   assert.deepEqual(QUICK_STATUS.map(q => q.status), ['confirmada', 'en_espera', 'ingresada', 'atendida']);
-  assert.equal(ATTENDANCE_LABEL.en_espera, 'En lista de espera');
-  assert.equal(ATTENDANCE_LABEL.ingresada, 'Ingresada a box');
+  assert.equal(ATTENDANCE_LABEL.en_espera, 'Llegó · sala de espera');
+  assert.equal(ATTENDANCE_LABEL.ingresada, 'En box');
   // Los 5 de siempre siguen válidos (PR #339) y los nuevos cuentan como uno de ellos en el Dashboard.
   for (const s of ['agendada', 'confirmada', 'atendida', 'inasistida', 'cancelada']) { assert.ok(isAttendanceStatus(s)); assert.equal(baseAttendance(s), s); }
   assert.equal(baseAttendance('confirmada_whatsapp'), 'confirmada');

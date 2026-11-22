@@ -127,6 +127,13 @@
       "when": 1795500000000,
       "tag": "0017_account_events",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1795600000000,
+      "tag": "0018_appointment_cycle",
+      "breakpoints": true
     }
   ]
 }
