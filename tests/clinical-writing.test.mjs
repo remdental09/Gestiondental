@@ -92,3 +92,10 @@ test("el prompt conserva términos técnicos y separa indicaciones del plan", ()
   assert.match(CLINICAL_WRITING_PROMPT, /técnica de cepillado.*«Indicaciones»/s);
   assert.match(CLINICAL_WRITING_PROMPT, /nunca pidas aclarar un término que tú mismo cambiaste/);
 });
+
+test('la redacción ordena los procedimientos en secuencia clínica sin agregar pasos y evita repetir el hallazgo', () => {
+  assert.match(CLINICAL_WRITING_PROMPT, /Secuencia clínica: ordena los procedimientos realizados en el orden en que se ejecutan clínicamente/);
+  assert.match(CLINICAL_WRITING_PROMPT, /anestesia → aislamiento → remoción de tejido cariado/);
+  assert.match(CLINICAL_WRITING_PROMPT, /no agregues ninguno para completar la secuencia/);
+  assert.match(CLINICAL_WRITING_PROMPT, /No repitas el mismo hecho en dos secciones/);
+});
