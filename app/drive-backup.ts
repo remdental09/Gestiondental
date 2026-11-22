@@ -7,7 +7,7 @@ import { loadAddresses } from "@/app/patient-address-db";
 import { getDb } from "@/db";
 import {
   appointments, budgets, clinicalImages, consentSignatures, driveBackups, evolutions,
-  patientDocuments, patients, periodontalExams, toothStatuses,
+  biomedicalProducts, patientDocuments, patients, periodontalExams, toothStatuses,
 } from "@/db/schema";
 import { decodeBudgetData } from "@/lib/budget-plans";
 import { attachmentFileName } from "@/lib/attachment-name";
@@ -37,6 +37,10 @@ export async function getDriveSnapshot(ownerId: string, patientId: number, conne
       .catch(() => [] as (typeof consentSignatures.$inferSelect)[]),
   ]);
 
+  // Trazabilidad de productos biomédicos: si la tabla aún no existe o falla, el respaldo sigue sin ella.
+  const products = await Promise.resolve().then(() => db.select().from(biomedicalProducts).where(filter(biomedicalProducts.ownerId, biomedicalProducts.patientId))
+    .orderBy(asc(biomedicalProducts.id))).catch(() => [] as (typeof biomedicalProducts.$inferSelect)[]);
+
   const [address, anamnesis] = await Promise.all([
     loadAddresses(ownerId).then(map => map.get(patientId) ?? null).catch(() => null),
     loadAnamnesis(ownerId, patientId).then(found => found ? (({ updatedAt: _u, ...rest }) => rest)(found) : null).catch(() => null),
@@ -54,6 +58,11 @@ export async function getDriveSnapshot(ownerId: string, patientId: number, conne
     },
     address,
     anamnesis,
+    // Solo si hay productos: el respaldo de fichas sin ellos conserva su huella.
+    ...(products.length ? { biomedicalProducts: products.map(p => ({
+      id: p.id, category: p.category, brand: p.brand, reference: p.reference, lot: p.lot, serial: p.serial, expiry: p.expiry,
+      manufacturer: p.manufacturer, tooth: p.tooth, note: p.note, placedOn: p.placedOn, createdByName: p.createdByName, createdAt: p.createdAt,
+    })) } : {}),
     // Las anuladas se respaldan igual (Ley 20.584), marcadas con motivo, fecha y autor.
     evolutions: notes.map(n => ({
       id: n.id, clinicalDate: n.clinicalDate, recordedAt: n.recordedAt,

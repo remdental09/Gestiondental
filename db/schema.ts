@@ -209,6 +209,32 @@ export const clinicalImages = sqliteTable("clinical_images", {
   addedAt: text("added_at").notNull(),
 }, table => [index("images_patient_idx").on(table.patientId), index("images_owner_id_idx").on(table.ownerId, table.id)]);
 
+/** Trazabilidad de productos biomédicos (implantes, injertos, membranas…): foto de la etiqueta + datos confirmados por el profesional. */
+export const biomedicalProducts = sqliteTable("biomedical_products", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  ownerId: text("owner_id").notNull(),
+  patientId: integer("patient_id").notNull().references(() => patients.id),
+  /** Foto de la etiqueta (clinical_images, tipo «Producto biomédico»). */
+  imageId: integer("image_id"),
+  category: text("category").notNull(),
+  brand: text("brand").notNull().default(""),
+  reference: text("reference").notNull().default(""),
+  lot: text("lot").notNull().default(""),
+  serial: text("serial").notNull().default(""),
+  expiry: text("expiry").notNull().default(""),
+  manufacturer: text("manufacturer").notNull().default(""),
+  /** Pieza FDI con punto («1.6») o vacío. */
+  tooth: text("tooth").notNull().default(""),
+  note: text("note").notNull().default(""),
+  /** Fecha clínica de colocación (AAAA-MM-DD, America/Santiago). */
+  placedOn: text("placed_on").notNull(),
+  /** 1 si los datos se propusieron con IA desde la foto (el profesional los confirmó o corrigió). */
+  aiRead: integer("ai_read").notNull().default(0),
+  createdBy: text("created_by").notNull(),
+  createdByName: text("created_by_name").notNull().default(""),
+  createdAt: text("created_at").notNull(),
+}, table => [index("biomedical_products_patient_idx").on(table.ownerId, table.patientId)]);
+
 export const driveBackups = sqliteTable("drive_backups", {
   patientId: integer("patient_id").primaryKey().references(() => patients.id),
   ownerId: text("owner_id").notNull(),

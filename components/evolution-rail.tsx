@@ -4,7 +4,7 @@
  * La evolución más reciente lo muestra completo; las anteriores, plegado en un solo botón para no recargar la ficha.
  */
 import { useState } from "react";
-import { CalendarClock, CalendarPlus, CheckCircle2, ChevronDown, ClipboardCheck, ClipboardList, Ellipsis, FileText, FlaskConical, Calculator, Mic, MessageCircle, Pill, ScrollText, Wallet } from "lucide-react";
+import { Camera, CalendarClock, CalendarPlus, CheckCircle2, ChevronDown, ClipboardCheck, ClipboardList, Ellipsis, FileText, FlaskConical, Calculator, Mic, MessageCircle, Pill, ScrollText, Wallet } from "lucide-react";
 import type { ClinicalDocumentKind } from "@/lib/clinical-documents";
 
 export type RailActions = {
@@ -17,6 +17,8 @@ export type RailActions = {
   whatsappHref?: string | null;
   /** Abre Documentación con el tipo elegido en el árbol de documentos. */
   onDocument?: (kind: ClinicalDocumentKind) => void;
+  /** Abre «Productos» de la ficha: foto de la etiqueta de un implante, injerto, membrana… para dejar su trazabilidad. */
+  onProduct?: () => void;
 };
 
 const TOOL = "flex min-h-11 w-12 flex-col items-center justify-center gap-0.5 rounded-lg text-[#473a6d] hover:bg-[#ece8f6] active:bg-[#e2dcf2] focus-visible:outline-2 focus-visible:outline-[#473a6d]";
@@ -53,14 +55,14 @@ export function EvolutionRail({ actions, latest }: { actions: RailActions; lates
         ? <a key={tool.key} href={tool.href} target="_blank" rel="noopener noreferrer" className={TOOL} data-testid={`rail-${tool.key}`}>{inner}</a>
         : <button key={tool.key} type="button" className={TOOL} onClick={tool.run} data-testid={`rail-${tool.key}`}>{inner}</button>;
     })}
-    {actions.onDocument && <div className="flex w-full flex-col items-center" data-testid="rail-documento-grupo">
+    {(actions.onDocument || actions.onProduct) && <div className="flex w-full flex-col items-center" data-testid="rail-documento-grupo">
       <button type="button" className={`${TOOL} ${docsOpen ? "bg-[#ece8f6]" : ""}`} onClick={() => setDocsOpen(value => !value)} aria-expanded={docsOpen} aria-controls="rail-documentos-arbol" data-testid="rail-documento">
         <span className="relative"><FileText className="size-[18px]" aria-hidden="true" /><ChevronDown className={`absolute -right-2.5 -bottom-1 size-3 transition-transform ${SPRING} ${docsOpen ? "rotate-180" : ""}`} aria-hidden="true" /></span>
         <span className={LABEL}>Documento</span>
       </button>
       <div id="rail-documentos-arbol" className={`grid w-full transition-[grid-template-rows,opacity] ${SPRING} ${docsOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`} data-testid="rail-documentos-arbol" data-open={docsOpen ? "true" : "false"} inert={!docsOpen}>
         <ul className="relative ml-1.5 min-h-0 overflow-hidden border-l border-[#d9d3ea] pl-1" aria-label="Tipos de documento">
-          {DOCUMENT_TREE.map((item, index) => {
+          {(actions.onDocument ? DOCUMENT_TREE : []).map((item, index) => {
             const Icon = item.icon;
             return <li key={item.kind} className={`transition-[opacity,transform] ${SPRING} ${docsOpen ? "translate-y-0 scale-100 opacity-100" : "-translate-y-2 scale-90 opacity-0"}`} style={{ transitionDelay: docsOpen ? `${index * 45}ms` : "0ms" }}>
               <button type="button" className="group flex min-h-11 w-[2.65rem] flex-col items-center justify-center gap-0.5 rounded-lg text-[#473a6d] hover:bg-[#f3f1f9] active:scale-95 focus-visible:outline-2 focus-visible:outline-[#473a6d] motion-safe:transition-transform" onClick={() => { setDocsOpen(false); actions.onDocument?.(item.kind); }} data-testid={`rail-doc-${item.kind}`}>
@@ -69,6 +71,12 @@ export function EvolutionRail({ actions, latest }: { actions: RailActions; lates
               </button>
             </li>;
           })}
+          {actions.onProduct && <li className={`transition-[opacity,transform] ${SPRING} ${docsOpen ? "translate-y-0 scale-100 opacity-100" : "-translate-y-2 scale-90 opacity-0"}`} style={{ transitionDelay: docsOpen ? `${DOCUMENT_TREE.length * 45}ms` : "0ms" }}>
+            <button type="button" className="group flex min-h-11 w-[2.65rem] flex-col items-center justify-center gap-0.5 rounded-lg text-[#473a6d] hover:bg-[#f3f1f9] active:scale-95 focus-visible:outline-2 focus-visible:outline-[#473a6d] motion-safe:transition-transform" onClick={() => { setDocsOpen(false); actions.onProduct?.(); }} data-testid="rail-producto" aria-label="Registrar un producto: tomar foto de su etiqueta">
+              <span className="flex size-7 items-center justify-center rounded-full bg-[#e0f5ea] text-[#2f9e6e] shadow-[inset_0_0_0_1px_rgba(255,255,255,.6)]"><Camera className="size-4" aria-hidden="true" /></span>
+              <span className={LABEL}>Producto</span>
+            </button>
+          </li>}
         </ul>
       </div>
     </div>}
