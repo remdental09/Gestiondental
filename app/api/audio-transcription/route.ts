@@ -36,7 +36,7 @@ export async function POST(request: Request) {
   if (!env.OPENAI_API_KEY?.trim()) return json({ error: "Falta configurar OPENAI_API_KEY en el Worker de Cloudflare para transcribir audio." }, 503);
   if (!request.headers.get("content-type")?.startsWith("multipart/form-data")) return json({ error: "Envía una grabación de audio." }, 415);
   const owner = personalIdOf(user);
-  const limited = await aiLimitResponse(owner, "audio");
+  const limited = await aiLimitResponse(user.userId, "audio");
   if (limited) return limited;
   if (active.has(owner)) return json({ error: "Ya hay una transcripción en curso. Espera que termine." }, 429);
   active.add(owner);
@@ -63,7 +63,7 @@ export async function POST(request: Request) {
     if (!(audio instanceof File)) return json({ error: "No se recibió una grabación de audio." }, 400);
     const purpose = form.get("purpose");
     const result = await transcribeDentalAudio(audio, env.OPENAI_API_KEY.trim(), { model: env.OPENAI_TRANSCRIPTION_MODEL, signal: request.signal, purpose: purpose === "perio" || purpose === "tooth_command" ? purpose : undefined });
-    await trackAi(owner, { calls: 1, audioSeconds: approxAudioSeconds(audio.size) });
+    await trackAi(user.userId, { calls: 1, audioSeconds: approxAudioSeconds(audio.size) });
     return json({ ...result, provider: "openai" });
   } catch (cause) {
     return json({ error: cause instanceof Error && cause.name !== "AbortError" && cause.name !== "TimeoutError" ? cause.message : "La transcripción tardó demasiado. Reintenta la grabación." }, 502);
