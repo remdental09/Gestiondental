@@ -18,6 +18,18 @@ const eslintConfig = defineConfig([
     "vendor/**",
   ]),
   {
+    // Reglas del React Compiler (eslint-plugin-react-hooks v6). La app NO usa React Compiler (ni vinext ni next.config lo activan):
+    // estas reglas avisan de patrones que impiden esa optimización (setState al montar, «último valor» en refs, Date.now en render),
+    // no de errores de ejecución. Quedan como avisos para corregirlas de a poco sin arriesgar flujos de iPhone ya probados.
+    rules: {
+      "react-hooks/set-state-in-effect": "warn",
+      "react-hooks/refs": "warn",
+      "react-hooks/purity": "warn",
+      "react-hooks/immutability": "warn",
+      "react-hooks/preserve-manual-memoization": "warn",
+    },
+  },
+  {
     files: ["components/ui/**/*.{ts,tsx}", "hooks/use-mobile.ts"],
     rules: {
       // These files are vendored verbatim from shadcn@4.17.0. Keep the
