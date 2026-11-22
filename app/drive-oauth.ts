@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import type { ChatGPTUser } from "@/app/chatgpt-auth";
 import { attachmentFileName } from "@/lib/attachment-name";
+import { DRIVE_BACKUP_MAX_PER_RUN, fairShare, rotateOwners, runClock } from "@/lib/drive-backup-rotation";
 import { confirmDriveSnapshot, getDriveSnapshot, listDriveBackupQueue } from "@/app/drive-backup";
 import { saveSender, type MailSender } from "@/app/appointment-mail-db";
 
@@ -718,47 +719,60 @@ export async function syncGoogleDrive(user: ChatGPTUser, body: unknown) {
 }
 
 /**
- * Nightly Cron Trigger backup for every owner that connected Google Drive in the app.
- * Each ficha costs ~6 Google subrequests, so a run handles at most `maxPatients`
- * (Workers Free allows 50 subrequests per invocation); the cron repeats every 10 minutes.
+ * Respaldo automático (Cron) para cada cuenta que conectó Google Drive en la app.
+ * Turno justo entre cuentas (ver lib/drive-backup-rotation.ts): el inicio rota en cada pasada,
+ * primero una cuota pareja por cuenta y luego lo que sobre; tope de fichas y de tiempo por pasada.
  */
-// Cada ficha usa ~7 llamadas a Google (documento + copia .md): 5 por corrida respetan el límite de 50 del plan gratuito.
-export async function runScheduledDriveBackup(maxPatients = 5) {
+export async function runScheduledDriveBackup(maxPatients = DRIVE_BACKUP_MAX_PER_RUN, nowMs = Date.now()) {
   const config = configuration();
   if (!config.configured) return { configured: false, results: [] as Array<Record<string, unknown>> };
   await ensureConnectionTable();
-  const { results: connections } = await database().prepare(
+  const { results: allConnections } = await database().prepare(
     "SELECT owner_id, google_email, connected_at FROM google_drive_connections ORDER BY owner_id"
   ).all<{ owner_id: string; google_email: string; connected_at: string }>();
+  const connections = rotateOwners(allConnections, nowMs);
+  const clock = runClock();
   const tokens = new Map<string, string>();
   const results: Array<Record<string, unknown>> = [];
+  const failedOwners = new Set<string>();
+  const attempted = new Set<string>();
   let budget = maxPatients;
-  for (const connection of connections) {
-    const user: ChatGPTUser = { userId: connection.owner_id, displayName: "", email: connection.google_email, fullName: null };
-    let after = 0;
-    let ownerFailed = false;
-    while (budget > 0 && !ownerFailed) {
-      const queue = await listDriveBackupQueue(user.userId, after, 20, connection.connected_at);
-      for (const item of queue.pending) {
-        if (budget <= 0) break;
-        budget--;
-        try {
-          const result = await backupPatient(user, item.patientId, tokens);
-          results.push({ ownerId: user.userId, patientId: item.patientId, saved: Boolean(result.saved) });
-          await recordBackupRun(user.userId, "cron", Boolean(result.saved), "ficha " + item.patientId + (result.saved ? " respaldada" : ": " + String((result as { message?: string }).message || "no se respaldó")));
-        } catch (error) {
-          const message = error instanceof Error ? error.message : "error";
-          results.push({ ownerId: user.userId, patientId: item.patientId, saved: false, error: message });
-          await recordBackupRun(user.userId, "cron", false, "ficha " + item.patientId + ": " + message);
-          if (!tokens.has(user.userId)) { ownerFailed = true; break; } // token refresh failed: skip owner
+  const share = fairShare(maxPatients, connections.length);
+  // Vuelta 1: cuota pareja por cuenta. Vuelta 2: lo que sobre, en el mismo orden rotado.
+  for (const quota of [share, Number.POSITIVE_INFINITY]) {
+    for (const connection of connections) {
+      if (budget <= 0 || clock.expired()) break;
+      if (failedOwners.has(connection.owner_id)) continue;
+      const user: ChatGPTUser = { userId: connection.owner_id, displayName: "", email: connection.google_email, fullName: null };
+      let ownerQuota = quota;
+      let after = 0;
+      while (budget > 0 && ownerQuota > 0 && !failedOwners.has(user.userId) && !clock.expired()) {
+        const queue = await listDriveBackupQueue(user.userId, after, 20, connection.connected_at);
+        for (const item of queue.pending) {
+          if (budget <= 0 || ownerQuota <= 0 || clock.expired()) break;
+          const key = user.userId + ":" + item.patientId;
+          if (attempted.has(key)) continue; // una ficha que falló no se reintenta en la misma pasada
+          attempted.add(key);
+          budget--;
+          ownerQuota--;
+          try {
+            const result = await backupPatient(user, item.patientId, tokens);
+            results.push({ ownerId: user.userId, patientId: item.patientId, saved: Boolean(result.saved) });
+            await recordBackupRun(user.userId, "cron", Boolean(result.saved), "ficha " + item.patientId + (result.saved ? " respaldada" : ": " + String((result as { message?: string }).message || "no se respaldó")));
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "error";
+            results.push({ ownerId: user.userId, patientId: item.patientId, saved: false, error: message });
+            await recordBackupRun(user.userId, "cron", false, "ficha " + item.patientId + ": " + message);
+            if (!tokens.has(user.userId)) { failedOwners.add(user.userId); break; } // token refresh failed: skip owner
+          }
         }
+        if (queue.nextAfterPatientId === null) break;
+        after = queue.nextAfterPatientId;
       }
-      if (queue.nextAfterPatientId === null) break;
-      after = queue.nextAfterPatientId;
     }
   }
   for (const connection of connections) {
-    if (budget <= 0) break;
+    if (budget <= 0 || clock.expired()) break;
     const user: ChatGPTUser = { userId: connection.owner_id, displayName: "", email: connection.google_email, fullName: null };
     try {
       const extra = await syncDriveMirrors(user, "cron", budget);
@@ -772,7 +786,7 @@ export async function runScheduledDriveBackup(maxPatients = 5) {
   for (const connection of connections) {
     const own = results.filter(item => item.ownerId === connection.owner_id);
     const saved = own.filter(item => item.saved).length, failed = own.length - saved;
-    await recordHeartbeat(connection.owner_id, own.length ? `${saved} copiada${saved === 1 ? "" : "s"}${failed ? `, ${failed} con error` : ""}${budget <= 0 ? ", continúa en la próxima revisión" : ""}` : "sin cambios pendientes");
+    await recordHeartbeat(connection.owner_id, own.length ? `${saved} copiada${saved === 1 ? "" : "s"}${failed ? `, ${failed} con error` : ""}${budget <= 0 || clock.expired() ? ", continúa en la próxima revisión" : ""}` : "sin cambios pendientes");
   }
   return { configured: true, owners: connections.length, results, budgetLeft: budget };
 }
