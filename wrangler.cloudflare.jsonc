@@ -41,6 +41,10 @@
     {
       "binding": "BUCKET",
       "bucket_name": "gestion-dental-clinical-images"
+    },
+    {
+      "binding": "BACKUP_BUCKET",
+      "bucket_name": "gestion-dental-respaldos"
     }
   ],
   "ai": {
