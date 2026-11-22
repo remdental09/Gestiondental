@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
-import { getChatGPTUser } from "@/app/chatgpt-auth";
+import { getChatGPTUser, personalIdOf } from "@/app/chatgpt-auth";
+import { aiWithinLimit, trackAi } from "@/app/ai-guard";
 import { createWorkersAiModel } from "@/lib/dictation/workers-ai";
 import { proposeFromTranscript } from "@/lib/dictation/proposal";
 import { correctWithOpenAi } from "@/lib/dictation/openai-correction";
@@ -33,8 +34,14 @@ export async function POST(request: Request) {
   const local = { text: identity.text, corrections: [...dictionary.corrections, ...selfCorrected.corrections, ...identity.corrections] };
   const localCorrections = local.corrections;
 
+  // Con el tope diario alcanzado se entrega igual la corrección del diccionario (sin IA).
+  const account = personalIdOf(user);
+  if (env.OPENAI_API_KEY?.trim() && !(await aiWithinLimit(account))) {
+    return Response.json({ source: transcript, text: local.text, corrections: localCorrections, provider: "dictionary", aiError: "Llegaste al límite diario de IA: se dejó la corrección del diccionario." }, { headers: { "Cache-Control": "no-store" } });
+  }
   if (env.OPENAI_API_KEY?.trim()) {
     try {
+      void trackAi(account, { calls: 1 });
       const corrected = await correctWithOpenAi(local.text, env.OPENAI_API_KEY.trim(), { model: env.OPENAI_TEXT_MODEL });
       return Response.json({ source: transcript, ...corrected, corrections: [...localCorrections, ...corrected.corrections], provider: "openai" }, { headers: { "Cache-Control": "no-store" } });
     } catch {
