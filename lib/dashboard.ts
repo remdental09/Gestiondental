@@ -10,24 +10,24 @@ export type Slice = { label: string; value: number; color: string; amount?: numb
 export type Bar = { label: string; amount: number };
 
 /** Estados de la cita (los de Dentalsoft más «inasistida»). Los 5 primeros son los de siempre; el resto se agregó con la agenda por box. */
-export const ATTENDANCE_STATUSES = ["agendada", "confirmada", "atendida", "inasistida", "cancelada", "en_espera", "ingresada", "notificada_email", "confirmada_email", "notificada_whatsapp", "confirmada_whatsapp"] as const;
+export const ATTENDANCE_STATUSES = ["agendada", "confirmada", "atendida", "inasistida", "cancelada", "en_espera", "ingresada", "notificada_email", "confirmada_email", "notificada_whatsapp", "confirmada_whatsapp", "reagendada"] as const;
 export type AttendanceStatus = typeof ATTENDANCE_STATUSES[number];
 export const isAttendanceStatus = (value: unknown): value is AttendanceStatus => typeof value === "string" && (ATTENDANCE_STATUSES as readonly string[]).includes(value);
-/** Para las cifras del Dashboard cada estado cuenta como uno de los 5 básicos (p. ej. «Confirmada por WhatsApp» = confirmada, «Notificada por email» = agendada). */
+/** «Reagendada» cuenta como cancelada (el cupo se liberó y la cita vive en otra fecha). Para las cifras del Dashboard cada estado cuenta como uno de los 5 básicos (p. ej. «Confirmada por WhatsApp» = confirmada, «Notificada por email» = agendada). */
 export function baseAttendance(status: string | null | undefined): "agendada" | "confirmada" | "atendida" | "inasistida" | "cancelada" | null {
   switch (status) {
     case "confirmada": case "confirmada_email": case "confirmada_whatsapp": case "en_espera": case "ingresada": return "confirmada";
     case "atendida": return "atendida";
     case "inasistida": return "inasistida";
-    case "cancelada": return "cancelada";
+    case "cancelada": case "reagendada": return "cancelada";
     case "agendada": case "notificada_email": case "notificada_whatsapp": return "agendada";
     default: return null;
   }
 }
 export const ATTENDANCE_LABEL: Record<AttendanceStatus, string> = {
   agendada: "Agendada", confirmada: "Confirmada", atendida: "Atendida", inasistida: "Inasistida", cancelada: "Cancelada",
-  en_espera: "En lista de espera", ingresada: "Ingresada a box", notificada_email: "Notificada por email", confirmada_email: "Confirmada por email",
-  notificada_whatsapp: "Notificada por WhatsApp", confirmada_whatsapp: "Confirmada por WhatsApp",
+  en_espera: "Llegó · sala de espera", ingresada: "En box", notificada_email: "Notificada por email", confirmada_email: "Confirmada por email",
+  notificada_whatsapp: "Notificada por WhatsApp", confirmada_whatsapp: "Confirmada por WhatsApp", reagendada: "Reagendada",
 };
 
 const pad = (n: number) => String(n).padStart(2, "0");
