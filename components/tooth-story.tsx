@@ -32,8 +32,9 @@ export function ToothStory({ tooth, history, endoNow = false, size = "compact", 
 
   const stage = stages[Math.min(index, stages.length - 1)];
   const first = stages[0];
-  const box = large ? "w-56" : "w-36";
-  return <section className="mt-4 rounded-xl border border-[#dddbe6] bg-white p-4" data-testid="tooth-story" data-size={size}>
+  // Imágenes chicas: lo que importa leer es la etapa y su fecha (la foto grande ya está arriba en «Ver pieza»).
+  const box = large ? "w-28 sm:w-32" : "w-24 sm:w-28";
+  return <section className={`mt-4 rounded-xl border border-[#dddbe6] bg-white ${large ? "p-3" : "p-4"}`} data-testid="tooth-story" data-size={size}>
     <div className="flex flex-wrap items-center justify-between gap-2">
       <h5 className="text-sm font-semibold text-[#3b3355]">Película de la pieza · FDI {formatFdi(tooth)}</h5>
       <div className="flex flex-wrap gap-2">
@@ -42,20 +43,20 @@ export function ToothStory({ tooth, history, endoNow = false, size = "compact", 
         {stages.length > 1 && <button type="button" data-testid="story-compare" aria-pressed={compare} onClick={() => setCompare(v => !v)} className={`h-8 rounded-lg border px-3 text-xs font-semibold ${compare ? "border-[#473a6d] bg-[#efeaf8] text-[#473a6d]" : "border-[#d8d3e3] bg-white text-[#473a6d]"}`}>Antes / ahora</button>}
       </div>
     </div>
-    <div className={`mt-3 flex flex-wrap items-start gap-4 ${large ? "" : "sm:flex-nowrap"}`}>
+    <div className="mt-3 flex items-start gap-3" data-testid="story-body">
       {compare && stages.length > 1
-        ? <div className="flex gap-3" data-testid="story-compare-view">{[first, stages[stages.length - 1]].map((item, i) => <figure key={item.id} className="m-0"><div className={`${box} aspect-[420/576] overflow-hidden rounded-lg border border-[#ebe9f2] bg-[#f7f6fa]`}><StageImage stage={item} tooth={tooth} large={large} /></div><figcaption className="mt-1 text-xs font-semibold text-[#3b3355]">{i === 0 ? "Antes" : "Ahora"} · {shown(item.day)}</figcaption></figure>)}</div>
-        : <figure className="m-0" data-testid="story-selected" data-stage={stage.id}><div className={`${box} aspect-[420/576] overflow-hidden rounded-lg border border-[#ebe9f2] bg-[#f7f6fa]`}><StageImage stage={stage} tooth={tooth} large={large} /></div></figure>}
-      <div className="min-w-0 flex-1 text-sm">
+        ? <div className="flex shrink-0 gap-2" data-testid="story-compare-view">{[first, stages[stages.length - 1]].map((item, i) => <figure key={item.id} className="m-0"><div className={`${box} aspect-[420/576] overflow-hidden rounded-lg border border-[#ebe9f2] bg-[#f7f6fa]`}><StageImage stage={item} tooth={tooth} large={large} /></div><figcaption className="mt-1 text-xs font-semibold text-[#3b3355]">{i === 0 ? "Antes" : "Ahora"} · {shown(item.day)}</figcaption></figure>)}</div>
+        : <figure className="m-0 shrink-0" data-testid="story-selected" data-stage={stage.id}><div className={`${box} aspect-[420/576] overflow-hidden rounded-lg border border-[#ebe9f2] bg-[#f7f6fa]`}><StageImage stage={stage} tooth={tooth} large={large} /></div></figure>}
+      <div className="min-w-[9rem] flex-1 text-sm leading-snug">
         <p className="font-semibold text-[#3b3355]" data-testid="story-label">{stage.label}</p>
         <p className="text-xs text-[#6b6a7c]">{shown(stage.day)}{stage.current ? " · estado actual" : ""}</p>
-        {stage.lesion && <p className="mt-1 inline-block rounded-md bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-900">{stage.lesion}</p>}
+        {stage.lesion && stage.lesion !== stage.label && <p className="mt-1 inline-block rounded-md bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-900">{stage.lesion}</p>}
         {stage.detail && <p className="mt-2 text-xs text-[#57566a]">{stage.detail}</p>}
         <p className="mt-2 text-[11px] text-[#6b6a7c]">Imagen referencial, no es el paciente.</p>
       </div>
     </div>
     <ol className="mt-3 flex gap-2 overflow-x-auto pb-1" aria-label="Etapas de la pieza" data-testid="story-strip">
-      {stages.map((item, i) => <li key={item.id} className="shrink-0"><button type="button" data-testid="story-stage" aria-current={i === index} onClick={() => { setPlaying(false); setCompare(false); setIndex(i); }} className={`block w-20 rounded-lg border p-1 text-left ${i === index ? "border-[#473a6d] ring-2 ring-[#473a6d]/30" : "border-[#dddbe6]"}`}><span className="block aspect-[420/576] overflow-hidden rounded bg-[#f7f6fa]"><StageImage stage={item} tooth={tooth} large={false} /></span><span className="mt-1 block text-[10px] font-semibold leading-tight text-[#3b3355]">{shown(item.day)}</span><span className="block truncate text-[10px] text-[#6b6a7c]">{item.current ? "Hoy" : item.label}</span></button></li>)}
+      {stages.map((item, i) => <li key={item.id} className="shrink-0"><button type="button" data-testid="story-stage" aria-current={i === index} onClick={() => { setPlaying(false); setCompare(false); setIndex(i); }} className={`block w-16 rounded-lg border p-1 text-left ${i === index ? "border-[#473a6d] ring-2 ring-[#473a6d]/30" : "border-[#dddbe6]"}`}><span className="block aspect-[420/576] overflow-hidden rounded bg-[#f7f6fa]"><StageImage stage={item} tooth={tooth} large={false} /></span><span className="mt-1 block text-[10px] font-semibold leading-tight text-[#3b3355]">{shown(item.day)}</span><span className="block truncate text-[10px] text-[#6b6a7c]">{item.current ? "Hoy" : item.label}</span></button></li>)}
     </ol>
   </section>;
 }

@@ -105,3 +105,10 @@ test('integración en el periodontograma: panel de la pieza y su ventana', () =>
   assert.match(src('components/periodontogram.tsx'), /<ToothStory tooth=\{tooth\} history=\{toothHistory\}/);
   assert.match(src('components/perio-tooth-modal.tsx'), /<ToothStory tooth=\{tooth\} history=\{toothHistory\}/);
 });
+
+test('vista legible: imágenes chicas y el texto de la etapa con espacio propio', () => {
+  const ui = src('components/tooth-story.tsx');
+  assert.match(ui, /const box = large \? "w-28 sm:w-32" : "w-24 sm:w-28"/);
+  assert.match(ui, /min-w-\[9rem\] flex-1/);
+  assert.match(ui, /stage\.lesion !== stage\.label/);
+});
