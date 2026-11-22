@@ -21,7 +21,9 @@
   "assets": {
     "directory": "./dist/client",
     "binding": "ASSETS",
-    "run_worker_first": ["/*", "!/_next/static/*", "!/*/_next/static/*"]
+    // Todo pasa por el Worker, también /_next/static: así un archivo faltante responde 404 sin caché
+    // (el asset server lo respondía con la regla immutable de _headers y Safari lo guardaba un año).
+    "run_worker_first": true
   },
   "kv_namespaces": [
     {

@@ -12,6 +12,7 @@ import { resolveOwner, resolveOwnerWithRegistration, type OwnerConfig, type Clin
 import { activeMemberships, membershipsOf, type TeamDb } from "./app/clinic-team-db";
 import { ENTRY_COOKIE, chooseSpaceForEntry, isSupportRole, parseEntry, type Space } from "./lib/clinic-team";
 import { apiDenied } from "./lib/role-policy";
+import { isBuildAssetPath, serveBuildAsset } from "./lib/build-assets";
 
 type AccessIdentity = { email?: string | null };
 type AccessContext = {
@@ -552,6 +553,9 @@ const oauthProvider = new OAuthProvider<OAuthEnv>({
 
 const worker = {
   fetch(request: Request, env: OAuthEnv, context: ExecutionContext) {
+    // Archivos del build: públicos como siempre, pero un faltante no queda en caché (ver lib/build-assets.ts).
+    const assets = (env as unknown as { ASSETS?: Fetcher }).ASSETS;
+    if (assets && isBuildAssetPath(new URL(request.url).pathname)) return serveBuildAsset(request, assets);
     return oauthProvider.fetch(request, env, context);
   },
   async scheduled(controller: ScheduledController, env: OAuthEnv, context: ExecutionContext) {

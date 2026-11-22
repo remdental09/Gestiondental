@@ -22,7 +22,7 @@ export const viewport: Viewport = {
 };
 
 const RECOVER = `(function(){var K="gd-recover",now=Date.now();function again(){try{var last=+sessionStorage.getItem(K)||0;if(now-last<60000)return;sessionStorage.setItem(K,String(Date.now()))}catch(e){}location.reload()}
-window.addEventListener("error",function(e){var t=e.target;if(t&&(t.tagName==="SCRIPT"||t.tagName==="LINK"))again()},true);
+window.addEventListener("error",function(e){var t=e.target;if(t&&(t.tagName==="SCRIPT"||t.tagName==="LINK")){var u=t.src||t.href;try{if(u)fetch(u,{cache:"reload"}).then(again,again);else again()}catch(x){again()}}},true);
 window.addEventListener("unhandledrejection",function(e){var m=String(e.reason&&(e.reason.message||e.reason)||"");if(/dynamically imported module|Importing a module script failed|ChunkLoadError|Loading chunk/i.test(m))again()});
 setTimeout(function(){if(!window.__gdReady&&document.visibilityState==="visible"&&document.body.innerText.indexOf("Cargando fichas")>=0)again()},20000);})();`;
 
@@ -35,7 +35,7 @@ export default function RootLayout({
     <html lang="es-CL">
       <body className="antialiased">
         {children}
-        {/* Si la página quedó de una versión anterior (tras una actualización) y no arrancó, se recarga sola una vez. */}
+        {/* Si la página quedó de una versión anterior (tras una actualización) y no arrancó, se recarga sola una vez; antes se vuelve a pedir el archivo que falló sin caché, para reemplazar un 404 guardado por Safari. */}
         <script dangerouslySetInnerHTML={{ __html: RECOVER }} />
       </body>
     </html>
