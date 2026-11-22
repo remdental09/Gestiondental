@@ -116,7 +116,9 @@ async function accessOwner(
   const configuredIssuerValue = env.ACCESS_TEAM_DOMAIN?.trim();
   const configuredIssuer = configuredIssuerValue ? accessIssuer(configuredIssuerValue) : null;
   const audience = env.ACCESS_POLICY_AUD?.trim();
-  if (configuredIssuerValue && !configuredIssuer) return notReady();
+  // Falla cerrado: sin dominio del equipo de Access y sin AUD de la aplicación no se acepta ningún token de Access
+  // (si no, serviría el JWT de cualquier otra cuenta de Cloudflare Access).
+  if (!configuredIssuerValue || !configuredIssuer || !audience) return notReady();
 
   const config = ownerConfig(env);
   const configCheck = resolveOwner("", config);
@@ -125,7 +127,7 @@ async function accessOwner(
   let email = "";
   const access = (context as WorkerContext).access;
   if (access) {
-    if (audience && access.aud !== audience) return denied();
+    if (access.aud !== audience) return denied();
     try {
       email = (await access.getIdentity())?.email?.trim().toLowerCase() ?? "";
     } catch {
@@ -135,11 +137,11 @@ async function accessOwner(
     const assertion = request.headers.get("Cf-Access-Jwt-Assertion");
     if (!assertion) return denied();
     const issuer = issuerFromAccessJwt(assertion);
-    if (!issuer || (configuredIssuer && issuer !== configuredIssuer)) return denied();
+    if (!issuer || issuer !== configuredIssuer) return denied();
     try {
       const { payload } = await jwtVerify(assertion, getAccessKeySet(issuer), {
         issuer,
-        ...(audience ? { audience } : {}),
+        audience,
       });
       const tokenAudience = payload.aud;
       if (!(typeof tokenAudience === "string" && tokenAudience) && !(Array.isArray(tokenAudience) && tokenAudience.length > 0)) return denied();
