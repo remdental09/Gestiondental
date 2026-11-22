@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { getDb } from "@/db";
 import { clinicalImages } from "@/db/schema";
+import { IMAGE_CACHE_CONTROL, thumbKey } from "@/lib/image-keys";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -14,15 +15,19 @@ async function owned(id: string, ownerId: string) {
   const [image] = await getDb().select().from(clinicalImages).where(and(eq(clinicalImages.id, key), eq(clinicalImages.ownerId, ownerId)));
   return image || null;
 }
-export async function GET(_request: Request, context: Context) {
+export async function GET(request: Request, context: Context) {
   const ownerId = (await getChatGPTUser())?.userId;
   if (!ownerId) return fail("Inicia sesión.", 401);
   if (!env.BUCKET) return fail("Imágenes no disponibles.", 503);
   const image = await owned((await context.params).id, ownerId);
   if (!image) return fail("Imagen no encontrada.", 404);
-  const object = await env.BUCKET.get(image.objectKey);
+  // ?thumb=1: miniatura de la grilla; las imágenes antiguas sin miniatura entregan el original.
+  const wantsThumb = new URL(request.url).searchParams.get("thumb") === "1" && image.contentType !== "application/pdf";
+  const thumb = wantsThumb ? await env.BUCKET.get(thumbKey(image.objectKey)) : null;
+  const object = thumb ?? await env.BUCKET.get(image.objectKey);
   if (!object) return fail("Imagen no disponible.", 404);
-  return new Response(object.body, { headers: { "Content-Type": image.contentType, "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff", "Content-Disposition": "inline" } });
+  // Cada id es inmutable (reemplazar = subir otra): caché privada del navegador, nunca compartida.
+  return new Response(object.body, { headers: { "Content-Type": thumb ? "image/jpeg" : image.contentType, "Cache-Control": IMAGE_CACHE_CONTROL, "X-Content-Type-Options": "nosniff", "Content-Disposition": "inline", "Vary": "Cookie" } });
 }
 export async function DELETE(request: Request, context: Context) {
   const ownerId = (await getChatGPTUser())?.userId;
@@ -33,7 +38,7 @@ export async function DELETE(request: Request, context: Context) {
   const image = await owned((await context.params).id, ownerId);
   if (!image) return fail("Imagen no encontrada.", 404);
   try {
-    await env.BUCKET.delete(image.objectKey);
+    await env.BUCKET.delete([image.objectKey, thumbKey(image.objectKey)]);
     await getDb().delete(clinicalImages).where(and(eq(clinicalImages.id, image.id), eq(clinicalImages.ownerId, ownerId)));
     return Response.json({ ok: true });
   } catch { return fail("No se pudo quitar la imagen.", 503); }
