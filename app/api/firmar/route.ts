@@ -12,6 +12,7 @@ import {
   sha256Hex, shortPatientName, signatureHash,
 } from "@/lib/consent-signature";
 import { isVerifyToken, shortCode } from "@/lib/document-verification";
+import { sendSignedCopy } from "@/app/document-pdf";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -78,8 +79,9 @@ btn.addEventListener('click',function(){
  btn.disabled=true;btn.textContent='Enviando…';
  fetch(location.pathname,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});}).then(function(x){
   if(!x.ok){say(x.d.error||'No se pudo registrar la firma.');btn.disabled=false;btn.textContent='Firmar consentimiento';return;}
-  document.getElementById('card').innerHTML='<h1 style="font-size:20px;margin:0 0 8px">Firma registrada ✔</h1><p style="margin:0">Gracias. Tu firma quedó asociada a tu ficha. Código de verificación: <strong style="font-family:monospace"></strong></p>';
+  document.getElementById('card').innerHTML='<h1 style="font-size:20px;margin:0 0 8px">Firma registrada ✔</h1><p style="margin:0">Gracias. Tu firma quedó asociada a tu ficha. Código de verificación: <strong style="font-family:monospace"></strong></p><p id="copy" style="margin:12px 0 0;font-size:14px;color:#35343f"></p>';
   document.querySelector('#card strong').textContent=x.d.code||'';
+  if(x.d.copySent)document.getElementById('copy').textContent='También te enviamos una copia firmada en PDF a tu correo.';
  }).catch(function(){say('No hay conexión. Intenta de nuevo.');btn.disabled=false;btn.textContent='Firmar consentimiento';});
 });
 })();`;
@@ -144,5 +146,9 @@ export async function POST(request: Request) {
     if (reason instanceof Error && /UNIQUE/i.test(reason.message)) return json({ error: "Este consentimiento ya fue firmado." }, 409);
     return json({ error: "No pudimos registrar tu firma. Intenta de nuevo." }, 500);
   }
-  return json({ ok: true, code: shortCode(hash) });
+  // La firma ya quedó guardada: la copia por correo es un extra y nunca puede hacer fallar la firma.
+  const code = shortCode(hash);
+  let copySent = false;
+  try { await sendSignedCopy(row.ownerId, doc.id, new URL(request.url).origin, code); copySent = true; } catch { /* sin correo o sin remitente: la firma igual quedó registrada */ }
+  return json({ ok: true, code, copySent });
 }

@@ -165,3 +165,42 @@ export function documentEmail(input: DocumentEmailInput): { subject: string; tex
 </div></div></body></html>`;
   return { subject, text, html };
 }
+
+export type SignRequestEmailInput = { patientName: string; clinicName?: string; doctorName?: string; url: string; hours: number };
+
+/** Correo con el botón «Revisar y firmar»: abre la página donde el paciente lee, firma con el dedo y envía. */
+export function signRequestEmail(input: SignRequestEmailInput): { subject: string; text: string; html: string } {
+  const first = header(input.patientName).split(/\s+/)[0] ?? "";
+  const clinic = header(input.clinicName ?? "");
+  const who = header(input.doctorName ?? "");
+  const subject = `Consentimiento informado para firmar${clinic ? ` · ${clinic}` : ""}`;
+  const text = [`Estimado(a) ${first}:`, "", `Le enviamos${clinic ? ` desde ${clinic}` : ""} su consentimiento informado para que lo lea y lo firme desde su teléfono.`, `Abra este enlace personal (sirve una sola vez y vence en ${input.hours} horas):`, input.url, "", who ? `Saludos cordiales,\n${who}` : "Saludos cordiales."].join("\n");
+  const html = `<!doctype html><html lang="es"><body style="margin:0;background:#f3f1f7;font-family:Arial,Helvetica,sans-serif;color:#35343f">
+<div style="max-width:520px;margin:0 auto;padding:24px"><div style="background:#fff;border-radius:12px;padding:28px;border:1px solid #e6e4ee">
+<p style="margin:0 0 12px;font-size:16px">Estimado(a) ${esc(first)}:</p>
+<p style="margin:0 0 20px;font-size:16px;line-height:1.5">Le enviamos${clinic ? ` desde ${esc(clinic)}` : ""} su <strong>consentimiento informado</strong> para que lo lea y lo firme con el dedo desde su teléfono.</p>
+<p style="margin:0 0 20px;text-align:center"><a href="${esc(input.url)}" style="display:inline-block;background:#473a6d;color:#fff;text-decoration:none;font-weight:bold;font-size:16px;padding:14px 26px;border-radius:8px">Revisar y firmar</a></p>
+<p style="margin:0 0 20px;font-size:13px;line-height:1.5;color:#6b6a7c">El enlace es personal, sirve una sola vez y vence en ${input.hours} horas. Al firmar, recibirá una copia en PDF en este mismo correo.</p>
+<p style="margin:0;font-size:14px;color:#6b6a7c">${who ? `Saludos cordiales,<br>${esc(who)}` : "Saludos cordiales."}</p>
+</div></div></body></html>`;
+  return { subject, text, html };
+}
+
+export type SignedCopyEmailInput = { patientName: string; clinicName?: string; doctorName?: string; code: string };
+
+/** Correo con la copia firmada en PDF, enviado al paciente apenas firma. */
+export function signedCopyEmail(input: SignedCopyEmailInput): { subject: string; text: string; html: string } {
+  const first = header(input.patientName).split(/\s+/)[0] ?? "";
+  const clinic = header(input.clinicName ?? "");
+  const who = header(input.doctorName ?? "");
+  const code = header(input.code);
+  const subject = `Copia de su consentimiento informado firmado${clinic ? ` · ${clinic}` : ""}`;
+  const text = [`Estimado(a) ${first}:`, "", `Recibimos su firma. Adjuntamos en PDF su consentimiento informado firmado${clinic ? ` de ${clinic}` : ""}.`, code ? `Código de verificación de la firma: ${code}` : "", "", who ? `Saludos cordiales,\n${who}` : "Saludos cordiales."].filter((line, index, all) => line || all[index - 1] !== "").join("\n");
+  const html = `<!doctype html><html lang="es"><body style="margin:0;background:#f3f1f7;font-family:Arial,Helvetica,sans-serif;color:#35343f">
+<div style="max-width:520px;margin:0 auto;padding:24px"><div style="background:#fff;border-radius:12px;padding:28px;border:1px solid #e6e4ee">
+<p style="margin:0 0 12px;font-size:16px">Estimado(a) ${esc(first)}:</p>
+<p style="margin:0 0 16px;font-size:16px;line-height:1.5">Recibimos su firma. Adjuntamos en PDF su <strong>consentimiento informado firmado</strong>${clinic ? ` de ${esc(clinic)}` : ""}.</p>
+${code ? `<p style="margin:0 0 20px;font-size:14px;line-height:1.5">Código de verificación de la firma: <strong style="font-family:monospace">${esc(code)}</strong></p>\n` : ""}<p style="margin:0;font-size:14px;color:#6b6a7c">${who ? `Saludos cordiales,<br>${esc(who)}` : "Saludos cordiales."}</p>
+</div></div></body></html>`;
+  return { subject, text, html };
+}
