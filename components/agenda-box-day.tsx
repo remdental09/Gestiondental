@@ -13,6 +13,7 @@ import type { Professional } from "@/lib/professionals";
 import { chileClock, minutesBetween, nextTimes, waitLabel } from "@/lib/appointment-cycle";
 import { FreedSlotSuggestions, WaitingRoom, WaitlistSheet } from "@/components/waiting-room";
 import { isStaffRole, selectableStatuses } from "@/lib/role-policy";
+import { canMarkConfirmed, confirmationLink, confirmationSummary, statusAfterAsking } from "@/lib/confirmacion-whatsapp";
 
 type Box = { id: number; name: string; enabled: boolean; color?: string | null };
 type Appt = { key: string; source: "app" | "cal"; id: number; patientId: number | null; patientName: string; phone: string; day: string; start: string; minutes: number; reason: string; boxId: number | null; professional: string; professionalId: number | null; professionalColor: string | null; status: AttendanceStatus; google: boolean; needsPatient: boolean; arrivedAt: string | null; inBoxAt: string | null; doneAt: string | null };
@@ -45,7 +46,7 @@ function Sheet({ title, onClose, children }: { title: string; onClose: () => voi
 }
 
 /** Agenda «Día por box» (como Dentalsoft): una columna por box, filas de 15 minutos, tarjetas del color de su estado. */
-export function AgendaBoxDay({ onOpenPatient, onChanged, spaceRole }: { onOpenPatient?: (id: number) => void; onChanged?: () => void; spaceRole?: string }) {
+export function AgendaBoxDay({ onOpenPatient, onChanged, spaceRole, clinicName }: { onOpenPatient?: (id: number) => void; onChanged?: () => void; spaceRole?: string; clinicName?: string }) {
   /** Asistente: solo cambia estados (llegó / en box / atendida); no agenda, no mueve ni edita la lista de espera. */
   const assistant = spaceRole === "asistente";
   const [day, setDay] = useState(chileToday);
@@ -111,6 +112,7 @@ export function AgendaBoxDay({ onOpenPatient, onChanged, spaceRole }: { onOpenPa
   const row = compact ? 16 : 26;
   const height = ((range.to - range.from) / 15) * row;
   const scheduled = todays.filter(a => !freesSlot(a.status)).length;
+  const confirmation = confirmationSummary(todays);
   const shownColumns = mobile ? columns.slice(Math.min(boxIndex, Math.max(0, columns.length - 1)), Math.min(boxIndex, Math.max(0, columns.length - 1)) + 1) : columns;
   const boxName = (id: number | null) => id === null ? "Sin box" : boxes.find(b => b.id === id)?.name ?? "Box";
   const today = chileToday();
@@ -129,6 +131,12 @@ export function AgendaBoxDay({ onOpenPatient, onChanged, spaceRole }: { onOpenPa
     }
     catch (cause) { setData(previous); setError(cause instanceof Error ? cause.message : "No se pudo cambiar el estado."); }
   };
+
+  /** Quien puede cambiar estados de confirmación (la asistente solo marca llegó / en box / atendida). */
+  const canAsk = selectableStatuses(spaceRole, ["notificada_whatsapp"] as AttendanceStatus[]).length > 0;
+  const askLink = (appt: Appt) => confirmationLink(appt.phone, { patientName: appt.patientName, day: appt.day, start: appt.start, clinicName });
+  /** Al abrir el chat de WhatsApp, la cita pasa sola a «Notificada por WhatsApp» (solo si estaba «Agendada»). */
+  const askedOf = (appt: Appt) => { const next = statusAfterAsking(appt.status); if (next) void setStatus(appt, next); };
 
   const onTouchStart = (event: React.TouchEvent) => { const t = event.touches[0]; touch.current = { x: t.clientX, y: t.clientY }; };
   const onTouchEnd = (event: React.TouchEvent) => {
@@ -163,6 +171,11 @@ export function AgendaBoxDay({ onOpenPatient, onChanged, spaceRole }: { onOpenPa
       <label className="flex items-center gap-1 text-sm"><span className="sr-only">Fecha</span><input type="date" aria-label="Fecha" className="h-11 rounded-md border border-[#d9d5e4] px-2 text-base sm:h-9 sm:text-sm" value={day} onChange={event => { if (event.target.value) setDay(event.target.value); }} /></label>
       <p className="text-sm font-medium capitalize text-[#3b3355]">{longDay(day)}</p>
       <p className="text-sm text-[#615f73]" data-testid="box-day-count">{scheduled} {scheduled === 1 ? "cita agendada" : "citas agendadas"}</p>
+      {confirmation.total > 0 && <p className="inline-flex flex-wrap items-center gap-x-2 rounded-full bg-[#eef6ee] px-3 py-1 text-sm font-medium text-[#1f5a2c]" data-testid="confirm-rate" title="Confirmadas sobre las citas del día (sin canceladas ni inasistidas)">
+        ✓ {confirmation.confirmed} de {confirmation.total} confirmadas · {confirmation.percent} %
+        {confirmation.waiting > 0 && <span className="font-normal text-[#7a5a12]">· {confirmation.waiting} esperando respuesta</span>}
+        {confirmation.unnotified > 0 && <span className="font-normal text-[#615f73]">· {confirmation.unnotified} sin avisar</span>}
+      </p>}
       <div className="ml-auto flex flex-wrap gap-2">
         {professionals.filter(p => p.active).length > 1 && <select aria-label="Filtrar por profesional" className="h-11 rounded-md border border-[#d9d5e4] bg-white px-2 text-base sm:h-9 sm:text-sm" value={proFilter} onChange={event => setProFilter(event.target.value ? Number(event.target.value) : "")} data-testid="professional-filter">
           <option value="">Todos los profesionales</option>{professionals.filter(p => p.active || p.id === proFilter).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -214,11 +227,11 @@ export function AgendaBoxDay({ onOpenPatient, onChanged, spaceRole }: { onOpenPa
               {blocks.map(block => { const minutes = toMinutes(block.end) - toMinutes(block.start); const pos = cardBox(block.start, minutes, range.from, row); return <button key={"b" + block.id} type="button" className="absolute inset-x-1 z-[5] overflow-hidden rounded-md px-1.5 text-left text-[11px] text-white" style={{ top: pos.top + 1, height: pos.height - 2, background: `repeating-linear-gradient(135deg, ${BLOCK_COLOR} 0 8px, #c62828 8px 16px)` }} onClick={() => setSelectedBlock(block)} data-testid="agenda-block">
                 <span className="font-semibold">{block.start}–{block.end}</span> {block.reason}
               </button>; })}
-              {items.map(appt => { const pos = cardBox(appt.start, appt.minutes, range.from, row); const color = STATUS_COLOR[appt.status]; const wa = whatsappNumber(appt.phone); return <div key={appt.key} role="button" tabIndex={0} className="absolute inset-x-1 z-10 overflow-hidden rounded-md px-1.5 py-0.5 text-left text-[12px] leading-tight shadow-sm ring-1 ring-black/5" style={{ top: pos.top + 1, height: pos.height - 2, background: color, color: textOn(color), borderLeft: `4px solid ${chipOf(appt)?.color ?? color}` }} onClick={() => setSelected(appt)} onKeyDown={event => { if (event.key === "Enter") setSelected(appt); }} data-testid="box-appointment" data-status={appt.status}>
+              {items.map(appt => { const pos = cardBox(appt.start, appt.minutes, range.from, row); const color = STATUS_COLOR[appt.status]; const wa = whatsappNumber(appt.phone); const asking = canAsk && canMarkConfirmed(appt.status); return <div key={appt.key} role="button" tabIndex={0} className="absolute inset-x-1 z-10 overflow-hidden rounded-md px-1.5 py-0.5 text-left text-[12px] leading-tight shadow-sm ring-1 ring-black/5" style={{ top: pos.top + 1, height: pos.height - 2, background: color, color: textOn(color), borderLeft: `4px solid ${chipOf(appt)?.color ?? color}` }} onClick={() => setSelected(appt)} onKeyDown={event => { if (event.key === "Enter") setSelected(appt); }} data-testid="box-appointment" data-status={appt.status}>
                 <p className="truncate"><span className="font-medium">{appt.start}–{toClock(toMinutes(appt.start) + appt.minutes)}</span> <b>{appt.patientName}</b>{appt.status === "en_espera" && appt.arrivedAt && <span className="ml-1 rounded bg-white/85 px-1 text-[10px] font-semibold text-[#7a4a12]" data-testid="card-wait">⏱ {waitLabel(minutesBetween(appt.arrivedAt, nowIso))}</span>}</p>
                 {!compact && pos.height > 2 * row && <>
                   {(() => { const chip = chipOf(appt); return chip && <p className="mt-0.5"><span className="inline-flex max-w-full items-center gap-1 truncate rounded-full bg-white/90 px-1.5 text-[10px] font-medium text-[#1f2430]" data-testid="professional-chip"><span className="size-2 shrink-0 rounded-full" style={{ background: chip.color }} aria-hidden="true" />{chip.name}</span></p>; })()}
-                  {appt.phone && <p className="mt-0.5 flex items-center gap-1 truncate">{appt.phone}{wa && <a href={`https://wa.me/${wa}`} target="_blank" rel="noreferrer" aria-label={`WhatsApp a ${appt.patientName}`} onClick={event => event.stopPropagation()} className="inline-grid size-6 place-items-center rounded-full bg-white/80 text-[#128c7e]"><MessageCircle className="size-3.5" /></a>}</p>}
+                  {appt.phone && <p className="mt-0.5 flex items-center gap-1 truncate">{appt.phone}{wa && <a href={asking ? askLink(appt) ?? `https://wa.me/${wa}` : `https://wa.me/${wa}`} target="_blank" rel="noreferrer" aria-label={asking ? `Pedir confirmación por WhatsApp a ${appt.patientName}` : `WhatsApp a ${appt.patientName}`} onClick={event => { event.stopPropagation(); if (asking) askedOf(appt); }} className="inline-grid size-6 place-items-center rounded-full bg-white/80 text-[#128c7e]" data-testid="card-ask-confirm"><MessageCircle className="size-3.5" /></a>}</p>}
                 </>}
               </div>; })}
             </div>
@@ -230,7 +243,7 @@ export function AgendaBoxDay({ onOpenPatient, onChanged, spaceRole }: { onOpenPa
     {mobile && columns.length > 1 && <p className="mt-2 text-center text-xs text-[#6b6a7c]">Desliza a los lados para cambiar de box.</p>}
 
     {waitlistOpen && <WaitlistSheet patients={data?.patients ?? []} canEdit={!assistant} onClose={() => setWaitlistOpen(false)} />}
-    {selected && <AppointmentSheet spaceRole={spaceRole} appt={selected} boxes={boxes.filter(b => b.enabled)} professionals={professionals} professionalId={proOf(selected)} boxName={boxName} onClose={() => setSelected(null)} onStatus={status => void setStatus(selected, status)} onOpenPatient={onOpenPatient}
+    {selected && <AppointmentSheet spaceRole={spaceRole} clinicName={clinicName} appt={selected} boxes={boxes.filter(b => b.enabled)} professionals={professionals} professionalId={proOf(selected)} boxName={boxName} onClose={() => setSelected(null)} onStatus={status => void setStatus(selected, status)} onOpenPatient={onOpenPatient}
       onMove={async change => { try { await post({ action: "mover", id: selected.id, ...change }); setSelected(null); await changed("Cita actualizada."); } catch (cause) { setError(cause instanceof Error ? cause.message : "No se pudo mover la cita."); } }} />}
     {selectedBlock && <Sheet title="Bloqueo" onClose={() => setSelectedBlock(null)}>
       <p className="font-medium">{selectedBlock.reason} · {selectedBlock.start}–{selectedBlock.end}</p>
@@ -243,8 +256,11 @@ export function AgendaBoxDay({ onOpenPatient, onChanged, spaceRole }: { onOpenPa
   </div>;
 }
 
-function AppointmentSheet({ spaceRole, appt, boxes, professionals, professionalId, boxName, onClose, onStatus, onMove, onOpenPatient }: { spaceRole?: string; appt: Appt; boxes: Box[]; professionals: Professional[]; professionalId: number | null; boxName: (id: number | null) => string; onClose: () => void; onStatus: (status: AttendanceStatus) => void; onMove: (change: Record<string, unknown>) => Promise<void>; onOpenPatient?: (id: number) => void }) {
+function AppointmentSheet({ spaceRole, clinicName, appt, boxes, professionals, professionalId, boxName, onClose, onStatus, onMove, onOpenPatient }: { spaceRole?: string; clinicName?: string; appt: Appt; boxes: Box[]; professionals: Professional[]; professionalId: number | null; boxName: (id: number | null) => string; onClose: () => void; onStatus: (status: AttendanceStatus) => void; onMove: (change: Record<string, unknown>) => Promise<void>; onOpenPatient?: (id: number) => void }) {
   const wa = whatsappNumber(appt.phone);
+  /** Pedir o registrar la confirmación: solo mientras la cita siga pendiente y el rol pueda cambiar ese estado. */
+  const pending = canMarkConfirmed(appt.status) && selectableStatuses(spaceRole, ["confirmada_whatsapp"] as AttendanceStatus[]).length > 0;
+  const askUrl = confirmationLink(appt.phone, { patientName: appt.patientName, day: appt.day, start: appt.start, clinicName });
   /** Asistente: solo estados del ciclo; el servidor le rechaza mover de box/hora, profesional y duración, así que no se muestran. */
   const assistant = spaceRole === "asistente";
   const legend = LEGEND.filter(item => selectableStatuses(spaceRole, [item.status], appt.status).length > 0);
@@ -255,7 +271,13 @@ function AppointmentSheet({ spaceRole, appt, boxes, professionals, professionalI
     {(appt.arrivedAt || appt.inBoxAt || appt.doneAt) && <p className="mt-1 text-xs text-[#615f73]" data-testid="cycle-times">{[appt.arrivedAt && `Llegó ${chileClock(appt.arrivedAt)}`, appt.inBoxAt && `En box ${chileClock(appt.inBoxAt)}`, appt.doneAt && `Atendida ${chileClock(appt.doneAt)}`, appt.arrivedAt && appt.inBoxAt && `esperó ${waitLabel(minutesBetween(appt.arrivedAt, appt.inBoxAt))}`].filter(Boolean).join(" · ")}</p>}
     <p className="mt-1 text-sm">{appt.start}–{toClock(toMinutes(appt.start) + appt.minutes)} · {boxName(appt.boxId)}{(() => { const pro = professionals.find(p => p.id === professionalId); const name = pro?.name ?? appt.professional; return name ? <span> · <span className="inline-flex items-center gap-1"><span className="size-2.5 rounded-full" style={{ background: pro?.color ?? "#473a6d" }} aria-hidden="true" />{name}</span></span> : null; })()}</p>
     {appt.reason && <p className="mt-1 text-sm"><span className="text-[#615f73]">Tratamiento: </span>{appt.reason}</p>}
-    {appt.phone && <p className="mt-1 flex items-center gap-2 text-sm">{appt.phone}{wa && <a href={`https://wa.me/${wa}`} target="_blank" rel="noreferrer" className="inline-flex min-h-9 items-center gap-1 rounded-full bg-[#25d366] px-3 text-xs font-semibold text-white"><MessageCircle className="size-4" />WhatsApp</a>}</p>}
+    {appt.phone && <p className="mt-1 flex items-center gap-2 text-sm">{appt.phone}{wa && !pending && <a href={`https://wa.me/${wa}`} target="_blank" rel="noreferrer" className="inline-flex min-h-9 items-center gap-1 rounded-full bg-[#25d366] px-3 text-xs font-semibold text-white"><MessageCircle className="size-4" />WhatsApp</a>}</p>}
+    {pending && <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2" data-testid="confirm-actions">
+      {askUrl
+        ? <a href={askUrl} target="_blank" rel="noreferrer" onClick={() => { const next = statusAfterAsking(appt.status); if (next) onStatus(next); }} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg bg-[#25d366] px-3 text-sm font-semibold text-white" data-testid="ask-confirm"><MessageCircle className="size-5" />{appt.status === "agendada" ? "Pedir confirmación por WhatsApp" : "Volver a escribir por WhatsApp"}</a>
+        : <p className="rounded-lg bg-[#f4f3f8] p-2 text-xs text-[#615f73] sm:col-span-1">Sin celular chileno válido: no se puede abrir WhatsApp.</p>}
+      <button type="button" onClick={() => onStatus("confirmada_whatsapp")} className="min-h-12 rounded-lg border-2 border-[#9ccc65] bg-white px-3 text-sm font-semibold text-[#2f5d12]" data-testid="mark-confirmed">✓ Ya confirmó</button>
+    </div>}
     {appt.needsPatient && <p className="mt-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-950">Evento de Google sin paciente: asígnalo desde la vista «Semana».</p>}
     <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4" data-testid="quick-status">
       {QUICK_STATUS.map(q => <button key={q.status} type="button" aria-pressed={appt.status === q.status} onClick={() => onStatus(q.status)} className="min-h-12 rounded-lg border-2 px-2 text-sm font-semibold" style={{ borderColor: STATUS_COLOR[q.status], background: appt.status === q.status ? STATUS_COLOR[q.status] : "white", color: appt.status === q.status ? textOn(STATUS_COLOR[q.status]) : "#1f2430" }}><span aria-hidden="true">{q.icon}</span> {q.label}</button>)}

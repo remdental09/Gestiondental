@@ -84,6 +84,43 @@ export function appointmentStats(list: DashAppointment[], evolutionDays: Set<str
   return s;
 }
 
+// ── Confirmación de citas ───────────────────────────────────────────────────
+export type ConfirmationWeek = { from: string; label: string; scheduled: number; confirmed: number; percent: number | null };
+const SHORT_MONTHS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+const shift = (day: string, days: number) => new Date(Date.parse(day + "T12:00:00Z") + days * 86400000).toISOString().slice(0, 10);
+/** Lunes de la semana de un día AAAA-MM-DD. */
+export function weekMonday(day: string): string {
+  const dow = (new Date(day + "T12:00:00Z").getUTCDay() + 6) % 7;
+  return shift(day, -dow);
+}
+const dayMonth = (day: string) => `${Number(day.slice(8, 10))} ${SHORT_MONTHS[Number(day.slice(5, 7)) - 1]}`;
+export const percentOf = (part: number, whole: number): number | null => whole > 0 ? Math.round((part / whole) * 100) : null;
+
+/**
+ * Tasa de confirmación por semana (lunes a domingo) con el mismo criterio de «confirmada» del Dashboard:
+ * confirmadas sobre citas no canceladas. Las semanas sin citas no aparecen.
+ */
+export function confirmationByWeek(list: DashAppointment[], evolutionDays: Set<string>, today: string): ConfirmationWeek[] {
+  const groups = new Map<string, DashAppointment[]>();
+  for (const a of list) { const key = weekMonday(a.day); groups.set(key, [...(groups.get(key) ?? []), a]); }
+  return [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0])).flatMap(([from, items]) => {
+    const stats = appointmentStats(items, evolutionDays, today);
+    if (!stats.scheduled) return [];
+    return [{ from, label: `${dayMonth(from)} – ${dayMonth(shift(from, 6))}`, scheduled: stats.scheduled, confirmed: stats.confirmed, percent: percentOf(stats.confirmed, stats.scheduled) }];
+  });
+}
+
+/** Citas de hoy en adelante que aún no confirman: ya avisadas (esperando respuesta) y sin avisar. */
+export function confirmationPending(list: DashAppointment[], today: string): { awaiting: number; unnotified: number } {
+  let awaiting = 0, unnotified = 0;
+  for (const a of list) {
+    if (a.day < today || a.confirmed || a.declined || a.cancelledAtSource) continue;
+    if (baseAttendance(a.status ?? "agendada") !== "agendada") continue;
+    if (a.status === "notificada_whatsapp" || a.status === "notificada_email") awaiting++; else unnotified++;
+  }
+  return { awaiting, unnotified };
+}
+
 const TYPE_RULES: Array<[string, RegExp]> = [
   ["Urgencia", /\b(urgencia|urgente|dolor)\b/],
   ["Control", /\b(control|seguimiento|revision|recontrol)\b/],
@@ -238,6 +275,9 @@ export function buildDashboard(rows: DashboardRows, o: DashboardOptions) {
       confirmation: toSlices([["Confirmada", stats.confirmed], ["No confirmada", stats.unconfirmed]], ["#0e9bc2", "#d1d5db"]).filter(s => s.value > 0),
       types: toSlices([...typeCounts.entries()].sort((a, b) => b[1] - a[1])),
       stats,
+      confirmationRate: percentOf(stats.confirmed, stats.scheduled),
+      confirmationWeeks: confirmationByWeek(list, evolutionDays, o.today),
+      confirmationPending: confirmationPending(list, o.today),
     },
     kpis: {
       patientsCreated,

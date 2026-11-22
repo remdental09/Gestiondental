@@ -51,6 +51,21 @@ function Pie({ slices, money = false, empty }: { slices: Slice[]; money?: boolea
   </div>;
 }
 
+/** Porcentaje de confirmación del mes y barras por semana, con las citas próximas que aún no confirman. */
+function ConfirmationRate({ rate, weeks, pending }: { rate: number | null; weeks: Dashboard["citas"]["confirmationWeeks"]; pending: Dashboard["citas"]["confirmationPending"] }) {
+  if (rate === null) return <p className="flex min-h-36 items-center justify-center px-4 text-center text-sm text-[#6b6a7c]">Sin citas en el período.</p>;
+  return <div className="space-y-3 p-3" data-testid="confirmation-rate">
+    <p className="text-center"><strong className="text-3xl font-semibold text-[#0e7a99]" data-testid="confirmation-rate-value">{rate} %</strong><span className="ml-2 text-xs text-[#6b6a7c]">de las citas del mes</span></p>
+    <ul className="space-y-1.5">
+      {weeks.map(week => <li key={week.from} className="text-xs text-[#35343f]" data-testid="confirmation-week">
+        <div className="flex items-center justify-between gap-2"><span>{week.label}</span><span className="tabular-nums text-[#6b6a7c]">{week.confirmed} de {week.scheduled} · {week.percent} %</span></div>
+        <div className="mt-0.5 h-2 overflow-hidden rounded-full bg-[#e8e7ee]" role="img" aria-label={`${week.percent} % confirmadas`}><div className="h-full rounded-full bg-[#0e9bc2]" style={{ width: `${week.percent ?? 0}%` }}/></div>
+      </li>)}
+    </ul>
+    {(pending.awaiting > 0 || pending.unnotified > 0) && <p className="rounded-md bg-[#f6f5fa] px-2 py-1.5 text-xs text-[#35343f]" data-testid="confirmation-pending">Próximas citas por confirmar: {pending.awaiting} esperando respuesta · {pending.unnotified} sin avisar</p>}
+  </div>;
+}
+
 function Card({ title, info, children }: { title: string; info: string; children: ReactNode }) {
   return <section className="min-w-0 overflow-visible rounded-lg border border-[#dddbe6] bg-white">
     <h3 className="flex items-center justify-center gap-1 border-b-2 border-[#0e9bc2] bg-[#f6f5fa] px-3 py-2 text-sm font-semibold text-[#35343f]"><InfoTip text={info}/>{title}</h3>
@@ -129,12 +144,15 @@ export function DashboardPanel() {
     {d && s && <>
       <section className="surface space-y-4">
         <SectionTitle icon={<CalendarDays className="size-5 text-[#473a6d]"/>} title="Agenda"/>
-        <div className="grid gap-3 lg:grid-cols-3">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <Card title="Efectividad de citas" info="Citas del mes no canceladas: asistidas (marcadas «Atendida» o con evolución del paciente ese día), no asistidas (marcadas «Inasistida») y pasadas sin registro. No se suponen inasistencias.">
             <Pie slices={d.citas.effectiveness} empty="Sin citas pasadas en el período."/>
           </Card>
           <Card title="Citas confirmadas" info="Citas del mes no canceladas que el paciente confirmó (correo de confirmación o marca en la agenda) versus las que no.">
             <Pie slices={d.citas.confirmation} empty="Sin citas en el período."/>
+          </Card>
+          <Card title="Tasa de confirmación" info="Citas del mes no canceladas que el paciente confirmó (por WhatsApp, correo o marca en la agenda) o que ya llegaron, sobre el total, semana a semana. «Esperando respuesta» son citas de hoy en adelante ya avisadas; «Sin avisar», las que aún no se les pide confirmar.">
+            <ConfirmationRate rate={d.citas.confirmationRate} weeks={d.citas.confirmationWeeks} pending={d.citas.confirmationPending}/>
           </Card>
           <Card title="Tipos de atención" info="Según el motivo de la cita (urgencia, control, diagnóstico, tratamiento, ortodoncia…). Las citas de Google Calendar sin motivo reconocible quedan como «Sin especificar».">
             <Pie slices={d.citas.types} empty="Sin citas en el período."/>
