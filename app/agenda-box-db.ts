@@ -90,6 +90,8 @@ export async function removeBlock(ownerId: string, id: number): Promise<boolean>
 export type BoxAppointment = {
   key: string; source: "app" | "cal"; id: number; patientId: number | null; patientName: string; phone: string; day: string; start: string; minutes: number;
   reason: string; boxId: number | null; professional: string; professionalId: number | null; professionalColor: string | null; status: AttendanceStatus; google: boolean; needsPatient: boolean;
+  /** Horas del ciclo (ISO): llegó a la sala de espera, pasó a box, terminó. */
+  arrivedAt: string | null; inBoxAt: string | null; doneAt: string | null;
 };
 
 /** Citas de la app (con su box y estado) y eventos de Google que no son citas de la app (van a «Sin box»), entre from y to. */
@@ -99,6 +101,9 @@ export async function loadBoxAppointments(ownerId: string, from: string, to: str
   const statuses = new Map<string, AttendanceStatus>();
   for (const row of (await db.prepare("SELECT source, ref_id, status FROM appointment_attendance WHERE owner_id = ?").bind(ownerId).all<{ source: string; ref_id: number; status: string }>()).results)
     if (isAttendanceStatus(row.status)) statuses.set(`${row.source}:${row.ref_id}`, row.status);
+  const { loadCycleTimes } = await import("@/app/cycle-db");
+  const times = await loadCycleTimes(ownerId);
+  const timesFor = (...keys: string[]) => { for (const key of keys) { const t = times.get(key); if (t) return t; } return { arrivedAt: null, inBoxAt: null, doneAt: null }; };
   type AppRow = { id: number; patient_id: number | null; day: string; time: string; reason: string; minutes: number | null; box_id: number | null; professional: string | null; professional_id: number | null; pro_name: string | null; pro_color: string | null; name: string | null; phone: string | null; cal_id: number | null; cal_status: string | null };
   let linked = true;
   let appRows: AppRow[];
@@ -114,7 +119,7 @@ export async function loadBoxAppointments(ownerId: string, from: string, to: str
   const seen = new Set<string>();
   for (const r of appRows) {
     const status = statuses.get(`app:${r.id}`) ?? (r.cal_id ? statuses.get(`cal:${r.cal_id}`) : undefined) ?? (r.cal_status === "cancelled" ? "cancelada" : "agendada");
-    out.push({ key: `app:${r.id}`, source: "app", id: r.id, patientId: r.patient_id, patientName: r.name ?? "Paciente", phone: r.phone ?? "", day: r.day, start: r.time, minutes: r.minutes && r.minutes > 0 ? r.minutes : 30, reason: r.reason, boxId: r.box_id ?? null, professional: r.pro_name ?? r.professional ?? "", professionalId: r.professional_id ?? null, professionalColor: r.pro_color ?? null, status, google: Boolean(r.cal_id), needsPatient: false });
+    out.push({ key: `app:${r.id}`, source: "app", id: r.id, patientId: r.patient_id, patientName: r.name ?? "Paciente", phone: r.phone ?? "", day: r.day, start: r.time, minutes: r.minutes && r.minutes > 0 ? r.minutes : 30, reason: r.reason, boxId: r.box_id ?? null, professional: r.pro_name ?? r.professional ?? "", professionalId: r.professional_id ?? null, professionalColor: r.pro_color ?? null, status, google: Boolean(r.cal_id), needsPatient: false, ...timesFor(`app:${r.id}`, ...(r.cal_id ? [`cal:${r.cal_id}`] : [])) });
     seen.add(`${r.patient_id}|${r.day}|${r.time}`);
   }
   if (!linked) return out;
@@ -130,7 +135,7 @@ export async function loadBoxAppointments(ownerId: string, from: string, to: str
     if (r.status === "cancelled" && !statuses.has(`cal:${r.id}`)) continue;
     if (r.patient_id !== null && seen.has(`${r.patient_id}|${when.day}|${when.time}`)) continue;
     const minutes = Math.max(15, Math.round((Date.parse(r.end_at) - Date.parse(r.start_at)) / 60000) || 30);
-    out.push({ key: `cal:${r.id}`, source: "cal", id: r.id, patientId: r.patient_id, patientName: r.name ?? r.title, phone: r.phone ?? "", day: when.day, start: when.time, minutes, reason: r.name ? r.title : "", boxId: null, professional: "", professionalId: null, professionalColor: null, status: statuses.get(`cal:${r.id}`) ?? "agendada", google: true, needsPatient: r.needs_patient === 1 });
+    out.push({ key: `cal:${r.id}`, source: "cal", id: r.id, patientId: r.patient_id, patientName: r.name ?? r.title, phone: r.phone ?? "", day: when.day, start: when.time, minutes, reason: r.name ? r.title : "", boxId: null, professional: "", professionalId: null, professionalColor: null, status: statuses.get(`cal:${r.id}`) ?? "agendada", google: true, needsPatient: r.needs_patient === 1, ...timesFor(`cal:${r.id}`) });
   }
   return out;
 }
@@ -181,7 +186,7 @@ export async function createBoxAppointment(ownerId: string, input: NewAppointmen
   if (!row) return { ok: false, error: "No se pudo guardar la cita." };
   const { pushAppointmentToGoogle } = await import("@/app/drive-oauth");
   const calendar = await pushAppointmentToGoogle(ownerId, { id: row.id, day: input.day, time: input.time, reason, minutes, professional, ...(box ? { box: box.name } : {}) }, patient.name, patient.id).catch(() => "error" as const);
-  return { ok: true, calendar, appointment: { key: `app:${row.id}`, source: "app", id: row.id, patientId: patient.id, patientName: patient.name, phone: patient.phone, day: input.day, start: input.time, minutes, reason, boxId: box?.id ?? null, professional, professionalId: pro.id, professionalColor: pro.color, status: "agendada", google: calendar === "ok", needsPatient: false } };
+  return { ok: true, calendar, appointment: { key: `app:${row.id}`, source: "app", id: row.id, patientId: patient.id, patientName: patient.name, phone: patient.phone, day: input.day, start: input.time, minutes, reason, boxId: box?.id ?? null, professional, professionalId: pro.id, professionalColor: pro.color, status: "agendada", google: calendar === "ok", needsPatient: false, arrivedAt: null, inBoxAt: null, doneAt: null } };
 }
 
 /** Mover una cita de la app a otro box (y/u otra hora/duración). Si está en Google, se actualiza el evento (lugar incluido). */
