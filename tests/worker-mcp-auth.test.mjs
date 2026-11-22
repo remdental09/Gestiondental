@@ -14,7 +14,7 @@ const source = readFileSync(new URL('../worker.ts', import.meta.url), 'utf8');
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText;
 const ownerId = 'synthetic-owner-id-00001';
 const email = 'training@example.test';
-const env = { CLINIC_OWNERS: JSON.stringify({ [email]: { ownerId, name: 'Prueba' } }), ACCESS_POLICY_AUD: 'audience-test' };
+const env = { CLINIC_OWNERS: JSON.stringify({ [email]: { ownerId, name: 'Prueba' } }), ACCESS_POLICY_AUD: 'audience-test', ACCESS_TEAM_DOMAIN: 'https://synthetic-team.cloudflareaccess.com' };
 
 function worker() {
   const exported = {};
@@ -202,4 +202,14 @@ test('equipo: revocado, la cookie de la clínica ya no abre sus fichas; ni se pu
 test('equipo: si la base falla, se trabaja en el espacio personal (nunca en uno ajeno)', async () => {
   const response = await worker().fetch(await clinicReq('; gd_espacio=' + CLINICA), { ...googleEnv, DB: fakeDb([row()], { fail: true }) }, {});
   assert.equal((await response.json()).clinic, ownerId);
+});
+
+test('Access falla cerrado si faltan ACCESS_TEAM_DOMAIN o ACCESS_POLICY_AUD', async () => {
+  for (const missing of ['ACCESS_TEAM_DOMAIN', 'ACCESS_POLICY_AUD']) {
+    const partial = { ...env }; delete partial[missing];
+    const instance = worker();
+    const response = await instance.fetch(request('/api/clinical'), partial, access({ email }));
+    assert.equal(response.status, 503, missing);
+    assert.equal(instance.count(), 0);
+  }
 });

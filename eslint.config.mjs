@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Salida de compilación (vinext) y paquetes generados: no es código fuente.
+    "dist/**",
+    ".wrangler/**",
+    "vendor/**",
   ]),
   {
     files: ["components/ui/**/*.{ts,tsx}", "hooks/use-mobile.ts"],

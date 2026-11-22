@@ -6,10 +6,8 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Gestión Dental",
-  description: "Prototipo privado de ficha odontológica, presupuestos y agenda.",
-  other: {
-    "codex-preview": "development",
-  },
+  description: "Ficha clínica odontológica gratuita para dentistas en Chile: evoluciones por voz, agenda, presupuestos y recetas.",
+  applicationName: "Gestión Dental",
   icons: {
     icon: "/favicon.svg",
     shortcut: "/favicon.svg",
