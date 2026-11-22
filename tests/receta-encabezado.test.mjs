@@ -23,7 +23,7 @@ test("receta: el QR de la Superintendencia es obligatorio, sin opción para ocul
   assert.match(panel, /const missingQr = requiresHabilitacionQr\(doc\.kind\) && !reg\?\.qrUrl;/);
   assert.match(panel, /missingQr \? <div[^>]*data-testid=\{prescription \? "receta-sin-qr" : "consent-sin-qr"\}/);
   assert.match(panel, /const printBlocked = \(doc: SavedDocument\) => requiresHabilitacionQr\(doc\.kind\) && \(doc\.status === "borrador" \? !canIssueReceta : !doc\.registration\?\.qrUrl\)/);
-  assert.equal((panel.match(/disabled=\{busy \|\| printBlocked\(activeDocument\)\}/g) ?? []).length, 2, "Imprimir y Guardar en PDF");
+  assert.equal((panel.match(/disabled=\{busy \|\| printBlocked\(activeDocument\)\}/g) ?? []).length, 2, "Imprimir y Generar certificado en PDF");
   assert.doesNotMatch(panel, /mostrarQr|showQr|ocultarQr|hideQr|includeQr/i);
   const emitir = read("app/api/documentos/emitir/route.ts");
   assert.match(emitir, /if \(!publicRegistration\(reg\)\.qrUrl\) return fail\(/);

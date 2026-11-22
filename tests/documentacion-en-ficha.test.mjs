@@ -32,7 +32,7 @@ test("el menú ofrece receta médica, receta magistral, orden médica, certifica
   assert.match(lib, /isPrescriptionKind[\s\S]*receta_magistral/);
 });
 
-test("la vista previa tiene Guardar en PDF e Imprimir, también para borradores, y aparece arriba", () => {
+test("la vista previa tiene Generar certificado en PDF e Imprimir, también para borradores, y aparece arriba", () => {
   assert.match(panel, /data-testid="documentation-save-pdf"/);
   assert.match(panel, /data-testid="documentation-print-button"/);
   assert.match(panel, /const printDocument/);
