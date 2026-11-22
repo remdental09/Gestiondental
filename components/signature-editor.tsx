@@ -7,7 +7,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, ImagePlus, Lock, Maximize2, Pencil, Save, Trash2 } from "lucide-react";
-import { BASELINE_RATIO, backingSize, inkBounds, outputScale, strokeWidth, worthTrimming } from "@/lib/signature-image";
+import { BASELINE_RATIO, DEFAULT_INK, SIGNATURE_INKS, backingSize, inkBounds, outputScale, strokeWidth, worthTrimming } from "@/lib/signature-image";
 
 const loadImage = (src: string) => new Promise<HTMLImageElement>((resolve, reject) => { const image = new window.Image(); image.onload = () => resolve(image); image.onerror = () => reject(new Error("No se pudo leer la imagen.")); image.src = src; });
 
@@ -75,13 +75,15 @@ async function saveMark(value: string, kind: MarkKind = "firma"): Promise<string
 }
 
 type Point = { x: number; y: number };
+type Stroke = { points: Point[]; color: string };
 type Layer = HTMLImageElement | HTMLCanvasElement;
 const layerSize = (layer: Layer) => layer instanceof HTMLImageElement ? { width: layer.naturalWidth, height: layer.naturalHeight } : { width: layer.width, height: layer.height };
 
 /** Traza una línea suave (curvas por puntos medios) en coordenadas de pantalla. */
-function drawStroke(ctx: CanvasRenderingContext2D, points: Point[], width: number) {
+function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke, width: number) {
+  const { points } = stroke;
   if (!points.length) return;
-  ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.strokeStyle = "#1f1c33"; ctx.lineWidth = width;
+  ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.strokeStyle = stroke.color; ctx.lineWidth = width;
   ctx.beginPath(); ctx.moveTo(points[0].x, points[0].y);
   if (points.length === 1) { ctx.lineTo(points[0].x + 0.01, points[0].y + 0.01); ctx.stroke(); return; }
   for (let i = 1; i < points.length - 1; i++) {
@@ -101,8 +103,10 @@ export function SignatureEditor({ compact = false, kind = "firma" }: { compact?:
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const layer = useRef<Layer | null>(null);
-  const strokes = useRef<Point[][]>([]);
-  const current = useRef<Point[] | null>(null);
+  const strokes = useRef<Stroke[]>([]);
+  const current = useRef<Stroke | null>(null);
+  const inkRef = useRef(DEFAULT_INK);
+  const [ink, setInk] = useState<string>(DEFAULT_INK);
   const size = useRef({ width: 0, height: 0, scale: 1 });
   const [mark, setMark] = useState<string | null>(null);
   const [hasImage, setHasImage] = useState(false);
@@ -134,7 +138,7 @@ export function SignatureEditor({ compact = false, kind = "firma" }: { compact?:
       ctx.drawImage(layer.current, (width - w) / 2, y, w, h);
     }
     const line = strokeWidth(width);
-    for (const points of strokes.current) drawStroke(ctx, points, line);
+    for (const stroke of strokes.current) drawStroke(ctx, stroke, line);
     if (current.current) drawStroke(ctx, current.current, line);
   }, []);
 
@@ -231,7 +235,7 @@ export function SignatureEditor({ compact = false, kind = "firma" }: { compact?:
     if (event.button > 0) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
-    current.current = [point(event)]; render();
+    current.current = { points: [point(event)], color: inkRef.current }; render();
     setHasImage(true); setDirty(true); setError(""); setNotice("");
   };
   const move = (event: React.PointerEvent<HTMLCanvasElement>) => {
@@ -240,9 +244,14 @@ export function SignatureEditor({ compact = false, kind = "firma" }: { compact?:
     const native = event.nativeEvent as PointerEvent & { getCoalescedEvents?: () => PointerEvent[] };
     const rect = event.currentTarget.getBoundingClientRect();
     const events = native.getCoalescedEvents?.() ?? [];
-    if (events.length) for (const e of events) current.current.push({ x: e.clientX - rect.left, y: e.clientY - rect.top });
-    else current.current.push(point(event));
+    if (events.length) for (const e of events) current.current.points.push({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+    else current.current.points.push(point(event));
     render();
+  };
+  /** Elegir un color: vale para lo que se firme desde ahora y recolorea lo ya firmado en este cuadro (sin guardar). */
+  const pickInk = (value: string) => {
+    inkRef.current = value; setInk(value);
+    if (strokes.current.length) { for (const stroke of strokes.current) stroke.color = value; render(); setDirty(true); setNotice(""); }
   };
   const stop = () => { if (current.current) { strokes.current.push(current.current); current.current = null; } };
   const pickFile = async (file?: File) => {
@@ -305,6 +314,10 @@ export function SignatureEditor({ compact = false, kind = "firma" }: { compact?:
         <canvas ref={canvasRef} aria-label={isStamp ? "Vista del timbre" : "Cuadro para firmar con el dedo"} onPointerDown={start} onPointerMove={move} onPointerUp={stop} onPointerCancel={stop} className={`absolute inset-0 block size-full touch-none select-none rounded-xl border-2 border-dashed border-[#bcb5cc] bg-white ${locked ? "pointer-events-none" : "cursor-crosshair"}`} style={{ WebkitUserSelect: "none", WebkitTouchCallout: "none" }}/>
         {!locked && !isStamp && <div aria-hidden="true" className="pointer-events-none absolute inset-x-5 flex items-end gap-2 border-b-2 border-[#9a93ad] pb-1 text-[#9a93ad]" style={{ top: `calc(${BASELINE_RATIO * 100}% - 1.75rem)`, height: "1.75rem" }} data-testid="signature-baseline"><span className="text-xl font-semibold leading-none">✕</span><span className="text-sm font-medium uppercase tracking-wider">Firme aquí</span></div>}
       </div>
+      {!locked && !isStamp && <div className="mt-3 flex flex-wrap items-center gap-2" role="group" aria-label="Color de la firma" data-testid="signature-inks">
+        <span className="text-sm font-medium text-[#615f73]">Color</span>
+        {SIGNATURE_INKS.map(option => <button key={option.id} type="button" onClick={() => pickInk(option.value)} aria-pressed={ink === option.value} aria-label={option.label} title={option.label} data-testid={`signature-ink-${option.id}`} className={`relative flex size-11 items-center justify-center rounded-full border-2 ${ink === option.value ? "border-[#473a6d] ring-2 ring-[#473a6d]/30" : "border-[#dddbe6]"} bg-white`}><span className="size-6 rounded-full" style={{ backgroundColor: option.value }}/>{ink === option.value && <Check className="absolute size-3.5 text-white" aria-hidden="true"/>}</button>)}
+      </div>}
       {locked ? <div className="mt-3 space-y-2 rounded-xl border border-[#dddbe6] bg-[#f7f6fa] p-3" data-testid="signature-locked">
         <p className="flex items-center gap-2 text-sm font-semibold text-[#473a6d]"><Lock className="size-4" aria-hidden="true"/>{words.protectedTitle}</p>
         {codeSentTo === null ? <>

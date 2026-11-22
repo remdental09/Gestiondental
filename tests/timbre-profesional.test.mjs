@@ -96,3 +96,21 @@ test("timbre: llega a receta, certificado, consentimiento, presupuesto y a la vi
   assert.match(read("components/profile-dialog.tsx"), /SignatureEditor kind="timbre"/);
   assert.match(read("components/professionals-panel.tsx"), /SignatureEditor kind="timbre"/);
 });
+
+test("firma: se puede elegir el color de la tinta, también después de firmar, y el timbre no lo ofrece", async () => {
+  const { SIGNATURE_INKS, DEFAULT_INK, isSignatureInk, inkBounds } = await import("../lib/signature-image.ts");
+  assert.ok(SIGNATURE_INKS.length >= 3, "hay varios colores para elegir");
+  assert.equal(DEFAULT_INK, "#1f1c33", "el color de siempre sigue por defecto");
+  assert.equal(new Set(SIGNATURE_INKS.map(ink => ink.value)).size, SIGNATURE_INKS.length, "sin colores repetidos");
+  assert.ok(SIGNATURE_INKS.every(ink => isSignatureInk(ink.value)) && !isSignatureInk("#ffffff"));
+  // Todo color de tinta debe contar como trazo al recortar (si no, la firma saldría vacía): nunca casi blanco.
+  for (const ink of SIGNATURE_INKS) {
+    const [r, g, b] = [1, 3, 5].map(i => parseInt(ink.value.slice(i, i + 2), 16));
+    assert.ok(inkBounds(new Uint8ClampedArray([r, g, b, 255]), 1, 1, 0), `${ink.label} se detecta como tinta`);
+  }
+  const editor = read("components/signature-editor.tsx");
+  assert.match(editor, /data-testid="signature-inks"/);
+  assert.match(editor, /\{!locked && !isStamp && <div[^>]*data-testid="signature-inks"/, "solo la firma dibujada tiene colores");
+  assert.match(editor, /for \(const stroke of strokes\.current\) stroke\.color = value/, "elegir color recolorea lo ya firmado");
+  assert.doesNotMatch(editor, /strokeStyle = "#/, "el color ya no está fijo en el dibujo del trazo");
+});

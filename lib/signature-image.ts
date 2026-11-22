@@ -63,3 +63,13 @@ export const strokeWidth = (cssWidth: number) => Math.min(7, Math.max(4.5, cssWi
 
 /** Altura de la línea guía «Firme aquí», como fracción del alto del cuadro. */
 export const BASELINE_RATIO = 0.72;
+
+/** Colores de tinta para firmar con el dedo (el primero es el de siempre). Se elige antes o después de firmar. */
+export const SIGNATURE_INKS = [
+  { id: "negro", label: "Negro", value: "#1f1c33" },
+  { id: "azul", label: "Azul", value: "#1d4ed8" },
+  { id: "marino", label: "Azul marino", value: "#1e3a8a" },
+  { id: "violeta", label: "Violeta", value: "#473a6d" },
+] as const;
+export const DEFAULT_INK: string = SIGNATURE_INKS[0].value;
+export const isSignatureInk = (value: string) => SIGNATURE_INKS.some(ink => ink.value === value);
