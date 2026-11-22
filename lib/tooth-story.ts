@@ -43,7 +43,7 @@ export type StoryStage = {
   current: boolean;
 };
 
-const faceName = (surface: OdontogramSurface, tooth: number) =>
+export const faceName = (surface: OdontogramSurface, tooth: number) =>
   surface === "O" ? (tooth % 10 <= 3 ? "Incisal" : "Oclusal")
     : surface === "P" ? (Math.floor(tooth / 10) === 1 || Math.floor(tooth / 10) === 2 || Math.floor(tooth / 10) === 5 || Math.floor(tooth / 10) === 6 ? "Palatina" : "Lingual")
       : surface === "V" ? "Vestibular" : surface === "M" ? "Mesial" : "Distal";

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { PhotoStack } from "@/components/photo-stack";
 import { CariesOverlay } from "@/components/caries-overlay";
 import { toothStory, type StoryStage } from "@/lib/tooth-story";
@@ -14,7 +14,7 @@ function StageImage({ stage, tooth, large }: { stage: StoryStage; tooth: number;
 }
 
 /** «Película de la pieza»: cada etapa con su fecha y su imagen del banco, de la más antigua a la actual. Las imágenes son referenciales. */
-export function ToothStory({ tooth, history, endoNow = false, size = "compact" }: { tooth: number; history: ToothHistoryEvent[]; endoNow?: boolean; size?: "compact" | "large" }) {
+export function ToothStory({ tooth, history, endoNow = false, size = "compact", actions }: { tooth: number; history: ToothHistoryEvent[]; endoNow?: boolean; size?: "compact" | "large"; actions?: ReactNode }) {
   const stages = useMemo(() => toothStory(history, tooth, { endoNow }), [history, tooth, endoNow]);
   const large = size === "large";
   const [index, setIndex] = useState(Math.max(0, stages.length - 1));
@@ -28,7 +28,7 @@ export function ToothStory({ tooth, history, endoNow = false, size = "compact" }
     return () => clearTimeout(timer);
   }, [playing, index, stages.length]);
 
-  if (!stages.length) return <section className="mt-4 rounded-xl border border-dashed border-[#dddbe6] bg-white p-4" data-testid="tooth-story-empty"><h5 className="text-sm font-semibold text-[#3b3355]">Película de la pieza</h5><p className="mt-1 text-xs text-[#6b6a7c]">Cuando esta pieza tenga cambios registrados (caries, obturación, corona, implante…) irá armando aquí su historia, etapa por etapa y con fecha.</p></section>;
+  if (!stages.length) return <section className="mt-4 rounded-xl border border-dashed border-[#dddbe6] bg-white p-4" data-testid="tooth-story-empty"><h5 className="text-sm font-semibold text-[#3b3355]">Película de la pieza</h5><p className="mt-1 text-xs text-[#6b6a7c]">Cuando esta pieza tenga cambios registrados (caries, obturación, corona, implante…) irá armando aquí su historia, etapa por etapa y con fecha.</p>{actions&&<div className="mt-3">{actions}</div>}</section>;
 
   const stage = stages[Math.min(index, stages.length - 1)];
   const first = stages[0];
@@ -36,7 +36,8 @@ export function ToothStory({ tooth, history, endoNow = false, size = "compact" }
   return <section className="mt-4 rounded-xl border border-[#dddbe6] bg-white p-4" data-testid="tooth-story" data-size={size}>
     <div className="flex flex-wrap items-center justify-between gap-2">
       <h5 className="text-sm font-semibold text-[#3b3355]">Película de la pieza · FDI {formatFdi(tooth)}</h5>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
+        {actions}
         {stages.length > 1 && <button type="button" data-testid="story-play" onClick={() => { if (playing) setPlaying(false); else { if (index >= stages.length - 1) setIndex(0); setPlaying(true); } }} className="h-8 rounded-lg bg-[#473a6d] px-3 text-xs font-semibold text-white">{playing ? "Pausar" : "Reproducir"}</button>}
         {stages.length > 1 && <button type="button" data-testid="story-compare" aria-pressed={compare} onClick={() => setCompare(v => !v)} className={`h-8 rounded-lg border px-3 text-xs font-semibold ${compare ? "border-[#473a6d] bg-[#efeaf8] text-[#473a6d]" : "border-[#d8d3e3] bg-white text-[#473a6d]"}`}>Antes / ahora</button>}
       </div>

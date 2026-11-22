@@ -1,4 +1,5 @@
 "use client";
+import { evolveSteps, evolveSummary, type EvolveInput } from "@/lib/tooth-evolve";
 import { appointmentsAsEvents, chileLocalToIso } from "@/lib/appointment-events";
 import { TodayPanel } from "@/components/today-panel";
 import { ControlsHomeCard, PatientNextControl, ScheduleControlForm, type ControlStart } from "@/components/next-controls";
@@ -675,6 +676,13 @@ export default function Home(){
     const data=await persist({action:"setToothSurface",patientId:selectedId,tooth,surface,finding});
     setToothStatuses(previous=>({...previous,[selectedId]:data.odontogram}));
   };
+  const evolveTooth=async(tooth:number,input:EvolveInput,date:string,note:string)=>{
+    if(!await reviewChange({patientId:selectedId,heading:"Evolución de la pieza",details:[`Pieza FDI ${formatFdi(tooth)}: ${evolveSummary(tooth,input,date)}.`]}))throw new Error("Cambio cancelado; no se guardó.");
+    for(const step of evolveSteps(tooth,input,date,note)){
+      const data=await persist({...step,patientId:selectedId});
+      setToothStatuses(previous=>({...previous,[selectedId]:data.odontogram}));
+    }
+  };
   const applyToothDictation=async(tooth:number,operations:ToothDictationOperation[],budgetTitle:string,budgetItems:BudgetPlan["items"],evolution:{title:string;body:string})=>{
     const result=await persist({action:"applyToothDictation",patientId:selectedId,tooth,changes:operations,budgetTitle,budgetItems,evolution:{...evolution,requestId:crypto.randomUUID()}});
     setToothStatuses(previous=>({...previous,[selectedId]:result.odontogram}));
@@ -1011,7 +1019,7 @@ export default function Home(){
   onEdit={editEvolution}
   onAnnul={note => setAnnulTarget(note)}
 /></Suspense></div></TabsContent>
-            <TabsContent value="odontograma"><OdontogramDateBar dates={chartDates(toothStatuses[selectedId]??emptyOdontogram())} value={chartDate} onChange={setChartDate}/><Suspense fallback={<div className="min-h-[320px] rounded-xl bg-white p-5 text-sm text-[#6b6a7c]" role="status">Cargando odontograma…</div>}><Odontogram key={`${selectedId}-${chartDate??"hoy"}`} endo={endoMarks} onOpenEndo={tooth=>{setEndoFocus(tooth);setActiveTab("endodoncia")}} onSetPriorEndo={endoData?setPriorEndo:undefined} priorEndo={Object.fromEntries((endoData?.cases??[]).filter(c=>c.prior).map(c=>[c.tooth,c.priorYear??""]))} treatments={toothTreatmentMap} planned={plannedTeeth} onSetPlannedDone={setBudgetItemDone} onOpenPlan={()=>setActiveTab("presupuestos")} onDeleteEvent={deleteToothEvent} onEditEvent={editToothEvent} data={chartDate?chartAt(toothStatuses[selectedId]??emptyOdontogram(),chartDate):toothStatuses[selectedId]??emptyOdontogram()} evolutionEvents={toothEvolutionHistory} onSetStatus={chartDate?readOnlyChart:updateTooth} onRemoveLesion={chartDate?readOnlyChart:removeToothLesion} onSetMissingReason={chartDate?readOnlyChart:updateMissingReason} onSetSurface={chartDate?readOnlyChart:updateSurface} onSetCrownDetails={chartDate?readOnlyChart:updateCrownDetails} onApplyToothDictation={chartDate?undefined:applyToothDictation}/></Suspense></TabsContent>
+            <TabsContent value="odontograma"><OdontogramDateBar dates={chartDates(toothStatuses[selectedId]??emptyOdontogram())} value={chartDate} onChange={setChartDate}/><Suspense fallback={<div className="min-h-[320px] rounded-xl bg-white p-5 text-sm text-[#6b6a7c]" role="status">Cargando odontograma…</div>}><Odontogram key={`${selectedId}-${chartDate??"hoy"}`} endo={endoMarks} onOpenEndo={tooth=>{setEndoFocus(tooth);setActiveTab("endodoncia")}} onSetPriorEndo={endoData?setPriorEndo:undefined} priorEndo={Object.fromEntries((endoData?.cases??[]).filter(c=>c.prior).map(c=>[c.tooth,c.priorYear??""]))} treatments={toothTreatmentMap} planned={plannedTeeth} onSetPlannedDone={setBudgetItemDone} onOpenPlan={()=>setActiveTab("presupuestos")} onDeleteEvent={deleteToothEvent} onEditEvent={editToothEvent} data={chartDate?chartAt(toothStatuses[selectedId]??emptyOdontogram(),chartDate):toothStatuses[selectedId]??emptyOdontogram()} evolutionEvents={toothEvolutionHistory} onSetStatus={chartDate?readOnlyChart:updateTooth} onRemoveLesion={chartDate?readOnlyChart:removeToothLesion} onSetMissingReason={chartDate?readOnlyChart:updateMissingReason} onSetSurface={chartDate?readOnlyChart:updateSurface} onSetCrownDetails={chartDate?readOnlyChart:updateCrownDetails} onApplyToothDictation={chartDate?undefined:applyToothDictation} onEvolveTooth={chartDate?undefined:evolveTooth}/></Suspense></TabsContent>
             <TabsContent value="presupuestos"><div className="surface"><div className="flex justify-between gap-3"><div><h3 className="font-semibold">Planes de tratamiento y presupuestos</h3><p className="mt-1 text-sm text-[#615f73]">Organiza prestaciones por fases y revisa total, abonos y saldo en cada plan.</p></div><div className="flex gap-2"><Button variant="outline" size="sm" onClick={()=>setQuickBudgetOpen(true)}><Mic className="mr-1 size-4"/>Presupuesto rápido</Button><Button variant="outline" size="sm" onClick={startNewBudget}>Añadir plan</Button></div></div><div className="mt-5 space-y-4">{patientBudgets.length?<>
               <Suspense fallback={null}><BudgetCardsBoard budgets={patientBudgets} payments={patientPayments} today={chileTodayIso()} validityDays={budgetValidityDays} onPrint={id=>setPrintingBudgetId(id)} onSetAlta={setBudgetAlta} onChangeValidity={saveBudgetValidity} renderDetail={primary=>{
                 if(primary.isAlternative)return <Suspense fallback={null}><BudgetCard budget={primary} onEdit={()=>editBudget(primary)} onPrint={()=>setPrintingBudgetId(primary.id)}/></Suspense>;
