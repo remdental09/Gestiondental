@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import type { ClinicalImage } from "@/app/clinical-data";
+import { thumbUrl } from "@/lib/image-compress";
 import {
   APPLIANCES, ARCH_WIRES, DIAGNOSIS_FIELDS, ELASTICS, FACIAL_SLOTS, HYGIENE, INTRAORAL_SLOTS, XRAY_TYPES,
   controlEvolutionText, emptyOrtho, orthoActive, summarizeOrtho, type DiagnosisKey, type OrthoControl, type OrthoData, type OrthoPlan, type PhotoTemplate,
@@ -135,7 +136,7 @@ export function OrthodonticsPanel({ patientId, patientName, images, onUploadImag
     const image = imageById.get(template.photos[slot.key] ?? -1);
     return <div key={slot.key} className="space-y-1" data-testid={`ortho-slot-${slot.key}`}>
       <p className="text-xs font-medium text-[#57566a]">{slot.label}</p>
-      {image ? <div className="group relative aspect-[4/3] overflow-hidden rounded-lg border border-[#dddbe6] bg-[#f7f6fa]"><a href={image.url} target="_blank" rel="noreferrer"><img src={image.url} alt={`${template.label} · ${slot.label}`} className="size-full object-cover" /></a><button type="button" aria-label={`Quitar foto ${slot.label}`} onClick={() => void removePhoto(template, slot.key)} className="absolute right-1 top-1 rounded-full bg-white/90 p-1 text-[#a43542] shadow"><Trash2 className="size-3.5" /></button></div>
+      {image ? <div className="group relative aspect-[4/3] overflow-hidden rounded-lg border border-[#dddbe6] bg-[#f7f6fa]"><a href={image.url} target="_blank" rel="noreferrer"><img src={thumbUrl(image.url)} loading="lazy" alt={`${template.label} · ${slot.label}`} className="size-full object-cover" /></a><button type="button" aria-label={`Quitar foto ${slot.label}`} onClick={() => void removePhoto(template, slot.key)} className="absolute right-1 top-1 rounded-full bg-white/90 p-1 text-[#a43542] shadow"><Trash2 className="size-3.5" /></button></div>
         : <label className="flex aspect-[4/3] cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-[#d0cadd] bg-[#f9f9fb] text-xs text-[#473a6d] hover:bg-[#efeef4]"><Camera className="size-5" aria-hidden="true" />Subir foto<input type="file" accept="image/jpeg,image/png,image/webp" capture={undefined} className="sr-only" disabled={saving} aria-label={`Subir foto ${slot.label}`} onChange={event => { const file = event.target.files?.[0]; event.target.value = ""; void uploadPhoto(template, slot.key, slot.label, file); }} /></label>}
     </div>;
   };
@@ -235,7 +236,7 @@ export function OrthodonticsPanel({ patientId, patientName, images, onUploadImag
       <label className="inline-flex h-10 cursor-pointer items-center rounded-lg bg-[#473a6d] px-4 text-sm font-semibold text-white hover:bg-[#3a2f5a]">Subir archivo<input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" className="sr-only" disabled={saving} aria-label="Subir radiografía o cefalometría" onChange={event => { const file = event.target.files?.[0]; event.target.value = ""; void uploadRx(file); }} /></label></div>
     {rxImages.length === 0 ? <p className="rounded-xl border border-dashed border-[#dddbe6] p-6 text-center text-sm text-[#6b6a7c]">Aún no hay radiografías ni cefalometrías.</p> :
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{rxImages.map(image => <div key={image.id} className="overflow-hidden rounded-xl border border-[#e6e4ee]">
-        {image.contentType === "application/pdf" ? <a href={image.url} target="_blank" rel="noreferrer" className="flex aspect-[4/3] items-center justify-center bg-[#f7f6fa] text-sm font-medium text-[#473a6d]">Abrir PDF</a> : <a href={image.url} target="_blank" rel="noreferrer"><img src={image.url} alt={`${image.note} · ${image.name}`} className="aspect-[4/3] w-full object-cover" /></a>}
+        {image.contentType === "application/pdf" ? <a href={image.url} target="_blank" rel="noreferrer" className="flex aspect-[4/3] items-center justify-center bg-[#f7f6fa] text-sm font-medium text-[#473a6d]">Abrir PDF</a> : <a href={image.url} target="_blank" rel="noreferrer"><img src={thumbUrl(image.url)} loading="lazy" alt={`${image.note} · ${image.name}`} className="aspect-[4/3] w-full object-cover" /></a>}
         <div className="flex items-center justify-between gap-2 p-2.5 text-sm"><span><strong>{image.note || "Radiografía"}</strong><span className="block text-xs text-[#6b6a7c]">{image.addedAt}</span></span><button type="button" aria-label={`Quitar ${image.note || "archivo"}`} className="rounded p-1 text-[#8c4a51] hover:bg-rose-50" onClick={() => { if (window.confirm("¿Quitar este archivo?")) void onRemoveImage(image.id).catch(e => setError(e instanceof Error ? e.message : "No se pudo quitar.")); }}><Trash2 className="size-4" /></button></div>
       </div>)}</div>}
   </div>;

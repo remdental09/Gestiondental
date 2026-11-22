@@ -3,6 +3,8 @@ import { and, eq } from "drizzle-orm";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { getDb } from "@/db";
 import { clinicalImages, patients } from "@/db/schema";
+import { MAX_THUMB_BYTES } from "@/lib/image-compress";
+import { thumbKey } from "@/lib/image-keys";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -29,11 +31,17 @@ export async function POST(request: Request) {
     if (!patient) return fail("Paciente no encontrado.", 404);
     const key = ownerId + "/" + patientId + "/" + crypto.randomUUID();
     await env.BUCKET.put(key, await file.arrayBuffer(), { httpMetadata: { contentType: file.type } });
+    // Miniatura opcional (JPEG ≤ 300 KB, generada en el navegador) para las grillas; si no es válida, se omite.
+    const thumb = data.get("thumb");
+    if (thumb instanceof Blob && thumb.size > 0 && thumb.size <= MAX_THUMB_BYTES) {
+      const bytes = new Uint8Array(await thumb.arrayBuffer());
+      if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) await env.BUCKET.put(thumbKey(key), bytes, { httpMetadata: { contentType: "image/jpeg" } }).catch(() => undefined);
+    }
     const t = new Date().toISOString();
     let image;
     try {
       [image] = await db.insert(clinicalImages).values({ ownerId, patientId, objectKey: key, name: String(data.get("name") || "Imagen").slice(0, 220), kind: String(kind), note, size: file.size, contentType: file.type, addedAt: t }).returning();
-    } catch (e) { await env.BUCKET.delete(key); throw e; }
+    } catch (e) { await env.BUCKET.delete([key, thumbKey(key)]); throw e; }
     return Response.json({ image: { id: image.id, patientId, url: "/api/images/" + image.id, name: image.name, kind: image.kind, note, size: image.size, addedAt: new Intl.DateTimeFormat("es-CL", { day: "2-digit", month: "short", year: "numeric", timeZone: "America/Santiago" }).format(new Date(t)) } }, { status: 201 });
   } catch { return fail("No se pudo guardar la imagen. Intenta otra vez.", 503); }
 }
