@@ -26,8 +26,9 @@ export async function POST(request: Request) {
   if (body.action === "agregar") {
     const result = await addToWaitlist(user.userId, body, user.email ?? "");
     if (!result.ok) return fail(result.error);
+    if (result.reused) return Response.json({ entry: result.entry, reused: true }, { headers });
     await recordEvent(user, "espera.agregar", result.entry.id, { patientId: result.entry.patientId });
-    return Response.json({ entry: result.entry }, { status: 201, headers });
+    return Response.json({ entry: result.entry, reused: false }, { status: 201, headers });
   }
   if (body.action === "quitar") {
     const id = Number(body.id);

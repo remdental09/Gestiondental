@@ -152,8 +152,16 @@ test('con base real: horarios, bloqueos, cita en box (paciente nuevo), mover de 
   globalThis.__gdTestEnv = { DB: { prepare: (sql) => statement(sql) } };
   const boxDb = await import('../app/box-db.ts');
   const ab = await import('../app/agenda-box-db.ts');
+  // Clínica nueva: parte solo con «Box 1».
+  assert.deepEqual((await boxDb.listBoxes('A')).map(b => [b.name, b.kind]), [['Box 1', 'odontologia']]);
+  // Una cuenta que ya tenía sus box (p. ej. Box 1, Box 2 y Vitacura) no se toca.
+  sqlite.exec("INSERT INTO treatment_boxes (owner_id, name, enabled, created_at) VALUES ('C', 'Box 1', 1, 'x'), ('C', 'Box 2', 1, 'x'), ('C', 'Vitacura', 1, 'x')");
+  assert.deepEqual((await boxDb.listBoxes('C')).map(b => b.name), ['Box 1', 'Box 2', 'Vitacura']);
+  assert.deepEqual((await boxDb.listBoxes('C')).map(b => b.name), ['Box 1', 'Box 2', 'Vitacura'], 'no se siembra de nuevo');
+  const added = await boxDb.saveBox('A', { name: 'Box 2' });
+  assert.ok(added.ok);
   const boxes = await boxDb.listBoxes('A');
-  assert.deepEqual(boxes.map(b => [b.name, b.kind]), [['Box 1', 'odontologia'], ['Box 2', 'odontologia'], ['Vitacura', 'odontologia']]);
+  assert.deepEqual(boxes.map(b => b.name), ['Box 1', 'Box 2']);
   const saved = await boxDb.saveBox('A', { id: boxes[1].id, kind: 'pabellon', color: '#64b873' });
   assert.equal(saved.ok && saved.boxes[1].kind, 'pabellon');
   assert.equal(saved.ok && saved.boxes[1].color, '#64b873');

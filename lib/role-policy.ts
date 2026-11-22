@@ -39,6 +39,8 @@ const WRITES: Record<StaffRole, string[]> = {
     "POST /api/clinical", "POST /api/agenda-box", "PUT /api/asistencia", "PUT /api/appointment-confirmations",
     "POST /api/controles", "PATCH /api/controles", "DELETE /api/controles", "POST /api/presupuesto/enviar", "POST /api/presupuesto/pdf",
     "POST /api/equipo", "POST /api/lista-espera", "POST /api/appointment-mail",
+    // Agenda semanal (editar/borrar/asignar paciente). Conectar o quitar calendarios sigue siendo solo del dueño (managesSpace en la ruta).
+    "POST /api/calendar",
   ],
   asistente: ["POST /api/agenda-box", "PUT /api/asistencia", "POST /api/images", "POST /api/equipo"],
 };
@@ -85,6 +87,10 @@ const ASSISTANT_STATUSES = new Set(["confirmada", "en_espera", "ingresada", "ate
 export function statusDenied(role: string | null | undefined, status: unknown): string | null {
   if (role === "asistente") return typeof status === "string" && ASSISTANT_STATUSES.has(status) ? null : ROLE_DENIED;
   return null;
+}
+/** Estados que el rol puede elegir en un selector (siempre incluye el actual, para que se vea). */
+export function selectableStatuses<T extends string>(role: string | null | undefined, all: readonly T[], current?: T): T[] {
+  return all.filter(status => status === current || !statusDenied(role, status));
 }
 
 /** Secciones del menú visibles por rol. */

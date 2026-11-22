@@ -9,7 +9,7 @@ import { BOX_COLUMNS_DDL, BOX_SCHEMA_DDL, isBoxKind, isHexColor, type BoxKind } 
 export type TreatmentBox = { id: number; name: string; enabled: boolean; kind: BoxKind; color: string | null };
 export const MAX_BOXES = 20;
 /** Los box que la clínica ya tenía: se crean una sola vez, la primera vez que se abre la configuración. */
-const INITIAL_BOXES = ["Box 1", "Box 2", "Vitacura"];
+const INITIAL_BOXES = ["Box 1"];
 
 async function ensureTable(database: Db) {
   await database.prepare("CREATE TABLE IF NOT EXISTS treatment_boxes (id INTEGER PRIMARY KEY AUTOINCREMENT, owner_id TEXT NOT NULL, name TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL)").run();
@@ -31,7 +31,7 @@ export function ensureBoxSchema(database: Db): Promise<void> {
 type BoxRow = { id: number; name: string; enabled: number; kind: string | null; color: string | null };
 const row = (r: BoxRow): TreatmentBox => ({ id: r.id, name: r.name, enabled: r.enabled === 1, kind: isBoxKind(r.kind) ? r.kind : "odontologia", color: isHexColor(r.color) ? r.color : null });
 
-/** Box de la clínica (espacio). La primera vez se crean Box 1, Box 2 y Vitacura. */
+/** Box de la clínica (espacio). La primera vez se crea «Box 1» (las cuentas ya sembradas conservan los suyos). */
 export async function listBoxes(spaceId: string): Promise<TreatmentBox[]> {
   const database = db();
   if (!database) return [];

@@ -12,6 +12,7 @@ import { ATTENDANCE_LABEL, type AttendanceStatus } from "@/lib/dashboard";
 import type { Professional } from "@/lib/professionals";
 import { chileClock, minutesBetween, nextTimes, waitLabel } from "@/lib/appointment-cycle";
 import { FreedSlotSuggestions, WaitingRoom, WaitlistSheet } from "@/components/waiting-room";
+import { isStaffRole, selectableStatuses } from "@/lib/role-policy";
 
 type Box = { id: number; name: string; enabled: boolean; color?: string | null };
 type Appt = { key: string; source: "app" | "cal"; id: number; patientId: number | null; patientName: string; phone: string; day: string; start: string; minutes: number; reason: string; boxId: number | null; professional: string; professionalId: number | null; professionalColor: string | null; status: AttendanceStatus; google: boolean; needsPatient: boolean; arrivedAt: string | null; inBoxAt: string | null; doneAt: string | null };
@@ -207,7 +208,7 @@ export function AgendaBoxDay({ onOpenPatient, onChanged, spaceRole }: { onOpenPa
               onClick={event => { if (event.target !== event.currentTarget) return; const y = event.clientY - event.currentTarget.getBoundingClientRect().top; openSlot(column.id, clockAt(y, range.from, row)); }}
               aria-label={`Columna ${boxName(column.id)}: toca una hora libre para agendar`}>
               {day === today && nowMin >= range.from && nowMin <= range.to && <div className="pointer-events-none absolute inset-x-0 z-20 border-t-2 border-rose-500" style={{ top: ((nowMin - range.from) / 15) * row }} aria-hidden="true"><span className="absolute -left-1 -top-[5px] size-2 rounded-full bg-rose-500" /></div>}
-              {slots.map(slot => { const pos = cardBox(slot.start, slot.minutes, range.from, row); return <button key={"s" + slot.start} type="button" className="absolute inset-x-1 overflow-hidden rounded-md border border-dashed border-[#c9c5d6] bg-white px-1.5 text-left text-[11px] text-[#615f73] hover:border-[#473a6d]" style={{ top: pos.top + 1, height: pos.height - 2 }} onClick={() => openSlot(column.id, slot.start, slot.minutes, slot.professionalId)} data-testid="free-slot">
+              {slots.map(slot => { const pos = cardBox(slot.start, slot.minutes, range.from, row); return <button key={"s" + slot.start} type="button" className="absolute inset-x-1 overflow-hidden rounded-md border border-dashed border-[#c9c5d6] bg-white px-1.5 text-left text-[11px] text-[#615f73] hover:border-[#473a6d]" style={{ top: pos.top + 1, height: pos.height - 2 }} disabled={assistant} onClick={() => openSlot(column.id, slot.start, slot.minutes, slot.professionalId)} data-testid="free-slot">
                 <span className="font-medium">{slot.start}</span>{!compact && <span className="ml-1">Libre · {professionals.find(p => p.id === slot.professionalId)?.name ?? slot.professional}</span>}
               </button>; })}
               {blocks.map(block => { const minutes = toMinutes(block.end) - toMinutes(block.start); const pos = cardBox(block.start, minutes, range.from, row); return <button key={"b" + block.id} type="button" className="absolute inset-x-1 z-[5] overflow-hidden rounded-md px-1.5 text-left text-[11px] text-white" style={{ top: pos.top + 1, height: pos.height - 2, background: `repeating-linear-gradient(135deg, ${BLOCK_COLOR} 0 8px, #c62828 8px 16px)` }} onClick={() => setSelectedBlock(block)} data-testid="agenda-block">
@@ -225,25 +226,28 @@ export function AgendaBoxDay({ onOpenPatient, onChanged, spaceRole }: { onOpenPa
         })}
       </div>
     </div>}
-    {data && !(data.schedules.length) && <p className="mt-2 text-xs text-[#6b6a7c]">Tip: en Configuración → Box puedes definir horarios por box para ver los cupos libres. Mientras tanto, toca cualquier hora de una columna para agendar o bloquear.</p>}
+    {data && !(data.schedules.length) && !isStaffRole(spaceRole) && <p className="mt-2 text-xs text-[#6b6a7c]">Tip: en Configuración → Box puedes definir horarios por box para ver los cupos libres. Mientras tanto, toca cualquier hora de una columna para agendar o bloquear.</p>}
     {mobile && columns.length > 1 && <p className="mt-2 text-center text-xs text-[#6b6a7c]">Desliza a los lados para cambiar de box.</p>}
 
     {waitlistOpen && <WaitlistSheet patients={data?.patients ?? []} canEdit={!assistant} onClose={() => setWaitlistOpen(false)} />}
-    {selected && <AppointmentSheet appt={selected} boxes={boxes.filter(b => b.enabled)} professionals={professionals} professionalId={proOf(selected)} boxName={boxName} onClose={() => setSelected(null)} onStatus={status => void setStatus(selected, status)} onOpenPatient={onOpenPatient}
+    {selected && <AppointmentSheet spaceRole={spaceRole} appt={selected} boxes={boxes.filter(b => b.enabled)} professionals={professionals} professionalId={proOf(selected)} boxName={boxName} onClose={() => setSelected(null)} onStatus={status => void setStatus(selected, status)} onOpenPatient={onOpenPatient}
       onMove={async change => { try { await post({ action: "mover", id: selected.id, ...change }); setSelected(null); await changed("Cita actualizada."); } catch (cause) { setError(cause instanceof Error ? cause.message : "No se pudo mover la cita."); } }} />}
     {selectedBlock && <Sheet title="Bloqueo" onClose={() => setSelectedBlock(null)}>
       <p className="font-medium">{selectedBlock.reason} · {selectedBlock.start}–{selectedBlock.end}</p>
       <p className="mt-1 text-sm text-[#615f73]">{boxName(selectedBlock.boxId === null ? null : selectedBlock.boxId)}{selectedBlock.boxId === null ? " (todos los box)" : ""} · {selectedBlock.repeat === "none" ? "Solo " + selectedBlock.day.split("-").reverse().join("-") : (selectedBlock.repeat === "daily" ? "Todos los días" : "Cada " + WEEKDAY_SHORT[weekdayOf(selectedBlock.day)]) + (selectedBlock.until ? " hasta " + selectedBlock.until.split("-").reverse().join("-") : "")}</p>
       {selectedBlock.note && <p className="mt-2 text-sm">{selectedBlock.note}</p>}
-      <Button type="button" className="mt-4 w-full bg-[#a43542] hover:bg-[#8c2c38]" onClick={async () => { try { await post({ action: "quitarBloqueo", id: selectedBlock.id }); setSelectedBlock(null); await changed("Bloqueo quitado."); } catch (cause) { setError(cause instanceof Error ? cause.message : "No se pudo quitar."); } }}>{selectedBlock.repeat === "none" ? "Quitar bloqueo" : "Quitar bloqueo (toda la repetición)"}</Button>
+      {!assistant && <Button type="button" className="mt-4 w-full bg-[#a43542] hover:bg-[#8c2c38]" onClick={async () => { try { await post({ action: "quitarBloqueo", id: selectedBlock.id }); setSelectedBlock(null); await changed("Bloqueo quitado."); } catch (cause) { setError(cause instanceof Error ? cause.message : "No se pudo quitar."); } }}>{selectedBlock.repeat === "none" ? "Quitar bloqueo" : "Quitar bloqueo (toda la repetición)"}</Button>}
     </Sheet>}
     {draft && <SlotSheet draft={draft} boxes={boxes.filter(b => b.enabled)} professionals={professionals} patients={data?.patients ?? []} onClose={() => setDraft(null)}
       onSaved={async message => { setDraft(null); await changed(message); }} />}
   </div>;
 }
 
-function AppointmentSheet({ appt, boxes, professionals, professionalId, boxName, onClose, onStatus, onMove, onOpenPatient }: { appt: Appt; boxes: Box[]; professionals: Professional[]; professionalId: number | null; boxName: (id: number | null) => string; onClose: () => void; onStatus: (status: AttendanceStatus) => void; onMove: (change: Record<string, unknown>) => Promise<void>; onOpenPatient?: (id: number) => void }) {
+function AppointmentSheet({ spaceRole, appt, boxes, professionals, professionalId, boxName, onClose, onStatus, onMove, onOpenPatient }: { spaceRole?: string; appt: Appt; boxes: Box[]; professionals: Professional[]; professionalId: number | null; boxName: (id: number | null) => string; onClose: () => void; onStatus: (status: AttendanceStatus) => void; onMove: (change: Record<string, unknown>) => Promise<void>; onOpenPatient?: (id: number) => void }) {
   const wa = whatsappNumber(appt.phone);
+  /** Asistente: solo estados del ciclo; el servidor le rechaza mover de box/hora, profesional y duración, así que no se muestran. */
+  const assistant = spaceRole === "asistente";
+  const legend = LEGEND.filter(item => selectableStatuses(spaceRole, [item.status], appt.status).length > 0);
   const [busy, setBusy] = useState(false);
   const move = async (change: Record<string, unknown>) => { setBusy(true); try { await onMove(change); } finally { setBusy(false); } };
   return <Sheet title={appt.patientName} onClose={onClose}>
@@ -257,9 +261,9 @@ function AppointmentSheet({ appt, boxes, professionals, professionalId, boxName,
       {QUICK_STATUS.map(q => <button key={q.status} type="button" aria-pressed={appt.status === q.status} onClick={() => onStatus(q.status)} className="min-h-12 rounded-lg border-2 px-2 text-sm font-semibold" style={{ borderColor: STATUS_COLOR[q.status], background: appt.status === q.status ? STATUS_COLOR[q.status] : "white", color: appt.status === q.status ? textOn(STATUS_COLOR[q.status]) : "#1f2430" }}><span aria-hidden="true">{q.icon}</span> {q.label}</button>)}
     </div>
     <label className="mt-3 block space-y-1 text-sm font-medium">Estado
-      <select className={fieldCls} value={appt.status} onChange={event => onStatus(event.target.value as AttendanceStatus)}>{LEGEND.map(item => <option key={item.status} value={item.status}>{item.label}</option>)}</select>
+      <select className={fieldCls} value={appt.status} onChange={event => onStatus(event.target.value as AttendanceStatus)}>{legend.map(item => <option key={item.status} value={item.status}>{item.label}</option>)}</select>
     </label>
-    {appt.source === "app" && <div className="mt-3 grid grid-cols-2 gap-2">
+    {appt.source === "app" && !assistant && <div className="mt-3 grid grid-cols-2 gap-2">
       <label className="col-span-2 space-y-1 text-sm font-medium">Profesional
         <select className={fieldCls} disabled={busy} value={professionalId ?? ""} onChange={event => { if (event.target.value) void move({ professionalId: Number(event.target.value) }); }}>{professionalId === null && <option value="">Sin profesional</option>}{professionals.filter(p => p.active || p.id === professionalId).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
       </label>

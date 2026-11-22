@@ -73,6 +73,24 @@ export function checkWaitEntry(input: { patientId?: unknown; name?: unknown; pho
   return { ok: true, patientId, name, phone: clean(input.phone, 30), preference: isWaitPreference(input.preference) ? input.preference : "cualquiera", note: clean(input.note, 300) };
 }
 
+/** Nombre comparable: sin tildes, minúsculas, espacios simples. */
+export const normalizeName = (value: string | null | undefined) => (value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9ñ ]+/g, " ").replace(/\s+/g, " ").trim();
+/** Teléfono comparable: solo dígitos, últimos 9 (así «+56 9 1234 5678» = «912345678»); vacío si es muy corto. */
+export function normalizePhone(value: string | null | undefined): string {
+  const digits = (value ?? "").replace(/\D/g, "");
+  return digits.length >= 8 ? digits.slice(-9) : "";
+}
+/**
+ * ¿Ya está en la lista (activa) de la cuenta? Mismo paciente, mismo teléfono normalizado o mismo nombre normalizado.
+ * Se reusa la entrada existente en vez de duplicar (conserva su lugar en la fila).
+ */
+export function findWaitDuplicate<T extends WaitEntry>(entries: T[], candidate: { patientId: number | null; name: string; phone: string }): T | null {
+  const phone = normalizePhone(candidate.phone), name = normalizeName(candidate.name);
+  return entries.find(e => (candidate.patientId !== null && e.patientId === candidate.patientId)
+    || (phone !== "" && normalizePhone(e.phone) === phone)
+    || (name.length >= 3 && normalizeName(e.name) === name)) ?? null;
+}
+
 /** ¿La preferencia calza con un cupo que parte a esa hora? Mañana = antes de las 13:00. */
 export const preferenceFits = (preference: WaitPreference, start: string) => preference === "cualquiera" || (preference === "manana" ? start < "13:00" : start >= "13:00");
 /** Sugerencias para un cupo liberado: primero los que calzan con el horario, luego por antigüedad en la lista. */
