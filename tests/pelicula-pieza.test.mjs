@@ -100,3 +100,8 @@ test('integración: clic (panel compacto) y doble clic (ventana grande)', () => 
   for (const id of ['tooth-story', 'story-play', 'story-compare', 'story-stage', 'story-strip']) assert.ok(ui.includes(id), id);
   assert.match(ui, /Imagen referencial, no es el paciente/);
 });
+
+test('integración en el periodontograma: panel de la pieza y su ventana', () => {
+  assert.match(src('components/periodontogram.tsx'), /<ToothStory tooth=\{tooth\} history=\{toothHistory\}/);
+  assert.match(src('components/perio-tooth-modal.tsx'), /<ToothStory tooth=\{tooth\} history=\{toothHistory\}/);
+});
