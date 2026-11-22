@@ -120,6 +120,13 @@
       "when": 1795420000000,
       "tag": "0016_cron_health",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1795500000000,
+      "tag": "0017_account_events",
+      "breakpoints": true
     }
   ]
 }
