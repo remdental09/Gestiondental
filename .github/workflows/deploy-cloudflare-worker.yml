@@ -36,9 +36,8 @@ jobs:
           pnpm exec tsc --noEmit --strict --skipLibCheck --allowImportingTsExtensions --module esnext --moduleResolution bundler --target es2022 --lib es2023,dom lib/dictation/audio-transcription.ts lib/dictation/openai-transcription.ts
       - name: Compilar Worker con los bindings D1/R2 existentes
         run: CLOUDFLARE_DEPLOY=1 pnpm build
-      - name: Aplicar tablas de Documentación en D1
-        # El token de CI no tiene permiso D1:Edit; las tablas ya existen en producción (IF NOT EXISTS).
-        continue-on-error: true
+      - name: Aplicar migraciones aditivas en D1
+        # El token de CI tiene D1:Edit (GES-7). Todas las migraciones son IF NOT EXISTS: re-ejecutarlas no cambia datos.
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN || secrets.CLOUDFLARE_TOKEN || secrets.CF_TOKEN || secrets.WRANGLER_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
