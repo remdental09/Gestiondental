@@ -478,6 +478,14 @@ async function authorize(request: Request, env: OAuthEnv, context: ExecutionCont
   }
 }
 
+const CANONICAL_ORIGIN = "https://speakdent.cl";
+const CANONICAL_PATHS = new Set(["/", LOGIN_PATH, "/api/drive/connect"]);
+function canonicalGoogleRedirect(request: Request) {
+  const url = new URL(request.url);
+  if (!url.hostname.endsWith(".workers.dev") || request.method !== "GET" || !CANONICAL_PATHS.has(url.pathname)) return null;
+  return Response.redirect(CANONICAL_ORIGIN + url.pathname + url.search, 302);
+}
+
 const mcpHandler = {
   async fetch(request: Request, env: OAuthEnv, context: ExecutionContext): Promise<Response> {
     const ownerId = (context as WorkerContext).props?.ownerId;
@@ -496,6 +504,10 @@ const oauthProvider = new OAuthProvider<OAuthEnv>({
   defaultHandler: {
     async fetch(request, env, context) {
       const path = new URL(request.url).pathname;
+      // El ingreso con Google y la conexión de Drive/Calendar/Gmail solo están autorizados en speakdent.cl
+      // (dominio verificado ante Google). En workers.dev se envía al usuario a la misma ruta en speakdent.cl.
+      const canonical = canonicalGoogleRedirect(request);
+      if (canonical) return canonical;
       // Páginas públicas que Google exige para publicar la app de OAuth: no requieren sesión.
       if ((path === "/acerca" || path === "/privacidad" || path === "/terminos") && (request.method === "GET" || request.method === "HEAD")) {
         return new Response(request.method === "HEAD" ? null : path === "/acerca" ? aboutPage() : path === "/terminos" ? termsPage() : privacyPage(), {
