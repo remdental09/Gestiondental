@@ -406,7 +406,7 @@ export default function Home(){
   const [apptDate,setApptDate]=useState(""),[apptTime,setApptTime]=useState(""),[apptReason,setApptReason]=useState("");
   const apptDateRef=useRef<HTMLInputElement|null>(null),apptTimeRef=useRef<HTMLInputElement|null>(null);
   const patient=patients.find(p=>p.id===selectedId)??null;
-  const patientValidation=validatePatientDraft({name,birthDate,rut,phone,email,reason});
+  const patientValidation=validatePatientDraft({name,birthDate,rut,docType,phone,email,reason});
   const selectedPerio=summarizePerio(periodontalExams[selectedId]?.[0]);
   const patientImages=clinicalImages.filter(item=>item.patientId===selectedId&&!item.kind.endsWith("ortodoncia")&&item.kind!=="RX endodoncia");
   const orthoImages=clinicalImages.filter(item=>item.patientId===selectedId&&item.kind.endsWith("ortodoncia"));
@@ -798,7 +798,7 @@ export default function Home(){
     try{
       if(modal==="patient"){
         const birth=birthDateRef.current?.value||birthDate;
-        const patientDraft={name,birthDate:birth,rut,phone,email,reason};
+        const patientDraft={name,birthDate:birth,rut,docType,phone,email,reason};
         patientDraftRef.current=patientDraft;
         const created=await savePatientDraft(patientDraft);
         const dictated=pendingDictationRef.current;pendingDictationRef.current="";
