@@ -68,4 +68,5 @@ export const JOB_LABELS: Record<string, string> = {
   "agenda-digest": "Agenda semanal por correo",
   "note-audits": "Revisión de evoluciones",
   "drive-backup": "Respaldo en Google Drive",
+  "nightly-backup": "Respaldo nocturno (D1 e imágenes)",
 };

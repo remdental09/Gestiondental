@@ -53,6 +53,11 @@ export async function runScheduled(cron: string, env: CalendarSyncEnv) {
       const { runNoteAudits } = await import("./audit-notes");
       console.log("note-audits", JSON.stringify(await job("note-audits", () => runNoteAudits())));
     }
+    // Respaldo nocturno a un bucket R2 separado: copia de D1 (una vez al día) e imágenes nuevas por tramos.
+    if (cron === BACKUP_CRON) {
+      const { runNightlyBackup } = await import("@/lib/nightly-backup");
+      console.log("nightly-backup", JSON.stringify(await job("nightly-backup", () => runNightlyBackup(env as unknown as Parameters<typeof runNightlyBackup>[0]))));
+    }
     const { runScheduledDriveBackup } = await import("./drive-oauth");
     const result = await job("drive-backup", () => runScheduledDriveBackup());
     console.log("drive-backup", JSON.stringify(result));
