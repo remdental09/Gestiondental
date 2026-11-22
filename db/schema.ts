@@ -39,7 +39,7 @@ export const evolutions = sqliteTable("evolutions", {
   annulReason: text("annul_reason"),
   /** Si esta evolución reemplaza a otra (anular + nueva), el id de la anulada. */
   replacesId: integer("replaces_id"),
-}, table => [index("evolutions_patient_date_idx").on(table.patientId, table.clinicalDate), uniqueIndex("evolutions_owner_request_unique").on(table.ownerId, table.requestId)]);
+}, table => [index("evolutions_patient_date_idx").on(table.patientId, table.clinicalDate), index("evolutions_owner_date_idx").on(table.ownerId, table.clinicalDate, table.recordedAt), uniqueIndex("evolutions_owner_request_unique").on(table.ownerId, table.requestId)]);
 
 /**
  * Etiquetas de diagnóstico de una evolución, confirmadas por el profesional. `code` es CIE-11 del catálogo
@@ -61,6 +61,7 @@ export const evolutionDiagnoses = sqliteTable("evolution_diagnoses", {
   createdAt: text("created_at").notNull(),
 }, table => [
   index("evolution_diagnoses_evolution_idx").on(table.evolutionId),
+  index("evolution_diagnoses_owner_id_idx").on(table.ownerId, table.id),
   index("evolution_diagnoses_patient_code_idx").on(table.patientId, table.code),
 ]);
 
@@ -72,7 +73,7 @@ export const budgets = sqliteTable("budgets", {
   items: text("items").notNull(),
   status: text("status").notNull(),
   createdAt: text("created_at").notNull(),
-}, table => [index("budgets_patient_idx").on(table.patientId)]);
+}, table => [index("budgets_patient_idx").on(table.patientId), index("budgets_owner_id_idx").on(table.ownerId, table.id)]);
 
 /** Recetas, certificados y consentimientos guardados por paciente como borradores imprimibles. */
 export const patientDocuments = sqliteTable("patient_documents", {
@@ -158,7 +159,7 @@ export const appointments = sqliteTable("appointments", {
   time: text("time").notNull(),
   reason: text("reason").notNull(),
   createdAt: text("created_at").notNull(),
-}, table => [index("appointments_patient_day_idx").on(table.patientId, table.day)]);
+}, table => [index("appointments_patient_day_idx").on(table.patientId, table.day), index("appointments_owner_day_idx").on(table.ownerId, table.day)]);
 
 /** Pagos y abonos recibidos. amount en pesos chilenos enteros; paid_on en YYYY-MM-DD (America/Santiago). */
 export const payments = sqliteTable("payments", {
@@ -174,6 +175,7 @@ export const payments = sqliteTable("payments", {
   createdAt: text("created_at").notNull(),
 }, table => [
   index("payments_patient_idx").on(table.patientId, table.paidOn),
+  index("payments_owner_paid_idx").on(table.ownerId, table.paidOn, table.id),
   uniqueIndex("payments_owner_request_unique").on(table.ownerId, table.requestId),
 ]);
 
@@ -183,14 +185,14 @@ export const periodontalExams = sqliteTable("periodontal_exams", {
   patientId: integer("patient_id").notNull().references(() => patients.id),
   recordedAt: text("recorded_at").notNull(),
   teeth: text("teeth").notNull(),
-}, table => [index("periodontal_patient_idx").on(table.patientId)]);
+}, table => [index("periodontal_patient_idx").on(table.patientId), index("periodontal_owner_id_idx").on(table.ownerId, table.id)]);
 
 export const toothStatuses = sqliteTable("tooth_statuses", {
   patientId: integer("patient_id").primaryKey().references(() => patients.id),
   ownerId: text("owner_id").notNull(),
   data: text("data").notNull(),
   updatedAt: text("updated_at").notNull(),
-});
+}, table => [index("tooth_statuses_owner_patient_idx").on(table.ownerId, table.patientId)]);
 
 export const clinicalImages = sqliteTable("clinical_images", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -203,7 +205,7 @@ export const clinicalImages = sqliteTable("clinical_images", {
   size: integer("size").notNull(),
   contentType: text("content_type").notNull(),
   addedAt: text("added_at").notNull(),
-}, table => [index("images_patient_idx").on(table.patientId)]);
+}, table => [index("images_patient_idx").on(table.patientId), index("images_owner_id_idx").on(table.ownerId, table.id)]);
 
 export const driveBackups = sqliteTable("drive_backups", {
   patientId: integer("patient_id").primaryKey().references(() => patients.id),
