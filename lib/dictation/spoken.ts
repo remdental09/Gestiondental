@@ -362,6 +362,8 @@ const LEXICON: Array<[RegExp, string]> = [
   [/\bdestar\s+traje(s)?\b/gi, "destartraje$1"],
   [/\bdestartrage(s)?\b/gi, "destartraje$1"],
   [/\bdestartaraje(s)?\b/gi, "destartraje$1"],
+  // «Tartrectomía» no existe en esta consulta (en Chile se dice destartraje): se corrige siempre.
+  [/(?<!\p{L})tartrectom[ií]a(s)?(?!\p{L})/giu, "destartraje$1"],
   // Solo en contexto gingival: el ASR a veces transcribe «destartraje» como «tatuaje».
   [/\b(de\s+)?tatuaje(?=\s+(?:sub|supra)\s*[- ]?\s*gingival(?:es)?\b)/gi, "$1destartraje"],
   // Cirugía bucal: «alvéolo» suele oírse «velo» o «a velo». «Velo» solo se corrige con palabras propias del alvéolo
@@ -515,7 +517,7 @@ const PROTECTED = new Set(("mesial distal oclusal incisal vestibular palatino pa
   "hoy manana ayer lunes martes miercoles jueves viernes sabado domingo enero febrero marzo abril mayo junio julio agosto septiembre octubre noviembre diciembre semana semanas dias mes meses " +
   "efectivo debito credito transferencia cheque " +
   "sangrado sangra supuracion movilidad furca furcacion sondaje recesion pulpa pulpar pulpitis pulpectomia pulpotomia " +
-  "encia gingiva gingival periodontal periodonto periodontitis destartraje supragingival subgingival tartrectomia " +
+  "encia gingiva gingival periodontal periodonto periodontitis destartraje supragingival subgingival " +
   "alergia alergias alergico alergica penicilina amoxicilina ibuprofeno paracetamol losartan metformina aspirina clorhexidina " +
   "media cuarto tarde noche " +
   "mg ml gramos dosis cada horas").split(/\s+/));

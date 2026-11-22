@@ -5,7 +5,7 @@ export const PERIODONCIA = defineSpecialty({
   nombre: "Periodoncia",
   oficial: "Periodoncia",
   senales: [
-    "periodontal", "periodontitis", "gingivitis", "destartraje", "detartraje", "tartrectomia", "sondaje", "bolsa", "recesion",
+    "periodontal", "periodontitis", "gingivitis", "destartraje", "detartraje", "sondaje", "bolsa", "recesion",
     "furca", "furcacion", "movilidad", "pulido radicular", "raspado", "alisado radicular", "periodontograma", "sangrado al sondaje",
     "injerto de tejido conectivo", "injerto gingival", "alargamiento coronario", "gingivectomia", "epb", "insercion clinica",
   ],
@@ -55,7 +55,7 @@ export const PERIODONCIA = defineSpecialty({
   medicamentos: ["clorhexidina 0,12 %", "amoxicilina", "metronidazol", "doxiciclina", "azitromicina", "ibuprofeno"],
   conceptos: ["índice de placa de O'Leary", "índice gingival de Löe y Silness", "índice de sangrado", "seis sitios por diente", "sextante", "grupo periodontal", "EPB", "margen gingival", "unión amelocementaria", "encía insertada", "ancho biológico", "tejido supracrestal"],
   sinonimos: [
-    ["destartraje", ["detartraje", "tartrectomía"]],
+    ["destartraje", ["detartraje"]],
     ["raspado y alisado radicular", ["raspaje y alisado radicular", "pulido radicular"]],
     ["derivado de la matriz del esmalte", ["Emdogain"]],
   ],
