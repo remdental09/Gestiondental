@@ -17,6 +17,7 @@ const ERRORS: Record<string, string> = {
   "no-verificado": "Esa cuenta de Google no tiene el correo verificado.",
   "sin-acceso": "Esa cuenta no tiene acceso. Escríbenos si eres dentista y quieres usar SpeakDent.",
   configuracion: "El inicio de sesión aún se está configurando. Intenta más tarde.",
+  demasiados: "Demasiados intentos de inicio de sesión desde esta conexión. Espera unos minutos y vuelve a intentarlo.",
 };
 
 export function portadaPage(errorCode?: string | null): string {
