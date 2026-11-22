@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { applyLexicon } from "../lib/dictation/spoken.ts";
-import { DENTAL_DICTIONARY_HINTS } from "../lib/dictation/dental-lexicon.ts";
+import { dentalDictionaryHints } from "../lib/dictation/dental-lexicon.ts";
 
 const fix = (text) => applyLexicon(text).text;
 
@@ -24,8 +24,8 @@ test("Neumann, Partsch, intrasurcular, crestal, festoneada y Ochsenbein-Luebke",
 });
 
 test("el modelo recibe la lista de incisiones y sus errores frecuentes", () => {
-  assert.match(DENTAL_DICTIONARY_HINTS, /incisión de Partsch/);
-  assert.match(DENTAL_DICTIONARY_HINTS, /«seminueva».*«semilunar»/);
+  assert.match(dentalDictionaryHints(), /incisión de Partsch/);
+  assert.match(dentalDictionaryHints(), /«seminueva».*«semilunar»/);
 });
 
 test("cirugía de implante: errores de voz del dictado real se corrigen con código", () => {
