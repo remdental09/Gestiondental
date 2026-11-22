@@ -46,6 +46,6 @@ test("cada botón del riel abre su sección real con el paciente elegido", () =>
   assert.match(rail, /onMarkDone:.*markEvolutionDone\(pending/);
   assert.match(rail, /whatsappHref:wa\?`https:\/\/wa\.me\/\$\{wa\}`/);
   assert.match(page, /<DocumentationPanel key=\{docStart\?\.nonce\?\?0\} start=\{docStart\}/);
-  assert.match(page, /<NextControlsPanel key=\{controlStart\?\.nonce\?\?0\} start=\{controlStart\}/);
+  assert.match(page, /<ControlsSection key=\{controlStart\?\.nonce\?\?0\} start=\{controlStart\}/);
   assert.match(page, /data-testid="rail-notice"/);
 });
