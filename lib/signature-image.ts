@@ -64,12 +64,28 @@ export const strokeWidth = (cssWidth: number) => Math.min(7, Math.max(4.5, cssWi
 /** Altura de la línea guía «Firme aquí», como fracción del alto del cuadro. */
 export const BASELINE_RATIO = 0.72;
 
-/** Colores de tinta para firmar con el dedo (el primero es el de siempre). Se elige antes o después de firmar. */
+/** Paleta de tinta para firmar con el dedo (la primera es la de siempre). Se elige antes o después de firmar; todas se leen bien impresas. */
 export const SIGNATURE_INKS = [
   { id: "negro", label: "Negro", value: "#1f1c33" },
+  { id: "gris", label: "Gris oscuro", value: "#4b5563" },
   { id: "azul", label: "Azul", value: "#1d4ed8" },
   { id: "marino", label: "Azul marino", value: "#1e3a8a" },
+  { id: "celeste", label: "Celeste intenso", value: "#0369a1" },
+  { id: "turquesa", label: "Turquesa", value: "#0f766e" },
+  { id: "verde", label: "Verde", value: "#166534" },
   { id: "violeta", label: "Violeta", value: "#473a6d" },
+  { id: "morado", label: "Morado", value: "#7e22ce" },
+  { id: "burdeo", label: "Burdeo", value: "#9f1239" },
+  { id: "rojo", label: "Rojo", value: "#b91c1c" },
+  { id: "cafe", label: "Café", value: "#78350f" },
 ] as const;
 export const DEFAULT_INK: string = SIGNATURE_INKS[0].value;
 export const isSignatureInk = (value: string) => SIGNATURE_INKS.some(ink => ink.value === value);
+/** Un color propio vale si es #rrggbb y es lo bastante oscuro para verse impreso (un tono casi blanco desaparecería al recortar y al imprimir). */
+/** Luminosidad percibida máxima (0–255): el amarillo o el celeste pálido se pierden sobre papel blanco aunque no sean «blancos». */
+export const MAX_INK_LUMA = 140;
+export function usableInk(value: string): boolean {
+  if (!/^#[0-9a-f]{6}$/i.test(value)) return false;
+  const [r, g, b] = [1, 3, 5].map(i => parseInt(value.slice(i, i + 2), 16));
+  return 0.299 * r + 0.587 * g + 0.114 * b <= MAX_INK_LUMA;
+}

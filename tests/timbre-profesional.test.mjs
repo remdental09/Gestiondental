@@ -98,8 +98,14 @@ test("timbre: llega a receta, certificado, consentimiento, presupuesto y a la vi
 });
 
 test("firma: se puede elegir el color de la tinta, también después de firmar, y el timbre no lo ofrece", async () => {
-  const { SIGNATURE_INKS, DEFAULT_INK, isSignatureInk, inkBounds } = await import("../lib/signature-image.ts");
-  assert.ok(SIGNATURE_INKS.length >= 3, "hay varios colores para elegir");
+  const { SIGNATURE_INKS, DEFAULT_INK, isSignatureInk, inkBounds, usableInk } = await import("../lib/signature-image.ts");
+  assert.ok(SIGNATURE_INKS.length >= 10, "hay una paleta amplia para elegir");
+  assert.ok(SIGNATURE_INKS.every(ink => usableInk(ink.value)), "todos los colores de la paleta se leen bien impresos");
+  assert.equal(usableInk("#1d4ed8"), true);
+  assert.equal(usableInk("#ffff00"), false, "amarillo: muy claro");
+  assert.equal(usableInk("#eeeeee"), false);
+  assert.equal(usableInk("azul"), false, "solo #rrggbb");
+  assert.equal(usableInk("#12345"), false);
   assert.equal(DEFAULT_INK, "#1f1c33", "el color de siempre sigue por defecto");
   assert.equal(new Set(SIGNATURE_INKS.map(ink => ink.value)).size, SIGNATURE_INKS.length, "sin colores repetidos");
   assert.ok(SIGNATURE_INKS.every(ink => isSignatureInk(ink.value)) && !isSignatureInk("#ffffff"));
@@ -110,6 +116,8 @@ test("firma: se puede elegir el color de la tinta, también después de firmar, 
   }
   const editor = read("components/signature-editor.tsx");
   assert.match(editor, /data-testid="signature-inks"/);
+  assert.match(editor, /type="color"/, "además de la paleta, se puede elegir otro color");
+  assert.match(editor, /if \(!usableInk\(value\)\)/, "un color casi blanco se rechaza");
   assert.match(editor, /\{!locked && !isStamp && <div[^>]*data-testid="signature-inks"/, "solo la firma dibujada tiene colores");
   assert.match(editor, /for \(const stroke of strokes\.current\) stroke\.color = value/, "elegir color recolorea lo ya firmado");
   assert.doesNotMatch(editor, /strokeStyle = "#/, "el color ya no está fijo en el dibujo del trazo");

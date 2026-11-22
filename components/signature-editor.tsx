@@ -7,7 +7,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, ImagePlus, Lock, Maximize2, Pencil, Save, Trash2 } from "lucide-react";
-import { BASELINE_RATIO, DEFAULT_INK, SIGNATURE_INKS, backingSize, inkBounds, outputScale, strokeWidth, worthTrimming } from "@/lib/signature-image";
+import { BASELINE_RATIO, DEFAULT_INK, SIGNATURE_INKS, backingSize, inkBounds, outputScale, strokeWidth, usableInk, worthTrimming } from "@/lib/signature-image";
 
 const loadImage = (src: string) => new Promise<HTMLImageElement>((resolve, reject) => { const image = new window.Image(); image.onload = () => resolve(image); image.onerror = () => reject(new Error("No se pudo leer la imagen.")); image.src = src; });
 
@@ -250,6 +250,8 @@ export function SignatureEditor({ compact = false, kind = "firma" }: { compact?:
   };
   /** Elegir un color: vale para lo que se firme desde ahora y recolorea lo ya firmado en este cuadro (sin guardar). */
   const pickInk = (value: string) => {
+    if (!usableInk(value)) { setError("Ese color es muy claro y no se vería al imprimir. Elige uno más oscuro."); return; }
+    setError("");
     inkRef.current = value; setInk(value);
     if (strokes.current.length) { for (const stroke of strokes.current) stroke.color = value; render(); setDirty(true); setNotice(""); }
   };
@@ -314,9 +316,15 @@ export function SignatureEditor({ compact = false, kind = "firma" }: { compact?:
         <canvas ref={canvasRef} aria-label={isStamp ? "Vista del timbre" : "Cuadro para firmar con el dedo"} onPointerDown={start} onPointerMove={move} onPointerUp={stop} onPointerCancel={stop} className={`absolute inset-0 block size-full touch-none select-none rounded-xl border-2 border-dashed border-[#bcb5cc] bg-white ${locked ? "pointer-events-none" : "cursor-crosshair"}`} style={{ WebkitUserSelect: "none", WebkitTouchCallout: "none" }}/>
         {!locked && !isStamp && <div aria-hidden="true" className="pointer-events-none absolute inset-x-5 flex items-end gap-2 border-b-2 border-[#9a93ad] pb-1 text-[#9a93ad]" style={{ top: `calc(${BASELINE_RATIO * 100}% - 1.75rem)`, height: "1.75rem" }} data-testid="signature-baseline"><span className="text-xl font-semibold leading-none">✕</span><span className="text-sm font-medium uppercase tracking-wider">Firme aquí</span></div>}
       </div>
-      {!locked && !isStamp && <div className="mt-3 flex flex-wrap items-center gap-2" role="group" aria-label="Color de la firma" data-testid="signature-inks">
-        <span className="text-sm font-medium text-[#615f73]">Color</span>
-        {SIGNATURE_INKS.map(option => <button key={option.id} type="button" onClick={() => pickInk(option.value)} aria-pressed={ink === option.value} aria-label={option.label} title={option.label} data-testid={`signature-ink-${option.id}`} className={`relative flex size-11 items-center justify-center rounded-full border-2 ${ink === option.value ? "border-[#473a6d] ring-2 ring-[#473a6d]/30" : "border-[#dddbe6]"} bg-white`}><span className="size-6 rounded-full" style={{ backgroundColor: option.value }}/>{ink === option.value && <Check className="absolute size-3.5 text-white" aria-hidden="true"/>}</button>)}
+      {!locked && !isStamp && <div className="mt-3" role="group" aria-label="Color de la firma" data-testid="signature-inks">
+        <p className="mb-1.5 text-sm font-medium text-[#615f73]">Color de la firma</p>
+        <div className="flex flex-wrap items-center gap-2">
+          {SIGNATURE_INKS.map(option => <button key={option.id} type="button" onClick={() => pickInk(option.value)} aria-pressed={ink === option.value} aria-label={option.label} title={option.label} data-testid={`signature-ink-${option.id}`} className={`relative flex size-11 items-center justify-center rounded-full border-2 bg-white ${ink === option.value ? "border-[#473a6d] ring-2 ring-[#473a6d]/30" : "border-[#dddbe6]"}`}><span className="size-7 rounded-full" style={{ backgroundColor: option.value }}/>{ink === option.value && <Check className="absolute size-4 text-white" aria-hidden="true"/>}</button>)}
+          <label className={`relative flex size-11 cursor-pointer items-center justify-center overflow-hidden rounded-full border-2 ${SIGNATURE_INKS.some(option => option.value === ink) ? "border-[#dddbe6]" : "border-[#473a6d] ring-2 ring-[#473a6d]/30"}`} title="Otro color" data-testid="signature-ink-otro" style={{ background: "conic-gradient(#b91c1c, #c2410c, #4d7c0f, #0f766e, #1d4ed8, #7e22ce, #b91c1c)" }}>
+            <span className="sr-only">Elegir otro color</span>
+            <input type="color" value={usableInk(ink) ? ink : "#1f1c33"} onChange={event => pickInk(event.target.value)} className="absolute inset-0 size-full cursor-pointer opacity-0" aria-label="Elegir otro color"/>
+          </label>
+        </div>
       </div>}
       {locked ? <div className="mt-3 space-y-2 rounded-xl border border-[#dddbe6] bg-[#f7f6fa] p-3" data-testid="signature-locked">
         <p className="flex items-center gap-2 text-sm font-semibold text-[#473a6d]"><Lock className="size-4" aria-hidden="true"/>{words.protectedTitle}</p>
