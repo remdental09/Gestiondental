@@ -16,17 +16,27 @@ async function ensureUsersTable(db: Db) {
   ready = true;
 }
 
-/** Anota que este profesional abrió la app (primer y último ingreso). Nunca bloquea la carga de la ficha. */
+/** Memoria del isolate: evita incluso la consulta si esta persona ya quedó anotada hoy. */
+const touchedToday = new Map<string, string>();
+
+/** Anota que este profesional abrió la app (primer y último ingreso; «visits» cuenta días con ingreso). A lo más una escritura al día. Nunca bloquea la carga de la ficha. */
 export async function touchAppUser(ownerId: string, email: string, googleName: string): Promise<void> {
   const db = database();
   if (!db || !ownerId || !email) return;
-  await ensureUsersTable(db);
   const stamp = new Date().toISOString();
+  const day = stamp.slice(0, 10); // día UTC, igual que la condición SQL
+  const key = ownerId + "|" + email.trim().toLowerCase();
+  if (touchedToday.get(key) === day) return;
+  await ensureUsersTable(db);
+  // El UPDATE del upsert solo ocurre si cambió el día o el correo: el resto de las aperturas del día no escribe filas.
   await db.prepare(
     "INSERT INTO app_users (owner_id, email, google_name, first_seen, last_seen, visits) VALUES (?, ?, ?, ?, ?, 1) " +
     "ON CONFLICT(owner_id) DO UPDATE SET email = excluded.email, google_name = CASE WHEN excluded.google_name <> '' THEN excluded.google_name ELSE app_users.google_name END, " +
-    "last_seen = excluded.last_seen, visits = app_users.visits + 1"
-  ).bind(ownerId, email.trim().toLowerCase(), googleName.trim().slice(0, 120), stamp, stamp).run();
+    "last_seen = excluded.last_seen, visits = app_users.visits + 1 " +
+    "WHERE substr(app_users.last_seen, 1, 10) <> ? OR app_users.email <> excluded.email"
+  ).bind(ownerId, email.trim().toLowerCase(), googleName.trim().slice(0, 120), stamp, stamp, day).run();
+  if (touchedToday.size > 5000) touchedToday.clear();
+  touchedToday.set(key, day);
 }
 
 const safe = async <T,>(db: Db, sql: string): Promise<T[]> => {
