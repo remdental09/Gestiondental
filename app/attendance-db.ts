@@ -36,5 +36,8 @@ export async function setAttendance(ownerId: string, source: "cal" | "app", refI
   if (status === "agendada") await db.prepare("DELETE FROM appointment_attendance WHERE owner_id = ? AND source = ? AND ref_id = ?").bind(ownerId, source, refId).run();
   else await db.prepare("INSERT INTO appointment_attendance (owner_id, source, ref_id, status, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(owner_id, source, ref_id) DO UPDATE SET status = excluded.status, updated_at = excluded.updated_at")
     .bind(ownerId, source, refId, status, new Date().toISOString()).run();
+  // Hora de llegada / entrada a box / término (para medir la espera). Nunca hace fallar el cambio de estado.
+  const { recordCycleTimes } = await import("@/app/cycle-db");
+  await recordCycleTimes(ownerId, source, refId, status);
   return true;
 }

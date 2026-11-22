@@ -32,19 +32,22 @@ export const isHexColor = (value: unknown): value is string => typeof value === 
 /** Color = solo el estado (paleta de Dentalsoft). */
 export const STATUS_COLOR: Record<AttendanceStatus, string> = {
   agendada: "#a5bbc7", en_espera: "#f49f33", confirmada: "#4a97c6", ingresada: "#64b873", cancelada: "#92a2a8", atendida: "#9575cd",
-  notificada_email: "#80cbc4", confirmada_email: "#4db6ac", notificada_whatsapp: "#e8c73f", confirmada_whatsapp: "#9ccc65", inasistida: "#6d7b82",
+  notificada_email: "#80cbc4", confirmada_email: "#4db6ac", notificada_whatsapp: "#e8c73f", confirmada_whatsapp: "#9ccc65", inasistida: "#6d7b82", reagendada: "#b0a4c8",
 };
 export const BLOCK_COLOR = "#e53935";
 /** Orden de la leyenda «Colores». */
-export const LEGEND_ORDER: AttendanceStatus[] = ["agendada", "en_espera", "confirmada", "ingresada", "cancelada", "atendida", "notificada_email", "confirmada_email", "notificada_whatsapp", "confirmada_whatsapp", "inasistida"];
+export const LEGEND_ORDER: AttendanceStatus[] = ["agendada", "en_espera", "confirmada", "ingresada", "cancelada", "atendida", "notificada_email", "confirmada_email", "notificada_whatsapp", "confirmada_whatsapp", "inasistida", "reagendada"];
 export const LEGEND = LEGEND_ORDER.map(status => ({ status, label: ATTENDANCE_LABEL[status], color: STATUS_COLOR[status] }));
-/** Botones rápidos de la tarjeta: ✓ confirmada → ⏱ en espera → ➜ ingresada → 👍 atendida. */
+/** Botones rápidos de la tarjeta (ciclo de la cita): ✓ confirmada → 🪑 llegó (sala de espera) → ➜ en box → 👍 atendida. */
 export const QUICK_STATUS: { status: AttendanceStatus; icon: string; label: string }[] = [
   { status: "confirmada", icon: "✓", label: "Confirmada" },
-  { status: "en_espera", icon: "⏱", label: "En espera" },
-  { status: "ingresada", icon: "➜", label: "Ingresada" },
+  { status: "en_espera", icon: "🪑", label: "Llegó" },
+  { status: "ingresada", icon: "➜", label: "En box" },
   { status: "atendida", icon: "👍", label: "Atendida" },
 ];
+/** Estados que liberan el cupo (no ocupan la grilla para calcular cupos libres y sugieren la lista de espera). */
+export const FREES_SLOT: ReadonlySet<AttendanceStatus> = new Set<AttendanceStatus>(["cancelada", "reagendada"]);
+export const freesSlot = (status: AttendanceStatus) => FREES_SLOT.has(status);
 export const statusOf = (value: unknown): AttendanceStatus => typeof value === "string" && (ATTENDANCE_STATUSES as readonly string[]).includes(value) ? value as AttendanceStatus : "agendada";
 /** Texto oscuro o claro según el fondo, para que se lea en iPhone al sol. */
 export function textOn(hex: string): string {

@@ -1,18 +1,20 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, MessageCircle, Palette, Rows3, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, ListOrdered, MessageCircle, Palette, Rows3, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AGENDA_SYNCED } from "@/components/next-controls";
 import {
   BLOCK_COLOR, DURATIONS, LEGEND, QUICK_STATUS, STATUS_COLOR, WEEKDAY_SHORT, addDays, blocksOn, cardBox, clockAt, columnOf, columnsFor, dayRange,
-  freeSlots, textOn, toClock, toMinutes, weekOf, weekdayOf, whatsappNumber, type AgendaBlock, type BoxSchedule, type FreeSlot,
+  freeSlots, freesSlot, textOn, toClock, toMinutes, weekOf, weekdayOf, whatsappNumber, type AgendaBlock, type BoxSchedule, type FreeSlot,
 } from "@/lib/agenda-box";
 import { ATTENDANCE_LABEL, type AttendanceStatus } from "@/lib/dashboard";
 import type { Professional } from "@/lib/professionals";
+import { chileClock, minutesBetween, nextTimes, waitLabel } from "@/lib/appointment-cycle";
+import { FreedSlotSuggestions, WaitingRoom, WaitlistSheet } from "@/components/waiting-room";
 
 type Box = { id: number; name: string; enabled: boolean; color?: string | null };
-type Appt = { key: string; source: "app" | "cal"; id: number; patientId: number | null; patientName: string; phone: string; day: string; start: string; minutes: number; reason: string; boxId: number | null; professional: string; professionalId: number | null; professionalColor: string | null; status: AttendanceStatus; google: boolean; needsPatient: boolean };
+type Appt = { key: string; source: "app" | "cal"; id: number; patientId: number | null; patientName: string; phone: string; day: string; start: string; minutes: number; reason: string; boxId: number | null; professional: string; professionalId: number | null; professionalColor: string | null; status: AttendanceStatus; google: boolean; needsPatient: boolean; arrivedAt: string | null; inBoxAt: string | null; doneAt: string | null };
 type PatientLite = { id: number; name: string; rut: string | null; phone: string };
 type Data = { boxes: Box[]; schedules: BoxSchedule[]; blocks: AgendaBlock[]; appointments: Appt[]; patients: PatientLite[]; professional: string; professionals: Professional[]; defaultProfessionalId: number | null };
 type Draft = { boxId: number | null; day: string; time: string; minutes: number; professionalId: number | null };
@@ -42,7 +44,9 @@ function Sheet({ title, onClose, children }: { title: string; onClose: () => voi
 }
 
 /** Agenda «Día por box» (como Dentalsoft): una columna por box, filas de 15 minutos, tarjetas del color de su estado. */
-export function AgendaBoxDay({ onOpenPatient, onChanged }: { onOpenPatient?: (id: number) => void; onChanged?: () => void }) {
+export function AgendaBoxDay({ onOpenPatient, onChanged, spaceRole }: { onOpenPatient?: (id: number) => void; onChanged?: () => void; spaceRole?: string }) {
+  /** Asistente: solo cambia estados (llegó / en box / atendida); no agenda, no mueve ni edita la lista de espera. */
+  const assistant = spaceRole === "asistente";
   const [day, setDay] = useState(chileToday);
   const week = useMemo(() => weekOf(day), [day]);
   const [data, setData] = useState<Data | null>(null);
@@ -57,6 +61,9 @@ export function AgendaBoxDay({ onOpenPatient, onChanged }: { onOpenPatient?: (id
   const [selectedBlock, setSelectedBlock] = useState<AgendaBlock | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [nowMin, setNowMin] = useState(chileNowMinutes);
+  const [nowIso, setNowIso] = useState(() => new Date().toISOString());
+  const [waitlistOpen, setWaitlistOpen] = useState(false);
+  const [freed, setFreed] = useState<Appt | null>(null);
   const [proFilter, setProFilter] = useState<number | "">("");
   const touch = useRef<{ x: number; y: number } | null>(null);
 
@@ -73,7 +80,7 @@ export function AgendaBoxDay({ onOpenPatient, onChanged }: { onOpenPatient?: (id
   useEffect(() => {
     const onSynced = () => void load();
     window.addEventListener(AGENDA_SYNCED, onSynced);
-    const timer = window.setInterval(() => setNowMin(chileNowMinutes()), 60000);
+    const timer = window.setInterval(() => { setNowMin(chileNowMinutes()); setNowIso(new Date().toISOString()); }, 30000);
     const query = window.matchMedia("(max-width: 767px)");
     const apply = () => setMobile(query.matches);
     apply();
@@ -102,7 +109,7 @@ export function AgendaBoxDay({ onOpenPatient, onChanged }: { onOpenPatient?: (id
   const range = dayRange(data?.schedules ?? [], day, [...todays, ...dayBlocks.map(b => ({ start: b.start, minutes: toMinutes(b.end) - toMinutes(b.start) }))]);
   const row = compact ? 16 : 26;
   const height = ((range.to - range.from) / 15) * row;
-  const scheduled = todays.filter(a => a.status !== "cancelada").length;
+  const scheduled = todays.filter(a => !freesSlot(a.status)).length;
   const shownColumns = mobile ? columns.slice(Math.min(boxIndex, Math.max(0, columns.length - 1)), Math.min(boxIndex, Math.max(0, columns.length - 1)) + 1) : columns;
   const boxName = (id: number | null) => id === null ? "Sin box" : boxes.find(b => b.id === id)?.name ?? "Box";
   const today = chileToday();
@@ -110,9 +117,15 @@ export function AgendaBoxDay({ onOpenPatient, onChanged }: { onOpenPatient?: (id
   const setStatus = async (appt: Appt, status: AttendanceStatus) => {
     setError("");
     const previous = data;
-    setData(current => current && { ...current, appointments: current.appointments.map(a => a.key === appt.key ? { ...a, status } : a) });
-    setSelected(current => current && current.key === appt.key ? { ...current, status } : current);
-    try { await post({ action: "estado", source: appt.source, id: appt.id, status }); await changed(); }
+    const stamp = new Date().toISOString();
+    const updated = (a: Appt): Appt => ({ ...a, status, ...nextTimes(a, status, stamp) });
+    setData(current => current && { ...current, appointments: current.appointments.map(a => a.key === appt.key ? updated(a) : a) });
+    setSelected(current => current && current.key === appt.key ? updated(current) : current);
+    try {
+      await post({ action: "estado", source: appt.source, id: appt.id, status });
+      if (freesSlot(status) && !freesSlot(appt.status)) setFreed(appt);
+      await changed();
+    }
     catch (cause) { setData(previous); setError(cause instanceof Error ? cause.message : "No se pudo cambiar el estado."); }
   };
 
@@ -128,6 +141,7 @@ export function AgendaBoxDay({ onOpenPatient, onChanged }: { onOpenPatient?: (id
 
   /** Profesional por defecto del cupo: el del horario del box a esa hora; si no hay, el principal. */
   const openSlot = (boxId: number | null, time: string, minutes = 30, professionalId?: number | null) => {
+    if (assistant) return;
     const fromSchedule = professionalId ?? (boxId === null ? null : freeSlots(data?.schedules ?? [], boxId, day, [], []).find(s => toMinutes(s.start) <= toMinutes(time) && toMinutes(time) < toMinutes(s.start) + s.minutes)?.professionalId ?? null);
     const active = (id: number | null) => id !== null && professionals.some(p => p.id === id && p.active) ? id : null;
     setDraft({ boxId, day, time, minutes, professionalId: active(fromSchedule) ?? active(proFilter === "" ? null : proFilter) ?? ownerPro });
@@ -152,6 +166,7 @@ export function AgendaBoxDay({ onOpenPatient, onChanged }: { onOpenPatient?: (id
         {professionals.filter(p => p.active).length > 1 && <select aria-label="Filtrar por profesional" className="h-11 rounded-md border border-[#d9d5e4] bg-white px-2 text-base sm:h-9 sm:text-sm" value={proFilter} onChange={event => setProFilter(event.target.value ? Number(event.target.value) : "")} data-testid="professional-filter">
           <option value="">Todos los profesionales</option>{professionals.filter(p => p.active || p.id === proFilter).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>}
+        <Button type="button" variant="outline" size="sm" className="min-h-11 sm:min-h-9" onClick={() => setWaitlistOpen(true)} data-testid="open-waitlist"><ListOrdered className="mr-1 size-4" />Lista de espera</Button>
         <Button type="button" variant="outline" size="sm" className="min-h-11 sm:min-h-9" aria-expanded={legendOpen} onClick={() => setLegendOpen(open => !open)}><Palette className="mr-1 size-4" />Colores{hidden.size ? ` (${hidden.size} ocultos)` : ""}</Button>
         <Button type="button" variant="outline" size="sm" className="min-h-11 sm:min-h-9" aria-pressed={compact} onClick={() => setCompact(value => !value)}><Rows3 className="mr-1 size-4" />{compact ? "Expandir" : "Compactar"}</Button>
       </div>
@@ -170,6 +185,8 @@ export function AgendaBoxDay({ onOpenPatient, onChanged }: { onOpenPatient?: (id
     </div>}
     {error && <p role="alert" className="mt-3 rounded-lg bg-rose-50 p-3 text-sm text-rose-950">{error}</p>}
     {notice && <p role="status" className="mt-3 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-950">{notice}</p>}
+    {freed && <FreedSlotSuggestions slot={{ day: freed.day, start: freed.start, patientId: freed.patientId, boxLabel: boxName(columnOf(boxIds, freed.boxId)) }} canEdit={!assistant} onClose={() => setFreed(null)} />}
+    {data && day === today && <WaitingRoom appts={todays} nowIso={nowIso} boxName={id => boxName(columnOf(boxIds, id))} canMove onToBox={appt => void setStatus(appt, "ingresada")} />}
     {!data && !error && <p role="status" className="mt-4 text-sm text-[#6b6a7c]">Cargando agenda por box…</p>}
     {data && <div className="mt-3 overflow-x-auto rounded-xl border border-[#e6e4ee] bg-[#fbfbfd]" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
       <div className="flex" style={{ minWidth: mobile ? undefined : 48 + shownColumns.length * 170 }}>
@@ -180,7 +197,7 @@ export function AgendaBoxDay({ onOpenPatient, onChanged }: { onOpenPatient?: (id
         {shownColumns.map(column => {
           const items = visibleAppts.filter(a => columnOf(boxIds, a.boxId) === column.id);
           const blocks = hidden.has(BLOCKED) ? [] : dayBlocks.filter(b => b.boxId === null ? column.id !== null : b.boxId === column.id);
-          const slots: FreeSlot[] = column.id === null ? [] : freeSlots(data.schedules.filter(sc => proFilter === "" || sc.professionalId === proFilter), column.id, day, todays.filter(a => a.status !== "cancelada").map(a => ({ boxId: columnOf(boxIds, a.boxId), start: a.start, minutes: a.minutes })), data.blocks);
+          const slots: FreeSlot[] = column.id === null ? [] : freeSlots(data.schedules.filter(sc => proFilter === "" || sc.professionalId === proFilter), column.id, day, todays.filter(a => !freesSlot(a.status)).map(a => ({ boxId: columnOf(boxIds, a.boxId), start: a.start, minutes: a.minutes })), data.blocks);
           const box = boxes.find(b => b.id === column.id);
           return <div key={column.id ?? "sin"} className="min-w-0 flex-1 border-r border-[#ebeaf1] last:border-r-0" data-testid="box-column">
             <div className="sticky top-0 z-10 flex h-10 items-center justify-center gap-2 border-b border-[#ebeaf1] bg-white px-2 text-sm font-semibold">
@@ -197,7 +214,7 @@ export function AgendaBoxDay({ onOpenPatient, onChanged }: { onOpenPatient?: (id
                 <span className="font-semibold">{block.start}–{block.end}</span> {block.reason}
               </button>; })}
               {items.map(appt => { const pos = cardBox(appt.start, appt.minutes, range.from, row); const color = STATUS_COLOR[appt.status]; const wa = whatsappNumber(appt.phone); return <div key={appt.key} role="button" tabIndex={0} className="absolute inset-x-1 z-10 overflow-hidden rounded-md px-1.5 py-0.5 text-left text-[12px] leading-tight shadow-sm ring-1 ring-black/5" style={{ top: pos.top + 1, height: pos.height - 2, background: color, color: textOn(color), borderLeft: `4px solid ${chipOf(appt)?.color ?? color}` }} onClick={() => setSelected(appt)} onKeyDown={event => { if (event.key === "Enter") setSelected(appt); }} data-testid="box-appointment" data-status={appt.status}>
-                <p className="truncate"><span className="font-medium">{appt.start}–{toClock(toMinutes(appt.start) + appt.minutes)}</span> <b>{appt.patientName}</b></p>
+                <p className="truncate"><span className="font-medium">{appt.start}–{toClock(toMinutes(appt.start) + appt.minutes)}</span> <b>{appt.patientName}</b>{appt.status === "en_espera" && appt.arrivedAt && <span className="ml-1 rounded bg-white/85 px-1 text-[10px] font-semibold text-[#7a4a12]" data-testid="card-wait">⏱ {waitLabel(minutesBetween(appt.arrivedAt, nowIso))}</span>}</p>
                 {!compact && pos.height > 2 * row && <>
                   {(() => { const chip = chipOf(appt); return chip && <p className="mt-0.5"><span className="inline-flex max-w-full items-center gap-1 truncate rounded-full bg-white/90 px-1.5 text-[10px] font-medium text-[#1f2430]" data-testid="professional-chip"><span className="size-2 shrink-0 rounded-full" style={{ background: chip.color }} aria-hidden="true" />{chip.name}</span></p>; })()}
                   {appt.phone && <p className="mt-0.5 flex items-center gap-1 truncate">{appt.phone}{wa && <a href={`https://wa.me/${wa}`} target="_blank" rel="noreferrer" aria-label={`WhatsApp a ${appt.patientName}`} onClick={event => event.stopPropagation()} className="inline-grid size-6 place-items-center rounded-full bg-white/80 text-[#128c7e]"><MessageCircle className="size-3.5" /></a>}</p>}
@@ -211,6 +228,7 @@ export function AgendaBoxDay({ onOpenPatient, onChanged }: { onOpenPatient?: (id
     {data && !(data.schedules.length) && <p className="mt-2 text-xs text-[#6b6a7c]">Tip: en Configuración → Box puedes definir horarios por box para ver los cupos libres. Mientras tanto, toca cualquier hora de una columna para agendar o bloquear.</p>}
     {mobile && columns.length > 1 && <p className="mt-2 text-center text-xs text-[#6b6a7c]">Desliza a los lados para cambiar de box.</p>}
 
+    {waitlistOpen && <WaitlistSheet patients={data?.patients ?? []} canEdit={!assistant} onClose={() => setWaitlistOpen(false)} />}
     {selected && <AppointmentSheet appt={selected} boxes={boxes.filter(b => b.enabled)} professionals={professionals} professionalId={proOf(selected)} boxName={boxName} onClose={() => setSelected(null)} onStatus={status => void setStatus(selected, status)} onOpenPatient={onOpenPatient}
       onMove={async change => { try { await post({ action: "mover", id: selected.id, ...change }); setSelected(null); await changed("Cita actualizada."); } catch (cause) { setError(cause instanceof Error ? cause.message : "No se pudo mover la cita."); } }} />}
     {selectedBlock && <Sheet title="Bloqueo" onClose={() => setSelectedBlock(null)}>
@@ -230,6 +248,7 @@ function AppointmentSheet({ appt, boxes, professionals, professionalId, boxName,
   const move = async (change: Record<string, unknown>) => { setBusy(true); try { await onMove(change); } finally { setBusy(false); } };
   return <Sheet title={appt.patientName} onClose={onClose}>
     <div className="flex items-center gap-2 text-sm"><span className="size-3 rounded-full" style={{ background: STATUS_COLOR[appt.status] }} aria-hidden="true" /><span className="font-medium">{ATTENDANCE_LABEL[appt.status]}</span></div>
+    {(appt.arrivedAt || appt.inBoxAt || appt.doneAt) && <p className="mt-1 text-xs text-[#615f73]" data-testid="cycle-times">{[appt.arrivedAt && `Llegó ${chileClock(appt.arrivedAt)}`, appt.inBoxAt && `En box ${chileClock(appt.inBoxAt)}`, appt.doneAt && `Atendida ${chileClock(appt.doneAt)}`, appt.arrivedAt && appt.inBoxAt && `esperó ${waitLabel(minutesBetween(appt.arrivedAt, appt.inBoxAt))}`].filter(Boolean).join(" · ")}</p>}
     <p className="mt-1 text-sm">{appt.start}–{toClock(toMinutes(appt.start) + appt.minutes)} · {boxName(appt.boxId)}{(() => { const pro = professionals.find(p => p.id === professionalId); const name = pro?.name ?? appt.professional; return name ? <span> · <span className="inline-flex items-center gap-1"><span className="size-2.5 rounded-full" style={{ background: pro?.color ?? "#473a6d" }} aria-hidden="true" />{name}</span></span> : null; })()}</p>
     {appt.reason && <p className="mt-1 text-sm"><span className="text-[#615f73]">Tratamiento: </span>{appt.reason}</p>}
     {appt.phone && <p className="mt-1 flex items-center gap-2 text-sm">{appt.phone}{wa && <a href={`https://wa.me/${wa}`} target="_blank" rel="noreferrer" className="inline-flex min-h-9 items-center gap-1 rounded-full bg-[#25d366] px-3 text-xs font-semibold text-white"><MessageCircle className="size-4" />WhatsApp</a>}</p>}
