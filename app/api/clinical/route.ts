@@ -244,6 +244,22 @@ function revertLinkedRecords(db: ReturnType<typeof getDb>, ownerId: string, pati
   });
 }
 
+/** Copia íntegra de una evolución antes de quitarla de la ficha («error del sistema»). Devuelve false si no se pudo archivar. */
+export const EVOLUTION_REMOVALS_DDL = "CREATE TABLE IF NOT EXISTS evolution_removals (id INTEGER PRIMARY KEY AUTOINCREMENT, owner_id TEXT NOT NULL, patient_id INTEGER NOT NULL, evolution_id INTEGER NOT NULL, clinical_date TEXT, recorded_at TEXT, title TEXT NOT NULL, body TEXT NOT NULL, status TEXT, request_id TEXT, diagnoses TEXT NOT NULL DEFAULT '[]', reason TEXT NOT NULL, removed_by TEXT NOT NULL, removed_at TEXT NOT NULL)";
+export const EVOLUTION_REMOVALS_COPY = "INSERT INTO evolution_removals (owner_id, patient_id, evolution_id, clinical_date, recorded_at, title, body, status, request_id, diagnoses, reason, removed_by, removed_at) " +
+  "SELECT e.owner_id, e.patient_id, e.id, e.clinical_date, e.recorded_at, e.title, e.body, e.status, e.request_id, " +
+  "COALESCE((SELECT json_group_array(json_object('code', d.code, 'title', d.title, 'tooth', d.tooth, 'findings', d.findings, 'evidence', d.evidence, 'origin', d.origin, 'createdAt', d.created_at)) FROM evolution_diagnoses d WHERE d.evolution_id = e.id AND d.owner_id = e.owner_id), '[]'), " +
+  "'error del sistema', ?, ? FROM evolutions e WHERE e.id = ? AND e.owner_id = ? AND e.patient_id = ?";
+async function archiveEvolution(ownerId: string, patientId: number, evolutionId: number, removedBy: string, at: string): Promise<boolean> {
+  const raw = (env as unknown as { DB?: { prepare(sql: string): { bind(...v: unknown[]): { run(): Promise<{ meta?: { changes?: number } }> }; run(): Promise<unknown> } } }).DB;
+  if (!raw) return false;
+  try {
+    await raw.prepare(EVOLUTION_REMOVALS_DDL).run();
+    const result = await raw.prepare(EVOLUTION_REMOVALS_COPY).bind(removedBy, at, evolutionId, ownerId, patientId).run();
+    return (result?.meta?.changes ?? 1) > 0;
+  } catch { return false; }
+}
+
 export async function GET() {
   const viewer = await getChatGPTUser();
   const ownerId = viewer?.userId;
@@ -755,8 +771,9 @@ export async function POST(request: Request) {
       });
     }
     if (action === "deleteEvolution") {
-      // «Error del sistema»: el dentista elige borrar definitivamente. Se eliminan la evolución y sus etiquetas de
-      // diagnóstico; los cambios de odontograma ligados a esta evolución se deshacen (revertChartOf). Pagos, citas y presupuestos no se tocan.
+      // «Error del sistema»: la evolución sale de la ficha, pero NO se destruye (Ley 20.584: la ficha se conserva).
+      // Antes de quitarla se archiva una copia íntegra (texto, fechas, autor de la acción, diagnósticos) en evolution_removals,
+      // que sirve además de registro de auditoría. Los cambios de odontograma ligados se deshacen (revertChartOf). Pagos, citas y presupuestos no se tocan.
       const evolutionId = Number(input.evolutionId);
       if (!Number.isSafeInteger(evolutionId) || evolutionId <= 0) return error("Evolución inválida.");
       if (input.confirm !== "eliminar") return error("Falta confirmar la eliminación.");
@@ -766,6 +783,8 @@ export async function POST(request: Request) {
       if (!note) return error("Evolución no encontrada en esta ficha.", 404);
       if (!await mayChangeEvolution(ownerId, evolutionId)) return error(NOT_AUTHOR, 403);
       const t = now();
+      const archived = await archiveEvolution(ownerId, patientId, evolutionId, (await getChatGPTUser())?.email || ownerId, t);
+      if (!archived) return error("No se pudo guardar la copia de respaldo de la evolución; no se quitó de la ficha.", 500);
       const removeTags = db.delete(evolutionDiagnoses).where(and(eq(evolutionDiagnoses.evolutionId, evolutionId), eq(evolutionDiagnoses.ownerId, ownerId)));
       const removeNote = db.delete(evolutions).where(and(eq(evolutions.id, evolutionId), eq(evolutions.patientId, patientId), eq(evolutions.ownerId, ownerId)));
       let replacement: typeof evolutions.$inferSelect | undefined;

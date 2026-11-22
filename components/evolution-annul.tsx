@@ -10,7 +10,7 @@ import { WordDiffView, useTextCorrection } from "@/components/text-correction";
 import { resolveCommandTarget, type CommandNote, type VoiceCommand } from "@/lib/dictation/voice-command";
 
 export type AnnulReplacement = { title: string; body: string };
-/** «delete»: error del sistema, se borra definitivamente. «annul»: error clínico, queda tachada. */
+/** «delete»: error del sistema, sale de la ficha y queda copia archivada (evolution_removals). «annul»: error clínico, queda tachada. */
 export type RemovalMode = "delete" | "annul";
 export type AnnulHandler = (evolutionId: number, mode: RemovalMode, reason: string, replacement: AnnulReplacement | null) => Promise<void>;
 
@@ -26,7 +26,7 @@ function ModeChoice({ mode, onChange, name }: { mode: RemovalMode | null; onChan
     <span><span className="block font-semibold">{title}</span><span className="block text-xs font-normal leading-5 text-[#615f73]">{detail}</span></span>
   </label>;
   return <fieldset className="min-w-0 space-y-2" aria-label="Cómo eliminar">
-    {option("delete", "Error del sistema — eliminar definitivamente", "Se borra la evolución y sus diagnósticos; no queda en la ficha.")}
+    {option("delete", "Error del sistema — quitar de la ficha", "Deja de mostrarse en la ficha; queda una copia de respaldo archivada.")}
     {option("annul", "Anular (error clínico)", "Queda tachada en la historia, con motivo y fecha.")}
   </fieldset>;
 }
@@ -64,7 +64,7 @@ export function AnnulEvolutionDialog({ note, onClose, onConfirm }: { note: Comma
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [shownFor, setShownFor] = useState<number | null>(null);
-  // Al abrir: si vino del dictado se preselecciona «eliminar definitivamente».
+  // Al abrir: si vino del dictado se preselecciona «quitar de la ficha».
   if (note && note.id !== shownFor) { setShownFor(note.id); setMode(isDictatedNote(note) ? "delete" : null); }
   const reset = () => { setMode(null); setReason(""); setReplace(false); setBody(""); setError(""); setSaving(false); setShownFor(null); };
   const submit = async () => {
@@ -104,7 +104,7 @@ export function AnnulEvolutionDialog({ note, onClose, onConfirm }: { note: Comma
       <DialogFooter className="gap-2">
         <Button type="button" variant="outline" className="min-h-11" disabled={saving} onClick={() => { reset(); onClose(); }}>Cancelar</Button>
         <Button type="button" className="min-h-11 bg-[#a43542] hover:bg-[#8a2c37]" disabled={saving || !ready} onClick={() => void submit()} data-testid="annul-confirm">
-          <Ban className="mr-2 size-4" aria-hidden="true" />{saving ? "Guardando…" : mode === "annul" ? (replace ? "Anular y guardar la nueva" : "Anular evolución") : mode === "delete" ? (replace ? "Eliminar y guardar la nueva" : "Eliminar definitivamente") : "Elige una opción"}
+          <Ban className="mr-2 size-4" aria-hidden="true" />{saving ? "Guardando…" : mode === "annul" ? (replace ? "Anular y guardar la nueva" : "Anular evolución") : mode === "delete" ? (replace ? "Quitar y guardar la nueva" : "Quitar de la ficha") : "Elige una opción"}
         </Button>
       </DialogFooter>
     </DialogContent>
@@ -113,7 +113,7 @@ export function AnnulEvolutionDialog({ note, onClose, onConfirm }: { note: Comma
 
 /**
  * Tarjeta de una orden dictada («elimina el último dictado… y pon solamente que…»).
- * Propone eliminar definitivamente la evolución y el texto nuevo; nada pasa hasta dos toques explícitos.
+ * Propone quitar de la ficha (con copia archivada) la evolución y el texto nuevo; nada pasa hasta dos toques explícitos.
  */
 export function VoiceCommandCard({ command, notes, patientName, onConfirm, onDismiss }: { command: VoiceCommand; notes: CommandNote[]; patientName: string; onConfirm: AnnulHandler; onDismiss?: () => void }) {
   const target = resolveCommandTarget(command.target, notes);
@@ -168,7 +168,7 @@ export function VoiceCommandCard({ command, notes, patientName, onConfirm, onDis
         {replacing ? `${verb} la del ${noteDay(note)} y guardar la nueva…` : `${verb} la evolución del ${noteDay(note)}…`}
       </Button>}
       {(step === "confirm" || step === "saving") && <div className="space-y-2 rounded-lg border border-rose-300 bg-white p-3" data-testid="voice-command-confirm-step">
-        <p className="text-sm font-medium text-rose-950">¿Confirmas? Se {mode === "delete" ? "eliminará definitivamente" : "anulará"} «{note.title}» del {noteDay(note)}{replacing ? " y se guardará la evolución nueva de hoy" : ""}.</p>
+        <p className="text-sm font-medium text-rose-950">¿Confirmas? Se {mode === "delete" ? "quitará de la ficha (queda copia de respaldo)" : "anulará"} «{note.title}» del {noteDay(note)}{replacing ? " y se guardará la evolución nueva de hoy" : ""}.</p>
         <div className="flex flex-wrap gap-2">
           <Button type="button" className="h-auto min-h-11 flex-1 whitespace-normal bg-[#a43542] hover:bg-[#8a2c37]" disabled={step === "saving"} onClick={() => void confirm()} data-testid="voice-command-confirm">{step === "saving" ? "Guardando…" : "Sí, confirmar"}</Button>
           <Button type="button" variant="outline" className="min-h-11" disabled={step === "saving"} onClick={() => setStep("review")}>Volver</Button>
