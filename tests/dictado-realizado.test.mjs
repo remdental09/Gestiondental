@@ -124,3 +124,22 @@ test('el botón «Dictar esta pieza» se abre en dos y el dictado parte con el m
   assert.match(ui, /modeRef\.current = next;\s*setMode\(next\);[\s\S]*?setOpen\(true\);\s*askStep\("diagnosis"\)/);
   assert.ok(!ui.includes('absolute inset-0 z-20'), 'sin selector dentro de la ventana');
 });
+
+test('una prestación realizada cierra el plan dictado en una sola línea que la incluye', () => {
+  const pending = item('Se propondrá la eliminación de caries, seguida de una pulpectomía y trepanación.', { teeth: [37] });
+  assert.ok(sameTreatment(pending, item('Se realizó pulpectomía de la pieza dentaria.', { teeth: [37] })));
+  const result = settlePerformed([{ id: 3233, items: [pending] }], 37, [item('Se realizó pulpectomía de la pieza dentaria.', { teeth: [37] })], today);
+  assert.equal(result.remaining.length, 0);
+  assert.equal(result.updates[0].items[0].doneOn, today);
+  assert.ok(!sameTreatment(pending, item('Corona de zirconio')));
+  assert.ok(!sameTreatment(item('Obturación oclusal de composite'), item('Extracción de la pieza 30')));
+});
+
+test('el hito del diagnóstico dice «procedimiento realizado», no «plan preliminar»', async () => {
+  const { toothDiagnosisOperation } = await import('../lib/dictation/tooth-mode.ts');
+  const done = toothDiagnosisOperation('Caries profunda', 'Se realizó pulpectomía', true);
+  assert.equal(done.title, 'Diagnóstico y procedimiento realizado');
+  assert.match(done.detail, /Procedimiento realizado: Se realizó pulpectomía/);
+  assert.ok(!/preliminar/.test(done.detail));
+  assert.equal(toothDiagnosisOperation('Caries profunda', 'Se propondrá obturar').title, 'Diagnóstico / hipótesis y plan preliminar');
+});

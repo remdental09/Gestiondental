@@ -14,7 +14,7 @@ export function looksPerformed(text: string): boolean {
 }
 
 const strip = (value: string) => value.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
-const STOP = new Set(["se", "una", "un", "de", "del", "la", "el", "en", "con", "y", "para", "por", "pieza", "diente", "hoy", "realizar", "realizo", "realizara", "proponera", "propondra", "planificara", "sera", "al", "los", "las", "a", "e", "fase", "numero"]);
+const STOP = new Set(["se", "una", "un", "de", "del", "la", "el", "en", "con", "y", "para", "por", "pieza", "diente", "hoy", "realizar", "realizo", "realizara", "proponera", "propondra", "planificara", "sera", "al", "los", "las", "a", "e", "fase", "numero", "realizo", "realizado", "realizada", "dentaria", "dentario", "tratamiento", "seguida", "seguido"]);
 const tokens = (label: string) => [...new Set(strip(label).replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(word => word.length > 2 && !STOP.has(word) && !/^\d+$/.test(word)))];
 /** ¿Son la misma prestación? Mismo código de catálogo, o palabras clave suficientemente compartidas. */
 export function sameTreatment(a: Pick<BudgetItem, "label" | "code">, b: Pick<BudgetItem, "label" | "code">): boolean {
@@ -22,6 +22,10 @@ export function sameTreatment(a: Pick<BudgetItem, "label" | "code">, b: Pick<Bud
   const ta = tokens(a.label), tb = tokens(b.label);
   if (!ta.length || !tb.length) return false;
   const shared = ta.filter(word => tb.includes(word)).length;
+  // Lo realizado puede ser una parte de un plan dictado en una sola línea («eliminación de caries, seguida de una pulpectomía y trepanación»):
+  // si todas sus palabras clave están en la otra y hay una prestación específica (palabra larga), es la misma.
+  const [short, long] = ta.length <= tb.length ? [ta, tb] : [tb, ta];
+  if (short.length && short.every(word => long.includes(word)) && short.some(word => word.length >= 8)) return true;
   return shared / Math.min(ta.length, tb.length) >= 0.7 && shared >= 2;
 }
 
