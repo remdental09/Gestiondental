@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { applyLexicon, lexiconDoubts } from "../lib/dictation/spoken.ts";
-import { DENTAL_DICTIONARY_HINTS } from "../lib/dictation/dental-lexicon.ts";
+import { dentalDictionaryHints } from "../lib/dictation/dental-lexicon.ts";
 import { findImplantBrand } from "../lib/dictation/implant-brands.ts";
 
 const fix = (text) => applyLexicon(text).text;
@@ -35,7 +35,7 @@ test("«Arsis» se reconoce como la marca Arcsys y se pregunta, sin cambiarla en
 });
 
 test("el prompt incluye la instrucción de cordura clínica con el caso y su excepción", () => {
-  assert.match(DENTAL_DICTIONARY_HINTS, /CORDURA CLÍNICA/);
-  assert.match(DENTAL_DICTIONARY_HINTS, /velo fresco/);
-  assert.match(DENTAL_DICTIONARY_HINTS, /velo palatino/);
+  assert.match(dentalDictionaryHints(), /CORDURA CLÍNICA/);
+  assert.match(dentalDictionaryHints(), /velo fresco/);
+  assert.match(dentalDictionaryHints(), /velo palatino/);
 });

@@ -169,17 +169,24 @@ const foldDictionaryTerm = (value: string) => value
   .replace(/[\u0300-\u036f]/g, "")
   .toLowerCase();
 
-const baseTerms = new Set(Object.values(BASE_DICTIONARY).flat().map(foldDictionaryTerm));
-
-/** Términos de las guías del MINSAL que el diccionario base aún no tenía (sin repetidos). */
-const minsalNewTerms = Object.fromEntries(
-  Object.entries(MINSAL_VOCABULARY).map(([group, terms]) => [
-    `minsal_${group}`,
-    terms.filter((term) => !baseTerms.has(foldDictionaryTerm(term))),
-  ]),
-) as Record<string, string[]>;
-
-export const DENTAL_DICTIONARY: Record<string, readonly string[]> = { ...BASE_DICTIONARY, ...minsalNewTerms, marcas_y_empresas_de_implantes: IMPLANT_BRAND_TERMS };
+/**
+ * Diccionario completo (base + MINSAL + marcas). Se arma la primera vez que se pide: así el JS del
+ * navegador, que solo usa las pistas de voz, no carga ni recorre el vocabulario entero.
+ */
+let dictionaryCache: Record<string, readonly string[]> | null = null;
+export function dentalDictionary(): Record<string, readonly string[]> {
+  if (dictionaryCache) return dictionaryCache;
+  const baseTerms = new Set(Object.values(BASE_DICTIONARY).flat().map(foldDictionaryTerm));
+  /** Términos de las guías del MINSAL que el diccionario base aún no tenía (sin repetidos). */
+  const minsalNewTerms = Object.fromEntries(
+    Object.entries(MINSAL_VOCABULARY).map(([group, terms]) => [
+      `minsal_${group}`,
+      terms.filter((term) => !baseTerms.has(foldDictionaryTerm(term))),
+    ]),
+  ) as Record<string, string[]>;
+  dictionaryCache = { ...BASE_DICTIONARY, ...minsalNewTerms, marcas_y_empresas_de_implantes: IMPLANT_BRAND_TERMS };
+  return dictionaryCache;
+}
 
 /** Marcas de implantes como pistas del reconocimiento de voz (sin alias cortos que se confundirían con palabras comunes). */
 const IMPLANT_SPEECH_HINTS = [...new Map(IMPLANT_BRAND_TERMS.filter((term) => term.length >= 5).map((phrase) => [foldDictionaryTerm(phrase), { phrase, boost: 5 }])).values()];
@@ -338,17 +345,22 @@ const foldTerm = (value: string) => value
   .replace(/[\u0300-\u036f]/g, "")
   .toLowerCase();
 
-const allTerms = Object.values(DENTAL_DICTIONARY).flat();
+let protectedCache: Set<string> | null = null;
+/** Palabras del vocabulario que una corrección automática no puede borrar. */
+export function dentalProtectedWords(): Set<string> {
+  return protectedCache ??= new Set(
+    Object.values(dentalDictionary()).flat()
+      .flatMap((term) => foldTerm(term).split(/[^a-z0-9]+/))
+      .filter((word) => word.length >= 4),
+  );
+}
 
-export const DENTAL_PROTECTED_WORDS = new Set(
-  allTerms
-    .flatMap((term) => foldTerm(term).split(/[^a-z0-9]+/))
-    .filter((word) => word.length >= 4),
-);
-
-export const DENTAL_DICTIONARY_HINTS = [
+let hintsCache: string | null = null;
+/** Vocabulario para los prompts de la IA (solo servidor). */
+export function dentalDictionaryHints(): string {
+  return hintsCache ??= [
   "Vocabulario odontológico válido; conserva el término que dictó el profesional y corrige solo errores claros del reconocimiento.",
-  ...Object.entries(DENTAL_DICTIONARY).map(([group, terms]) => `${group}: ${terms.join(", ")}.`),
+  ...Object.entries(dentalDictionary()).map(([group, terms]) => `${group}: ${terms.join(", ")}.`),
   "Los sinónimos y regionalismos (por ejemplo, destartraje, detartraje y tartrectomía; tapadura, obturación y empaste) son formas válidas: no los sustituyas entre sí.",
   "En restauración, «composite» y «resina compuesta» nombran el material; «compósito/composito» es un error de reconocimiento y se corrige a «composite». Redacta «restauración de composite» o «restauración de resina compuesta» y no repitas ambos sinónimos.",
   "No confundas términos distintos: pulpectomía no es pulpotomía; gingivitis no es periodontitis; supra gingival y sub gingival expresan localizaciones diferentes.",
@@ -364,3 +376,4 @@ export const DENTAL_DICTIONARY_HINTS = [
   "CORDURA CLÍNICA: eres un cirujano dentista revisando el texto. Si una palabra o frase no tiene sentido anatómico o clínico en ese contexto, es casi seguro un error del reconocimiento de voz: reemplázala por el término odontológico foneticamente más parecido que sí encaje (por ejemplo, en una extracción o instalación de implante, «velo fresco» o «a velo fresco» es «alvéolo fresco»; «velo post extracción» es «alvéolo post extracción»; en cambio «velo palatino» o «velo del paladar» es válido y se conserva). No dejes una frase absurda tal cual ni la propongas como hallazgo o procedimiento. Si hay dos lecturas posibles y no puedes decidir por el contexto, conserva lo oído y pregunta en «dudas».",
   "Si se dicta «la mitad» o «50 por ciento» de un total único, calcula el abono y mantén separado el precio total del presupuesto; pregunta si hay más de un total posible.",
 ].join("\n");
+}

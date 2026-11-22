@@ -2,13 +2,17 @@ import { fold, isNumberWord, numberRuns, type TranscriptCorrection } from "./spo
 
 type Edit = { start: number; end: number; replacement: string; reason: string };
 
-/** Instrucción compartida por los modelos de corrección y estructuración clínica. */
-export const IDENTITY_NORMALIZATION_PROMPT = [
+const IDENTITY_NORMALIZATION_LINES = [
   "Normalización de identidad: cambia solo el formato, nunca el valor dictado.",
   "RUN/RUT: convierte a cifras únicamente cuando esté identificado explícitamente como RUN o RUT. Conserva el orden, todos los ceros y el dígito verificador dictado después de «guion»; presenta puntos de miles y guion antes del dígito verificador. No calcules, corrijas ni completes dígitos.",
   "Fecha de nacimiento: conviértela a DD/MM/AAAA únicamente cuando esté identificada como fecha de nacimiento. Une el año pronunciado como un número español. La puntuación automática entre sus componentes puede ser ruido: «mil novecientos ochenta ¿y uno» significa 1981 si no hay una autocorrección o alternativa explícita. Si persiste una ambigüedad real, conserva el dato y márcalo para confirmar; no elijas un año.",
   "No apliques esta conversión a fechas de atención, edades, piezas dentales, montos, dosis ni otros números. La identidad no es un hallazgo ni un diagnóstico; si aparece en la narración dictada, conserva su contenido y aplica solo el formato indicado.",
-].join("\n");
+];
+
+/** Instrucción compartida por los modelos de corrección y estructuración clínica (solo servidor). */
+export function identityNormalizationPrompt(): string {
+  return IDENTITY_NORMALIZATION_LINES.join("\n");
+}
 
 const MONTHS: Record<string, number> = {
   enero: 1, febrero: 2, marzo: 3, abril: 4, mayo: 5, junio: 6,

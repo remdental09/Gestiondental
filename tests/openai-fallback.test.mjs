@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { AI_JSON_SCHEMA, AI_SYSTEM_PROMPT, buildModelUserPrompt, proposeFromTranscript, WORKERS_AI_MODEL, WORKERS_AI_FALLBACKS } from "../lib/dictation/proposal.ts";
+import { AI_JSON_SCHEMA, aiSystemPrompt, buildModelUserPrompt, proposeFromTranscript, WORKERS_AI_MODEL, WORKERS_AI_FALLBACKS } from "../lib/dictation/proposal.ts";
 import { createWorkersAiModel, OPENAI_QUOTA_NOTE, OPENAI_FAILOVER_NOTE } from "../lib/dictation/workers-ai.ts";
 import { buildOpenAiRequest, openAiCostUsd, OPENAI_CHAT_URL } from "../lib/dictation/openai-structure.ts";
 
@@ -95,7 +95,7 @@ test("OpenAI recibe el mismo prompt y el mismo esquema JSON que Workers AI, con 
   assert.equal(init.headers.Authorization, `Bearer ${FAKE_KEY}`);
   assert.ok(!init.body.includes(FAKE_KEY));
   assert.equal(body.model, "gpt-5.6-luna");
-  assert.deepEqual(body.messages, [{ role: "system", content: AI_SYSTEM_PROMPT }, { role: "user", content: buildModelUserPrompt(input) }]);
+  assert.deepEqual(body.messages, [{ role: "system", content: aiSystemPrompt() }, { role: "user", content: buildModelUserPrompt(input) }]);
   assert.deepEqual(body.response_format, { type: "json_schema", json_schema: { name: "propuesta_dictado", strict: true, schema: AI_JSON_SCHEMA } });
   assert.deepEqual(buildOpenAiRequest(input), body);
 });

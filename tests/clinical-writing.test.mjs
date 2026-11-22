@@ -78,7 +78,8 @@ test('la deduplicación conserva piezas, medidas, materiales y negaciones difere
 });
 
 import { CLINICAL_WRITING_PROMPT as WRITING_PROMPT_REGISTER } from "../lib/dictation/clinical-writing.ts";
-import { AI_SYSTEM_PROMPT as SYSTEM_PROMPT_REGISTER } from "../lib/dictation/proposal.ts";
+import { aiSystemPrompt } from "../lib/dictation/proposal.ts";
+const SYSTEM_PROMPT_REGISTER = aiSystemPrompt();
 
 test("el prompt de redacción exige registro formal sin agregar pasos no dictados", () => {
   assert.match(WRITING_PROMPT_REGISTER, /Registro formal/);

@@ -1,4 +1,4 @@
-import { AI_JSON_SCHEMA, AI_SYSTEM_PROMPT, buildModelUserPrompt, type StructureInput } from "./proposal.ts";
+import { AI_JSON_SCHEMA, aiSystemPrompt, buildModelUserPrompt, type StructureInput } from "./proposal.ts";
 
 /** Respaldo de pago cuando Workers AI no responde o agotó su cupo diario. */
 /** Un solo modelo (Luna) para interpretar y corregir. Requiere que el proyecto de OpenAI lo tenga permitido (si no, 403 model_not_found). */
@@ -20,7 +20,7 @@ export function buildOpenAiRequest(input: StructureInput, model: string = OPENAI
     model,
     ...(reasoning ? { max_completion_tokens: 12000, reasoning_effort: "low" } : { temperature: 0, max_tokens: 3500 }),
     messages: [
-      { role: "system", content: AI_SYSTEM_PROMPT },
+      { role: "system", content: aiSystemPrompt() },
       { role: "user", content: buildModelUserPrompt(input) },
     ],
     response_format: { type: "json_schema", json_schema: { name: "propuesta_dictado", strict: true, schema: AI_JSON_SCHEMA } },
