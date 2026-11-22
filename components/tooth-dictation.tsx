@@ -658,7 +658,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
     .filter((operation): operation is ToothDictationOperation => operation !== null) ?? [];
   // Si lo realizado toca lo mismo que el diagnóstico (la caries oclusal pasa a obturación), gana lo realizado.
   const chartOperations = mergeOperations(selectedOperations(false), selectedOperations(true));
-  const diagnosisOperation = toothDiagnosisOperation(diagnosisText, planText);
+  const diagnosisOperation = toothDiagnosisOperation(diagnosisText, planText, isDone());
   const operations: ToothDictationOperation[] = [
     ...chartOperations,
     ...confirmedFaces,
