@@ -4,6 +4,7 @@
  * Lógica pura, sin red.
  */
 import type { BudgetItem } from "./budget-plans.ts";
+import { newCase, CASE_TYPES, SESSION_STEPS, type EndoData } from "./endodontics.ts";
 import type { OdontogramSurface, SurfaceFinding } from "../app/clinical-data.ts";
 
 export type DictationMode = "plan" | "done";
@@ -82,3 +83,45 @@ export function restoredSurfacesFrom(text: string): { surface: OdontogramSurface
     finding: { condition: "restored", depth: null, icdas: null, activity: null, ...(material ? { restorationMaterial: material, restorationStage: stage } : {}) } as SurfaceFinding,
   }));
 }
+
+/* ── Endodoncia dictada como realizada: marca la pieza en el endograma ── */
+export type EndoDictation = { type: (typeof CASE_TYPES)[number]; steps: string[]; obturated: boolean };
+
+/**
+ * ¿Lo dictado como realizado es un procedimiento endodóntico? Devuelve el tipo de caso y si ya quedó obturado.
+ * «Pulpectomía» / «trepanación» / «instrumentación» → en curso; «obturación de conductos» o «endodoncia terminada» → obturado.
+ * Una obturación de composite NO es endodoncia: se exige la palabra conducto/endodoncia/pulpectomía.
+ */
+export function endoFromDictation(text: string): EndoDictation | null {
+  const t = strip(text);
+  const obturated = /obturacion de(?:l| los)? (?:conducto|conductos|sistema de conductos)|obturacion endodontica|conductos? obturad|endodoncia (?:terminada|finalizada|completa|concluida)|tratamiento de conducto(?:s)? (?:terminado|finalizado|completo|concluido)/.test(t);
+  const pulpectomy = /pulpectomia/.test(t);
+  const pulpotomy = /pulpotomia/.test(t);
+  const conduit = /tratamiento de conductos?|endodoncia|tratamiento endodontico|instrumentacion de conductos?|preparacion (?:quimico[- ]mecanica|biomecanica)/.test(t);
+  const retreat = /retratamiento/.test(t);
+  if (!obturated && !pulpectomy && !pulpotomy && !conduit && !retreat) return null;
+  // Plan o evaluación («evaluar endodoncia si…», «se propondrá endodoncia») no es un procedimiento hecho.
+  if (!obturated && /(?:evaluar|evaluacion de|derivar|derivacion|sugerir|sugiere|posible|si hay|eventual)\s+(?:una\s+)?(?:endodoncia|pulpectomia|tratamiento de conducto)/.test(t)) return null;
+  const type = retreat ? CASE_TYPES[1] : pulpotomy && !pulpectomy ? CASE_TYPES[2] : pulpectomy ? CASE_TYPES[3] : CASE_TYPES[0];
+  const steps: string[] = [];
+  if (/trepanacion|acceso|apertura/.test(t) || pulpectomy || conduit) steps.push("Acceso cameral");
+  if (/instrumentacion|preparacion|pulpectomia|limpieza/.test(t)) steps.push("Preparación químico-mecánica");
+  if (/medicacion|hidroxido de calcio/.test(t)) steps.push("Medicación intraconducto");
+  if (obturated) steps.push("Obturación");
+  return { type, steps: [...new Set(steps)], obturated };
+}
+
+/**
+ * Aplica al endograma lo dictado como realizado hoy. Si la pieza ya tiene un caso abierto (sin obturar ni cerrado, no previo),
+ * lo continúa con una sesión nueva (o lo obtura); si no, abre uno. Nunca duplica la sesión del mismo día.
+ */
+export function applyEndoDictation(data: EndoData, tooth: number, dictation: EndoDictation, today: string, newId: () => string): EndoData {
+  const open = [...data.cases].reverse().find(c => c.tooth === tooth && !c.prior && !c.closedReason && !c.obturation.date);
+  const base = open ?? { ...newCase(newId(), tooth, today), type: dictation.type };
+  const sessions = base.sessions.some(s => s.date === today)
+    ? base.sessions.map(s => s.date === today ? { ...s, steps: [...new Set([...s.steps, ...dictation.steps])].filter(step => (SESSION_STEPS_SET as Set<string>).has(step)) } : s)
+    : [...base.sessions, { id: newId(), date: today, steps: dictation.steps, irrigants: [], medication: "", temporary: "", notes: "Registrado desde el dictado por pieza." }];
+  const next = { ...base, sessions, obturation: dictation.obturated ? { ...base.obturation, date: today } : base.obturation };
+  return { ...data, cases: open ? data.cases.map(c => c.id === open.id ? next : c) : [...data.cases, next] };
+}
+const SESSION_STEPS_SET = new Set<string>(SESSION_STEPS);

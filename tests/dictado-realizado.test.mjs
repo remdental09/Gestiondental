@@ -143,3 +143,35 @@ test('el hito del diagnóstico dice «procedimiento realizado», no «plan preli
   assert.ok(!/preliminar/.test(done.detail));
   assert.equal(toothDiagnosisOperation('Caries profunda', 'Se propondrá obturar').title, 'Diagnóstico / hipótesis y plan preliminar');
 });
+
+import { endoFromDictation, applyEndoDictation } from '../lib/tooth-performed.ts';
+import { endoMarksByTooth, emptyEndo } from '../lib/endodontics.ts';
+
+test('endodoncia dictada como realizada: detecta el procedimiento y no confunde con obturación de composite', () => {
+  assert.equal(endoFromDictation('Pulpectomía y trepanación realizada')?.type, 'Pulpectomía');
+  assert.equal(endoFromDictation('Pulpectomía')?.obturated, false);
+  assert.equal(endoFromDictation('Se realizó obturación de conductos con gutapercha')?.obturated, true);
+  assert.equal(endoFromDictation('Tratamiento de conducto terminado')?.obturated, true);
+  assert.equal(endoFromDictation('Obturación oclusal de composite'), null);
+  assert.equal(endoFromDictation('Evaluar endodoncia si hay compromiso pulpar'), null);
+});
+
+test('endodoncia realizada: abre caso en curso, lo continúa sin duplicar y lo obtura', () => {
+  let n = 0; const id = () => `id${++n}`;
+  const first = applyEndoDictation(emptyEndo(), 46, endoFromDictation('pulpectomía realizada'), '2026-11-22', id);
+  assert.equal(first.cases.length, 1);
+  assert.equal(endoMarksByTooth(first)[46], 'en curso');
+  const again = applyEndoDictation(first, 46, endoFromDictation('pulpectomía realizada'), '2026-11-22', id);
+  assert.equal(again.cases.length, 1);
+  assert.equal(again.cases[0].sessions.length, 1);
+  const done = applyEndoDictation(again, 46, endoFromDictation('obturación de conductos realizada'), '2026-12-05', id);
+  assert.equal(done.cases.length, 1);
+  assert.equal(done.cases[0].obturation.date, '2026-12-05');
+  assert.equal(endoMarksByTooth(done)[46], 'obturado');
+});
+
+test('el dictado por pieza llama al endograma solo cuando es realizado', () => {
+  const page = src('app/page.tsx');
+  assert.match(page, /performed\?endoFromDictation/);
+  assert.match(page, /applyEndoDictation\(base,tooth/);
+});
