@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { chileTodayIso } from "@/lib/dictation/voice-command";
 import { scrollBelowHeader } from "@/lib/scroll-below-header";
 import { addDays, addMonths, CONTROL_STATUSES, controlBucket, controlMatches, DEFAULT_CONTROL_TIME, weekendName, whatsappLink, type ControlStatus } from "@/lib/next-control";
+import { useSpaceRole } from "@/components/space-role";
+import { isStaffRole } from "@/lib/role-policy";
 
 export type ControlView = { id: number; patientId: number; dueOn: string; reason: string; note: string; status: ControlStatus; evolutionId: number | null; createdBy: string; createdAt: string; updatedAt: string; appointmentId?: number | null; appointmentTime?: string; patientName?: string; patientPhone?: string };
 /** Resultado de escribir la cita del control: en Google Calendar, solo en la agenda de la app, o sin cita. */
@@ -44,6 +46,8 @@ export function WeekendHint({ day, className = "" }: { day: string; className?: 
 }
 /** Qué pasó con la cita del control en la agenda y en Google Calendar; si falta permiso, ofrece reconectar. */
 export function ControlCalendarNotice({ status, onClose }: { status: ControlCalendarStatus; onClose?: () => void }) {
+  // Conectar Google Calendar es configuración del dueño: el personal (Recepción / Asistente) no ve el botón.
+  const staff = isStaffRole(useSpaceRole());
   if (status === "sin-cita") return null;
   const tone = status === "ok" ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-900";
   const text = status === "ok" ? "Control agendado en la agenda y en Google Calendar."
@@ -52,7 +56,7 @@ export function ControlCalendarNotice({ status, onClose }: { status: ControlCale
     : "Control agendado en la agenda de la app; no se pudo escribir en Google Calendar.";
   return <div role="status" className={`flex flex-wrap items-center gap-2 rounded-lg border p-2 text-xs ${tone}`} data-testid="control-calendar-notice">
     <span className="min-w-0 flex-1">{text}</span>
-    {(status === "solo-lectura" || status === "sin-conexion") && <a href={CONNECT_CALENDAR_WRITE_URL} className="inline-flex min-h-9 items-center rounded-lg bg-[#473a6d] px-3 font-semibold text-white" data-testid="connect-calendar-write">Conectar Google Calendar para escribir controles</a>}
+    {!staff && (status === "solo-lectura" || status === "sin-conexion") && <a href={CONNECT_CALENDAR_WRITE_URL} className="inline-flex min-h-9 items-center rounded-lg bg-[#473a6d] px-3 font-semibold text-white" data-testid="connect-calendar-write">Conectar Google Calendar para escribir controles</a>}
     {onClose && <button type="button" onClick={onClose} className="min-h-9 px-2 underline">Cerrar</button>}
   </div>;
 }
