@@ -10,14 +10,14 @@ import { loadClinic } from "@/app/clinic-profile-db";
 import { loadDocumentMark } from "@/app/document-mark-db";
 import { getSender, mailDb, ensureMailTables } from "@/app/appointment-mail-db";
 import { sendMailWithSender } from "@/app/drive-oauth";
-import { buildRawMessage, isValidEmail, documentEmail } from "@/lib/appointment-mail";
+import { buildRawMessage, isValidEmail, documentEmail, signRequestEmail, signedCopyEmail } from "@/lib/appointment-mail";
 import { ageFromBirthDate, cleanClinicalDocumentContent, parseMedications, medicationLine, splitPrescriptionLines, requiresHabilitacionQr, habilitacionNoun, isPrescriptionKind, type ClinicalDocumentKind } from "@/lib/clinical-documents";
 import { buildDocumentPdf, type DocumentPdfInput } from "@/lib/document-pdf";
 import { shortCode, verificationUrl } from "@/lib/document-verification";
 import { formatChileanRut, isValidChileanRut } from "@/lib/patient-document";
 import { asProfessionalTitle } from "@/lib/clinician-profile";
 import { registrationLine } from "@/lib/prestador-certificate";
-import { SIGNER_ROLE_LABEL, SIGN_METHOD_LABEL, isSignMethod, isSignerRole } from "@/lib/consent-signature";
+import { SIGNER_ROLE_LABEL, SIGN_METHOD_LABEL, SIGN_LINK_HOURS, isSignMethod, isSignerRole } from "@/lib/consent-signature";
 
 const toBase64 = (bytes: Uint8Array) => { let bin = ""; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return btoa(bin); };
 const dateLong = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? "" : new Intl.DateTimeFormat("es-CL", { dateStyle: "long", timeZone: "America/Santiago" }).format(d); };
@@ -111,4 +111,28 @@ export async function sendDocumentPdf(ownerId: string, documentId: number, origi
   await sendMailWithSender(sender, buildRawMessage({ from: sender.google_email, fromName: pdf.clinicName || undefined, to, replyTo: sender.google_email, ...mail,
     attachments: [{ filename: pdf.fileName, contentType: "application/pdf", base64: toBase64(pdf.bytes) }] }));
   return { to, from: sender.google_email };
+}
+
+/** Antes de crear un enlace de firma: confirma que hay correo del paciente y correo de envío conectado (así no queda un enlace sin enviar). */
+export async function signMailTarget(ownerId: string, patientEmail: string, patientName: string) {
+  return mailTarget(ownerId, patientEmail, patientName);
+}
+
+/** Envía al paciente el enlace de firma con el botón «Revisar y firmar». */
+export async function sendSignRequestMail(ownerId: string, input: { patientEmail: string; patientName: string; doctorName: string; url: string }) {
+  const { to, sender } = await mailTarget(ownerId, input.patientEmail, input.patientName);
+  const clinic = await loadClinic(ownerId).catch(() => null);
+  const mail = signRequestEmail({ patientName: input.patientName, clinicName: clinic?.clinicName || "", doctorName: input.doctorName, url: input.url, hours: SIGN_LINK_HOURS });
+  await sendMailWithSender(sender, buildRawMessage({ from: sender.google_email, fromName: clinic?.clinicName || undefined, to, replyTo: sender.google_email, ...mail }));
+  return { to, from: sender.google_email };
+}
+
+/** Apenas el paciente firma: le llega al correo de su ficha el PDF del consentimiento ya firmado. */
+export async function sendSignedCopy(ownerId: string, documentId: number, origin: string, code: string) {
+  const pdf = await renderDocumentPdf(ownerId, documentId, origin);
+  const { to, sender } = await mailTarget(ownerId, pdf.patient.email, pdf.patient.name);
+  const mail = signedCopyEmail({ patientName: pdf.patient.name, clinicName: pdf.clinicName, doctorName: pdf.doctorName, code });
+  await sendMailWithSender(sender, buildRawMessage({ from: sender.google_email, fromName: pdf.clinicName || undefined, to, replyTo: sender.google_email, ...mail,
+    attachments: [{ filename: pdf.fileName, contentType: "application/pdf", base64: toBase64(pdf.bytes) }] }));
+  return { to };
 }

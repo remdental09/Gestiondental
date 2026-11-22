@@ -16,7 +16,7 @@ const TOKEN = "T".repeat(32);
 const png = `data:image/png;base64,${"A".repeat(900)}`;
 const contentHash = "c".repeat(64);
 
-async function setup({ expired = false, docStatus = "emitido", content } = {}) {
+async function setup({ expired = false, docStatus = "emitido", content, copyFails = false } = {}) {
   const tables = {
     consentSignatures: Object.fromEntries(["id", "documentId", "ownerId", "patientId", "status", "tokenHash", "tokenExpiresAt"].map(k => [k, k])),
     patientDocuments: Object.fromEntries(["id", "ownerId", "kind", "status", "patientId"].map(k => [k, k])),
@@ -37,6 +37,7 @@ async function setup({ expired = false, docStatus = "emitido", content } = {}) {
     select: () => ({ from: table => ({ where: cond => ({ async limit(n) { return match(table, cond).slice(0, n); } }) }) }),
     update: table => ({ set: value => ({ where: cond => ({ async returning() { const hit = match(table, cond); hit.forEach(row => Object.assign(row, value)); return hit.map(row => ({ id: row.id })); } }) }) }),
   });
+  const copies = [];
   const exports = {};
   runInNewContext(transpile("app/api/firmar/route.ts"), {
     exports,
@@ -46,11 +47,12 @@ async function setup({ expired = false, docStatus = "emitido", content } = {}) {
       "@/app/document-issuance-db": { ensureDocumentIssuanceColumns: async () => undefined },
       "@/app/consent-signature-db": { ensureConsentSignatureTable: async () => undefined },
       "@/app/clinician-profile-db": { loadProfile: async () => ({ clinicName: "Clínica Sonrisa" }) },
+      "@/app/document-pdf": { sendSignedCopy: async (...args) => { if (copyFails) throw new Error("sin correo"); copies.push(args); } },
       "@/lib/consent-signature": consentLib, "@/lib/document-verification": verifyLib,
     })[name],
     ...sandboxGlobals,
   });
-  return { ...exports, rows };
+  return { ...exports, rows, copies };
 }
 
 const get = (route, token = TOKEN) => route.GET(new Request(`https://speakdent.cl/api/firmar?t=${token}`));
@@ -92,6 +94,8 @@ test("POST: firma válida registra la huella, invalida el enlace y no se puede u
   const data = await response.json();
   assert.equal(data.ok, true);
   assert.match(data.code, /^[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}$/);
+  assert.equal(data.copySent, true, "la copia firmada se envía por correo");
+  assert.deepEqual(route.copies, [["o1", 10, "https://speakdent.cl", data.code]]);
   const row = route.rows.consentSignatures[0];
   assert.equal(row.status, "firmado");
   assert.equal(row.tokenHash, null);
@@ -131,4 +135,14 @@ test("POST: rechaza otro origen y el documento anulado después de enviar el enl
   route.rows.patientDocuments[0].status = "anulado";
   assert.equal((await post(route, {})).status, 404);
   assert.equal(route.rows.consentSignatures[0].status, "pendiente");
+});
+
+test("si la copia por correo falla, la firma igual queda registrada", async () => {
+  const route = await setup({ copyFails: true });
+  const response = await post(route, { t: TOKEN, accept: true, image: png, signerRole: "paciente", identity: "6785" });
+  assert.equal(response.status, 200);
+  const data = await response.json();
+  assert.equal(data.ok, true);
+  assert.equal(data.copySent, false);
+  assert.equal(route.rows.consentSignatures[0].status, "firmado");
 });

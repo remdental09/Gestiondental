@@ -90,7 +90,7 @@ export function ConsentSigningCard({ documentId, issued, signature, patient, onC
     setBusy(true); setError("");
     try {
       const response = await fetch("/api/documentos/firma", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: documentId, ...payload }) });
-      const data = await response.json() as { signature?: SignatureView | null; link?: LinkInfo; error?: string };
+      const data = await response.json() as { signature?: SignatureView | null; link?: LinkInfo; mailed?: { to: string }; error?: string };
       if (!response.ok) throw new Error(data.error || "No se pudo completar la acción.");
       return data;
     } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo completar la acción."); return null; }
@@ -106,6 +106,12 @@ export function ConsentSigningCard({ documentId, issued, signature, patient, onC
   const makeLink = async () => {
     const data = await post({ action: "enlace" });
     if (data?.signature && data.link) { onChange(data.signature); setLink(data.link); setCopied(false); }
+  };
+  const [mailedTo, setMailedTo] = useState("");
+  const sendByMail = async () => {
+    if (!window.confirm(`¿Enviar el consentimiento para firmar al correo de ${patient.name} (${patient.email || "sin correo"})?`)) return;
+    const data = await post({ action: "correo" });
+    if (data?.signature) { onChange(data.signature); setMailedTo(data.mailed?.to ?? patient.email); setLink(null); }
   };
   const cancelLink = async () => {
     if (!window.confirm("¿Desea cancelar el enlace? El paciente ya no podrá firmar con él.")) return;
@@ -132,6 +138,7 @@ export function ConsentSigningCard({ documentId, issued, signature, patient, onC
     <div><h3 className="flex items-center gap-2 font-semibold text-[#35343f]"><PenLine className="size-4"/>Firma del paciente</h3><p className="mt-1 text-sm text-[#615f73]">Gratis y asociada a la ficha. Elige cómo firma el paciente.</p></div>
     {mode === "idle" && <div className="flex flex-wrap gap-2">
       <button type="button" onClick={() => { setMode("sign"); setError(""); }} disabled={busy} data-testid="consent-sign-now" className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-[#473a6d] px-4 text-sm font-semibold text-white hover:bg-[#3a2f5a] disabled:opacity-50"><Smartphone className="size-4"/>Firmar ahora en pantalla</button>
+      <button type="button" onClick={() => void sendByMail()} disabled={busy || !patient.email} data-testid="consent-sign-mail" title={patient.email ? "" : "La ficha no tiene correo"} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-[#473a6d] px-4 text-sm font-semibold text-white hover:bg-[#3a2f5a] disabled:opacity-50"><Mail className="size-4"/>Enviar por correo para firmar</button>
       <button type="button" onClick={() => void makeLink()} disabled={busy} data-testid="consent-sign-link" className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-[#473a6d] px-4 text-sm font-semibold text-[#473a6d] hover:bg-[#f3f1f7] disabled:opacity-50">{busy ? <LoaderCircle className="size-4 animate-spin"/> : <Send className="size-4"/>}{pending ? "Enviar un enlace nuevo" : "Enviar enlace al paciente"}</button>
     </div>}
     {mode === "sign" && <div className="space-y-3" data-testid="consent-sign-form">
@@ -161,6 +168,7 @@ export function ConsentSigningCard({ documentId, issued, signature, patient, onC
       </div>
       {!link.whatsapp && <p className="text-xs text-[#615f73]">La ficha no tiene un celular válido para abrir WhatsApp: copia el mensaje y envíalo por el medio que prefieras.</p>}
     </div>}
+    {mailedTo && pending && !link && <p className="rounded-lg bg-[#f3f1f7] p-3 text-sm text-[#473a6d]" data-testid="consent-mailed">Enviado a {mailedTo}. Cuando el paciente firme, la firma aparece aquí y él recibe una copia en PDF.</p>}
     {pending && !link && <p className="flex flex-wrap items-center gap-2 text-sm text-[#473a6d]" data-testid="consent-link-pending">Enlace enviado: esperando la firma (vence {fmt(signature!.tokenExpiresAt)}). Esta pantalla se actualiza sola.
       <button type="button" onClick={() => void cancelLink()} disabled={busy} className="min-h-9 rounded-lg border border-[#b9b1ce] px-3 text-sm font-semibold hover:bg-[#f3f1f7]">Cancelar enlace</button></p>}
     {signature?.status === "pendiente" && !signature.linkActive && <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-950">El último enlace venció sin firmarse. Envía uno nuevo o firma en pantalla.</p>}

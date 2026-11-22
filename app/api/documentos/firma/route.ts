@@ -4,6 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { ensureDocumentIssuanceColumns } from "@/app/document-issuance-db";
 import { ensureConsentSignatureTable, signatureView } from "@/app/consent-signature-db";
 import { getChatGPTUser, personalIdOf } from "@/app/chatgpt-auth";
+import { sendSignRequestMail, signMailTarget } from "@/app/document-pdf";
 import { loadProfile } from "@/app/clinician-profile-db";
 import { getDb } from "@/db";
 import { consentSignatures, patientDocuments, patients } from "@/db/schema";
@@ -26,14 +27,14 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => null) as Body | null;
   const id = Number(body?.id);
   const action = body?.action;
-  if (!Number.isSafeInteger(id) || id < 1 || (action !== "firmar" && action !== "enlace" && action !== "cancelar")) return fail("Solicitud no válida.");
+  if (!Number.isSafeInteger(id) || id < 1 || (action !== "firmar" && action !== "enlace" && action !== "correo" && action !== "cancelar")) return fail("Solicitud no válida.");
   try {
     const db = getDb();
     const [doc] = await db.select().from(patientDocuments).where(and(eq(patientDocuments.id, id), eq(patientDocuments.ownerId, user.userId))).limit(1);
     if (!doc) return fail("Documento no encontrado.", 404);
     if (doc.kind !== "consentimiento") return fail("Solo el consentimiento informado lleva firma del paciente.");
     if (doc.status !== "emitido" || !doc.contentHash || doc.revokedAt) return fail("Para firmarlo, el consentimiento debe estar emitido y vigente. Emítelo con QR primero.", 409);
-    const [patient] = await db.select({ id: patients.id, name: patients.name, phone: patients.phone }).from(patients).where(and(eq(patients.id, doc.patientId), eq(patients.ownerId, user.userId))).limit(1);
+    const [patient] = await db.select({ id: patients.id, name: patients.name, phone: patients.phone, email: patients.email }).from(patients).where(and(eq(patients.id, doc.patientId), eq(patients.ownerId, user.userId))).limit(1);
     if (!patient) return fail("Paciente no encontrado.", 404);
     const [signed] = await db.select({ id: consentSignatures.id }).from(consentSignatures).where(and(eq(consentSignatures.documentId, id), eq(consentSignatures.status, "firmado"))).limit(1);
     if (signed && action !== "cancelar") return fail("Este consentimiento ya fue firmado.", 409);
@@ -44,7 +45,12 @@ export async function POST(request: Request) {
       return Response.json({ signature: null }, { headers: headersNoStore });
     }
 
-    if (action === "enlace") {
+    if (action === "enlace" || action === "correo") {
+      // Por correo, primero se comprueba que haya correo del paciente y correo de envío: así no queda un enlace creado sin enviar.
+      if (action === "correo") {
+        try { await signMailTarget(user.userId, patient.email, patient.name); }
+        catch (reason) { return fail(reason instanceof Error && reason.message ? reason.message : "No se pudo preparar el correo.", 409); }
+      }
       // Un solo enlace vigente por documento: el anterior deja de servir.
       await db.update(consentSignatures).set({ status: "cancelado", tokenHash: null }).where(and(eq(consentSignatures.documentId, id), eq(consentSignatures.ownerId, user.userId), eq(consentSignatures.status, "pendiente")));
       const token = newVerifyToken();
@@ -55,6 +61,16 @@ export async function POST(request: Request) {
       const url = signUrl(new URL(request.url).origin, token);
       const profile = await loadProfile(personalIdOf(user)).catch(() => null);
       const message = signMessage(patient.name, profile?.clinicName ?? "", url);
+      if (action === "correo") {
+        try {
+          const sent = await sendSignRequestMail(user.userId, { patientEmail: patient.email, patientName: patient.name, doctorName: doc.createdByName, url });
+          return Response.json({ signature: signatureView(row!, now), mailed: sent, link: { url, message, whatsapp: whatsappSignLink(patient.phone, message), path: SIGN_PATH } }, { status: 201, headers: headersNoStore });
+        } catch (reason) {
+          // Si el correo no salió, el enlace no sirve de nada: se cancela para no dejar uno pendiente sin que el paciente lo tenga.
+          await db.update(consentSignatures).set({ status: "cancelado", tokenHash: null }).where(eq(consentSignatures.id, row!.id));
+          return fail(reason instanceof Error && reason.message ? reason.message : "No se pudo enviar el correo.", 502);
+        }
+      }
       // El enlace completo solo se entrega ahora; si se pierde, se genera otro.
       return Response.json({ signature: signatureView(row!, now), link: { url, message, whatsapp: whatsappSignLink(patient.phone, message), path: SIGN_PATH } }, { status: 201, headers: headersNoStore });
     }
