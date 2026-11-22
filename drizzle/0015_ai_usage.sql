@@ -1,0 +1,2 @@
+-- Fase 4: uso de IA por cuenta y por día (tope diario de costo). Solo agrega una tabla.
+CREATE TABLE IF NOT EXISTS `ai_usage` (`owner_id` text NOT NULL, `day` text NOT NULL, `calls` integer DEFAULT 0 NOT NULL, `input_tokens` integer DEFAULT 0 NOT NULL, `output_tokens` integer DEFAULT 0 NOT NULL, `audio_seconds` integer DEFAULT 0 NOT NULL, `updated_at` text NOT NULL, PRIMARY KEY (`owner_id`, `day`));
