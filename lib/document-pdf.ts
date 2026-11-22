@@ -10,7 +10,8 @@ import { SIGNATURE_BOX_CM, STAMP_BOX_CM, cmToPt, fitInBox } from "./signature-im
  */
 export type DocumentPdfInput = {
   title: string;
-  number: string;
+  /** Número del documento; sin número (registros que no se emiten con QR) no se imprime «N°». */
+  number?: string;
   clinicName: string;
   clinicLines: string[];
   logo?: string;
@@ -22,6 +23,8 @@ export type DocumentPdfInput = {
   /** Bloques de texto: título opcional + párrafos (una línea por elemento; las que empiezan con «#» van en negrita). */
   sections: { heading?: string; lines: string[]; strong?: boolean }[];
   note?: string;
+  /** Fichas con foto (p. ej. etiquetas de productos biomédicos): foto a la izquierda, título y líneas a la derecha. */
+  figures?: { title: string; lines: string[]; image?: string }[];
   verification?: { url: string; code: string; text: string };
   doctorMark?: string;
   /** Timbre del profesional: se imprime bajo su nombre y datos, debajo de la firma. */
@@ -110,7 +113,7 @@ export async function buildDocumentPdf(input: DocumentPdfInput): Promise<Uint8Ar
 
   y -= 24; const title = pdfSafe(input.title.toUpperCase());
   text(title, (PAGE_W - bold.widthOfTextAtSize(title, 13)) / 2, 13, bold, PURPLE);
-  const number = `N° ${input.number}`; text(number, R - regular.widthOfTextAtSize(number, 9), 9, regular, MUTED);
+  if (input.number) { const number = `N° ${input.number}`; text(number, R - regular.widthOfTextAtSize(number, 9), 9, regular, MUTED); }
 
   y -= 10;
   const dateText = `Fecha emisión: ${input.issuedDate}`;
@@ -128,6 +131,23 @@ export async function buildDocumentPdf(input: DocumentPdfInput): Promise<Uint8Ar
     y -= 4;
   }
   if (input.note) { y -= 6; paragraph(input.note, 8.5, regular, R - M, MUTED); }
+
+  // Fichas con foto (etiquetas de productos): cada una en su recuadro, sin partirse entre páginas.
+  const figureImages = await Promise.all((input.figures ?? []).map(figure => embed(pdf, figure.image)));
+  for (const [index, figure] of (input.figures ?? []).entries()) {
+    const image = figureImages[index] ?? null, textX = M + 148, textW = R - M - 156;
+    const rows = figure.lines.flatMap(line => wrap(line, regular, 9.5, textW));
+    const titleRows = wrap(figure.title, bold, 10.5, textW);
+    const textH = titleRows.length * 14 + rows.length * 12 + 6, boxH = Math.max(98, textH) + 12;
+    need(boxH + 10);
+    const top = y - 8;
+    page.drawRectangle({ x: M, y: top - boxH, width: R - M, height: boxH, borderColor: LINE, borderWidth: 0.8 });
+    if (image) { const fit = fitInBox(image.width, image.height, 132, 98); page.drawImage(image, { x: M + 8 + (132 - fit.width) / 2, y: top - 6 - fit.height - (98 - fit.height) / 2, width: fit.width, height: fit.height }); }
+    let ty = top - 16;
+    for (const row of titleRows) { page.drawText(row, { x: textX, y: ty, size: 10.5, font: bold, color: INK }); ty -= 14; }
+    for (const row of rows) { page.drawText(row, { x: textX, y: ty, size: 9.5, font: regular, color: MUTED }); ty -= 12; }
+    y = top - boxH - 2;
+  }
 
   // Firmas: el profesional (timbre o firma dibujada) y, en consentimientos, la del paciente.
   const stampBoxWidth = cmToPt(STAMP_BOX_CM.width), stampBoxHeight = cmToPt(STAMP_BOX_CM.height), stampSpace = stampImage ? stampBoxHeight + 8 : 0;
