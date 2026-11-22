@@ -2,6 +2,7 @@ import { normalizeShades } from "./shade.ts";
 import { dentalDictionaryHints } from "./dental-lexicon.ts";
 import { APICAL_STATUSES, FRACTURE_STATUSES, isLesionStatus } from "../tooth-status.ts";
 import { calmClarifications, type Sensitivity } from "./sensitivity.ts";
+import { applyClinicalRegister } from "./clinical-register.ts";
 import { applyAiReview, clinicalCoherence, parseReview, parseReviewExtras, REVIEW_PROMPT, reviewPayload } from "./clinical-review.ts";
 import { isDeducedSuggestion, type Learned } from "./learning.ts";
 import { applyClinicalItems, ITEMS_PROMPT, ITEMS_SCHEMA, parseAiItems, patientPrompt, polishNote, type ClinicalItem, type PatientContext } from "./clinical-items.ts";
@@ -4238,7 +4239,8 @@ export async function proposeFromTranscript(
       } else typed.odontogram = understood.odontogram;
     }
     const normalizedText = normalizeIdentityNumbers(text);
-    const normalizedEvolution = typed.evolution ? normalizeIdentityNumbers(typed.evolution.body) : null;
+    // Registro chileno: la nota no lleva términos que no se usan aquí (salvo que el profesional los haya dictado).
+    const normalizedEvolution = typed.evolution ? (() => { const numbered = normalizeIdentityNumbers(typed.evolution.body); return { ...numbered, text: applyClinicalRegister(numbered.text, `${text} ${transcript}`).text }; })() : null;
     const finished = withCatalogCodes(withoutMoney({
       ...typed,
       prestaciones: suggestPrestaciones(typed.odontogram, procedureLinesOf(normalizedEvolution?.text ?? typed.evolution?.body ?? ""), (typed.procedures ?? []).map((proc) => ({ text: proc.text, evidence: proc.evidence, code: proc.code })), `${text} ${(typed.diagnoses ?? []).map((dx) => dx.title).join(" ")}`, typed.acts ?? []),
