@@ -5,6 +5,7 @@ import { formatFdi, type PerioExam, type PerioSiteKey, type PerioTooth, type Too
 import { depthTone } from "@/app/perio-arch-layout";
 import { PerioToothScene } from "@/components/perio-arch";
 import { ToothTimeline } from "@/components/tooth-timeline";
+import { ToothStory } from "@/components/tooth-story";
 
 const KIND = ["Incisivo central", "Incisivo lateral", "Canino", "Primer premolar", "Segundo premolar", "Primer molar", "Segundo molar", "Tercer molar"];
 const TONE = { none: "text-slate-500", ok: "text-emerald-700", warn: "text-amber-700", crit: "text-rose-700" } as const;
@@ -69,7 +70,7 @@ export function PerioToothModal({ tooth, chile, status, data, exams, toothHistor
             </div>
             <p className="text-[11px] leading-4 text-[#615f73]">La cresta ósea es una estimación (nivel de inserción; 2 mm bajo la UAC si está sano); la altura real se confirma con radiografía. Las medidas se editan en el panel de la pieza.</p>
           </div>
-          {live ? <div className="order-first min-w-0 md:order-none">{live}</div> : <div className="min-w-0"><ToothTimeline tooth={tooth} history={toothHistory} exams={exams} mode="periodontograma" onDeleteReading={onDeleteReading} onEditReading={onEditReading} /></div>}
+          {live ? <div className="order-first min-w-0 md:order-none">{live}</div> : <div className="min-w-0"><ToothStory tooth={tooth} history={toothHistory} size="compact" /><ToothTimeline tooth={tooth} history={toothHistory} exams={exams} mode="periodontograma" onDeleteReading={onDeleteReading} onEditReading={onEditReading} /></div>}
         </div>
       </div>
     </div>

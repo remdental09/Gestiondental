@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { CariesOverlay } from "@/components/caries-overlay";
 import { ToothTimeline } from "@/components/tooth-timeline";
+import { ToothStory } from "@/components/tooth-story";
 import { formatFdi, type CrownDetails, type OdontogramSurface, type PerioExam, type PerioSiteKey, type PerioTooth, type SurfaceFinding, type ToothHistoryEvent } from "@/app/clinical-data";
 import { cariesDetail } from "@/lib/caries";
 import { PhotoStack } from "@/components/photo-stack";
@@ -231,6 +232,7 @@ export function Tooth3DModal({
         </div>
         <aside className="min-w-0 space-y-4" aria-label={`Historia clínica de la pieza FDI ${formatFdi(tooth)}`}>
           <section className="rounded-xl border border-[#dbe8e7] bg-[#f7f6fa] p-3 sm:p-4">
+            {periodontalHistory === undefined && <ToothStory tooth={tooth} history={toothHistory} endoNow={endoDone} size="large" />}
             <h3 className="text-sm font-semibold text-[#2a2540]">Evolución de la pieza</h3>
             <p className="mt-1 text-xs leading-5 text-[#6b6a7c]">Estado actual e hitos clínicos fechados registrados para esta pieza.</p>
             {periodontalHistory === undefined && onEditEvent ? <ToothTimeline tooth={tooth} history={toothHistory} exams={[]} mode="odontograma" editableIds={editableEventIds} onDeleteEvent={onDeleteEvent} onEditEvent={onEditEvent} /> : sortedToothHistory.length ? <ol className="relative mt-3 space-y-0 border-l border-[#b8d2cf] pl-4">
