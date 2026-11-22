@@ -456,7 +456,13 @@ async function handlePost(request: Request) {
     if (!patient) return error("Paciente no encontrado.", 404);
     const chartHistoryMetadata = async (fallbackTitle: string): Promise<ChartHistoryMetadata | { error: string }> => {
       const rawId = input.sourceEvolutionId;
-      if (rawId === undefined || rawId === null || rawId === "") return { source: "manual", title: fallbackTitle, clinicalDate: dateInChile() };
+      if (rawId === undefined || rawId === null || rawId === "") {
+        // Evolución manual de la pieza: el clínico puede fechar el cambio (hoy o una fecha pasada) y nombrarlo.
+        const manualDate = string(input.clinicalDate, 10);
+        if (manualDate && !attentionDateOk(manualDate)) return { error: "Revisa la fecha: no puede ser futura." };
+        const manualTitle = string(input.historyTitle, 180), manualDetail = string(input.historyDetail, 300);
+        return { source: "manual", title: manualTitle || fallbackTitle, clinicalDate: manualDate || dateInChile(), ...(manualDetail ? { detail: manualDetail } : {}) };
+      }
       const sourceEvolutionId = Number(rawId);
       const sourceActionId = string(input.sourceActionId, 180);
       if (!Number.isSafeInteger(sourceEvolutionId) || sourceEvolutionId <= 0 || !sourceActionId) return { error: "La vinculación con la evolución clínica no es válida." };
@@ -1206,6 +1212,18 @@ async function handlePost(request: Request) {
       }
       await db.update(periodontalExams).set({ teeth: JSON.stringify({ ...saved, teeth }) }).where(and(eq(periodontalExams.id, examId), eq(periodontalExams.ownerId, ownerId)));
       return Response.json({ examId, deleted: false, exam: { id: exam.id, recordedAt: exam.recordedAt, ...saved, teeth } });
+    }
+    if (action === "addToothNote") {
+      // Evolución escrita a mano de una pieza: un hito fechado sin cambiar su estado.
+      const tooth = Number(input.tooth), text = string(input.text, 400), clinicalDate = string(input.clinicalDate, 10) || dateInChile();
+      if (!Number.isSafeInteger(tooth) || !allowedTeeth.has(tooth) || !text) return error("Escribe la evolución de la pieza.");
+      if (!attentionDateOk(clinicalDate)) return error("Revisa la fecha: no puede ser futura.");
+      const [old] = await db.select().from(toothStatuses).where(and(eq(toothStatuses.ownerId, ownerId), eq(toothStatuses.patientId, patientId)));
+      const data = normalizeOdontogram(old ? JSON.parse(old.data) : {});
+      const updatedAt = now();
+      appendToothHistory(data, tooth, "diagnosis", toothHistorySnapshot(data, tooth), { recordedAt: updatedAt, source: "manual", title: "Evolución de la pieza", detail: text, clinicalDate });
+      await db.insert(toothStatuses).values({ ownerId, patientId, data: JSON.stringify(data), updatedAt }).onConflictDoUpdate({ target: toothStatuses.patientId, set: { data: JSON.stringify(data), updatedAt } });
+      return Response.json({ odontogram: data });
     }
     if (action === "setToothStatus") {
       const tooth = Number(input.tooth), status = string(input.status, 48);
