@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { NO_TIMES, checkWaitEntry, isWaitPreference, nextTimes, type CycleTimes, type WaitEntry } from "@/lib/appointment-cycle";
+import { NO_TIMES, checkWaitEntry, findWaitDuplicate, isWaitPreference, nextTimes, type CycleTimes, type WaitEntry } from "@/lib/appointment-cycle";
 import type { AttendanceStatus } from "@/lib/dashboard";
 
 /**
@@ -60,7 +60,7 @@ export async function listWaitlist(ownerId: string): Promise<WaitEntry[]> {
   return results.map(entryOf);
 }
 
-export async function addToWaitlist(ownerId: string, input: Record<string, unknown>, actor: string): Promise<{ ok: true; entry: WaitEntry } | { ok: false; error: string }> {
+export async function addToWaitlist(ownerId: string, input: Record<string, unknown>, actor: string): Promise<{ ok: true; entry: WaitEntry; reused: boolean } | { ok: false; error: string }> {
   const checked = checkWaitEntry(input);
   if (!checked.ok) return checked;
   const db = await ensureCycle();
@@ -69,16 +69,17 @@ export async function addToWaitlist(ownerId: string, input: Record<string, unkno
     const patient = await db.prepare("SELECT name, phone FROM patients WHERE id = ? AND owner_id = ?").bind(checked.patientId, ownerId).first<{ name: string; phone: string }>();
     if (!patient) return { ok: false, error: "Paciente no encontrado." };
     name = patient.name; phone = phone || patient.phone || "";
-    const dup = await db.prepare("SELECT id FROM waitlist_entries WHERE owner_id = ? AND patient_id = ? AND removed_at IS NULL").bind(ownerId, checked.patientId).first<{ id: number }>();
-    if (dup) return { ok: false, error: "Ese paciente ya está en la lista de espera." };
   }
-  const count = await db.prepare("SELECT COUNT(*) AS n FROM waitlist_entries WHERE owner_id = ? AND removed_at IS NULL").bind(ownerId).first<{ n: number }>();
-  if ((count?.n ?? 0) >= 200) return { ok: false, error: "La lista de espera admite hasta 200 personas." };
+  // Sin duplicados en la cuenta: mismo paciente, mismo teléfono o mismo nombre (normalizados) → se reusa la entrada activa.
+  const active = await listWaitlist(ownerId);
+  const duplicate = findWaitDuplicate(active, { patientId: checked.patientId, name, phone });
+  if (duplicate) return { ok: true, entry: duplicate, reused: true };
+  if (active.length >= 200) return { ok: false, error: "La lista de espera admite hasta 200 personas." };
   const at = new Date().toISOString();
   const row = await db.prepare("INSERT INTO waitlist_entries (owner_id, patient_id, name, phone, preference, note, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id")
     .bind(ownerId, checked.patientId, name, phone, checked.preference, checked.note, at, actor.slice(0, 200)).first<{ id: number }>();
   if (!row) return { ok: false, error: "No se pudo guardar." };
-  return { ok: true, entry: { id: row.id, patientId: checked.patientId, name, phone, preference: checked.preference, note: checked.note, createdAt: at } };
+  return { ok: true, reused: false, entry: { id: row.id, patientId: checked.patientId, name, phone, preference: checked.preference, note: checked.note, createdAt: at } };
 }
 
 /** Sacar de la lista (queda marcado, no se borra). */
