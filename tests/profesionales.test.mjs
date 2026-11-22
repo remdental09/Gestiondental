@@ -85,6 +85,9 @@ test('con base real: siembra con el dueño, migra nombres escritos, agrega, edit
   const ab = await import('../app/agenda-box-db.ts');
   const pros = await import('../app/professionals-db.ts');
   const seed = { name: 'Luis Rodríguez', specialty: 'Rehabilitación oral', rut: '' };
+  await boxDb.listBoxes('A'); // clínica nueva: parte con «Box 1»
+  await boxDb.saveBox('A', { name: 'Box 2' });
+  await boxDb.saveBox('A', { name: 'Box 3' });
   const boxes = await boxDb.listBoxes('A');
 
   // Horarios y citas de antes (PR #345) con el profesional en texto.
