@@ -106,7 +106,8 @@ test('integración: barra de alertas, tarjetas, controles y aislamiento por espa
   assert.doesNotMatch(page, /data-testid="sticky-allergies"/);
   assert.match(page, /<PatientAlertsBar patientId=\{patient\.id\}/);
   assert.match(page, /<BudgetCardsBoard budgets=\{patientBudgets\}/);
-  assert.match(page, /section==="Controles"&&<NextControlsPanel/);
+  assert.match(page, /section==="Controles"&&<ControlsSection/);
+  assert.match(readFileSync(new URL('../components/controls-section.tsx', import.meta.url), 'utf8'), /<NextControlsPanel start=\{start\}/);
   assert.match(page, /<PatientNextControl patientId=\{patient\.id\}/);
   assert.match(page, /<ControlsHomeCard onOpen=/);
   const db = readFileSync(new URL('../app/followup-db.ts', import.meta.url), 'utf8');
