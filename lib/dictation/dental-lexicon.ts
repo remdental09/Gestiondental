@@ -360,7 +360,7 @@ export function dentalDictionaryHints(): string {
   return hintsCache ??= [
   "Vocabulario odontológico válido; conserva el término que dictó el profesional y corrige solo errores claros del reconocimiento.",
   ...Object.entries(dentalDictionary()).map(([group, terms]) => `${group}: ${terms.join(", ")}.`),
-  "Los sinónimos y regionalismos (por ejemplo, destartraje y detartraje; tapadura, obturación y empaste) son formas válidas: no los sustituyas entre sí. «Tartrectomía» no existe en esta consulta: la palabra correcta es «destartraje» y así debe escribirse.",
+  "Los sinónimos y regionalismos de Chile (por ejemplo, destartraje y detartraje; tapadura, obturación y empaste) son formas válidas: no los sustituyas entre sí. «Tartrectomía» no existe en esta consulta: en la nota escribe «destartraje» o «profilaxis» según lo dictado.",
   "En restauración, «composite» y «resina compuesta» nombran el material; «compósito/composito» es un error de reconocimiento y se corrige a «composite». Redacta «restauración de composite» o «restauración de resina compuesta» y no repitas ambos sinónimos.",
   "No confundas términos distintos: pulpectomía no es pulpotomía; gingivitis no es periodontitis; supra gingival y sub gingival expresan localizaciones diferentes.",
   "«Caries dentinaria superficial» es una expresión odontológica válida. Conserva «dentinaria» como dentina; nunca la cambies por «terminal» ni elimines la profundidad. Si esa profundidad fue dictada, no agregues ni quites esmalte, dentina profunda, compromiso pulpar o una cara dental.",

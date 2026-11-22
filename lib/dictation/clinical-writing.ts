@@ -1,3 +1,5 @@
+import { CLINICAL_REGISTER_PROMPT } from "./clinical-register.ts";
+
 /** Reglas comunes a la captura, corrección y redacción; no contienen casos de pacientes. */
 export const TOOTH_NUMBERING_PROMPT = `Numeración dental de esta consulta: un cardinal sin etiqueta entre 1 y 32 es numeración nacional chilena. «Pieza doce» se transcribe «pieza 12», nunca «pieza 1.2». Chile 12 equivale a FDI 2.4; FDI 1.2 es otra pieza. Usa FDI solo cuando se dicte FDI/ISO, el punto o dos dígitos separados. Conserva la nomenclatura original en la narrativa. No insertes puntos entre los dígitos de un cardinal. No conviertas a numeración Universal estadounidense sin que se indique ese sistema. Las equivalencias deben llevar el nombre del sistema.`;
 
@@ -18,10 +20,11 @@ export const CLINICAL_WRITING_PROMPT = `Control editorial obligatorio de la evol
 - Dictados conversacionales: el profesional suele hablar como en una charla («tenemos una sesión hoy», «vamos a trepanar», «hasta la próxima sesión»). Extrae de ahí los hechos clínicos y redáctalos formalmente; no los conviertas en saludo ni en relato. Cada acción nombrada («vamos a trepanar la pieza», «vamos a dejar sellado») se conserva en procedimientos o plan según el contexto: no omitas una acción técnica porque suene a conversación. Si no se sabe si una acción ya se realizó hoy o se planifica, no la declares como realizada y pregunta en «dudas».
 - Frases de duda del profesional («búscase otro diagnóstico», «no estoy seguro») no se descartan: indican que el diagnóstico no es definitivo. Si el mismo dictado también lo da por claro, deja el diagnóstico dictado y registra la contradicción en «dudas».
 - Un término o medicamento que no se reconozca con certeza (por ejemplo una palabra de aspecto farmacológico mal oída) se conserva tal como se dictó y se marca en «dudas»; nunca lo presentes como un producto identificado ni lo reemplaces por otro.
+${CLINICAL_REGISTER_PROMPT}
 - Comprueba antes de responder: cada hecho aparece una vez, no hay hechos inventados, los números mantienen su sistema, lo planificado no aparece como realizado y ninguna sección vacía tiene contenido de relleno.`;
 
 const fold = (value: string) => value.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
-const STOP = new Set("se realiza realizo efectua efectuo hace el la los las en con y e de del por para un una al".split(" "));
+const STOP = new Set("se realiza realizo efectua efectuo hace el la los las en con y e de del por para un una al posterior luego despues".split(" "));
 
 /** Comparación conservadora y direccional: todos los detalles del origen deben estar presentes. */
 export function procedureCovered(source: string, candidate: string): boolean {
@@ -29,6 +32,7 @@ export function procedureCovered(source: string, candidate: string): boolean {
     .replace(/\b(?:confecciona|confecciono|confeccion)\b/g, "confeccion")
     .replace(/\b(?:provisoria|provisorio|provisional)\b/g, "provisional")
     .replace(/\b(?:destartraje|detartraje) supra(?: gingival)? y sub(?: gingival)?\b/g, "destartraje supragingival y subgingival")
+    .replace(/\b(?:eliminacion|retiro|remocion)\b/g, "remocion")
     .replace(/\bsupra gingival\b/g, "supragingival")
     .replace(/\bsub gingival\b/g, "subgingival")
     .match(/\d+(?:[.,]\d+)?|[a-z]+/g)?.filter((term) => !STOP.has(term)) ?? [];
