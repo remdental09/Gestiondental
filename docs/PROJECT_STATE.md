@@ -269,7 +269,7 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 - Criterio vigente: la corona sobre diente natural es un indicador aparte, no cuenta como O en el COP-D.
 
 ## Respaldo automático: revisión cada hora y constancia
-- Además de la ventana nocturna, el Cron `20 * * * *` revisa cada hora (cuenta principal y copias adicionales, 6 fichas por corrida). Una copia adicional recién conectada ya no espera hasta la noche ni depende del navegador.
+- Además de la ventana nocturna, el Cron `20 * * * *` revisa cada hora (cuenta principal y copias adicionales). Desde el 22-nov-2026 cada corrida procesa hasta 60 fichas con turno justo entre cuentas (`lib/drive-backup-rotation.ts`): el inicio rota en cada pasada, primero una cuota pareja por cuenta y luego el sobrante, con un tope de 5 minutos. Una copia adicional recién conectada ya no espera hasta la noche ni depende del navegador.
 - Cada revisión deja constancia por dueño en `backup_heartbeat` («sin cambios pendientes» o cuántas copió); el aviso de Drive muestra «Última revisión automática».
 - El respaldo que se dispara al guardar una ficha se registra como «al guardar» (antes decía «manual»).
 
