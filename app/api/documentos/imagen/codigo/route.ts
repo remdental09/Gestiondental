@@ -2,7 +2,7 @@
 import { getChatGPTUser, personalIdOf } from "@/app/chatgpt-auth";
 import { ensureMailTables, getSender, mailDb } from "@/app/appointment-mail-db";
 import { sendMailWithSender } from "@/app/drive-oauth";
-import { loadDocumentMark } from "@/app/document-mark-db";
+import { loadDocumentMark, loadStampMark } from "@/app/document-mark-db";
 import { grantUnlock, loadLock, reserveAttempt, storeCode } from "@/app/signature-lock-db";
 import { buildRawMessage, isValidEmail } from "@/lib/appointment-mail";
 import { sha256Hex } from "@/lib/consent-signature";
@@ -22,7 +22,7 @@ export async function POST(request: Request) {
   const now = Date.now();
   try {
     if (body?.action === "enviar") {
-      if (!await loadDocumentMark(professionalId)) return json({ error: "Aún no tienes una firma guardada." }, 409);
+      if (!await loadDocumentMark(professionalId) && !await loadStampMark(professionalId).catch(() => "")) return json({ error: "Aún no tienes una firma ni un timbre guardados." }, 409);
       if (!isValidEmail(user.email)) return json({ error: "Tu cuenta no tiene un correo válido para recibir el código." }, 409);
       const lock = await loadLock(professionalId);
       if (!canResend(lock, now)) return json({ error: "Espera un minuto antes de pedir otro código." }, 429);

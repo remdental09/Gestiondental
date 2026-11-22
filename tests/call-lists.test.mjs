@@ -150,10 +150,11 @@ test('tabla aditiva: migración 0019 con el mismo DDL que la app y entrada en el
   assert.match(sql, /CREATE TABLE IF NOT EXISTS `call_contacts`/);
   assert.doesNotMatch(sql, /DROP|DELETE|ALTER/i);
   const journal = JSON.parse(src('drizzle/meta/_journal.json'));
-  const last = journal.entries.at(-1);
-  assert.equal(last.tag, '0019_call_contacts');
-  assert.equal(last.idx, journal.entries.length - 1);
-  assert.ok(last.when > journal.entries.at(-2).when);
+  const at = journal.entries.findIndex(entry => entry.tag === '0019_call_contacts');
+  assert.ok(at > 0, 'la migración 0019 sigue en el diario');
+  const last = journal.entries[at];
+  assert.equal(last.idx, at);
+  assert.ok(last.when > journal.entries[at - 1].when);
   assert.match(src('app/call-lists-db.ts'), /CREATE TABLE IF NOT EXISTS call_contacts/);
 });
 

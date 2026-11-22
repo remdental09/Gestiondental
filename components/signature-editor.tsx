@@ -3,10 +3,11 @@
  * Firma o timbre del profesional, en su identificación (Configuración → Profesionales y «Mi identificación»).
  * Se dibuja con el dedo (iPhone) o se sube una imagen; se guarda recortada al trazo y se usa sola en todos sus
  * documentos: certificados, recetas, consentimientos y presupuestos.
+ * `kind="timbre"`: el mismo editor para el timbre, que se sube como imagen y se imprime bajo la firma (misma protección por código).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, ImagePlus, Lock, Maximize2, Pencil, Save, Trash2 } from "lucide-react";
-import { BASELINE_RATIO, backingSize, inkBounds, outputScale, strokeWidth, worthTrimming } from "@/lib/signature-image";
+import { BASELINE_RATIO, DEFAULT_INK, SIGNATURE_INKS, backingSize, inkBounds, outputScale, strokeWidth, usableInk, worthTrimming } from "@/lib/signature-image";
 
 const loadImage = (src: string) => new Promise<HTMLImageElement>((resolve, reject) => { const image = new window.Image(); image.onload = () => resolve(image); image.onerror = () => reject(new Error("No se pudo leer la imagen.")); image.src = src; });
 
@@ -56,22 +57,33 @@ async function codeRequest(body: { action: "enviar" | "verificar"; code?: string
 
 class LockedError extends Error {}
 
-async function saveMark(documentMark: string): Promise<string> {
-  const response = await fetch("/api/documentos/imagen", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ documentMark }) });
-  const result = await response.json() as { documentMark?: string; locked?: boolean; error?: string };
-  if (response.status === 403 && result.locked) throw new LockedError(result.error || "Tu firma está protegida.");
-  if (!response.ok || typeof result.documentMark !== "string") throw new Error(result.error || "No se pudo guardar la firma.");
-  return result.documentMark;
+export type MarkKind = "firma" | "timbre";
+
+/** Textos del editor según sea la firma o el timbre (género y artículo distintos). */
+const WORDS = {
+  firma: { title: "Mi firma o timbre", noun: "firma", protectedTitle: "Firma protegida", change: "Cambiar firma", changeIt: "cambiarla o quitarla", changeShort: "cambiar o quitar tu firma" },
+  timbre: { title: "Mi timbre", noun: "timbre", protectedTitle: "Timbre protegido", change: "Cambiar timbre", changeIt: "cambiarlo o quitarlo", changeShort: "cambiar o quitar tu timbre" },
+} as const;
+
+async function saveMark(value: string, kind: MarkKind = "firma"): Promise<string> {
+  const response = await fetch("/api/documentos/imagen", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(kind === "timbre" ? { stampMark: value } : { documentMark: value }) });
+  const result = await response.json() as { documentMark?: string; stampMark?: string; locked?: boolean; error?: string };
+  if (response.status === 403 && result.locked) throw new LockedError(result.error || (kind === "timbre" ? "Tu timbre está protegido." : "Tu firma está protegida."));
+  const saved = kind === "timbre" ? result.stampMark : result.documentMark;
+  if (!response.ok || typeof saved !== "string") throw new Error(result.error || `No se pudo guardar ${kind === "timbre" ? "el timbre" : "la firma"}.`);
+  return saved;
 }
 
 type Point = { x: number; y: number };
+type Stroke = { points: Point[]; color: string };
 type Layer = HTMLImageElement | HTMLCanvasElement;
 const layerSize = (layer: Layer) => layer instanceof HTMLImageElement ? { width: layer.naturalWidth, height: layer.naturalHeight } : { width: layer.width, height: layer.height };
 
 /** Traza una línea suave (curvas por puntos medios) en coordenadas de pantalla. */
-function drawStroke(ctx: CanvasRenderingContext2D, points: Point[], width: number) {
+function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke, width: number) {
+  const { points } = stroke;
   if (!points.length) return;
-  ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.strokeStyle = "#1f1c33"; ctx.lineWidth = width;
+  ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.strokeStyle = stroke.color; ctx.lineWidth = width;
   ctx.beginPath(); ctx.moveTo(points[0].x, points[0].y);
   if (points.length === 1) { ctx.lineTo(points[0].x + 0.01, points[0].y + 0.01); ctx.stroke(); return; }
   for (let i = 1; i < points.length - 1; i++) {
@@ -86,12 +98,15 @@ function drawStroke(ctx: CanvasRenderingContext2D, points: Point[], width: numbe
  * lienzo a la densidad real de la pantalla (trazo nítido), línea guía «Firme aquí» y modo pantalla completa.
  * Al guardar se recorta al trazo (lo que se imprime es solo la firma).
  */
-export function SignatureEditor({ compact = false }: { compact?: boolean }) {
+export function SignatureEditor({ compact = false, kind = "firma" }: { compact?: boolean; kind?: MarkKind }) {
+  const isStamp = kind === "timbre", words = WORDS[kind];
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const layer = useRef<Layer | null>(null);
-  const strokes = useRef<Point[][]>([]);
-  const current = useRef<Point[] | null>(null);
+  const strokes = useRef<Stroke[]>([]);
+  const current = useRef<Stroke | null>(null);
+  const inkRef = useRef(DEFAULT_INK);
+  const [ink, setInk] = useState<string>(DEFAULT_INK);
   const size = useRef({ width: 0, height: 0, scale: 1 });
   const [mark, setMark] = useState<string | null>(null);
   const [hasImage, setHasImage] = useState(false);
@@ -123,7 +138,7 @@ export function SignatureEditor({ compact = false }: { compact?: boolean }) {
       ctx.drawImage(layer.current, (width - w) / 2, y, w, h);
     }
     const line = strokeWidth(width);
-    for (const points of strokes.current) drawStroke(ctx, points, line);
+    for (const stroke of strokes.current) drawStroke(ctx, stroke, line);
     if (current.current) drawStroke(ctx, current.current, line);
   }, []);
 
@@ -176,12 +191,13 @@ export function SignatureEditor({ compact = false }: { compact?: boolean }) {
   useEffect(() => {
     let alive = true;
     void fetch("/api/documentos/imagen", { cache: "no-store" }).then(async response => {
-      const data = await response.json() as { documentMark?: string; locked?: boolean; error?: string };
-      if (!response.ok) throw new Error(data.error || "No se pudo leer tu firma.");
-      let saved = data.documentMark ?? "";
-      if (alive) setLocked(!!data.locked);
+      const data = await response.json() as { documentMark?: string; stampMark?: string; locked?: boolean; stampLocked?: boolean; error?: string };
+      if (!response.ok) throw new Error(data.error || `No se pudo leer tu ${words.noun}.`);
+      let saved = (isStamp ? data.stampMark : data.documentMark) ?? "";
+      const lockedNow = isStamp ? !!data.stampLocked : !!data.locked;
+      if (alive) setLocked(lockedNow);
       // Migración: la firma antigua (cuadro de 200 px con mucho blanco) se guarda recortada al trazo, una sola vez.
-      if (saved && !data.locked) {
+      if (saved && !lockedNow && !isStamp) {
         const image = await loadImage(saved);
         const c = document.createElement("canvas"); c.width = image.naturalWidth; c.height = image.naturalHeight;
         const x = c.getContext("2d");
@@ -190,14 +206,14 @@ export function SignatureEditor({ compact = false }: { compact?: boolean }) {
           const bounds = inkBounds(x.getImageData(0, 0, c.width, c.height).data, c.width, c.height);
           if (bounds && worthTrimming(bounds, c.width, c.height)) {
             const trimmed = trimToDataUrl(image);
-            if (trimmed) saved = await saveMark(trimmed).catch(() => saved);
+            if (trimmed) saved = await saveMark(trimmed, kind).catch(() => saved);
           }
         }
       }
       if (alive) setMark(saved);
-    }).catch(reason => { if (alive) { setMark(""); setError(reason instanceof Error ? reason.message : "No se pudo leer tu firma."); } });
+    }).catch(reason => { if (alive) { setMark(""); setError(reason instanceof Error ? reason.message : `No se pudo leer tu ${words.noun}.`); } });
     return () => { alive = false; };
-  }, []);
+  }, [isStamp, kind, words.noun]);
 
   // Muestra la firma guardada en el cuadro.
   useEffect(() => {
@@ -219,7 +235,7 @@ export function SignatureEditor({ compact = false }: { compact?: boolean }) {
     if (event.button > 0) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
-    current.current = [point(event)]; render();
+    current.current = { points: [point(event)], color: inkRef.current }; render();
     setHasImage(true); setDirty(true); setError(""); setNotice("");
   };
   const move = (event: React.PointerEvent<HTMLCanvasElement>) => {
@@ -228,9 +244,16 @@ export function SignatureEditor({ compact = false }: { compact?: boolean }) {
     const native = event.nativeEvent as PointerEvent & { getCoalescedEvents?: () => PointerEvent[] };
     const rect = event.currentTarget.getBoundingClientRect();
     const events = native.getCoalescedEvents?.() ?? [];
-    if (events.length) for (const e of events) current.current.push({ x: e.clientX - rect.left, y: e.clientY - rect.top });
-    else current.current.push(point(event));
+    if (events.length) for (const e of events) current.current.points.push({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+    else current.current.points.push(point(event));
     render();
+  };
+  /** Elegir un color: vale para lo que se firme desde ahora y recolorea lo ya firmado en este cuadro (sin guardar). */
+  const pickInk = (value: string) => {
+    if (!usableInk(value)) { setError("Ese color es muy claro y no se vería al imprimir. Elige uno más oscuro."); return; }
+    setError("");
+    inkRef.current = value; setInk(value);
+    if (strokes.current.length) { for (const stroke of strokes.current) stroke.color = value; render(); setDirty(true); setNotice(""); }
   };
   const stop = () => { if (current.current) { strokes.current.push(current.current); current.current = null; } };
   const pickFile = async (file?: File) => {
@@ -250,7 +273,7 @@ export function SignatureEditor({ compact = false }: { compact?: boolean }) {
     setSaving(true); setError(""); setNotice("");
     try {
       let documentMark = hasImage ? trimToDataUrl(canvas) : "";
-      if (hasImage && !documentMark) throw new Error("El cuadro está vacío: firma con el dedo o sube una imagen.");
+      if (hasImage && !documentMark) throw new Error(isStamp ? "El cuadro está vacío: sube una imagen de tu timbre." : "El cuadro está vacío: firma con el dedo o sube una imagen.");
       if (documentMark.length > 400_000) {
         // Imagen subida con mucho detalle: se guarda como JPG sobre blanco.
         const image = await loadImage(documentMark);
@@ -258,15 +281,15 @@ export function SignatureEditor({ compact = false }: { compact?: boolean }) {
         const fctx = flat.getContext("2d"); if (!fctx) throw new Error("No se pudo preparar la imagen.");
         fctx.fillStyle = "#fff"; fctx.fillRect(0, 0, flat.width, flat.height); fctx.drawImage(image, 0, 0);
         documentMark = flat.toDataURL("image/jpeg", 0.85);
-        if (documentMark.length > 400_000) throw new Error("La imagen tiene demasiados detalles. Firma con el dedo o sube una imagen más simple.");
+        if (documentMark.length > 400_000) throw new Error(isStamp ? "La imagen tiene demasiados detalles. Sube una foto del timbre más simple o con menos resolución." : "La imagen tiene demasiados detalles. Firma con el dedo o sube una imagen más simple.");
       }
-      const saved = await saveMark(documentMark);
+      const saved = await saveMark(documentMark, kind);
       setMark(saved); setDirty(false); setFull(false); setLocked(!!saved); setCodeSentTo(null); setCode("");
-      setNotice(saved ? "Firma guardada. Se usa sola en tus certificados, recetas, consentimientos y presupuestos." : "Firma quitada de tus documentos.");
+      setNotice(isStamp ? (saved ? "Timbre guardado. Se imprime bajo tu firma en tus certificados, recetas, consentimientos y presupuestos." : "Timbre quitado de tus documentos.") : (saved ? "Firma guardada. Se usa sola en tus certificados, recetas, consentimientos y presupuestos." : "Firma quitada de tus documentos."));
     } catch (reason) {
       // El permiso venció (o ya se usó): se vuelve a pedir el código y lo dibujado queda en el cuadro.
       if (reason instanceof LockedError) { setLocked(true); setCodeSentTo(null); setCode(""); }
-      setError(reason instanceof Error ? reason.message : "No se pudo guardar la firma.");
+      setError(reason instanceof Error ? reason.message : `No se pudo guardar ${isStamp ? "el timbre" : "la firma"}.`);
     }
     finally { setSaving(false); }
   };
@@ -279,25 +302,35 @@ export function SignatureEditor({ compact = false }: { compact?: boolean }) {
   };
   const confirmCode = async () => {
     setCodeBusy(true); setError(""); setNotice("");
-    try { await codeRequest({ action: "verificar", code }); setLocked(false); setCodeSentTo(null); setCode(""); setNotice("Listo: tienes 10 minutos para cambiar o quitar tu firma."); }
+    try { await codeRequest({ action: "verificar", code }); setLocked(false); setCodeSentTo(null); setCode(""); setNotice(`Listo: tienes 10 minutos para ${words.changeShort}.`); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo verificar el código."); }
     finally { setCodeBusy(false); }
   };
 
   const big = "inline-flex min-h-12 items-center justify-center gap-2 rounded-xl px-4 text-base font-semibold disabled:opacity-50";
-  return <section className={compact ? "space-y-2" : "rounded-xl border border-[#e6e4ee] bg-white p-4"} data-testid="signature-editor">
-    <div className="flex items-start gap-3"><span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#eeebf3] text-[#473a6d]"><Pencil className="size-4" aria-hidden="true"/></span><div><h3 className="font-semibold">Mi firma o timbre</h3><p className="mt-0.5 text-sm text-[#615f73]">Firma con el dedo sobre la línea o sube una foto/imagen. Se recorta sola y se imprime grande (≈ 6,5 × 2,7 cm) en todos tus documentos.</p></div></div>
+  return <section className={compact ? "space-y-2" : "rounded-xl border border-[#e6e4ee] bg-white p-4"} data-testid={isStamp ? "stamp-editor" : "signature-editor"}>
+    <div className="flex items-start gap-3"><span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#eeebf3] text-[#473a6d]"><Pencil className="size-4" aria-hidden="true"/></span><div><h3 className="font-semibold">{words.title}</h3><p className="mt-0.5 text-sm text-[#615f73]">{isStamp ? "Sube una foto o imagen de tu timbre. Se recorta sola y se imprime bajo tu firma (≈ 5 × 2,5 cm) en todos tus documentos." : "Firma con el dedo sobre la línea o sube una foto/imagen. Se recorta sola y se imprime grande (≈ 6,5 × 2,7 cm) en todos tus documentos."}</p></div></div>
     <div className={full ? "fixed inset-0 z-[70] flex flex-col gap-3 bg-[#f3f1f7] p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-[max(0.75rem,env(safe-area-inset-top))]" : "mt-3"} data-testid="signature-pad-area" role={full ? "dialog" : undefined} aria-modal={full ? true : undefined} aria-label={full ? "Firma en pantalla completa" : undefined}>
       {full && <p className="text-center text-sm text-[#615f73]">Gira el teléfono para tener más espacio. Firma sobre la línea.</p>}
       <div className={full ? "relative min-h-0 w-full flex-1" : "relative left-1/2 h-[clamp(220px,60vw,260px)] w-[min(94vw,720px)] -translate-x-1/2 sm:left-0 sm:w-full sm:max-w-[720px] sm:translate-x-0 lg:h-[300px]"} data-testid="signature-pad">
-        <canvas ref={canvasRef} aria-label="Cuadro para firmar con el dedo" onPointerDown={start} onPointerMove={move} onPointerUp={stop} onPointerCancel={stop} className={`absolute inset-0 block size-full touch-none select-none rounded-xl border-2 border-dashed border-[#bcb5cc] bg-white ${locked ? "pointer-events-none" : "cursor-crosshair"}`} style={{ WebkitUserSelect: "none", WebkitTouchCallout: "none" }}/>
-        {!locked && <div aria-hidden="true" className="pointer-events-none absolute inset-x-5 flex items-end gap-2 border-b-2 border-[#9a93ad] pb-1 text-[#9a93ad]" style={{ top: `calc(${BASELINE_RATIO * 100}% - 1.75rem)`, height: "1.75rem" }} data-testid="signature-baseline"><span className="text-xl font-semibold leading-none">✕</span><span className="text-sm font-medium uppercase tracking-wider">Firme aquí</span></div>}
+        <canvas ref={canvasRef} aria-label={isStamp ? "Vista del timbre" : "Cuadro para firmar con el dedo"} onPointerDown={start} onPointerMove={move} onPointerUp={stop} onPointerCancel={stop} className={`absolute inset-0 block size-full touch-none select-none rounded-xl border-2 border-dashed border-[#bcb5cc] bg-white ${locked ? "pointer-events-none" : "cursor-crosshair"}`} style={{ WebkitUserSelect: "none", WebkitTouchCallout: "none" }}/>
+        {!locked && !isStamp && <div aria-hidden="true" className="pointer-events-none absolute inset-x-5 flex items-end gap-2 border-b-2 border-[#9a93ad] pb-1 text-[#9a93ad]" style={{ top: `calc(${BASELINE_RATIO * 100}% - 1.75rem)`, height: "1.75rem" }} data-testid="signature-baseline"><span className="text-xl font-semibold leading-none">✕</span><span className="text-sm font-medium uppercase tracking-wider">Firme aquí</span></div>}
       </div>
+      {!locked && !isStamp && <div className="mt-3" role="group" aria-label="Color de la firma" data-testid="signature-inks">
+        <p className="mb-1.5 text-sm font-medium text-[#615f73]">Color de la firma</p>
+        <div className="flex flex-wrap items-center gap-2">
+          {SIGNATURE_INKS.map(option => <button key={option.id} type="button" onClick={() => pickInk(option.value)} aria-pressed={ink === option.value} aria-label={option.label} title={option.label} data-testid={`signature-ink-${option.id}`} className={`relative flex size-11 items-center justify-center rounded-full border-2 bg-white ${ink === option.value ? "border-[#473a6d] ring-2 ring-[#473a6d]/30" : "border-[#dddbe6]"}`}><span className="size-7 rounded-full" style={{ backgroundColor: option.value }}/>{ink === option.value && <Check className="absolute size-4 text-white" aria-hidden="true"/>}</button>)}
+          <label className={`relative flex size-11 cursor-pointer items-center justify-center overflow-hidden rounded-full border-2 ${SIGNATURE_INKS.some(option => option.value === ink) ? "border-[#dddbe6]" : "border-[#473a6d] ring-2 ring-[#473a6d]/30"}`} title="Otro color" data-testid="signature-ink-otro" style={{ background: "conic-gradient(#b91c1c, #c2410c, #4d7c0f, #0f766e, #1d4ed8, #7e22ce, #b91c1c)" }}>
+            <span className="sr-only">Elegir otro color</span>
+            <input type="color" value={usableInk(ink) ? ink : "#1f1c33"} onChange={event => pickInk(event.target.value)} className="absolute inset-0 size-full cursor-pointer opacity-0" aria-label="Elegir otro color"/>
+          </label>
+        </div>
+      </div>}
       {locked ? <div className="mt-3 space-y-2 rounded-xl border border-[#dddbe6] bg-[#f7f6fa] p-3" data-testid="signature-locked">
-        <p className="flex items-center gap-2 text-sm font-semibold text-[#473a6d]"><Lock className="size-4" aria-hidden="true"/>Firma protegida</p>
+        <p className="flex items-center gap-2 text-sm font-semibold text-[#473a6d]"><Lock className="size-4" aria-hidden="true"/>{words.protectedTitle}</p>
         {codeSentTo === null ? <>
-          <p className="text-sm text-[#615f73]">Para cambiarla o quitarla te enviamos un código al correo con que ingresaste.</p>
-          <button type="button" disabled={codeBusy} onClick={() => void requestCode()} className={`${big} w-full border-2 border-[#473a6d] bg-white text-[#473a6d] hover:bg-[#f3f1f7]`} data-testid="signature-change"><Pencil className="size-5" aria-hidden="true"/>{codeBusy ? "Enviando…" : "Cambiar firma"}</button>
+          <p className="text-sm text-[#615f73]">Para {words.changeIt} te enviamos un código al correo con que ingresaste.</p>
+          <button type="button" disabled={codeBusy} onClick={() => void requestCode()} className={`${big} w-full border-2 border-[#473a6d] bg-white text-[#473a6d] hover:bg-[#f3f1f7]`} data-testid={isStamp ? "stamp-change" : "signature-change"}><Pencil className="size-5" aria-hidden="true"/>{codeBusy ? "Enviando…" : words.change}</button>
         </> : <>
           <p className="text-sm text-[#615f73]">Te enviamos un código de 6 dígitos a <strong>{codeSentTo}</strong>. Vale 10 minutos.</p>
           <input value={code} onChange={event => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="000000" aria-label="Código de 6 dígitos" className="h-12 w-full rounded-xl border-2 border-[#dddbe6] bg-white text-center text-2xl font-semibold tracking-[0.4em]" data-testid="signature-code"/>
@@ -313,8 +346,8 @@ export function SignatureEditor({ compact = false }: { compact?: boolean }) {
         <button type="button" disabled={!dirty || saving} onClick={() => void save()} className={`${big} bg-[#473a6d] text-white hover:bg-[#3a2f5a]`} data-testid="signature-save"><Save className="size-5" aria-hidden="true"/>{saving ? "Guardando…" : "Guardar"}</button>
       </div>
       {!full && <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <button type="button" onClick={() => setFull(true)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#473a6d] px-3 text-sm font-semibold text-[#473a6d] hover:bg-[#f3f1f7]" data-testid="signature-fullscreen"><Maximize2 className="size-4" aria-hidden="true"/>Pantalla completa</button>
-        <button type="button" onClick={() => fileRef.current?.click()} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#dddbe6] px-3 text-sm font-semibold text-[#615f73] hover:bg-[#f7f6fa]"><ImagePlus className="size-4" aria-hidden="true"/>Subir imagen</button>
+        {!isStamp && <button type="button" onClick={() => setFull(true)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#473a6d] px-3 text-sm font-semibold text-[#473a6d] hover:bg-[#f3f1f7]" data-testid="signature-fullscreen"><Maximize2 className="size-4" aria-hidden="true"/>Pantalla completa</button>}
+        <button type="button" onClick={() => fileRef.current?.click()} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#dddbe6] px-3 text-sm font-semibold text-[#615f73] hover:bg-[#f7f6fa]"><ImagePlus className="size-4" aria-hidden="true"/>{isStamp ? "Subir imagen del timbre" : "Subir imagen"}</button>
       </div>}
       </>}
       <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={event => { void pickFile(event.target.files?.[0]); event.target.value = ""; }}/>
