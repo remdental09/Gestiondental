@@ -95,7 +95,7 @@ test('pantalla y servidor: selector de modo, aviso, evolución sin «presuntivo�
   const ui = src('components/tooth-dictation.tsx');
   for (const id of ['tooth-mode-picker', 'mode-plan', 'mode-done', 'tooth-performed-hint', 'tooth-performed-switch']) assert.ok(ui.includes(id), id);
   assert.match(ui, /Procedimiento realizado · pieza chilena/);
-  assert.match(ui, /onApply\(tooth, operations, budgetTitle, finalItems, evolution, done\)/);
+  
   assert.match(ui, /mergeOperations\(selectedOperations\(false\), selectedOperations\(true\)\)/);
   const route = src('app/api/clinical/route.ts');
   assert.match(route, /input\.performed === true/);
@@ -103,4 +103,24 @@ test('pantalla y servidor: selector de modo, aviso, evolución sin «presuntivo�
   assert.match(route, /updatedBudgets: closedBudgets/);
   assert.match(src('app/api/dictation/tooth-answer/route.ts'), /step !== "done"/);
   assert.match(src('app/page.tsx'), /performed=false/);
+});
+
+test('el modo elegido se lee desde una referencia (el flujo por voz usa callbacks anteriores al nuevo dibujo)', () => {
+  const ui = src('components/tooth-dictation.tsx');
+  assert.match(ui, /const modeRef = useRef<DictationMode \| null>\(null\)/);
+  assert.match(ui, /forceDone \|\| isDone\(\) \? "done" : "plan"/);
+  assert.match(ui, /const performedNow = isDone\(\)/);
+  assert.match(ui, /onApply\(tooth, operations, budgetTitle, finalItems, evolution, performedNow\)/);
+  assert.ok(!/const second\b/.test(ui));
+  assert.match(ui, /looksPerformed\(rawAnswerText\) \|\| looksPerformed\(currentText\)/);
+  for (const id of ['tooth-mode-chip', 'tooth-mode-toggle']) assert.ok(ui.includes(id), id);
+});
+
+test('el botón «Dictar esta pieza» se abre en dos y el dictado parte con el modo elegido', () => {
+  const ui = src('components/tooth-dictation.tsx');
+  assert.match(ui, /onClick=\{\(\) => setChoosing\(true\)\} data-testid="dictate-selected-tooth"/);
+  assert.match(ui, /data-testid="mode-plan"[^>]*onClick=\{\(\) => startGuidedEvaluation\("plan"\)\}/);
+  assert.match(ui, /data-testid="mode-done"[^>]*onClick=\{\(\) => startGuidedEvaluation\("done"\)\}/);
+  assert.match(ui, /modeRef\.current = next;\s*setMode\(next\);[\s\S]*?setOpen\(true\);\s*askStep\("diagnosis"\)/);
+  assert.ok(!ui.includes('absolute inset-0 z-20'), 'sin selector dentro de la ventana');
 });

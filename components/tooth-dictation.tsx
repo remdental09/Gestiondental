@@ -72,6 +72,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<Step>("diagnosis");
   const [mode, setMode] = useState<DictationMode | null>(null);
+  const [choosing, setChoosing] = useState(false);
   const [diagnosisText, setDiagnosisText] = useState("");
   const [planText, setPlanText] = useState("");
   const [audioStatus, setAudioStatus] = useState<AudioStatus>("idle");
@@ -107,9 +108,12 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
   const telemetryTranscribingAt = useRef<number | null>(null);
   const telemetrySaveStartedAt = useRef<number | null>(null);
   if (engine.current === null) engine.current = createAudioTranscription();
+  // El modo se lee desde una referencia: el flujo por voz encadena callbacks creados antes de que React vuelva a dibujar,
+  // y con el estado solo, la segunda pregunta y la redacción quedaban como «plan» aunque se hubiera elegido «ya realizado».
+  const modeRef = useRef<DictationMode | null>(null);
+  const isDone = () => modeRef.current === "done";
   const done = mode === "done";
-  const second: ToothGuidedStep = done ? "done" : "plan";
-  const promptStep = (value: Step): ToothGuidedStep => value === "plan" ? second : value;
+  const promptStep = (value: Step): ToothGuidedStep => value === "plan" ? (isDone() ? "done" : "plan") : value;
   const planWord = done ? "el tratamiento realizado" : "el plan";
 
   useEffect(() => () => {
@@ -227,6 +231,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
     setAnalyzing(false);
     setApplying(false);
     setMode(null);
+    modeRef.current = null;
     telemetryFlowActive.current = false;
     telemetryFlowCompleted.current = false;
     telemetryTranscribingAt.current = null;
@@ -259,7 +264,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
       const response = await fetch("/api/dictation/tooth-answer", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ step: answerStep === "plan" ? (forceDone ? "done" : second) : answerStep, tooth, transcript }),
+        body: JSON.stringify({ step: answerStep === "plan" ? (forceDone || isDone() ? "done" : "plan") : answerStep, tooth, transcript }),
         signal: AbortSignal.any([controller.signal, AbortSignal.timeout(40_000)]),
       });
       const data = await response.json() as { text?: string; otherTeeth?: number[]; provider?: string; error?: string; code?: string; draft?: string };
@@ -302,16 +307,16 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
     }
   };
 
-  const startGuidedEvaluation = () => {
+  // Se elige antes de abrir: el botón «Dictar esta pieza» se abre en dos (planificar / realizar) y el dictado parte ya con el modo.
+  const startGuidedEvaluation = (next: DictationMode) => {
     reset();
+    setChoosing(false);
+    modeRef.current = next;
+    setMode(next);
     telemetryFlowActive.current = true;
     telemetryFlowCompleted.current = false;
     recordDictationHealthEvent("flow_started", "flow");
     setOpen(true);
-  };
-
-  const chooseMode = (next: DictationMode) => {
-    setMode(next);
     askStep("diagnosis");
   };
 
@@ -579,11 +584,11 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
 
   const preparePlan = async (): Promise<boolean> => {
     const text = answerTextRef.current.plan.trim();
-    if (text.length < 3) { setAnalysisError(done ? "Indica el tratamiento que realizaste en esta pieza." : "Indica el plan de tratamiento preliminar para esta pieza."); return false; }
+    if (text.length < 3) { setAnalysisError(isDone() ? "Indica el tratamiento que realizaste en esta pieza." : "Indica el plan de tratamiento preliminar para esta pieza."); return false; }
     setPlanItems([]);
     setPlanOtherTeeth([]);
     try {
-      const data = await runStructure(done ? `FDI ${formatFdi(tooth)}. Procedimiento realizado hoy: ${text}` : `FDI ${formatFdi(tooth)}. Plan de tratamiento: ${text}`);
+      const data = await runStructure(isDone() ? `FDI ${formatFdi(tooth)}. Procedimiento realizado hoy: ${text}` : `FDI ${formatFdi(tooth)}. Plan de tratamiento: ${text}`);
       if (!data) return false;
       const plans = (data.proposal.items ?? []).filter(item => item.kind === "plan" && (item.tooth === tooth || item.tooth === null));
       const unique = new Map<string, typeof plans[number]>();
@@ -594,7 +599,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
       }
       const rows: BudgetItem[] = [...unique.values()].map(item => toothPlanBudgetItem(cleanPlanText(item.what || text, tooth), tooth, item.arancel));
       setPlanItems(rows.length ? rows : [toothPlanBudgetItem(text, tooth)]);
-      if (done) {
+      if (isDone()) {
         // Lo realizado cambia el odontograma: lo que entiende el motor para esta pieza y, de respaldo, «obturación oclusal de composite».
         const scoped = scopeToothProposal(data.proposal.odontogram ?? [], tooth).changes.filter(change => toothDictationOperation(change));
         const covered = new Set(scoped.filter(change => change.kind === "surface").map(change => change.surface));
@@ -662,7 +667,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
   const canContinue = Boolean(aiReviewedRef.current.diagnosis && aiReviewedRef.current.plan && diagnosisPreview && diagnosisText.trim().length >= 3 && !diagnosisPreview.otherTeeth.length && (!diagnosisPreview.question || answer));
   const validPlan = planItems.length > 0 && planItems.every(item => item.label.trim().length > 0 && Number.isSafeInteger(Number(item.amount)) && Number(item.amount) >= 0);
   canSaveRef.current = canContinue && validPlan && !planOtherTeeth.length;
-  const budgetTitle = `${done ? "Tratamiento realizado" : "Presupuesto preliminar"} · FDI ${formatFdi(tooth)} · Chile ${fdiToChile(tooth)}`;
+  const budgetTitle = `${isDone() ? "Tratamiento realizado" : "Presupuesto preliminar"} · FDI ${formatFdi(tooth)} · Chile ${fdiToChile(tooth)}`;
 
   const applyProposal = async () => {
     if (!aiReviewedRef.current.diagnosis || !aiReviewedRef.current.plan || !canContinue || !validPlan || planOtherTeeth.length || !onApply) return;
@@ -676,7 +681,8 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
     try {
       const finalItems = planItems.map(item => ({ ...item, label: item.label.trim(), amount: Number(item.amount), teeth: [tooth] }));
       const itemSummary = finalItems.map(item => `${item.label}${item.amount > 0 ? `: ${item.amount.toLocaleString("es-CL")} CLP` : ": valor por definir"}`).join("; ");
-      const evolution = done ? {
+      const performedNow = isDone();
+      const evolution = performedNow ? {
         title: `Procedimiento realizado · pieza chilena ${fdiToChile(tooth)} (FDI ${formatFdi(tooth)})`,
         body: [
           `Diagnóstico / hipótesis diagnóstica, revisada con IA: ${diagnosisText.trim()}`,
@@ -692,13 +698,13 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
           "Registro presuntivo: el plan no confirma que se hayan realizado los procedimientos.",
         ].join("\n\n"),
       };
-      await onApply(tooth, operations, budgetTitle, finalItems, evolution, done);
+      await onApply(tooth, operations, budgetTitle, finalItems, evolution, performedNow);
       recordDictationHealthEvent("save_succeeded", "save", { durationMs: Date.now() - (telemetrySaveStartedAt.current ?? Date.now()) });
       telemetryFlowCompleted.current = true;
       telemetryFlowActive.current = false;
       recordDictationHealthEvent("flow_completed", "flow");
       changeOpen(false);
-      speakTextNow(done ? "Procedimiento realizado guardado en la evolución del paciente." : "Diagnóstico y plan preliminar guardados en la evolución del paciente.", { rate: 1.3 });
+      speakTextNow(performedNow ? "Procedimiento realizado guardado en la evolución del paciente." : "Diagnóstico y plan preliminar guardados en la evolución del paciente.", { rate: 1.3 });
     } catch (cause) {
       recordDictationHealthEvent("save_error", "save", { errorCode: dictationHealthErrorCode(cause instanceof Error ? cause.message : "", "save"), durationMs: Date.now() - (telemetrySaveStartedAt.current ?? Date.now()) });
       setAnalysisError(cause instanceof Error ? cause.message : "No se pudieron guardar el diagnóstico y el plan.");
@@ -783,29 +789,42 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
                   : toothSpeechPrompt(promptStep(step), tooth);
 
   return <>
-    {onApply && <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={startGuidedEvaluation} data-testid="dictate-selected-tooth">
+    {onApply && !choosing && <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={() => setChoosing(true)} data-testid="dictate-selected-tooth">
       <Mic className="mr-2 size-4"/>Dictar esta pieza
     </Button>}
+    {onApply && choosing && <div className="flex w-full flex-col gap-2 rounded-xl border border-[#d8d3e3] bg-[#f7f6fa] p-3" data-testid="tooth-mode-picker" role="group" aria-label="¿Qué vas a dictar?">
+      <p className="text-sm font-semibold text-[#3b3355]">¿Qué vas a dictar en esta pieza?</p>
+      <div className="grid grid-cols-2 gap-2">
+        <button type="button" data-testid="mode-plan" disabled={disabled} onClick={() => startGuidedEvaluation("plan")} className="min-h-14 rounded-lg border border-[#d8d3e3] bg-white px-3 py-2 text-left disabled:opacity-50">
+          <span className="block text-sm font-semibold text-[#3b3355]">Planificar tratamiento</span>
+          <span className="block text-xs text-[#615f73]">Queda pendiente, en el presupuesto</span>
+        </button>
+        <button type="button" data-testid="mode-done" disabled={disabled} onClick={() => startGuidedEvaluation("done")} className="min-h-14 rounded-lg bg-[#473a6d] px-3 py-2 text-left text-white disabled:opacity-50">
+          <span className="block text-sm font-semibold">Realizar tratamiento hoy</span>
+          <span className="block text-xs text-white/80">Cambia el odontograma y lo cierra</span>
+        </button>
+      </div>
+      <button type="button" className="self-start text-xs font-semibold text-[#473a6d] underline" onClick={() => setChoosing(false)}>Cancelar</button>
+    </div>}
     <Dialog open={open} onOpenChange={changeOpen}>
       <DialogContent className="flex h-[calc(100dvh-1rem)] max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[96vw] flex-col gap-0 overflow-hidden border-[#dddbe6] bg-white p-0 sm:max-w-[96vw] 2xl:max-w-[90rem]">
-        {mode === null && <div className="absolute inset-0 z-20 flex flex-col justify-center gap-4 overflow-y-auto bg-white p-5 sm:p-8" data-testid="tooth-mode-picker">
-          <h2 className="text-2xl font-semibold text-[#302747] sm:text-3xl">¿Qué vas a registrar en la pieza FDI {formatFdi(tooth)} · Chile {fdiToChile(tooth)}?</h2>
-          <button type="button" data-testid="mode-plan" onClick={() => chooseMode("plan")} className="rounded-xl border border-[#d8d3e3] bg-[#f7f6fa] p-5 text-left hover:border-[#473a6d]">
-            <span className="block text-xl font-semibold text-[#3b3355]">Planificar tratamiento</span>
-            <span className="mt-1 block text-base text-[#615f73]">Lo propones para más adelante: queda como plan y presupuesto en borrador. El odontograma no cambia.</span>
-          </button>
-          <button type="button" data-testid="mode-done" onClick={() => chooseMode("done")} className="rounded-xl border border-[#473a6d] bg-violet-50 p-5 text-left hover:bg-violet-100">
-            <span className="block text-xl font-semibold text-[#3b3355]">Ya lo realicé hoy</span>
-            <span className="mt-1 block text-base text-[#615f73]">Queda como procedimiento realizado: cambia el odontograma, la pieza gana una etapa en su película y la prestación se cierra en el presupuesto en vez de duplicarse.</span>
-          </button>
-          <Button type="button" variant="ghost" className="self-start" onClick={() => changeOpen(false)}>Cancelar</Button>
-        </div>}
+
         <div className="shrink-0 border-b border-[#ebe9f2] bg-white px-4 py-4 sm:px-7 sm:py-5">
         <DialogHeader className="pr-10">
           <DialogTitle className="text-xl sm:text-2xl">Evaluación guiada por pieza</DialogTitle>
           <DialogDescription>FDI {formatFdi(tooth)} · Chile {fdiToChile(tooth)}. El profesional revisa y confirma cada dato antes de guardar.</DialogDescription>
         </DialogHeader>
 
+        {mode && <div className="mt-3 flex flex-wrap items-center gap-2 text-sm" data-testid="tooth-mode-chip">
+          <span className={`rounded-full px-3 py-1 font-semibold ${done ? "bg-emerald-100 text-emerald-900" : "bg-amber-100 text-amber-900"}`}>{done ? "Registrando lo realizado hoy" : "Planificando tratamiento"}</span>
+          {!proposalReady && !applying && <button type="button" data-testid="tooth-mode-toggle" disabled={redrafting || analyzing || audioStatus !== "idle"} className="text-xs font-semibold text-[#473a6d] underline disabled:opacity-50" onClick={() => {
+            const next: DictationMode = done ? "plan" : "done";
+            modeRef.current = next; setMode(next); setAnalysisError("");
+            const text = rawAnswerText || currentText;
+            if (step === "plan" && text.trim().length >= 3) void redraftAnswer("plan", text, next === "done");
+            else if (step === "plan") askStep("plan");
+          }}>{done ? "Cambiar a planificar" : "Cambiar a «ya lo realicé hoy»"}</button>}
+        </div>}
         <div className="mt-4 grid grid-cols-2 gap-2" aria-label="Etapas de la evaluación">
           <div className={`rounded-lg border px-3 py-2.5 text-base font-semibold ${step === "diagnosis" ? "border-[#473a6d] bg-violet-50 text-[#3b3355]" : aiReviewedRef.current.diagnosis ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-[#e6e4ee] text-[#615f73]"}`}>{step !== "diagnosis" && aiReviewedRef.current.diagnosis ? "✓ 1 · Diagnóstico revisado" : "1 · Diagnóstico"}</div>
           <div className={`rounded-lg border px-3 py-2.5 text-base font-semibold ${step === "plan" ? "border-[#473a6d] bg-violet-50 text-[#3b3355]" : "border-[#e6e4ee] text-[#615f73]"}`}>{done ? "2 · Tratamiento realizado" : "2 · Plan de tratamiento"}</div>
@@ -879,10 +898,10 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
         </section>}
         {speechError && <p role="alert" className="mt-2 text-sm text-rose-800">{speechError}</p>}
         {analysisError && <p role="alert" className="mt-2 text-sm text-rose-800">{analysisError}</p>}
-        {mode === "plan" && step === "plan" && !proposalReady && looksPerformed(currentText) && <section className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3" role="note" data-testid="tooth-performed-hint">
+        {mode === "plan" && step === "plan" && !proposalReady && (looksPerformed(rawAnswerText) || looksPerformed(currentText)) && <section className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3" role="note" data-testid="tooth-performed-hint">
           <p className="font-semibold text-amber-950">Parece que esto ya lo realizaste hoy</p>
           <p className="mt-1 text-sm text-amber-900">Como «plan» quedaría pendiente y el odontograma no cambiaría. Puedes registrarlo como realizado.</p>
-          <Button type="button" size="sm" className="mt-2" data-testid="tooth-performed-switch" disabled={redrafting || analyzing || applying || audioStatus !== "idle"} onClick={() => { setMode("done"); setAnalysisError(""); void redraftAnswer("plan", currentText, true); }}>Registrar como realizado</Button>
+          <Button type="button" size="sm" className="mt-2" data-testid="tooth-performed-switch" disabled={redrafting || analyzing || applying || audioStatus !== "idle"} onClick={() => { modeRef.current = "done"; setMode("done"); setAnalysisError(""); void redraftAnswer("plan", rawAnswerText || currentText, true); }}>Registrar como realizado</Button>
         </section>}
         {numericReviewDraft && <section className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3" role="alert" data-testid="tooth-answer-numeric-review">
           <p className="font-semibold text-amber-950">Propuesta de la IA para comparar</p>
