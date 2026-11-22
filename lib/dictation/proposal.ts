@@ -1,5 +1,5 @@
 import { normalizeShades } from "./shade.ts";
-import { DENTAL_DICTIONARY_HINTS } from "./dental-lexicon.ts";
+import { dentalDictionaryHints } from "./dental-lexicon.ts";
 import { APICAL_STATUSES, FRACTURE_STATUSES, isLesionStatus } from "../tooth-status.ts";
 import { calmClarifications, type Sensitivity } from "./sensitivity.ts";
 import { applyAiReview, clinicalCoherence, parseReview, parseReviewExtras, REVIEW_PROMPT, reviewPayload } from "./clinical-review.ts";
@@ -9,7 +9,7 @@ import { ACTS_PROMPT, ACTS_SCHEMA, addFacesFromActs, applyActsToOdontogram, pars
 import { buildMinsalClinicalContext } from "./minsal-knowledge.ts";
 import { isPriorEndoSentence, priorEndoYear } from "./prior-endo.ts";
 import { buildEndoPerioContext } from "./endoperio-knowledge.ts";
-import { IDENTITY_NORMALIZATION_PROMPT, normalizeIdentityNumbers } from "./identity-numbers.ts";
+import { identityNormalizationPrompt, normalizeIdentityNumbers } from "./identity-numbers.ts";
 import { CLINICAL_WRITING_PROMPT, TOOTH_NUMBERING_PROMPT, procedureCovered, deduplicateProcedureSentences } from "./clinical-writing.ts";
 /**
  * Propuesta estructurada de un dictado clínico.
@@ -2654,7 +2654,13 @@ export const NOTE_SECTIONS = [
   ["presupuesto", "Presupuesto"],
 ] as const;
 
-export const AI_SYSTEM_PROMPT = `${DENTAL_DICTIONARY_HINTS}\n\n${IDENTITY_NORMALIZATION_PROMPT}\n\n${TOOTH_NUMBERING_PROMPT}\n\n${CLINICAL_WRITING_PROMPT}\n\nEres asistente de un odontólogo chileno. Recibes la transcripción literal de un dictado por voz (puede venir sin puntuación y con errores de reconocimiento). Devuelves SOLO JSON con el esquema pedido.
+/**
+ * Prompt de sistema del dictado. Solo lo usa el servidor: se arma la primera vez que se pide
+ * (una función, no una constante), así el JS del navegador no carga los textos del prompt.
+ */
+let aiSystemPromptCache: string | null = null;
+export function aiSystemPrompt(): string {
+  return aiSystemPromptCache ??= `${dentalDictionaryHints()}\n\n${identityNormalizationPrompt()}\n\n${TOOTH_NUMBERING_PROMPT}\n\n${CLINICAL_WRITING_PROMPT}\n\nEres asistente de un odontólogo chileno. Recibes la transcripción literal de un dictado por voz (puede venir sin puntuación y con errores de reconocimiento). Devuelves SOLO JSON con el esquema pedido.
 
 1) "nota": redacta una evolución odontológica profesional, clara y concisa, en español clínico de Chile y en tercera persona. Esta es una RE-REDACCIÓN CLÍNICA, no una transcripción corregida palabra por palabra: transforma activamente el habla cotidiana, las abreviaciones y las expresiones coloquiales en lenguaje odontológico natural. La nota final no debe sonar a dictado ni conservar frases como «muela», «bien grande», «arreglarla», «capaz», «se ve» o «se va bien» cuando exista una formulación clínica inequívoca. Conserva todos los hechos, su temporalidad, negaciones y grado de certeza; profesionalizar la expresión no autoriza a inventar hallazgos ni diagnósticos.
 Equivalencias de estilo: «le duele con frío» → «refiere dolor provocado por frío» (sin inferir diagnóstico pulpar); «muela 3.6» → «pieza 3.6» (sin cambiar su numeración); «compósito/composito» → «composite» y «restauración de composite» o «restauración de resina compuesta» (elige una sola forma; no las dupliques); «caries bien grande» → «lesión cariosa extensa»; «caries dentinaria superficial» → «lesión cariosa dentinaria superficial» (conserva esa profundidad; nunca la conviertas en «terminal superficial» ni agregues una cara no dictada); «parece profunda» → «aparentemente profunda» (sin afirmar compromiso pulpar); «arreglarla» → «realizar tratamiento restaurador» solo cuando ese plan se desprenda claramente del dictado; «capaz va a endodoncia» → «se considerará tratamiento endodóntico», manteniendo el carácter condicional; «se hace destartraje supra y subgingival en los seis grupos» → «Se realiza destartraje supragingival y subgingival en los seis grupos»; «se va bien» → «finaliza la atención en buenas condiciones» si eso es lo que expresa el contexto. Usa «se observa» en lugar de «se ve» cuando se trate de un hallazgo clínico.
@@ -2702,6 +2708,7 @@ ${ITEMS_PROMPT}
 Las líneas que empiezan con «Aclaración:» son respuestas del profesional a preguntas anteriores; completan o corrigen lo dictado antes y tienen prioridad.
 
 Si el profesional se corrige («no, perdón», «mejor dicho»), usa solo lo corregido. Un control de implante («viene a control por un implante», «está conectado con un pilar», «sin sangrado») no es un implante instalado hoy: el relato va en motivo y examen, y la pieza puede ir en hallazgos con estado Implante. Un nombre de persona o un RUT dictado (del paciente, de un doctor o de otra persona) no es un hallazgo ni un dato de ficha; no lo inventes ni lo completes. Los antecedentes médicos (diabetes, hipertensión, etc.) van en anamnesis, no en indicaciones. "indicaciones" es solo lo que se le indica al paciente.`;
+};
 
 const STRING = { type: "string" } as const;
 
@@ -2809,7 +2816,7 @@ export function buildWorkersAiRequest(model: string, input: Parameters<typeof bu
     return {
       ...base,
       messages: [
-        { role: "system", content: AI_SYSTEM_PROMPT },
+        { role: "system", content: aiSystemPrompt() },
         { role: "user", content: `${user}\n\nResponde SOLO con un objeto JSON válido (sin texto antes ni después, sin \`\`\`), con TODAS estas claves y este esquema JSON: ${JSON.stringify(AI_JSON_SCHEMA)}` },
       ],
     };
@@ -2817,7 +2824,7 @@ export function buildWorkersAiRequest(model: string, input: Parameters<typeof bu
   return {
     ...base,
     messages: [
-      { role: "system", content: AI_SYSTEM_PROMPT },
+      { role: "system", content: aiSystemPrompt() },
       { role: "user", content: user },
     ],
     response_format: { type: "json_schema", json_schema: AI_JSON_SCHEMA },
