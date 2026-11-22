@@ -68,7 +68,7 @@ const BASE_DICTIONARY = {
   periodoncia: [
     "gingivitis", "periodontitis", "periodontal", "periodonto", "destartraje",
     "destartraje supragingival", "destartraje subgingival", "detartraje",
-    "tartrectomía", "profilaxis", "limpieza dental", "raspado y alisado radicular",
+    "profilaxis", "limpieza dental", "raspado y alisado radicular",
     "raspaje y alisado radicular", "curetaje", "cálculo dental", "cálculo dentario",
     "sarro", "placa bacteriana", "biofilm dental", "bolsa periodontal",
     "sondaje periodontal", "profundidad de sondaje", "recesión gingival",
@@ -159,7 +159,7 @@ const BASE_DICTIONARY = {
     "calza dental", "diente de leche", "tercer molar",
   ],
   variantes_espana: [
-    "tartrectomía", "empaste", "cordal", "muela del juicio", "prótesis móvil",
+    "empaste", "cordal", "muela del juicio", "prótesis móvil",
     "ortopantomografía", "limpieza dental",
   ],
 } as const;
@@ -212,7 +212,6 @@ export const DENTAL_SPEECH_HINTS = [
   { phrase: "destartraje supra y subgingival", boost: 10 },
   { phrase: "destartraje supragingival y subgingival", boost: 10 },
   { phrase: "detartraje", boost: 8 },
-  { phrase: "tartrectomía", boost: 8 },
   { phrase: "pulpa dental", boost: 7 },
   { phrase: "caries dentinaria", boost: 9 },
   { phrase: "caries dentinaria superficial", boost: 10 },
@@ -361,7 +360,7 @@ export function dentalDictionaryHints(): string {
   return hintsCache ??= [
   "Vocabulario odontológico válido; conserva el término que dictó el profesional y corrige solo errores claros del reconocimiento.",
   ...Object.entries(dentalDictionary()).map(([group, terms]) => `${group}: ${terms.join(", ")}.`),
-  "Los sinónimos y regionalismos (por ejemplo, destartraje, detartraje y tartrectomía; tapadura, obturación y empaste) son formas válidas: no los sustituyas entre sí.",
+  "Los sinónimos y regionalismos (por ejemplo, destartraje y detartraje; tapadura, obturación y empaste) son formas válidas: no los sustituyas entre sí. «Tartrectomía» no existe en esta consulta: la palabra correcta es «destartraje» y así debe escribirse.",
   "En restauración, «composite» y «resina compuesta» nombran el material; «compósito/composito» es un error de reconocimiento y se corrige a «composite». Redacta «restauración de composite» o «restauración de resina compuesta» y no repitas ambos sinónimos.",
   "No confundas términos distintos: pulpectomía no es pulpotomía; gingivitis no es periodontitis; supra gingival y sub gingival expresan localizaciones diferentes.",
   "«Caries dentinaria superficial» es una expresión odontológica válida. Conserva «dentinaria» como dentina; nunca la cambies por «terminal» ni elimines la profundidad. Si esa profundidad fue dictada, no agregues ni quites esmalte, dentina profunda, compromiso pulpar o una cara dental.",

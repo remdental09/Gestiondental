@@ -39,3 +39,11 @@ test("el prompt incluye la instrucción de cordura clínica con el caso y su exc
   assert.match(dentalDictionaryHints(), /velo fresco/);
   assert.match(dentalDictionaryHints(), /velo palatino/);
 });
+
+test("«tartrectomía» no existe: se corrige siempre a «destartraje» y deja de figurar como término válido", () => {
+  assert.equal(fix("hoy hice tartrectomía y pulido"), "hoy hice destartraje y pulido");
+  assert.equal(fix("Tartrectomia supragingival en el cuadrante uno"), "Destartraje supragingival en el cuadrante uno");
+  assert.equal(fix("dos tartrectomías en la sesión"), "dos destartrajes en la sesión");
+  assert.doesNotMatch(dentalDictionaryHints().replace(/«Tartrectomía» no existe[^"]*/i, ""), /tartrectom/i);
+  assert.match(dentalDictionaryHints(), /destartraje/);
+});
