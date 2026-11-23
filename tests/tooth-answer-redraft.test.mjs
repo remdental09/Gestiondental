@@ -24,7 +24,9 @@ test('la hipótesis puede conservar la última versión de una autocorrección v
 
 test('se rechazan piezas, caras o tratamientos realizados que el profesional no propuso', async () => {
   await assert.rejects(redraftToothAnswer('Caries mesial en pieza FDI 1.6.', 'diagnosis', 16, 'secret', { fetcher: answer('Caries mesial en pieza FDI 1.5.') }), /cifra/);
-  await assert.rejects(redraftToothAnswer('Caries mesial en dentina.', 'diagnosis', 16, 'secret', { fetcher: answer('Caries distal en dentina.') }), /cara dental/);
+  await assert.rejects(redraftToothAnswer('Caries mesial en dentina.', 'diagnosis', 16, 'secret', { fetcher: answer('Caries distal en dentina.') }), /cara «distal», que no dictaste/);
+  // El error entrega la propuesta y las caras añadidas para que el profesional vea qué se cuestiona.
+  await assert.rejects(redraftToothAnswer('Caries mesial en dentina.', 'diagnosis', 16, 'secret', { fetcher: answer('Caries distal y oclusal en dentina.') }), error => error.code === 'face_added' && error.faces.join() === 'distal,oclusal' && /distal y oclusal/.test(error.draft));
   await assert.rejects(redraftToothAnswer('Propongo una resina oclusal.', 'plan', 16, 'secret', { fetcher: answer('Se realizó una restauración oclusal.') }), /tratamiento realizado/);
 });
 

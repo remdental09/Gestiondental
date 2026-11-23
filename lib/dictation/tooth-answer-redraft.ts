@@ -18,6 +18,20 @@ export class ToothAnswerNumericMismatchError extends Error {
   }
 }
 
+/** La redacción nombró una cara dental que el profesional no dictó: se devuelve la propuesta y las caras para que pueda compararlas. */
+export class ToothAnswerFaceError extends Error {
+  readonly code = "face_added";
+  readonly draft: string;
+  readonly faces: string[];
+
+  constructor(faces: string[], draft: string) {
+    super(`La IA añadió ${faces.length > 1 ? "las caras" : "la cara"} «${faces.join("», «")}», que no dictaste. Compara la propuesta con tu dictado y corrige el texto.`);
+    this.name = "ToothAnswerFaceError";
+    this.faces = faces;
+    this.draft = draft;
+  }
+}
+
 function numericSignature(text: string): number[] {
   // «dos por ciento» y «2%» expresan la misma cifra clínica.
   return numberSignature(text.replace(/\bpor\s+ciento\b/giu, "%"));
@@ -64,7 +78,8 @@ export async function redraftToothAnswer(
   const draftNumbers = numericSignature(draft);
   if (sourceNumbers.length !== draftNumbers.length || sourceNumbers.some((number, index) => number !== draftNumbers[index])) throw new ToothAnswerNumericMismatchError(draft);
   const sourceFaces = new Set([...source.matchAll(CLINICAL_FACES)].map(match => match[0].toLowerCase().replace(/a$/, "o")));
-  if ([...draft.matchAll(CLINICAL_FACES)].some(match => !sourceFaces.has(match[0].toLowerCase().replace(/a$/, "o")))) throw new Error("La redacción añadió una cara dental no dictada; revisa la respuesta.");
+  const addedFaces = [...new Set([...draft.matchAll(CLINICAL_FACES)].filter(match => !sourceFaces.has(match[0].toLowerCase().replace(/a$/, "o"))).map(match => match[0].toLowerCase()))];
+  if (addedFaces.length) throw new ToothAnswerFaceError(addedFaces, draft);
   if (/(?<!\p{L})(?:analiza(?:r)? la respuesta|me equivoqu[eé]|quise decir|perd[oó]n)(?!\p{L})/iu.test(draft)) throw new Error("La redacción conservó una instrucción o rectificación; vuelve a intentarlo.");
   if (step === "done" && /(?<!\p{L})(?:se propondr[aá]|se planificar[aá]|se sugiere|se plantea|se indicar[aá])(?!\p{L})/iu.test(draft)) throw new Error("La redacción presenta lo realizado como un plan; revísalo.");
   if (step === "plan" && /(?<!\p{L})(?:se realiz[oó]|se coloc[oó]|se obtur[oó]|se restaur[oó]|fue realizado)(?!\p{L})/iu.test(draft)) throw new Error("La redacción presenta el plan como tratamiento realizado; revísalo.");
