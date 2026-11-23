@@ -705,7 +705,11 @@ export async function syncGoogleDrive(user: ChatGPTUser, body: unknown) {
   if (results.length && results.every(item => item.saved)) await recordBackupRun(user.userId, "manual", true, results.length + " fichas respaldadas");
   // Cuando la cuenta principal terminó, se copian las cuentas adicionales de a 3 fichas por página.
   if (queue.nextAfterPatientId === null) {
-    const extra = await syncDriveMirrors(user, "manual", 3);
+    // Un fallo en una cuenta adicional (p. ej. autorización vencida) no debe tumbar el respaldo de la cuenta principal.
+    const extra = await syncDriveMirrors(user, "manual", 3).catch((error: unknown) => ({
+      results: [{ saved: false, message: "Cuenta adicional: " + (error instanceof Error ? error.message : "error") }] as Array<Record<string, unknown>>,
+      budget: 0,
+    }));
     results.push(...extra.results);
     if (extra.budget <= 0) return { configured: true, connected: true, results, nextAfterPatientId: 0, complete: false };
   }
