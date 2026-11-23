@@ -70,3 +70,12 @@ test("el worker: sesión de Google primero, Access como respaldo, portada sin se
   assert.match(page, /href="\/auth\/salir"/);
   assert.doesNotMatch(page, /cdn-cgi\/access\/logout/);
 });
+
+test('la portada ofrece entrar como equipo compartido y la pantalla de salida invita a cerrar Google', async () => {
+  const { sharedLogoutPage } = await import("../lib/portada-page.ts");
+  const html = portadaPage();
+  assert.match(html, /href="\/auth\/google\?entrada=personal&amp;equipo=compartido"/);
+  assert.match(html, /href="\/auth\/google\?entrada=clinica&amp;equipo=compartido"/);
+  assert.match(html, /15 minutos sin uso/);
+  assert.match(sharedLogoutPage(), /href="https:\/\/accounts\.google\.com\/Logout"/);
+});

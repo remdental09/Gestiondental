@@ -147,6 +147,12 @@ test('sin sesión, una página muestra la portada y no delega; el botón inicia 
   assert.match(start.headers.get('set-cookie'), /gd_entrada=personal/, 'sin elegir puerta, se entra a la consulta personal');
   const clinicStart = await instance.fetch(new Request('https://example.test/auth/google?entrada=clinica'), googleEnv, {});
   assert.match(clinicStart.headers.get('set-cookie'), /gd_entrada=clinica/);
+  const sharedStart = await instance.fetch(new Request('https://example.test/auth/google?entrada=personal&equipo=compartido'), googleEnv, {});
+  const sharedCookies = sharedStart.headers.get('set-cookie');
+  assert.match(sharedCookies, /sd_oauth_shared=1; .*Max-Age=600/);
+  assert.match(sharedCookies, /gd_entrada=personal; Path=\/; HttpOnly; Secure; SameSite=Lax(,|$)/, 'la puerta elegida tampoco persiste en un equipo compartido');
+  assert.doesNotMatch(sharedCookies, /gd_entrada=personal;[^,]*Max-Age/);
+  assert.match(start.headers.get('set-cookie'), /sd_oauth_shared=; .*Max-Age=0/, 'sin pedirlo, no se marca equipo compartido');
   const badState = await instance.fetch(new Request('https://example.test/auth/google/callback?code=x&state=otro', { headers: { Cookie: 'sd_oauth_state=esperado' } }), googleEnv, {});
   assert.equal(badState.headers.get('location'), '/?error=vencido');
   const out = await instance.fetch(new Request('https://example.test/auth/salir'), googleEnv, {});
@@ -339,4 +345,33 @@ test('los archivos del build van directo al asset server sin sesión, y un falta
   assert.equal(missing.status, 404);
   assert.equal(missing.headers.get('Cache-Control'), 'no-store');
   assert.equal(instance.count(), 0);
+});
+
+test('salir de un equipo compartido muestra cómo cerrar también Google; salir-todo revoca todas las sesiones', async () => {
+  sessionStore.forgetCachedSessions();
+  const DB = sqliteDb();
+  const shared = await sessionStore.createSession(DB, { email, name: '' }, Date.now(), true);
+  const own = await sessionStore.createSession(DB, { email, name: '' });
+  const instance = worker();
+  const out = await instance.fetch(new Request('https://example.test/auth/salir', { headers: { Cookie: 'sd_session=' + shared, 'Sec-Fetch-Site': 'same-origin' } }), { ...googleEnv, DB }, {});
+  assert.equal(out.status, 200);
+  assert.match(await out.text(), /accounts\.google\.com\/Logout/);
+  assert.match(out.headers.get('set-cookie'), /sd_session=; .*Max-Age=0/);
+  assert.equal(out.headers.get('cache-control'), 'no-store');
+  const everywhere = await instance.fetch(new Request('https://example.test/auth/salir-todo', { headers: { Cookie: 'sd_session=' + own, 'Sec-Fetch-Site': 'same-origin' } }), { ...googleEnv, DB }, {});
+  assert.equal(everywhere.status, 302);
+  assert.equal(DB.raw.prepare('SELECT count(*) n FROM auth_sessions WHERE revoked_at IS NULL').get().n, 0);
+  const cross = await instance.fetch(new Request('https://example.test/auth/salir-todo', { headers: { Cookie: 'sd_session=' + await sessionStore.createSession(DB, { email, name: '' }), 'Sec-Fetch-Site': 'cross-site' } }), { ...googleEnv, DB }, {});
+  assert.equal(cross.headers.get('set-cookie'), null);
+  assert.equal(DB.raw.prepare('SELECT count(*) n FROM auth_sessions WHERE revoked_at IS NULL').get().n, 1, 'un enlace de otro sitio no cierra sesiones');
+});
+
+test('en equipo compartido las respuestas de la app no se guardan en la caché del navegador', async () => {
+  sessionStore.forgetCachedSessions();
+  const DB = sqliteDb();
+  const shared = await sessionStore.createSession(DB, { email, name: '' }, Date.now(), true);
+  const instance = worker();
+  const res = await instance.fetch(new Request('https://example.test/api/clinical', { headers: { Cookie: 'sd_session=' + shared } }), { ...googleEnv, DB }, {});
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('cache-control'), 'no-store');
 });
