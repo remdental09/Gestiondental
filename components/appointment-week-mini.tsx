@@ -5,8 +5,11 @@ import { addDays, blocksByDay, conflictsWith, formatSpan, formatTime, freeSummar
 const DAY_NAMES = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 
 /** Semana en miniatura para «Agendar cita»: muestra cómo está cubierta la semana mientras se elige día, hora y duración. */
-export function AppointmentWeekMini({ events, day, time, minutes, onPick }: { events: WeekEvent[]; day: string; time: string; minutes: number; onPick: (day: string, time: string) => void }) {
-  const [expanded, setExpanded] = useState(false);
+export function AppointmentWeekMini({ events, day, time, minutes, onPick, expanded: expandedProp, onExpandedChange }: { events: WeekEvent[]; day: string; time: string; minutes: number; onPick: (day: string, time: string) => void; expanded?: boolean; onExpandedChange?: (value: boolean) => void }) {
+  // «Ampliar» puede controlarlo el diálogo (que entonces se ensancha casi a pantalla completa) o quedar interno.
+  const [expandedOwn, setExpandedOwn] = useState(false);
+  const expanded = expandedProp ?? expandedOwn;
+  const setExpanded = (value: boolean) => { setExpandedOwn(value); onExpandedChange?.(value); };
   const [nav, setNav] = useState({ anchor: day, offset: 0 });
   // Al cambiar el día elegido (toque o campo de fecha) la vista vuelve a la semana de ese día.
   const offset = nav.anchor === day ? nav.offset : 0;
@@ -15,11 +18,12 @@ export function AppointmentWeekMini({ events, day, time, minutes, onPick }: { ev
   const days = useMemo(() => blocksByDay(events, weekStart), [events, weekStart]);
   const proposed = proposedBlock(day, time, minutes);
   const { startHour, endHour } = gridHours(days, proposed);
-  const hourHeight = expanded ? 72 : 30;
+  const hourHeight = expanded ? 84 : 30;
   const height = (endHour - startHour) * hourHeight;
   const top = (minute: number) => ((minute - startHour * 60) / 60) * hourHeight;
   const dayKeys = Object.keys(days);
-  const visibleKeys = dayKeys.filter((key, index) => index < 6 || days[key]!.length > 0 || key === day);
+  // Ampliada se ve la semana completa (también el domingo).
+  const visibleKeys = dayKeys.filter((key, index) => expanded || index < 6 || days[key]!.length > 0 || key === day);
   const conflicts = proposed ? conflictsWith(days[proposed.day] ?? [], proposed) : [];
   const summary = freeSummary(days[day] ?? []);
   const hours = Array.from({ length: endHour - startHour }, (_, index) => startHour + index);
@@ -35,9 +39,9 @@ export function AppointmentWeekMini({ events, day, time, minutes, onPick }: { ev
         </div>
         <button type="button" className="min-h-8 px-2 font-medium text-[#473a6d] underline" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>{expanded ? "Reducir" : "Ampliar"}</button>
       </div>
-      <div className="flex" style={{ height: height + 18 }}>
-        <div className="w-7 shrink-0 pt-[18px] text-[9px] leading-none text-[#6b6a7c]" aria-hidden="true">
-          {hours.map(hour => <div key={hour} style={{ height: hourHeight }}>{expanded || hour % 2 === 0 ? hour : ""}</div>)}
+      <div className="flex" style={{ height: height + (expanded ? 24 : 18) }}>
+        <div className={`${expanded ? "w-10 pt-[24px] text-xs" : "w-7 pt-[18px] text-[9px]"} shrink-0 leading-none text-[#6b6a7c]`} aria-hidden="true">
+          {hours.map(hour => <div key={hour} style={{ height: hourHeight }}>{expanded ? `${hour}:00` : hour % 2 === 0 ? hour : ""}</div>)}
         </div>
         <div className="grid min-w-0 flex-1 gap-px" style={{ gridTemplateColumns: `repeat(${visibleKeys.length}, minmax(0, 1fr))` }}>
           {visibleKeys.map(key => {
@@ -45,7 +49,7 @@ export function AppointmentWeekMini({ events, day, time, minutes, onPick }: { ev
             const selected = key === day;
             return (
               <div key={key} className="min-w-0">
-                <div className={`h-[18px] truncate text-center text-[10px] font-medium ${selected ? "text-[#473a6d]" : "text-[#6b6a7c]"}`}>{DAY_NAMES[index]} {Number(key.slice(8))}</div>
+                <div className={`${expanded ? "h-[24px] text-sm" : "h-[18px] text-[10px]"} truncate text-center font-medium ${selected ? "text-[#473a6d]" : "text-[#6b6a7c]"}`}>{DAY_NAMES[index]} {Number(key.slice(8))}</div>
                 <button
                   type="button"
                   aria-label={`Elegir hora el ${DAY_NAMES[index]} ${Number(key.slice(8))}`}
@@ -57,7 +61,7 @@ export function AppointmentWeekMini({ events, day, time, minutes, onPick }: { ev
                   }}
                 >
                   {days[key]!.map(block => (
-                    <span key={block.id} className="absolute inset-x-0 overflow-hidden break-words border-y border-white bg-[#cfd8e8] px-0.5 py-px text-[10px] font-medium leading-[1.15] text-[#1f2a44]" style={{ top: top(block.start), height: Math.max(12, top(block.end) - top(block.start)) }}>{expanded ? `${formatTime(block.start)} ` : ""}{block.title}</span>
+                    <span key={block.id} className={`absolute inset-x-0 overflow-hidden break-words border-y border-white bg-[#cfd8e8] ${expanded ? "px-1.5 py-0.5 text-xs" : "px-0.5 py-px text-[10px]"} font-medium leading-[1.15] text-[#1f2a44]`} style={{ top: top(block.start), height: Math.max(12, top(block.end) - top(block.start)) }}>{expanded ? `${formatTime(block.start)} ` : ""}{block.title}</span>
                   ))}
                   {proposed && proposed.day === key && (
                     <span data-testid="appt-week-proposed" className={`absolute inset-x-0 border-2 ${conflicts.length ? "border-[#a43542] bg-[#a43542]/40" : "border-[#473a6d] bg-[#b8a4f0]/70"}`} style={{ top: top(proposed.start), height: Math.max(3, top(proposed.end) - top(proposed.start)) }} />
