@@ -79,3 +79,13 @@ test('la portada ofrece entrar como equipo compartido y la pantalla de salida in
   assert.match(html, /15 minutos sin uso/);
   assert.match(sharedLogoutPage(), /href="https:\/\/accounts\.google\.com\/Logout"/);
 });
+
+test('correo del código: lleva el código, su vencimiento y el aviso si no fuiste tú; el correo se enmascara', async () => {
+  const { loginCodeEmail, maskEmail, loginCodePage } = await import("../lib/login-code.ts");
+  const mail = loginCodeEmail("048213", new Date(Date.UTC(2026, 10, 23, 17, 5)));
+  assert.match(mail.subject, /048213/);
+  assert.match(mail.text, /Vence en 10 minutos/);
+  assert.match(mail.text, /Si no fuiste tú/);
+  assert.equal(maskEmail("remdental09@gmail.com"), "re••••••09@gmail.com");
+  assert.doesNotMatch(loginCodePage("remdental09@gmail.com"), /remdental09/);
+});
