@@ -420,7 +420,7 @@ export default function Home(){
   const patient=patients.find(p=>p.id===selectedId)??null;
   const patientValidation=validatePatientDraft({name,birthDate,rut,docType,phone,email,reason});
   const selectedPerio=summarizePerio(periodontalExams[selectedId]?.[0]);
-  const patientImages=clinicalImages.filter(item=>item.patientId===selectedId&&!item.kind.endsWith("ortodoncia")&&item.kind!=="RX endodoncia"&&item.kind!=="Producto biomédico");
+  const patientImages=clinicalImages.filter(item=>item.patientId===selectedId&&!item.kind.endsWith("ortodoncia")&&item.kind!=="RX endodoncia");
   const orthoImages=clinicalImages.filter(item=>item.patientId===selectedId&&item.kind.endsWith("ortodoncia"));
   const endoImages=clinicalImages.filter(item=>item.patientId===selectedId&&item.kind==="RX endodoncia");
   const endoData=endoByPatient[selectedId];
