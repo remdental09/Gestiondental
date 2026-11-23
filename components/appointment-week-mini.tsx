@@ -40,7 +40,7 @@ export function AppointmentWeekMini({ events, day, time, minutes, onPick, expand
         <button type="button" className="min-h-8 px-2 font-medium text-[#473a6d] underline" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>{expanded ? "Reducir" : "Ampliar"}</button>
       </div>
       <div className="flex" style={{ height: height + (expanded ? 24 : 18) }}>
-        <div className={`${expanded ? "w-10 pt-[24px] text-xs" : "w-7 pt-[18px] text-[9px]"} shrink-0 leading-none text-[#6b6a7c]" aria-hidden="true">
+        <div className={`${expanded ? "w-10 pt-[24px] text-xs" : "w-7 pt-[18px] text-[9px]"} shrink-0 leading-none text-[#6b6a7c]`} aria-hidden="true">
           {hours.map(hour => <div key={hour} style={{ height: hourHeight }}>{expanded ? `${hour}:00` : hour % 2 === 0 ? hour : ""}</div>)}
         </div>
         <div className="grid min-w-0 flex-1 gap-px" style={{ gridTemplateColumns: `repeat(${visibleKeys.length}, minmax(0, 1fr))` }}>
