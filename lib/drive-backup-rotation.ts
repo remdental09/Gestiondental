@@ -41,8 +41,11 @@ export function runClock(maxMs = DRIVE_BACKUP_MAX_MS, clock: () => number = Date
  * Se deja margen para la constancia, la salud y el cursor.
  */
 export const DRIVE_D1_QUERY_BUDGET = 700;
-/** Consultas que cuesta armar la foto de una ficha (getDriveSnapshot: ficha + 9 tablas + productos + dirección + anamnesis). */
-export const SNAPSHOT_QUERIES = 16;
+/**
+ * Consultas que cuesta armar la foto de una ficha: un db.batch con las 11 tablas (cuenta como 1) + dirección y anamnesis
+ * (2 cada una). Se deja margen por si el batch falla y se lee tabla por tabla en esa ficha.
+ */
+export const SNAPSHOT_QUERIES = 8;
 /** Consultas extra al copiar una ficha: 2 fotos más (verificación), confirmación, adjuntos, Markdown y bitácora. */
 export const BACKUP_QUERIES = SNAPSHOT_QUERIES * 2 + 14;
 /** Fichas por página al revisar la cola. */
