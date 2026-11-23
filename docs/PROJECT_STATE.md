@@ -468,3 +468,8 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 - 2026-11-22: Dictado por pieza con modo «Planificar» o «Ya lo realicé hoy»: lo realizado cambia el odontograma, la evolución dice «Procedimiento realizado» y la prestación pendiente se cierra en su presupuesto en vez de duplicarse. `lib/tooth-performed.ts`, paso «done» en tooth-answer, `performed` en applyToothDictation.
 - 2026-11-22: Carga de fichas más rápida: GET /api/clinical pide a la vez perfil, direcciones, autores, abonos, piezas y agenda (antes ~9 consultas en serie).
 - 2026-11-22: dictar una endodoncia como «realizada» (pulpectomía, tratamiento de conducto, obturación de conductos) crea/continúa el caso en el endograma (en curso u obturado) y cambia la imagen de la pieza en la película.
+
+## Vigilante diario de respaldos
+- `lib/backup-watchdog.ts` (evaluación pura) + `app/backup-watchdog.ts` (lee estado de D1/R2, nunca contenido clínico). Corre una vez al día dentro del cron de las 11:00 UTC (08:00 Chile), sin trigger adicional.
+- Revisa: tarea de Drive (corriendo y sin errores), cada cuenta de Drive (revisión < 3 h, autorización vigente, fallos 24 h, fichas sin respaldo), copia nocturna D1/R2 (manifiesto de hoy o ayer).
+- Con errores: la tarea `backup-watchdog` queda fallando (visible en Configuración) y, si hay correo conectado, se avisa al titular/cuenta afectada. Sin problemas no envía nada.
