@@ -175,16 +175,20 @@ export function GoogleDriveBackup() {
     );
   }
   return (
-    <section className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm" aria-label="Respaldo de Google Drive" role="status">
+    <section className="group relative mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-emerald-500" aria-label="Respaldo de Google Drive" role="status" tabIndex={0} data-testid="drive-backup-status">
       <div>
         <p className="font-semibold text-emerald-950">Respaldo automático activo en {status.email || "Google Drive"}.</p>
         {message && <p className="mt-1 text-emerald-900">{message}</p>}
         {status.lastRun && !status.lastRun.ok && status.lastRun.detail.includes("insufficientPermissions") && <p className="mt-1"><a href="/api/drive/connect" className="font-semibold text-emerald-950 underline">Volver a conectar Google Drive</a> y dejar marcada la casilla de Drive.</p>}
         {needsReconnect(status.lastRun, message) && <p className="mt-2"><a href="/api/drive/connect" className="inline-flex min-h-10 items-center rounded-lg bg-[#473a6d] px-4 py-2 text-sm font-semibold text-white hover:bg-[#3a2f5a]" data-testid="drive-reconnect">Volver a conectar Google Drive</a></p>}
+        {status.lastRun && !status.lastRun.ok && <p className="mt-1 text-xs text-rose-800">El último respaldo falló; pasa el ratón por aquí para ver el detalle.</p>}
+        {/* Detalle: solo al pasar el ratón (o al tocar / enfocar), para que el aviso ocupe una línea. */}
+        <div className="absolute left-0 top-full z-30 hidden w-[min(34rem,92vw)] pt-1 group-hover:block group-focus-within:block group-focus:block" data-testid="drive-backup-details"><div className="rounded-xl border border-emerald-200 bg-white p-3 shadow-lg">
         {(status.mirrors ?? []).map(mirror => <p key={mirror.email} className="mt-1 text-xs text-emerald-800">Copia adicional en {mirror.email}: {mirror.backedUp} de {mirror.total} fichas{mirror.lastVerifiedAt ? " (última " + fechaChile(mirror.lastVerifiedAt) + ")" : ""}.{mirror.backedUp < mirror.total ? " Las que faltan se copian solas en la revisión automática (cada 20 minutos)." : ""}</p>)}
         <p className="mt-1 text-xs"><a href="/api/drive/connect?mirror=1" className="text-emerald-900 underline">{(status.mirrors ?? []).length ? "Agregar otra cuenta de Drive" : "Respaldar también en otra cuenta de Drive"}</a></p>
         {status.lastRun && <p className={"mt-1 text-xs " + (status.lastRun.ok ? "text-emerald-800" : "text-rose-800")}>Último respaldo {status.lastRun.source === "cron" ? "automático" : status.lastRun.source === "guardado" ? "al guardar" : "manual"} ({fechaChile(status.lastRun.ranAt)}): {status.lastRun.ok ? "correcto" : status.lastRun.detail}</p>}
         <p className="mt-1 text-xs text-emerald-800" data-testid="drive-last-check">{status.lastCheck ? `Última revisión automática: ${fechaChile(status.lastCheck.ranAt)} (${status.lastCheck.detail}). Se revisa cada 20 minutos.` : "La revisión automática corre cada 20 minutos; aún no hay constancia de la primera."}</p>
+        </div></div>
       </div>
       {syncError && (
         <button type="button" onClick={() => void syncQueue()} disabled={busy} className="rounded-lg border border-emerald-300 bg-white px-3 py-2 font-semibold text-emerald-950 disabled:opacity-60">
