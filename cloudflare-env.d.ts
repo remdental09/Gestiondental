@@ -1,6 +1,8 @@
 declare namespace Cloudflare {
   interface Env {
     DB?: D1Database;
+    /** Cloudflare Email Service (envío desde speakdent.cl). */
+    EMAIL?: { send(message: { from: string | { email: string; name?: string }; to: string; subject: string; html?: string; text?: string }): Promise<unknown> };
     BUCKET?: R2Bucket;
     BACKUP_BUCKET?: R2Bucket;
     /** Workers AI. Declarado en wrangler.cloudflare.jsonc; en local puede no existir. */
