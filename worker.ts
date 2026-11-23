@@ -2,12 +2,12 @@ import { AuthorizationError, OAuthProvider, type ConsentDescription, type OAuthH
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import app from "vinext/server/fetch-handler";
 import { aboutPage, privacyPage, termsPage } from "./lib/public-pages";
-import { portadaPage, PORTADA_CSP } from "./lib/portada-page";
+import { portadaPage, sharedLogoutPage, PORTADA_CSP } from "./lib/portada-page";
 import {
-  SESSION_COOKIE, STATE_COOKIE, SESSION_DAYS, LOGIN_PATH, CALLBACK_PATH, LOGOUT_PATH,
+  SESSION_COOKIE, STATE_COOKIE, SESSION_DAYS, LOGIN_PATH, CALLBACK_PATH, LOGOUT_PATH, LOGOUT_ALL_PATH, SHARED_COOKIE, SHARED_SESSION_MS, browserSessionCookie,
   signSession, verifySession, readCookie, cookie, randomToken, googleAuthUrl, acceptedGoogleProfile,
 } from "./lib/google-login";
-import { allowLogin, createSession, crossSiteWrite, isStoredToken, readSession, revokeSession, sameSiteNavigation, SESSION_TTL_MS, type SessionDb } from "./lib/session-store";
+import { allowLogin, createSession, crossSiteWrite, isStoredToken, readSession, revokeAllSessions, revokeSession, sameSiteNavigation, SESSION_TTL_MS, type SessionDb } from "./lib/session-store";
 import { resolveOwner, resolveOwnerWithRegistration, type OwnerConfig, type ClinicOwner } from "./app/access-owners";
 import { activeMemberships, membershipsOf, type TeamDb } from "./app/clinic-team-db";
 import { ENTRY_COOKIE, chooseSpaceForEntry, isSupportRole, parseEntry, type Space } from "./lib/clinic-team";
@@ -205,7 +205,7 @@ function redirect(location: string, cookies: string[] = []) {
 }
 
 /** Puerta elegida en la portada («mi consulta» o «una clínica»); dura lo que la sesión. */
-const entryCookie = (entry: "personal" | "clinica") => cookie(ENTRY_COOKIE, entry, SESSION_DAYS * 86_400);
+const entryCookie = (entry: "personal" | "clinica", shared = false) => shared ? browserSessionCookie(ENTRY_COOKIE, entry) : cookie(ENTRY_COOKIE, entry, SESSION_DAYS * 86_400);
 
 async function startGoogleLogin(request: Request, env: OAuthEnv): Promise<Response> {
   const config = googleLoginConfig(env);
@@ -214,8 +214,11 @@ async function startGoogleLogin(request: Request, env: OAuthEnv): Promise<Respon
   if (db && !(await allowLogin(db, clientIp(request)))) return redirect("/?error=demasiados");
   const state = randomToken();
   const redirectUri = new URL(CALLBACK_PATH, request.url).toString();
-  const entry = parseEntry(new URL(request.url).searchParams.get("entrada"));
-  return redirect(googleAuthUrl(config.clientId, redirectUri, state), [cookie(STATE_COOKIE, state, 600), entryCookie(entry)]);
+  const params = new URL(request.url).searchParams;
+  const entry = parseEntry(params.get("entrada"));
+  // Equipo compartido (cibercafé, aeropuerto): la portada lo pide con ?equipo=compartido; se recuerda durante el ingreso en una cookie corta.
+  const shared = params.get("equipo") === "compartido";
+  return redirect(googleAuthUrl(config.clientId, redirectUri, state), [cookie(STATE_COOKIE, state, 600), cookie(SHARED_COOKIE, shared ? "1" : "", shared ? 600 : 0), entryCookie(entry, shared)]);
 }
 
 /** Cambiar de puerta sin volver a pasar por Google: la sesión es la misma persona; el acceso a cada clínica se valida en cada solicitud. */
@@ -236,6 +239,7 @@ async function finishGoogleLogin(request: Request, env: OAuthEnv): Promise<Respo
   if (!code || !state || !expected || state !== expected) return redirect("/?error=vencido", [clearState]);
   const db = sessionDb(env);
   if (db && !(await allowLogin(db, clientIp(request)))) return redirect("/?error=demasiados", [clearState]);
+  const shared = readCookie(request.headers.get("Cookie"), SHARED_COOKIE) === "1";
   try {
     const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
@@ -258,12 +262,13 @@ async function finishGoogleLogin(request: Request, env: OAuthEnv): Promise<Respo
     const resolved = await resolveOwnerWithRegistration(profile.email, ownerConfig(env));
     if (!resolved.ok) return redirect(resolved.status === 503 ? "/?error=configuracion" : "/?error=sin-acceso", [clearState]);
     // Sesión guardada en D1 (revocable, vence a los 30 días sin uso). Si D1 fallara, cookie firmada como respaldo.
-    const stored = db ? await createSession(db, { email: profile.email, name: profile.name }).catch(() => null) : null;
-    const token = stored ?? await signSession({ email: profile.email, name: profile.name, exp: Date.now() + SESSION_DAYS * 86_400_000 }, config.sessionSecret);
+    // Equipo compartido: sesión de 2 horas como máximo y 15 min sin uso (ver lib/session-store.ts); la cookie muere al cerrar el navegador.
+    const stored = db ? await createSession(db, { email: profile.email, name: profile.name }, Date.now(), shared).catch(() => null) : null;
+    const token = stored ?? await signSession({ email: profile.email, name: profile.name, exp: Date.now() + (shared ? SHARED_SESSION_MS : SESSION_DAYS * 86_400_000) }, config.sessionSecret);
     // Recepción y asistentes no tienen consulta propia: entran siempre por la puerta de la clínica que los invitó.
     const team = (env as unknown as { DB?: TeamDb }).DB;
     const support = team ? await membershipsOf(team, profile.email.trim().toLowerCase()).then(rows => rows.some(m => isSupportRole(m.role))).catch(() => false) : false;
-    return redirect("/", [clearState, cookie(SESSION_COOKIE, token, SESSION_DAYS * 86_400), ...(support ? [entryCookie("clinica")] : [])]);
+    return redirect("/", [clearState, cookie(SHARED_COOKIE, "", 0), shared ? browserSessionCookie(SESSION_COOKIE, token) : cookie(SESSION_COOKIE, token, SESSION_DAYS * 86_400), ...(support ? [entryCookie("clinica", shared)] : [])]);
   } catch {
     return redirect("/?error=vencido", [clearState]);
   }
@@ -274,13 +279,36 @@ async function logout(request: Request, env: OAuthEnv): Promise<Response> {
   if (request.method === "GET" ? !sameSiteNavigation(request) : crossSiteWrite(request)) return redirect("/");
   const token = readCookie(request.headers.get("Cookie"), SESSION_COOKIE);
   const db = sessionDb(env);
-  if (db && isStoredToken(token)) await revokeSession(db, token).catch(() => undefined);
+  const wasShared = db && isStoredToken(token) ? await revokeSession(db, token).catch(() => false) : false;
   // Si aún se entró por Cloudflare Access, también se cierra esa sesión.
   const viaAccess = Boolean(request.headers.get("Cf-Access-Jwt-Assertion"));
-  return redirect(viaAccess ? "/cdn-cgi/access/logout" : "/", [cookie(SESSION_COOKIE, "", 0), cookie(ENTRY_COOKIE, "", 0)]);
+  const cleared = [cookie(SESSION_COOKIE, "", 0), cookie(ENTRY_COOKIE, "", 0)];
+  if (wasShared && !viaAccess) return sharedLogoutResponse(cleared, request.method);
+  return redirect(viaAccess ? "/cdn-cgi/access/logout" : "/", cleared);
 }
 
-type Identity = { email: string; owner: ClinicOwner; setCookies?: string[] };
+/** Al salir de un equipo compartido se recuerda cerrar también la sesión de Google de ese navegador (la app no puede hacerlo por su cuenta). */
+function sharedLogoutResponse(cookies: string[], method = "GET") {
+  const headers = securePageHeaders();
+  headers.set("Content-Security-Policy", PORTADA_CSP);
+  headers.set("Cache-Control", "no-store");
+  for (const value of cookies) headers.append("Set-Cookie", value);
+  return new Response(method === "HEAD" ? null : sharedLogoutPage(), { headers });
+}
+
+/** «Cerrar sesión en todos los equipos»: revoca cada sesión abierta de esta cuenta (también la que se dejó en un computador ajeno). */
+async function logoutEverywhere(request: Request, env: OAuthEnv): Promise<Response> {
+  if (request.method === "GET" ? !sameSiteNavigation(request) : crossSiteWrite(request)) return redirect("/");
+  const token = readCookie(request.headers.get("Cookie"), SESSION_COOKIE);
+  const db = sessionDb(env);
+  if (db && isStoredToken(token)) {
+    const found = await readSession(db, token).catch(() => null);
+    if (found) await revokeAllSessions(db, found.session.email).catch(() => undefined);
+  }
+  return redirect("/", [cookie(SESSION_COOKIE, "", 0), cookie(ENTRY_COOKIE, "", 0)]);
+}
+
+type Identity = { email: string; owner: ClinicOwner; setCookies?: string[]; shared?: boolean };
 
 /**
  * Sesión propia: token «v2.» guardado en D1 (deslizante); las cookies firmadas antiguas siguen valiendo
@@ -290,13 +318,14 @@ async function sessionOwner(request: Request, env: OAuthEnv, allowRegistration: 
   const token = readCookie(request.headers.get("Cookie"), SESSION_COOKIE);
   if (!token) return null;
   const db = sessionDb(env);
-  let email = "", name = "";
+  let email = "", name = "", shared = false;
   const setCookies: string[] = [];
   if (isStoredToken(token)) {
     if (!db) return null;
     const found = await readSession(db, token).catch(() => null);
     if (!found) return null;
     ({ email, name } = found.session);
+    shared = found.shared;
     if (found.refresh) setCookies.push(sessionCookie(token));
   } else {
     const config = googleLoginConfig(env);
@@ -309,7 +338,7 @@ async function sessionOwner(request: Request, env: OAuthEnv, allowRegistration: 
   }
   const owners = ownerConfig(env);
   const resolved = allowRegistration ? await resolveOwnerWithRegistration(email, owners) : resolveOwner(email, owners);
-  return resolved.ok ? { email, owner: resolved.owner, ...(setCookies.length ? { setCookies } : {}) } : null;
+  return resolved.ok ? { email, owner: resolved.owner, ...(setCookies.length ? { setCookies } : {}), ...(shared ? { shared } : {}) } : null;
 }
 
 /** Sesión de Google primero; Cloudflare Access sigue sirviendo mientras se retira. Sin ninguna: portada (páginas) o 401 (API). */
@@ -363,10 +392,11 @@ async function privateAppFetch(request: Request, env: OAuthEnv, context: Executi
   headers.set(SPACE_ROLE_HEADER, space.role);
   headers.set(ACCESS_NAME_HEADER, encodeURIComponent(identity.owner.name));
   const response = await app.fetch(new Request(request, { headers }), env, context);
-  if (!identity.setCookies?.length) return response;
-  // Sesión renovada (30 días más) o recién pasada a D1: se reenvía la cookie.
+  if (!identity.setCookies?.length && !identity.shared) return response;
+  // Sesión renovada (30 días más) o recién pasada a D1: se reenvía la cookie. En equipo compartido nada queda en la caché del navegador.
   const withCookies = new Response(response.body, response);
-  for (const value of identity.setCookies) withCookies.headers.append("Set-Cookie", value);
+  for (const value of identity.setCookies ?? []) withCookies.headers.append("Set-Cookie", value);
+  if (identity.shared) withCookies.headers.set("Cache-Control", "no-store");
   return withCookies;
 }
 
@@ -533,6 +563,7 @@ const oauthProvider = new OAuthProvider<OAuthEnv>({
       if (path === LOGIN_PATH && request.method === "GET") return startGoogleLogin(request, env);
       if (path === CALLBACK_PATH && request.method === "GET") return finishGoogleLogin(request, env);
       if (path === LOGOUT_PATH && (request.method === "GET" || request.method === "POST")) return logout(request, env);
+      if (path === LOGOUT_ALL_PATH && (request.method === "GET" || request.method === "POST")) return logoutEverywhere(request, env);
       if (path === "/auth/entrada" && request.method === "GET") return switchEntry(request);
       if (path === "/authorize") return authorize(request, env, context);
       return privateAppFetch(request, env, context);

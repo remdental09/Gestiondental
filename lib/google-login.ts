@@ -9,6 +9,12 @@ export const SESSION_DAYS = 30;
 export const LOGIN_PATH = "/auth/google";
 export const CALLBACK_PATH = "/auth/google/callback";
 export const LOGOUT_PATH = "/auth/salir";
+export const LOGOUT_ALL_PATH = "/auth/salir-todo";
+/** Marca (10 min) de que el ingreso en curso es desde un equipo compartido; la elige la portada con `?equipo=compartido`. */
+export const SHARED_COOKIE = "sd_oauth_shared";
+export const SHARED_SESSION_MS = 2 * 3_600_000;
+/** Cierra la sesión de Google de ese navegador (todas las cuentas); se ofrece al salir de un equipo compartido. */
+export const GOOGLE_SIGN_OUT_URL = "https://accounts.google.com/Logout";
 
 export type Session = { email: string; name: string; exp: number };
 
@@ -65,6 +71,11 @@ export function readCookie(header: string | null, name: string): string | null {
 
 export function cookie(name: string, value: string, maxAgeSeconds: number): string {
   return `${name}=${value}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${Math.max(0, Math.floor(maxAgeSeconds))}`;
+}
+
+/** Cookie de sesión del navegador: sin Max-Age, se borra al cerrar el navegador (equipo compartido). */
+export function browserSessionCookie(name: string, value: string): string {
+  return `${name}=${value}; Path=/; HttpOnly; Secure; SameSite=Lax`;
 }
 
 export function randomToken(): string {

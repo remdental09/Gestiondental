@@ -1,5 +1,5 @@
 /** Portada pública de speakdent.cl: presentación y botón «Entrar con Google». No muestra ni pide datos clínicos. */
-import { LOGIN_PATH } from "./google-login.ts";
+import { LOGIN_PATH, GOOGLE_SIGN_OUT_URL } from "./google-login.ts";
 
 const escape = (value: string) => value.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
 
@@ -50,6 +50,9 @@ h1 em{font-style:normal;background:linear-gradient(90deg,#5eead4,#38bdf8);-webki
 .clinic:hover{background:rgba(251,146,60,.14)}
 .clinic:focus-visible{outline:3px solid #fb923c;outline-offset:3px}
 .door-note{margin:2px 0 0;font-size:13px;color:#8b9bb8}
+.shared{margin:14px 0 0;max-width:400px;padding-top:12px;border-top:1px solid rgba(139,155,184,.25);font-size:13px;color:#8b9bb8}
+.shared a{color:#c9d6ee;text-decoration:underline;text-underline-offset:3px}
+.shared a:hover,.shared a:focus-visible{color:#fff}
 .google:focus-visible{outline:3px solid #5eead4;outline-offset:3px}
 .note{margin:16px 0 0;font-size:13px;color:#8b9bb8;max-width:400px}
 .error{margin:0 0 18px;padding:10px 14px;border-radius:10px;border:1px solid rgba(251,146,60,.5);background:rgba(124,45,18,.35);color:#fed7aa;font-size:14px}
@@ -82,10 +85,28 @@ ${error ? `<p class="error" role="alert">${escape(error)}</p>` : ""}
 <a class="clinic" href="${LOGIN_PATH}?entrada=clinica" data-entrada="clinica">${BUILDING}Entrar a una clínica</a>
 <p class="door-note">¿Una clínica te invitó a atender a sus pacientes? Entra por «Entrar a una clínica» con tu mismo Gmail. Tu consulta personal queda aparte.</p>
 </div>
+<p class="shared" data-equipo="compartido">¿Computador que no es tuyo (cibercafé, aeropuerto)? Entra como equipo compartido: la sesión se cierra a los 15 minutos sin uso y a las 2 horas, y no queda nada guardado. <a href="${LOGIN_PATH}?entrada=personal&amp;equipo=compartido">A mi consulta</a> · <a href="${LOGIN_PATH}?entrada=clinica&amp;equipo=compartido">A una clínica</a></p>
 <p class="note">Entras con tu cuenta de Google (Gmail). Cada dentista ve solo sus propias fichas.</p>
 <ul><li>Dictado clínico que propone y tú confirmas</li><li>Odontograma con nomenclatura FDI y chilena</li><li>Respaldo en tu propio Google Drive</li></ul>
 </section>
 <p class="city">Hecho en <b>Santiago de Chile</b></p>
 <footer><a href="/acerca">Acerca</a> · <a href="/privacidad">Privacidad</a> · <a href="/terminos">Términos</a></footer>
+</main></body></html>`;
+}
+
+/** Pantalla al salir de un equipo compartido: la sesión de SpeakDent ya se cerró; la de Google del navegador la cierra la persona. */
+export function sharedLogoutPage(): string {
+  return `<!doctype html>
+<html lang="es-CL"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sesión cerrada · SpeakDent</title><meta name="robots" content="noindex">
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#e6eefc;background:#060a17}
+main{max-width:430px}h1{font-size:24px;margin:0 0 8px}p{color:#aebbd4;margin:0 0 14px}
+a{display:inline-flex;min-height:44px;align-items:center;padding:0 18px;border-radius:12px;font-weight:600;text-decoration:none;margin:4px 8px 0 0}
+.go{background:#fff;color:#1c1530}.back{border:1px solid #475569;color:#e6eefc}</style></head>
+<body><main>
+<h1>Sesión de SpeakDent cerrada</h1>
+<p>Este era un equipo compartido. Para que nadie más pueda entrar con tu cuenta desde este navegador, cierra también tu sesión de Google.</p>
+<a class="go" href="${GOOGLE_SIGN_OUT_URL}">Cerrar mi sesión de Google</a><a class="back" href="/">Volver al inicio</a>
+<p style="margin-top:18px;font-size:13px">Consejo: en un computador ajeno abre una ventana de incógnito; al cerrarla, el navegador olvida todo.</p>
 </main></body></html>`;
 }

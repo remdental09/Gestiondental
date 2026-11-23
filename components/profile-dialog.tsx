@@ -118,6 +118,10 @@ export function ProfileDialog({ email, onClose, onSaved }: { email: string; onCl
           <button type="submit" disabled={saving} className="min-h-11 flex-1 rounded-lg bg-[#473a6d] px-4 text-base font-semibold text-white hover:bg-[#3a2f5a] disabled:opacity-50" data-testid="profile-save">{saving ? "Guardando…" : "Guardar cambios"}</button>
           <button type="button" onClick={attemptClose} className="min-h-11 rounded-lg border border-[#d2d4df] px-4 text-base font-medium text-[#57566a] hover:bg-[#f7f6fa]">Cerrar</button>
         </div>
+        <div className="mt-5 border-t border-[#e6e4ee] pt-4" data-testid="logout-everywhere">
+          <p className="text-xs text-[#6b6a7c]">¿Dejaste la sesión abierta en un computador ajeno? Esto la cierra en todos los equipos y vuelves a entrar aquí.</p>
+          <a href="/auth/salir-todo" className="mt-2 inline-flex min-h-10 items-center rounded-lg border border-[#d2d4df] px-3 text-sm font-medium text-[#57566a] hover:bg-[#f7f6fa]">Cerrar sesión en todos los equipos</a>
+        </div>
       </>}
     </form>
   </div>;
