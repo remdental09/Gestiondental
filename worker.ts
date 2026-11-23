@@ -7,7 +7,9 @@ import {
   SESSION_COOKIE, STATE_COOKIE, SESSION_DAYS, LOGIN_PATH, CALLBACK_PATH, LOGOUT_PATH, LOGOUT_ALL_PATH, SHARED_COOKIE, SHARED_SESSION_MS, browserSessionCookie,
   signSession, verifySession, readCookie, cookie, randomToken, googleAuthUrl, acceptedGoogleProfile,
 } from "./lib/google-login";
-import { allowLogin, createSession, crossSiteWrite, isStoredToken, readSession, revokeAllSessions, revokeSession, sameSiteNavigation, SESSION_TTL_MS, type SessionDb } from "./lib/session-store";
+import { allowLogin, confirmWithoutCode, createSession, crossSiteWrite, isStoredToken, newLoginCode, readSession, revokeAllSessions, revokeSession, sameSiteNavigation, setLoginCode, verifyLoginCode, SESSION_TTL_MS, type SessionDb } from "./lib/session-store";
+import { CODE_PATH, CODE_RESEND_PATH, loginCodePage } from "./lib/login-code";
+import { sendLoginCode } from "./app/login-code-mail";
 import { resolveOwner, resolveOwnerWithRegistration, type OwnerConfig, type ClinicOwner } from "./app/access-owners";
 import { activeMemberships, membershipsOf, type TeamDb } from "./app/clinic-team-db";
 import { ENTRY_COOKIE, chooseSpaceForEntry, isSupportRole, parseEntry, type Space } from "./lib/clinic-team";
@@ -34,6 +36,7 @@ type OAuthEnv = Cloudflare.Env & OwnerConfig & {
   GOOGLE_DRIVE_CLIENT_ID?: string;
   GOOGLE_DRIVE_CLIENT_SECRET?: string;
   SESSION_SECRET?: string;
+  DEVELOPER_EMAILS?: string;
 };
 
 const ACCESS_EMAIL_HEADER = "x-clinic-access-email";
@@ -262,16 +265,82 @@ async function finishGoogleLogin(request: Request, env: OAuthEnv): Promise<Respo
     const resolved = await resolveOwnerWithRegistration(profile.email, ownerConfig(env));
     if (!resolved.ok) return redirect(resolved.status === 503 ? "/?error=configuracion" : "/?error=sin-acceso", [clearState]);
     // Sesión guardada en D1 (revocable, vence a los 30 días sin uso). Si D1 fallara, cookie firmada como respaldo.
-    // Equipo compartido: sesión de 2 horas como máximo y 15 min sin uso (ver lib/session-store.ts); la cookie muere al cerrar el navegador.
-    const stored = db ? await createSession(db, { email: profile.email, name: profile.name }, Date.now(), shared).catch(() => null) : null;
-    const token = stored ?? await signSession({ email: profile.email, name: profile.name, exp: Date.now() + (shared ? SHARED_SESSION_MS : SESSION_DAYS * 86_400_000) }, config.sessionSecret);
+    // Cada ingreso con Google exige además un código enviado al correo: la sesión nace pendiente (15 min) y no da acceso hasta confirmarlo.
+    // Equipo compartido: luego dura 2 horas como máximo y 15 min sin uso (ver lib/session-store.ts); la cookie muere al cerrar el navegador.
+    if (!db) return redirect("/?error=configuracion", [clearState]);
+    const token = await createSession(db, { email: profile.email, name: profile.name }, Date.now(), shared, true).catch(() => null);
+    if (!token) return redirect("/?error=configuracion", [clearState]);
+    const delivery = await deliverLoginCode(env, db, token, profile.email, resolved.owner.ownerId);
     // Recepción y asistentes no tienen consulta propia: entran siempre por la puerta de la clínica que los invitó.
     const team = (env as unknown as { DB?: TeamDb }).DB;
     const support = team ? await membershipsOf(team, profile.email.trim().toLowerCase()).then(rows => rows.some(m => isSupportRole(m.role))).catch(() => false) : false;
-    return redirect("/", [clearState, cookie(SHARED_COOKIE, "", 0), shared ? browserSessionCookie(SESSION_COOKIE, token) : cookie(SESSION_COOKIE, token, SESSION_DAYS * 86_400), ...(support ? [entryCookie("clinica", shared)] : [])]);
+    const next = delivery === "confirmed" ? "/" : CODE_PATH + (delivery === "failed" ? "?m=envio" : "");
+    return redirect(next, [clearState, cookie(SHARED_COOKIE, "", 0), shared ? browserSessionCookie(SESSION_COOKIE, token) : cookie(SESSION_COOKIE, token, SESSION_DAYS * 86_400), ...(support ? [entryCookie("clinica", shared)] : [])]);
   } catch {
     return redirect("/?error=vencido", [clearState]);
   }
+}
+
+/** Dueños cuyos Gmail conectados pueden enviar el código: la propia consulta y, de respaldo, la del desarrollador. */
+async function codeSenderOwners(env: OAuthEnv, ownerId: string): Promise<string[]> {
+  const owners = [ownerId];
+  for (const email of (env.DEVELOPER_EMAILS ?? "").split(/[,;\s]+/).filter(Boolean)) {
+    const dev = await resolveOwnerWithRegistration(email, ownerConfig(env)).catch(() => null);
+    if (dev?.ok) owners.push(dev.owner.ownerId);
+  }
+  return owners;
+}
+
+/**
+ * Genera y envía el código. «confirmed»: no hay ningún Gmail conectado para enviar (la app aún no está configurada),
+ * así que se entra sin código para no dejar a nadie fuera; «wait»: se pidió otro hace menos de 30 s.
+ */
+async function deliverLoginCode(env: OAuthEnv, db: SessionDb, token: string, email: string, ownerId: string): Promise<"sent" | "failed" | "wait" | "confirmed"> {
+  const code = newLoginCode();
+  if (!(await setLoginCode(db, token, code).catch(() => false))) return "wait";
+  const result = await sendLoginCode(email, code, await codeSenderOwners(env, ownerId)).catch(() => ({ status: "failed" as const, reason: "" }));
+  if (result.status === "sent") return "sent";
+  if (result.status === "no-sender") {
+    console.warn("Código de ingreso: no hay Gmail conectado para enviarlo; se entra sin código.");
+    await confirmWithoutCode(db, token).catch(() => undefined);
+    return "confirmed";
+  }
+  console.warn("Código de ingreso: Gmail no aceptó el envío.", result.reason);
+  return "failed";
+}
+
+function codePageResponse(email: string, message: string | null, method = "GET", status = 200) {
+  const headers = securePageHeaders();
+  headers.set("Content-Security-Policy", PORTADA_CSP);
+  return new Response(method === "HEAD" ? null : loginCodePage(email, message), { status, headers });
+}
+
+/** Pantalla del código (GET), comprobación (POST) y reenvío. Solo para una sesión pendiente; sin ella, vuelve a la portada. */
+async function loginCodeRoute(request: Request, env: OAuthEnv, resend: boolean): Promise<Response> {
+  if (crossSiteWrite(request)) return redirect("/");
+  const db = sessionDb(env);
+  const token = readCookie(request.headers.get("Cookie"), SESSION_COOKIE);
+  if (!db || !isStoredToken(token)) return redirect("/");
+  const found = await readSession(db, token).catch(() => null);
+  if (!found) return redirect("/?error=codigo", [cookie(SESSION_COOKIE, "", 0)]);
+  if (!found.pending) return redirect("/");
+  const email = found.session.email;
+  if (resend) {
+    if (!(await allowLogin(db, clientIp(request)))) return codePageResponse(email, "espera", request.method, 429);
+    const resolved = await resolveOwnerWithRegistration(email, ownerConfig(env));
+    if (!resolved.ok) return redirect("/?error=sin-acceso", [cookie(SESSION_COOKIE, "", 0)]);
+    const delivery = await deliverLoginCode(env, db, token, email, resolved.owner.ownerId);
+    if (delivery === "confirmed") return redirect("/");
+    return codePageResponse(email, delivery === "sent" ? "reenviado" : delivery === "wait" ? "espera" : "envio", request.method);
+  }
+  if (request.method !== "POST") return codePageResponse(email, new URL(request.url).searchParams.get("m"), request.method);
+  const form = await request.formData().catch(() => null);
+  const code = String(form?.get("codigo") ?? "");
+  const check = await verifyLoginCode(db, token, code);
+  if (check === "ok") return redirect("/");
+  if (check === "wrong") return codePageResponse(email, "incorrecto", "POST", 400);
+  if (check === "expired" && (await readSession(db, token).catch(() => null))?.pending) return codePageResponse(email, "vencido", "POST", 400);
+  return redirect("/?error=codigo", [cookie(SESSION_COOKIE, "", 0)]);
 }
 
 async function logout(request: Request, env: OAuthEnv): Promise<Response> {
@@ -314,7 +383,7 @@ type Identity = { email: string; owner: ClinicOwner; setCookies?: string[]; shar
  * Sesión propia: token «v2.» guardado en D1 (deslizante); las cookies firmadas antiguas siguen valiendo
  * y se cambian por una sesión en D1 la primera vez que se usan (nadie tiene que volver a entrar).
  */
-async function sessionOwner(request: Request, env: OAuthEnv, allowRegistration: boolean): Promise<Identity | null> {
+async function sessionOwner(request: Request, env: OAuthEnv, allowRegistration: boolean): Promise<Identity | "pending" | null> {
   const token = readCookie(request.headers.get("Cookie"), SESSION_COOKIE);
   if (!token) return null;
   const db = sessionDb(env);
@@ -324,6 +393,7 @@ async function sessionOwner(request: Request, env: OAuthEnv, allowRegistration: 
     if (!db) return null;
     const found = await readSession(db, token).catch(() => null);
     if (!found) return null;
+    if (found.pending) return "pending";
     ({ email, name } = found.session);
     shared = found.shared;
     if (found.refresh) setCookies.push(sessionCookie(token));
@@ -344,6 +414,11 @@ async function sessionOwner(request: Request, env: OAuthEnv, allowRegistration: 
 /** Sesión de Google primero; Cloudflare Access sigue sirviendo mientras se retira. Sin ninguna: portada (páginas) o 401 (API). */
 async function identify(request: Request, env: OAuthEnv, context: ExecutionContext, allowRegistration = true): Promise<Identity | Response> {
   const fromSession = await sessionOwner(request, env, allowRegistration);
+  if (fromSession === "pending") {
+    // Entró con Google pero falta el código del correo: las páginas llevan a esa pantalla; la API responde 401.
+    const wantsCodePage = (request.method === "GET" || request.method === "HEAD") && (request.headers.get("Accept") ?? "").includes("text/html");
+    return wantsCodePage ? redirect(CODE_PATH) : denied();
+  }
   if (fromSession) return fromSession;
   const hasAccess = Boolean((context as WorkerContext).access) || Boolean(request.headers.get("Cf-Access-Jwt-Assertion"));
   if (hasAccess) return accessOwner(request, env, context, allowRegistration);
@@ -564,6 +639,8 @@ const oauthProvider = new OAuthProvider<OAuthEnv>({
       if (path === CALLBACK_PATH && request.method === "GET") return finishGoogleLogin(request, env);
       if (path === LOGOUT_PATH && (request.method === "GET" || request.method === "POST")) return logout(request, env);
       if (path === LOGOUT_ALL_PATH && (request.method === "GET" || request.method === "POST")) return logoutEverywhere(request, env);
+      if (path === CODE_PATH && (request.method === "GET" || request.method === "HEAD" || request.method === "POST")) return loginCodeRoute(request, env, false);
+      if (path === CODE_RESEND_PATH && request.method === "POST") return loginCodeRoute(request, env, true);
       if (path === "/auth/entrada" && request.method === "GET") return switchEntry(request);
       if (path === "/authorize") return authorize(request, env, context);
       return privateAppFetch(request, env, context);

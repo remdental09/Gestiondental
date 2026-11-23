@@ -20,13 +20,18 @@ export const SHARED_IDLE_MS = 15 * 60_000;
 export const SHARED_MAX_MS = 2 * 3_600_000;
 /** En equipo compartido se anota la actividad como máximo una vez por minuto. */
 export const SHARED_TOUCH_MS = 60_000;
+/** Código de ingreso por correo: la sesión nace «pendiente» y solo vale tras escribir el código. */
+export const PENDING_MS = 15 * 60_000;
+export const CODE_TTL_MS = 10 * 60_000;
+export const CODE_MAX_ATTEMPTS = 5;
+export const CODE_RESEND_MS = 30_000;
 /** Cada cuánto se corre el vencimiento (y se reescribe la fila): como máximo una escritura al día por sesión. */
 export const SLIDE_EVERY_MS = 86_400_000;
 const CACHE_MS = 60_000;
 export const LOGIN_LIMIT = 30;
 export const LOGIN_WINDOW_MS = 10 * 60_000;
 
-export const AUTH_SESSIONS_DDL = "CREATE TABLE IF NOT EXISTS auth_sessions (id TEXT PRIMARY KEY NOT NULL, email TEXT NOT NULL, name TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, last_seen_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, revoked_at INTEGER, shared INTEGER NOT NULL DEFAULT 0)";
+export const AUTH_SESSIONS_DDL = "CREATE TABLE IF NOT EXISTS auth_sessions (id TEXT PRIMARY KEY NOT NULL, email TEXT NOT NULL, name TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, last_seen_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, revoked_at INTEGER, shared INTEGER NOT NULL DEFAULT 0, verified INTEGER NOT NULL DEFAULT 1, code_hash TEXT, code_expires_at INTEGER, code_attempts INTEGER NOT NULL DEFAULT 0, code_sent_at INTEGER)";
 export const AUTH_RATE_DDL = "CREATE TABLE IF NOT EXISTS auth_rate_limits (key TEXT PRIMARY KEY NOT NULL, window_start INTEGER NOT NULL, count INTEGER NOT NULL)";
 
 const encoder = new TextEncoder();
@@ -46,13 +51,83 @@ export const isStoredToken = (token: string | null | undefined): token is string
 const cache = new Map<string, { session: StoredSession; expiresAt: number; lastSeenAt: number; shared: boolean; checkedAt: number }>();
 export function forgetCachedSessions() { cache.clear(); }
 
-/** Crea una sesión y devuelve el token para la cookie. `shared`: equipo ajeno (sesión corta, sin deslizar). */
-export async function createSession(db: SessionDb, session: StoredSession, now = Date.now(), shared = false): Promise<string> {
+/**
+ * Crea una sesión y devuelve el token para la cookie. `shared`: equipo ajeno (sesión corta, sin deslizar).
+ * `pending`: falta el código enviado al correo; la sesión no da acceso y muere a los 15 min si no se confirma.
+ */
+export async function createSession(db: SessionDb, session: StoredSession, now = Date.now(), shared = false, pending = false): Promise<string> {
   const token = "v2." + base64url(crypto.getRandomValues(new Uint8Array(32)));
   const id = await sha256Hex(token);
-  await db.prepare("INSERT INTO auth_sessions (id, email, name, created_at, last_seen_at, expires_at, shared) VALUES (?, ?, ?, ?, ?, ?, ?)")
-    .bind(id, session.email.trim().toLowerCase(), session.name.slice(0, 80), now, now, now + (shared ? SHARED_MAX_MS : SESSION_TTL_MS), shared ? 1 : 0).run();
+  const expires = now + (pending ? PENDING_MS : shared ? SHARED_MAX_MS : SESSION_TTL_MS);
+  await db.prepare("INSERT INTO auth_sessions (id, email, name, created_at, last_seen_at, expires_at, shared, verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+    .bind(id, session.email.trim().toLowerCase(), session.name.slice(0, 80), now, now, expires, shared ? 1 : 0, pending ? 0 : 1).run();
   return token;
+}
+
+/** Código de 6 dígitos sin sesgo (rechazo de valores sobre el último múltiplo de 1.000.000). */
+export function newLoginCode(): string {
+  const limit = Math.floor(0x1_0000_0000 / 1_000_000) * 1_000_000;
+  for (;;) {
+    const value = crypto.getRandomValues(new Uint32Array(1))[0];
+    if (value < limit) return String(value % 1_000_000).padStart(6, "0");
+  }
+}
+
+const codeHash = (id: string, code: string) => sha256Hex("speakdent-code:" + id + ":" + code);
+
+/** Guarda (solo el hash de) un código nuevo para una sesión pendiente. Devuelve false si se pidió otro hace menos de 30 s o la sesión no está pendiente. */
+export async function setLoginCode(db: SessionDb, token: string, code: string, now = Date.now()): Promise<boolean> {
+  if (!isStoredToken(token) || !/^\d{6}$/.test(code)) return false;
+  const id = await sha256Hex(token);
+  const row = await db.prepare("SELECT verified, code_sent_at, expires_at FROM auth_sessions WHERE id = ? AND revoked_at IS NULL")
+    .bind(id).first<{ verified: number; code_sent_at: number | null; expires_at: number }>();
+  if (!row || Number(row.verified) === 1 || Number(row.expires_at) <= now) return false;
+  if (row.code_sent_at && now - Number(row.code_sent_at) < CODE_RESEND_MS) return false;
+  await db.prepare("UPDATE auth_sessions SET code_hash = ?, code_expires_at = ?, code_attempts = 0, code_sent_at = ? WHERE id = ?")
+    .bind(await codeHash(id, code), now + CODE_TTL_MS, now, id).run();
+  return true;
+}
+
+export type CodeCheck = "ok" | "wrong" | "expired" | "locked";
+
+/**
+ * Comprueba el código. Correcto: la sesión queda confirmada con su duración normal (30 días, o 2 horas en equipo compartido).
+ * Cinco intentos fallidos o sesión vencida: la sesión se revoca y hay que volver a entrar con Google.
+ */
+export async function verifyLoginCode(db: SessionDb, token: string, code: string, now = Date.now()): Promise<CodeCheck> {
+  if (!isStoredToken(token)) return "expired";
+  const id = await sha256Hex(token);
+  const row = await db.prepare("SELECT verified, shared, expires_at, code_hash, code_expires_at, code_attempts FROM auth_sessions WHERE id = ? AND revoked_at IS NULL")
+    .bind(id).first<{ verified: number; shared: number; expires_at: number; code_hash: string | null; code_expires_at: number | null; code_attempts: number }>();
+  if (!row || Number(row.expires_at) <= now) return "expired";
+  if (Number(row.verified) === 1) return "ok";
+  if (!row.code_hash || !row.code_expires_at || Number(row.code_expires_at) <= now) return "expired";
+  const clean = code.replace(/\D/g, "");
+  if (clean.length === 6 && (await codeHash(id, clean)) === row.code_hash) {
+    const shared = Number(row.shared) === 1;
+    await db.prepare("UPDATE auth_sessions SET verified = 1, code_hash = NULL, code_expires_at = NULL, last_seen_at = ?, expires_at = ? WHERE id = ?")
+      .bind(now, now + (shared ? SHARED_MAX_MS : SESSION_TTL_MS), id).run();
+    cache.delete(id);
+    return "ok";
+  }
+  const attempts = Number(row.code_attempts) + 1;
+  if (attempts >= CODE_MAX_ATTEMPTS) {
+    await db.prepare("UPDATE auth_sessions SET revoked_at = ?, code_attempts = ? WHERE id = ?").bind(now, attempts, id).run();
+    cache.delete(id);
+    return "locked";
+  }
+  await db.prepare("UPDATE auth_sessions SET code_attempts = ? WHERE id = ?").bind(attempts, id).run();
+  return "wrong";
+}
+
+/** Sin envío de correo posible: la sesión pendiente se confirma igual (no dejar a nadie fuera por falta de configuración). */
+export async function confirmWithoutCode(db: SessionDb, token: string, now = Date.now()): Promise<void> {
+  if (!isStoredToken(token)) return;
+  const id = await sha256Hex(token);
+  const row = await db.prepare("SELECT shared FROM auth_sessions WHERE id = ?").bind(id).first<{ shared: number }>();
+  await db.prepare("UPDATE auth_sessions SET verified = 1, last_seen_at = ?, expires_at = ? WHERE id = ? AND revoked_at IS NULL")
+    .bind(now, now + (Number(row?.shared) === 1 ? SHARED_MAX_MS : SESSION_TTL_MS), id).run();
+  cache.delete(id);
 }
 
 /**
@@ -60,7 +135,7 @@ export async function createSession(db: SessionDb, session: StoredSession, now =
  * con 30 días nuevos. Devuelve null si no existe, venció o fue revocada.
  * Sesión de equipo compartido (`shared`): vence a los 15 min sin actividad y a las 2 horas de creada; nunca se desliza ni renueva la cookie.
  */
-export async function readSession(db: SessionDb, token: string, now = Date.now()): Promise<{ session: StoredSession; refresh: boolean; shared: boolean } | null> {
+export async function readSession(db: SessionDb, token: string, now = Date.now()): Promise<{ session: StoredSession; refresh: boolean; shared: boolean; pending: boolean } | null> {
   if (!isStoredToken(token)) return null;
   const id = await sha256Hex(token);
   const hit = cache.get(id);
@@ -68,9 +143,15 @@ export async function readSession(db: SessionDb, token: string, now = Date.now()
   let row: { email: string; name: string; expiresAt: number; lastSeenAt: number; shared: boolean };
   if (fromCache && hit) row = { ...hit.session, expiresAt: hit.expiresAt, lastSeenAt: hit.lastSeenAt, shared: hit.shared };
   else {
-    const found = await db.prepare("SELECT email, name, expires_at, last_seen_at, shared FROM auth_sessions WHERE id = ? AND revoked_at IS NULL")
-      .bind(id).first<{ email: string; name: string; expires_at: number; last_seen_at: number; shared: number | null }>();
+    const found = await db.prepare("SELECT email, name, expires_at, last_seen_at, shared, verified FROM auth_sessions WHERE id = ? AND revoked_at IS NULL")
+      .bind(id).first<{ email: string; name: string; expires_at: number; last_seen_at: number; shared: number | null; verified: number | null }>();
     if (!found) { cache.delete(id); return null; }
+    if (Number(found.expires_at) <= now) { cache.delete(id); return null; }
+    // Pendiente de código: no se guarda en caché ni se desliza; solo sirve para mostrar la pantalla del código.
+    if (found.verified !== null && found.verified !== undefined && Number(found.verified) === 0) {
+      cache.delete(id);
+      return { session: { email: found.email, name: found.name }, refresh: false, shared: Number(found.shared) === 1, pending: true };
+    }
     row = { email: found.email, name: found.name, expiresAt: Number(found.expires_at), lastSeenAt: Number(found.last_seen_at), shared: Number(found.shared) === 1 };
   }
   if (row.expiresAt <= now || (row.shared && now - row.lastSeenAt > SHARED_IDLE_MS)) { cache.delete(id); return null; }
@@ -86,7 +167,7 @@ export async function readSession(db: SessionDb, token: string, now = Date.now()
     refresh = true;
   }
   cache.set(id, { session: { email: row.email, name: row.name }, expiresAt: row.expiresAt, lastSeenAt: row.lastSeenAt, shared: row.shared, checkedAt: fromCache && hit && row.lastSeenAt === hit.lastSeenAt ? hit.checkedAt : now });
-  return { session: { email: row.email, name: row.name }, refresh, shared: row.shared };
+  return { session: { email: row.email, name: row.name }, refresh, shared: row.shared, pending: false };
 }
 
 /** Cerrar sesión: la fila queda revocada (no se puede reutilizar la cookie aunque alguien la haya copiado). Devuelve si era de equipo compartido. */

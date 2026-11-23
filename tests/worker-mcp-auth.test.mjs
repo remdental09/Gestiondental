@@ -13,6 +13,7 @@ import * as clinicTeamDb from '../app/clinic-team-db.ts';
 import * as clinicTeam from '../lib/clinic-team.ts';
 import * as rolePolicy from '../lib/role-policy.ts';
 import * as buildAssets from '../lib/build-assets.ts';
+import * as loginCode from '../lib/login-code.ts';
 
 const source = readFileSync(new URL('../worker.ts', import.meta.url), 'utf8');
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText;
@@ -20,7 +21,7 @@ const ownerId = 'synthetic-owner-id-00001';
 const email = 'training@example.test';
 const env = { CLINIC_OWNERS: JSON.stringify({ [email]: { ownerId, name: 'Prueba' } }), ACCESS_POLICY_AUD: 'audience-test', ACCESS_TEAM_DOMAIN: 'https://synthetic-team.cloudflareaccess.com' };
 
-function worker() {
+function worker(options = {}) {
   const exported = {};
   let forwarded = 0;
   let handlers;
@@ -46,8 +47,10 @@ function worker() {
     './lib/clinic-team': clinicTeam,
     './lib/role-policy': rolePolicy,
     './lib/build-assets': buildAssets,
+    './lib/login-code': loginCode,
+    './app/login-code-mail': { sendLoginCode: options.sendLoginCode ?? (async () => ({ status: 'sent', from: 'sistema@example.test' })) },
   };
-  runInNewContext(compiled, { exports: exported, require: name => { assert.ok(name in imports, name); return imports[name]; }, Request, Response, Headers, URL, URLSearchParams, Map, atob, btoa, console, crypto, TextEncoder, TextDecoder, Date, fetch: async () => { throw new Error('sin red en pruebas'); } });
+  runInNewContext(compiled, { exports: exported, require: name => { assert.ok(name in imports, name); return imports[name]; }, Request, Response, Headers, URL, URLSearchParams, Map, atob, btoa, console, crypto, TextEncoder, TextDecoder, Date, fetch: options.fetch ?? (async () => { throw new Error('sin red en pruebas'); }) });
   return {
     fetch: (request, requestEnv, context) => exported.default.fetch(request, requestEnv, context),
     mcp: (request, requestEnv, context) => handlers.apiHandler.fetch(request, requestEnv, context),
@@ -375,4 +378,68 @@ test('en equipo compartido las respuestas de la app no se guardan en la caché d
   const res = await instance.fetch(new Request('https://example.test/api/clinical', { headers: { Cookie: 'sd_session=' + shared } }), { ...googleEnv, DB }, {});
   assert.equal(res.status, 200);
   assert.equal(res.headers.get('cache-control'), 'no-store');
+});
+
+// ---------- Código de ingreso por correo ----------
+test('entrar con Google deja la sesión pendiente y manda un código al correo; sin el código no hay acceso', async () => {
+  sessionStore.forgetCachedSessions();
+  const DB = sqliteDb();
+  const sent = [];
+  const googleFetch = async (url) => {
+    const u = String(url);
+    if (u.includes('oauth2.googleapis.com/token')) return Response.json({ access_token: 'tok' });
+    if (u.includes('openidconnect')) return Response.json({ email, email_verified: true, name: 'Prueba' });
+    throw new Error('red inesperada: ' + u);
+  };
+  const instance = worker({ fetch: googleFetch, sendLoginCode: async (to, code, owners) => { sent.push({ to, code, owners }); return { status: 'sent', from: 'x@example.test' }; } });
+  const env2 = { ...googleEnv, DB, DEVELOPER_EMAILS: email };
+  const callback = await instance.fetch(new Request('https://example.test/auth/google/callback?code=c&state=s', { headers: { Cookie: 'sd_oauth_state=s' } }), env2, {});
+  assert.equal(callback.headers.get('location'), '/auth/codigo');
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].to, email);
+  assert.match(sent[0].code, /^\d{6}$/);
+  assert.ok(sent[0].owners.includes(ownerId));
+  const token = /sd_session=(v2\.[^;]+)/.exec(callback.headers.get('set-cookie'))[1];
+  const withCookie = (path, init = {}) => new Request(`https://example.test${path}`, { ...init, headers: { Cookie: 'sd_session=' + token, ...(init.headers ?? {}) } });
+  const api = await instance.fetch(withCookie('/api/clinical'), env2, {});
+  assert.equal(api.status, 401, 'sin código, la API no responde datos');
+  const page = await instance.fetch(withCookie('/', { headers: { Accept: 'text/html' } }), env2, {});
+  assert.equal(page.headers.get('location'), '/auth/codigo');
+  const codePage = await instance.fetch(withCookie('/auth/codigo'), env2, {});
+  const html = await codePage.text();
+  assert.match(html, /autocomplete="one-time-code"/);
+  assert.doesNotMatch(html, new RegExp(email), 'el correo se muestra enmascarado');
+  const wrongCode = sent[0].code === '000000' ? '111111' : '000000';
+  const wrong = await instance.fetch(withCookie('/auth/codigo', { method: 'POST', body: new URLSearchParams({ codigo: wrongCode }) }), env2, {});
+  assert.equal(wrong.status, 400);
+  const right = await instance.fetch(withCookie('/auth/codigo', { method: 'POST', body: new URLSearchParams({ codigo: sent[0].code }) }), env2, {});
+  assert.equal(right.status, 302);
+  assert.equal(right.headers.get('location'), '/');
+  const after = await instance.fetch(withCookie('/api/clinical'), env2, {});
+  assert.equal(after.status, 200);
+});
+
+test('código: cinco errores cierran la sesión; reenviar respeta la espera; sin Gmail conectado se entra sin código', async () => {
+  sessionStore.forgetCachedSessions();
+  const DB = sqliteDb();
+  const instance = worker();
+  const env2 = { ...googleEnv, DB };
+  const token = await sessionStore.createSession(DB, { email, name: '' }, Date.now(), false, true);
+  await sessionStore.setLoginCode(DB, token, '123456');
+  const post = (path, body) => instance.fetch(new Request('https://example.test' + path, { method: 'POST', body: new URLSearchParams(body), headers: { Cookie: 'sd_session=' + token } }), env2, {});
+  const resend = await post('/auth/codigo/reenviar', {});
+  assert.match(await resend.text(), /Espera unos segundos/);
+  for (let i = 0; i < 4; i++) assert.equal((await post('/auth/codigo', { codigo: '654321' })).status, 400);
+  const last = await post('/auth/codigo', { codigo: '654321' });
+  assert.equal(last.headers.get('location'), '/?error=codigo');
+  assert.equal((await post('/auth/codigo', { codigo: '123456' })).headers.get('location'), '/?error=codigo', 'después del bloqueo ni el código correcto sirve');
+  const cross = await instance.fetch(new Request('https://example.test/auth/codigo', { method: 'POST', body: new URLSearchParams({ codigo: '1' }), headers: { Cookie: 'sd_session=' + token, 'Sec-Fetch-Site': 'cross-site' } }), env2, {});
+  assert.equal(cross.headers.get('location'), '/');
+
+  const open = worker({ sendLoginCode: async () => ({ status: 'no-sender' }) });
+  const pending = await sessionStore.createSession(DB, { email, name: '' }, Date.now() - 60_000, false, true);
+  const r = await open.fetch(new Request('https://example.test/auth/codigo/reenviar', { method: 'POST', headers: { Cookie: 'sd_session=' + pending } }), env2, {});
+  assert.equal(r.headers.get('location'), '/');
+  sessionStore.forgetCachedSessions();
+  assert.equal((await sessionStore.readSession(DB, pending)).pending, false);
 });

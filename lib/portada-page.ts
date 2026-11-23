@@ -17,6 +17,7 @@ const ERRORS: Record<string, string> = {
   "no-verificado": "Esa cuenta de Google no tiene el correo verificado.",
   "sin-acceso": "Esa cuenta no tiene acceso. Escríbenos si eres dentista y quieres usar SpeakDent.",
   configuracion: "El inicio de sesión aún se está configurando. Intenta más tarde.",
+  codigo: "El código de ingreso venció o se equivocó demasiadas veces. Vuelve a entrar con Google para recibir uno nuevo.",
   demasiados: "Demasiados intentos de inicio de sesión desde esta conexión. Espera unos minutos y vuelve a intentarlo.",
 };
 

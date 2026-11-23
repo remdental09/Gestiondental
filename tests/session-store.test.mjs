@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
-import { AUTH_SESSIONS_DDL, AUTH_RATE_DDL, createSession, readSession, revokeSession, allowLogin, crossSiteWrite, sameSiteNavigation, forgetCachedSessions, revokeAllSessions, SHARED_IDLE_MS, SHARED_MAX_MS, SESSION_TTL_MS, SLIDE_EVERY_MS, isStoredToken } from '../lib/session-store.ts';
+import { AUTH_SESSIONS_DDL, AUTH_RATE_DDL, createSession, readSession, revokeSession, allowLogin, crossSiteWrite, sameSiteNavigation, forgetCachedSessions, revokeAllSessions, setLoginCode, verifyLoginCode, newLoginCode, PENDING_MS, CODE_TTL_MS, SHARED_IDLE_MS, SHARED_MAX_MS, SESSION_TTL_MS, SLIDE_EVERY_MS, isStoredToken } from '../lib/session-store.ts';
 
 const sqliteDb = () => {
   const raw = new DatabaseSync(':memory:');
@@ -16,7 +16,7 @@ test('vencimiento deslizante: como máximo una escritura al día; 30 días sin u
   const t0 = Date.UTC(2026, 10, 21, 12);
   const token = await createSession(db, { email: 'A@Example.test', name: 'A' }, t0);
   assert.ok(isStoredToken(token));
-  assert.deepEqual(await readSession(db, token, t0 + 1000), { session: { email: 'a@example.test', name: 'A' }, refresh: false, shared: false });
+  assert.deepEqual(await readSession(db, token, t0 + 1000), { session: { email: 'a@example.test', name: 'A' }, refresh: false, shared: false, pending: false });
   const w = db.stats().writes;
   await readSession(db, token, t0 + 2000);
   assert.equal(db.stats().writes, w, 'mismo día: sin escrituras');
@@ -110,4 +110,26 @@ test('revokeSession indica si era de equipo compartido; revokeAllSessions corta 
   const again = await createSession(db, { email: 'f@example.test', name: '' }, t0, true);
   assert.equal(await revokeSession(db, again, t0 + 1), true);
   assert.equal(await revokeSession(db, other, t0 + 1), false);
+});
+
+test('sesión pendiente de código: no da acceso hasta el código correcto; vence a los 15 min; el código vence a los 10', async () => {
+  forgetCachedSessions();
+  const db = sqliteDb();
+  const t0 = Date.UTC(2026, 10, 23, 15);
+  const token = await createSession(db, { email: 'g@example.test', name: '' }, t0, false, true);
+  assert.equal((await readSession(db, token, t0 + 1)).pending, true);
+  assert.equal(await setLoginCode(db, token, '012345', t0), true);
+  assert.equal(await setLoginCode(db, token, '999999', t0 + 5_000), false, 'espera de 30 s entre envíos');
+  assert.equal(db.raw.prepare('SELECT count(*) n FROM auth_sessions WHERE code_hash LIKE ?').get('%012345%').n, 0, 'solo se guarda el hash');
+  assert.equal(await verifyLoginCode(db, token, '012346', t0 + 10), 'wrong');
+  assert.equal(await verifyLoginCode(db, token, '012 345', t0 + 20), 'ok');
+  const read = await readSession(db, token, t0 + 30);
+  assert.equal(read.pending, false);
+  assert.equal(db.raw.prepare('SELECT expires_at FROM auth_sessions').get().expires_at, t0 + 20 + SESSION_TTL_MS);
+  const late = await createSession(db, { email: 'g@example.test', name: '' }, t0, false, true);
+  await setLoginCode(db, late, '111111', t0);
+  assert.equal(await verifyLoginCode(db, late, '111111', t0 + CODE_TTL_MS + 1), 'expired');
+  forgetCachedSessions();
+  assert.equal(await readSession(db, late, t0 + PENDING_MS + 1), null, 'la sesión pendiente muere a los 15 min');
+  for (let i = 0; i < 50; i++) assert.match(newLoginCode(), /^\d{6}$/);
 });
