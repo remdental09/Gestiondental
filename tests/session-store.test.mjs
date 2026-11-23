@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
-import { AUTH_SESSIONS_DDL, AUTH_RATE_DDL, createSession, readSession, revokeSession, allowLogin, crossSiteWrite, sameSiteNavigation, forgetCachedSessions, revokeAllSessions, setLoginCode, verifyLoginCode, newLoginCode, PENDING_MS, CODE_TTL_MS, SHARED_IDLE_MS, SHARED_MAX_MS, SESSION_TTL_MS, SLIDE_EVERY_MS, isStoredToken } from '../lib/session-store.ts';
+import { AUTH_SESSIONS_DDL, AUTH_RATE_DDL, createSession, readSession, revokeSession, allowLogin, crossSiteWrite, sameSiteNavigation, forgetCachedSessions, OWN_IDLE_MS, revokeAllSessions, setLoginCode, verifyLoginCode, newLoginCode, PENDING_MS, CODE_TTL_MS, SHARED_IDLE_MS, SHARED_MAX_MS, SESSION_TTL_MS, SLIDE_EVERY_MS, isStoredToken } from '../lib/session-store.ts';
 
 const sqliteDb = () => {
   const raw = new DatabaseSync(':memory:');
@@ -10,7 +10,7 @@ const sqliteDb = () => {
   return { raw, stats: () => ({ writes, reads }), prepare: sql => ({ bind: (...v) => ({ first: async () => { reads++; return raw.prepare(sql).get(...v) ?? null; }, run: async () => { writes++; return raw.prepare(sql).run(...v); } }) }) };
 };
 
-test('vencimiento deslizante: como máximo una escritura al día; 30 días sin uso → vence', async () => {
+test('equipo propio: se anota la actividad cada 5 min, la cookie se renueva una vez al día y a las 2 h sin uso se cierra', async () => {
   forgetCachedSessions();
   const db = sqliteDb();
   const t0 = Date.UTC(2026, 10, 21, 12);
@@ -19,12 +19,26 @@ test('vencimiento deslizante: como máximo una escritura al día; 30 días sin u
   assert.deepEqual(await readSession(db, token, t0 + 1000), { session: { email: 'a@example.test', name: 'A' }, refresh: false, shared: false, pending: false });
   const w = db.stats().writes;
   await readSession(db, token, t0 + 2000);
-  assert.equal(db.stats().writes, w, 'mismo día: sin escrituras');
-  const nextDay = await readSession(db, token, t0 + SLIDE_EVERY_MS + 5);
-  assert.equal(nextDay.refresh, true);
-  assert.equal(db.raw.prepare('SELECT expires_at FROM auth_sessions').get().expires_at, t0 + SLIDE_EVERY_MS + 5 + SESSION_TTL_MS);
+  assert.equal(db.stats().writes, w, 'en menos de 5 min: sin escrituras');
+  // Uso cada hora durante más de un día: nunca pasa 2 h sin actividad, así que sigue abierta y la cookie se renueva al pasar un día.
+  let t = t0, refreshed = 0;
+  for (let i = 0; i < 26; i++) {
+    t += 3_600_000;
+    forgetCachedSessions();
+    const read = await readSession(db, token, t);
+    assert.ok(read, 'con actividad cada hora sigue abierta');
+    if (read.refresh) refreshed++;
+  }
+  assert.equal(refreshed, 0, 'con uso cada hora no pasa un día entero entre dos anotaciones');
+  assert.equal(db.raw.prepare('SELECT expires_at FROM auth_sessions').get().expires_at, t + SESSION_TTL_MS);
   forgetCachedSessions();
-  assert.equal(await readSession(db, token, t0 + SLIDE_EVERY_MS + 5 + SESSION_TTL_MS + 1), null);
+  assert.ok(await readSession(db, token, t + OWN_IDLE_MS), 'a las 2 h exactas aún vale');
+  const idle = await createSession(db, { email: 'a@example.test', name: 'A' }, t0);
+  forgetCachedSessions();
+  assert.equal(await readSession(db, idle, t0 + OWN_IDLE_MS + 1), null, 'más de 2 h sin uso: hay que entrar de nuevo');
+  const old = await createSession(db, { email: 'a@example.test', name: 'A' }, t0);
+  forgetCachedSessions();
+  assert.equal(await readSession(db, old, t0 + SESSION_TTL_MS + 1), null, '30 días sin uso → vence');
 });
 
 test('caché de 60 s: no lee D1 en cada solicitud; revocar borra la caché local', async () => {
