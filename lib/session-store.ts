@@ -215,7 +215,10 @@ export async function allowLogin(db: SessionDb, ip: string, now = Date.now(), li
 export function crossSiteWrite(request: Request): boolean {
   if (["GET", "HEAD", "OPTIONS"].includes(request.method)) return false;
   const site = request.headers.get("Sec-Fetch-Site");
-  if (site === "cross-site") return true;
+  if (site === "cross-site" || site === "same-site") return true;
+  // El navegador marca la solicitud como de este mismo sitio (no se puede falsificar desde una página):
+  // se acepta aunque Origin llegue como «null» (formularios en páginas con Referrer-Policy: no-referrer).
+  if (site === "same-origin") return false;
   const origin = request.headers.get("Origin");
   if (origin && origin !== "null") {
     try { return new URL(origin).origin !== new URL(request.url).origin; } catch { return true; }

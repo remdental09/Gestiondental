@@ -312,6 +312,8 @@ async function deliverLoginCode(env: OAuthEnv, db: SessionDb, token: string, ema
 function codePageResponse(email: string, message: string | null, method = "GET", status = 200) {
   const headers = securePageHeaders();
   headers.set("Content-Security-Policy", PORTADA_CSP);
+  // Con «no-referrer» el navegador envía el formulario con Origin: null y se rechazaría como de otro sitio.
+  headers.set("Referrer-Policy", "same-origin");
   return new Response(method === "HEAD" ? null : loginCodePage(email, message), { status, headers });
 }
 
