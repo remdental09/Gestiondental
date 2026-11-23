@@ -1093,12 +1093,19 @@ async function handlePost(request: Request) {
       const box = boxRow?.name;
       if (boxName && !box) return error("Ese box no está disponible.");
       const [a] = await db.insert(appointments).values({ ownerId, patientId, day, time, reason, createdAt: now() }).returning();
+      // Duración elegida al agendar (módulos de 15 min, hasta 4 h); sin ella la cita queda de 30 min.
+      const rawMinutes = Number(input.minutes);
+      const minutes = Number.isInteger(rawMinutes) && rawMinutes >= 15 && rawMinutes <= 240 && rawMinutes % 15 === 0 ? rawMinutes : null;
+      if (minutes) {
+        await (await import("@/app/calendar-two-way")).ensureTwoWay();
+        await (await import("@/app/box-db")).db()?.prepare("UPDATE appointments SET minutes = ? WHERE owner_id = ? AND id = ?").bind(minutes, ownerId, a.id).run();
+      }
       // Agenda por box: la cita queda en la columna de su box (box_id; listBoxes ya creó la columna).
       if (boxRow) await (await import("@/app/box-db")).db()?.prepare("UPDATE appointments SET box_id = ? WHERE owner_id = ? AND id = ?").bind(boxRow.id, ownerId, a.id).run();
       const [who] = await db.select({ name: patients.name }).from(patients).where(and(eq(patients.id, patientId), eq(patients.ownerId, ownerId)));
       const { pushAppointmentToGoogle } = await import("@/app/drive-oauth");
-      const calendar = await pushAppointmentToGoogle(ownerId, { id: a.id, day, time, reason, ...(box ? { box } : {}) }, who?.name || "", patientId).catch(() => "error" as const);
-      return Response.json({ appointment: { id: a.id, patientId, day: day.split("-").reverse().join("-"), time, reason }, calendar }, { status: 201 });
+      const calendar = await pushAppointmentToGoogle(ownerId, { id: a.id, day, time, reason, ...(minutes ? { minutes } : {}), ...(box ? { box } : {}) }, who?.name || "", patientId).catch(() => "error" as const);
+      return Response.json({ appointment: { id: a.id, patientId, day: day.split("-").reverse().join("-"), time, reason, ...(minutes ? { minutes } : {}) }, calendar }, { status: 201 });
     }
     if (action === "addPayment") {
       const amount = Number(input.amount), method = string(input.method, 20), concept = string(input.concept, 240);
