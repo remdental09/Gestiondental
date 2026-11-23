@@ -28,3 +28,9 @@ test("el aviso de la acción se ve dentro del panel del plan, no solo al pie del
   assert.match(panel.slice(0, panel.indexOf("surfaceKeys.map")), /data-testid="plan-message"/);
   assert.match(page, /removedBudgetId\?previous\.filter/);
 });
+
+test("el botón de la pieza dice «Ver historial de la pieza» y es verde", () => {
+  const button = odontogram.match(/<button[^>]*data-testid="tooth-history"[^>]*>[^<]*<\/button>/)?.[0] ?? "";
+  assert.match(button, />Ver historial de la pieza</);
+  assert.match(button, /emerald-/);
+});
