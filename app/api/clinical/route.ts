@@ -953,6 +953,23 @@ async function handlePost(request: Request) {
       const [b] = await db.update(budgets).set({ status: alta ? "Alta" : "Borrador" }).where(and(eq(budgets.id, budgetId), eq(budgets.patientId, patientId), eq(budgets.ownerId, ownerId))).returning();
       return Response.json({ budget: await budgetViewWithAuthor(b, ownerId) });
     }
+    if (action === "removeBudgetItem") {
+      // Quita una prestación del plan (ej. desde el odontograma). No deja el total bajo lo ya abonado.
+      const budgetId = Number(input.budgetId), index = Number(input.index);
+      if (!Number.isSafeInteger(budgetId) || budgetId < 1 || !Number.isInteger(index) || index < 0) return error("Prestación inválida.");
+      const [existing] = await db.select().from(budgets).where(and(eq(budgets.id, budgetId), eq(budgets.patientId, patientId), eq(budgets.ownerId, ownerId)));
+      if (!existing) return error("Presupuesto no encontrado.", 404);
+      if (!(await budgetAccess(ownerId, budgetId)).editable) return error(NOT_BUDGET_OWNER, 403);
+      const data = decodeBudgetData(existing.items);
+      if (index >= data.items.length) return error("La prestación ya no existe en este plan.", 404);
+      if (data.items.length === 1) return error("Es la única prestación del plan; elimina el plan completo desde Presupuestos.", 409);
+      const items = data.items.filter((_, itemIndex) => itemIndex !== index);
+      const linkedPayments = await db.select({ amount: payments.amount }).from(payments).where(and(eq(payments.ownerId, ownerId), eq(payments.patientId, patientId), eq(payments.budgetId, budgetId)));
+      const paid = linkedPayments.reduce((sum, payment) => sum + payment.amount, 0);
+      if (budgetTotals(items).total < paid) return error("Al quitar esta prestación el total quedaría bajo los pagos ya registrados. Revisa los abonos antes.", 409);
+      const [b] = await db.update(budgets).set({ items: encodeBudgetData(items, data) }).where(and(eq(budgets.id, budgetId), eq(budgets.patientId, patientId), eq(budgets.ownerId, ownerId))).returning();
+      return Response.json({ budget: await budgetViewWithAuthor(b, ownerId) });
+    }
     if (action === "setBudgetItemDone") {
       const budgetId = Number(input.budgetId), index = Number(input.index);
       const done = input.done === true;
