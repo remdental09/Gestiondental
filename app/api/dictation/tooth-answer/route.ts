@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { aiLimitResponse, trackAi } from "@/app/ai-guard";
-import { redraftToothAnswer, ToothAnswerNumericMismatchError } from "@/lib/dictation/tooth-answer-redraft";
+import { redraftToothAnswer, ToothAnswerFaceError, ToothAnswerNumericMismatchError } from "@/lib/dictation/tooth-answer-redraft";
 import { isFdiTooth } from "@/lib/tooth-numbering";
 import { focusedToothReview } from "@/lib/dictation/proposal";
 import { OPENAI_CORRECTION_MODEL } from "@/lib/dictation/openai-structure";
@@ -38,6 +38,9 @@ export async function POST(request: Request) {
   } catch (cause) {
     if (cause instanceof ToothAnswerNumericMismatchError) {
       return Response.json({ error: cause.message, code: cause.code, draft: cause.draft, provider: "openai" }, { status: 422, headers: { "Cache-Control": "no-store" } });
+    }
+    if (cause instanceof ToothAnswerFaceError) {
+      return Response.json({ error: cause.message, code: cause.code, draft: cause.draft, faces: cause.faces, provider: "openai" }, { status: 422, headers: { "Cache-Control": "no-store" } });
     }
     return error(cause instanceof Error ? cause.message : "No se pudo redactar la respuesta.", 502);
   }
