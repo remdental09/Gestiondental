@@ -359,7 +359,8 @@ test('salir de un equipo compartido muestra cómo cerrar también Google; salir-
   assert.match(out.headers.get('set-cookie'), /sd_session=; .*Max-Age=0/);
   assert.equal(out.headers.get('cache-control'), 'no-store');
   const everywhere = await instance.fetch(new Request('https://example.test/auth/salir-todo', { headers: { Cookie: 'sd_session=' + own, 'Sec-Fetch-Site': 'same-origin' } }), { ...googleEnv, DB }, {});
-  assert.equal(everywhere.status, 302);
+  assert.equal(everywhere.status, 200);
+  assert.match(await everywhere.text(), /todos tus equipos[\s\S]*accounts\.google\.com\/Logout/);
   assert.equal(DB.raw.prepare('SELECT count(*) n FROM auth_sessions WHERE revoked_at IS NULL').get().n, 0);
   const cross = await instance.fetch(new Request('https://example.test/auth/salir-todo', { headers: { Cookie: 'sd_session=' + await sessionStore.createSession(DB, { email, name: '' }), 'Sec-Fetch-Site': 'cross-site' } }), { ...googleEnv, DB }, {});
   assert.equal(cross.headers.get('set-cookie'), null);
