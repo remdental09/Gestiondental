@@ -15,6 +15,10 @@ export type SessionDb = {
 
 export type StoredSession = { email: string; name: string };
 export const SESSION_TTL_MS = 30 * 86_400_000;
+/** Equipo propio: a las 2 horas sin actividad la sesión se cierra y hay que volver a entrar (Google + código del correo). */
+export const OWN_IDLE_MS = 2 * 3_600_000;
+/** En equipo propio la actividad se anota como máximo cada 5 minutos (basta para un tope de 2 horas). */
+export const OWN_TOUCH_MS = 5 * 60_000;
 /** Equipo compartido (cibercafé, aeropuerto): se cierra a los 15 min sin actividad y, pase lo que pase, a las 2 horas. No se desliza. */
 export const SHARED_IDLE_MS = 15 * 60_000;
 export const SHARED_MAX_MS = 2 * 3_600_000;
@@ -154,17 +158,18 @@ export async function readSession(db: SessionDb, token: string, now = Date.now()
     }
     row = { email: found.email, name: found.name, expiresAt: Number(found.expires_at), lastSeenAt: Number(found.last_seen_at), shared: Number(found.shared) === 1 };
   }
-  if (row.expiresAt <= now || (row.shared && now - row.lastSeenAt > SHARED_IDLE_MS)) { cache.delete(id); return null; }
+  if (row.expiresAt <= now || now - row.lastSeenAt > (row.shared ? SHARED_IDLE_MS : OWN_IDLE_MS)) { cache.delete(id); return null; }
   let refresh = false;
   if (row.shared) {
     if (now - row.lastSeenAt >= SHARED_TOUCH_MS) {
       await db.prepare("UPDATE auth_sessions SET last_seen_at = ? WHERE id = ? AND revoked_at IS NULL").bind(now, id).run();
       row = { ...row, lastSeenAt: now };
     }
-  } else if (now - row.lastSeenAt >= SLIDE_EVERY_MS) {
+  } else if (now - row.lastSeenAt >= OWN_TOUCH_MS) {
+    // La cookie solo se reenvía una vez al día; el vencimiento de 30 días y la actividad se anotan cada 5 minutos.
+    refresh = now - row.lastSeenAt >= SLIDE_EVERY_MS;
     await db.prepare("UPDATE auth_sessions SET last_seen_at = ?, expires_at = ? WHERE id = ? AND revoked_at IS NULL").bind(now, now + SESSION_TTL_MS, id).run();
     row = { ...row, lastSeenAt: now, expiresAt: now + SESSION_TTL_MS };
-    refresh = true;
   }
   cache.set(id, { session: { email: row.email, name: row.name }, expiresAt: row.expiresAt, lastSeenAt: row.lastSeenAt, shared: row.shared, checkedAt: fromCache && hit && row.lastSeenAt === hit.lastSeenAt ? hit.checkedAt : now });
   return { session: { email: row.email, name: row.name }, refresh, shared: row.shared, pending: false };
