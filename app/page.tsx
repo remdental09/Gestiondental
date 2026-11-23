@@ -772,8 +772,9 @@ export default function Home(){
     setBudgets(previous=>previous.map(b=>b.id===budgetId?data.budget:b));
   };
   const removeBudgetItem=async(budgetId:number,index:number)=>{
-    const data=await persist({action:"removeBudgetItem",patientId:selectedId,budgetId,index});
-    setBudgets(previous=>previous.map(b=>b.id===budgetId?data.budget:b));
+    const data=await persist({action:"removeBudgetItem",patientId:selectedId,budgetId,index}) as {budget?:Budget;removedBudgetId?:number};
+    // Si era la única prestación, el servidor elimina el plan completo.
+    setBudgets(previous=>data.removedBudgetId?previous.filter(b=>b.id!==data.removedBudgetId):previous.map(b=>b.id===budgetId&&data.budget?data.budget:b));
   };
   const setBudgetAlta=async(budget:Budget,alta:boolean)=>{
     const data=await persist({action:"setBudgetStatus",patientId:budget.patientId,budgetId:budget.id,alta});
