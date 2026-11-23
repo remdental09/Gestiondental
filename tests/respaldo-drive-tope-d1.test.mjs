@@ -95,3 +95,15 @@ test("el respaldo programado usa el presupuesto, el cursor y no tumba la constan
   assert.match(mirrors, /id > \? ORDER BY id LIMIT \?/);
   assert.match(src, /CREATE TABLE IF NOT EXISTS drive_backup_cursor/);
 });
+
+test("la foto de la ficha lee sus tablas en un solo db.batch (1 consulta del tope) y cae a lecturas sueltas si falla", () => {
+  const src = readFileSync(new URL("../app/drive-backup.ts", import.meta.url), "utf8");
+  const fn = src.slice(src.indexOf("export async function getDriveSnapshot"), src.indexOf("const [address, anamnesis]"));
+  assert.match(fn, /await db\.batch\(\[/);
+  assert.match(fn, /catch \{ rows = null;/);
+  assert.match(fn, /if \(!rows\) \{/);
+  for (const table of ["evolutions", "budgets", "appointments", "periodontalExams", "toothStatuses", "clinicalImages", "patientDocuments", "driveBackups", "consentSignatures", "biomedicalProducts"]) {
+    assert.match(fn, new RegExp(`from\\(${table}\\)`), table);
+  }
+  assert.ok(SNAPSHOT_QUERIES <= 10);
+});

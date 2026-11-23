@@ -17,29 +17,58 @@ const hex = (bytes: ArrayBuffer) => Array.from(new Uint8Array(bytes))
 
 export async function getDriveSnapshot(ownerId: string, patientId: number, connectedAt: string | null = null) {
   const db = getDb();
-  const [patient] = await db.select().from(patients)
-    .where(and(eq(patients.ownerId, ownerId), eq(patients.id, patientId))).limit(1);
-  if (!patient) return null;
-
   const filter = (ownerColumn: AnyColumn, patientColumn: AnyColumn) =>
     and(eq(ownerColumn, ownerId), eq(patientColumn, patientId));
-  const [notes, plans, visits, exams, teeth, images, documents, backups, signatures] = await Promise.all([
-    db.select().from(evolutions).where(filter(evolutions.ownerId, evolutions.patientId)).orderBy(asc(evolutions.id)),
-    db.select().from(budgets).where(filter(budgets.ownerId, budgets.patientId)).orderBy(asc(budgets.id)),
-    db.select().from(appointments).where(filter(appointments.ownerId, appointments.patientId)).orderBy(asc(appointments.id)),
-    db.select().from(periodontalExams).where(filter(periodontalExams.ownerId, periodontalExams.patientId)).orderBy(asc(periodontalExams.id)),
-    db.select().from(toothStatuses).where(filter(toothStatuses.ownerId, toothStatuses.patientId)).limit(1),
-    db.select().from(clinicalImages).where(filter(clinicalImages.ownerId, clinicalImages.patientId)).orderBy(asc(clinicalImages.id)),
-    ensureDocumentIssuanceColumns().then(() => db.select().from(patientDocuments).where(filter(patientDocuments.ownerId, patientDocuments.patientId)).orderBy(asc(patientDocuments.id)))
-      .catch(() => [] as (typeof patientDocuments.$inferSelect)[]),
-    db.select().from(driveBackups).where(filter(driveBackups.ownerId, driveBackups.patientId)).limit(1),
-    ensureConsentSignatureTable().then(() => db.select().from(consentSignatures).where(and(eq(consentSignatures.ownerId, ownerId), eq(consentSignatures.patientId, patientId), eq(consentSignatures.status, "firmado"))))
-      .catch(() => [] as (typeof consentSignatures.$inferSelect)[]),
+  // Tablas que se crean o amplían en caliente: se aseguran antes (una vez por proceso).
+  const extrasReady = await Promise.all([
+    ensureDocumentIssuanceColumns().then(() => true).catch(() => false),
+    ensureConsentSignatureTable().then(() => true).catch(() => false),
   ]);
-
-  // Trazabilidad de productos biomédicos: si la tabla aún no existe o falla, el respaldo sigue sin ella.
-  const products = await Promise.resolve().then(() => db.select().from(biomedicalProducts).where(filter(biomedicalProducts.ownerId, biomedicalProducts.patientId))
-    .orderBy(asc(biomedicalProducts.id))).catch(() => [] as (typeof biomedicalProducts.$inferSelect)[]);
+  const queries = {
+    patient: () => db.select().from(patients).where(and(eq(patients.ownerId, ownerId), eq(patients.id, patientId))).limit(1),
+    notes: () => db.select().from(evolutions).where(filter(evolutions.ownerId, evolutions.patientId)).orderBy(asc(evolutions.id)),
+    plans: () => db.select().from(budgets).where(filter(budgets.ownerId, budgets.patientId)).orderBy(asc(budgets.id)),
+    visits: () => db.select().from(appointments).where(filter(appointments.ownerId, appointments.patientId)).orderBy(asc(appointments.id)),
+    exams: () => db.select().from(periodontalExams).where(filter(periodontalExams.ownerId, periodontalExams.patientId)).orderBy(asc(periodontalExams.id)),
+    teeth: () => db.select().from(toothStatuses).where(filter(toothStatuses.ownerId, toothStatuses.patientId)).limit(1),
+    attachments: () => db.select().from(clinicalImages).where(filter(clinicalImages.ownerId, clinicalImages.patientId)).orderBy(asc(clinicalImages.id)),
+    documents: () => db.select().from(patientDocuments).where(filter(patientDocuments.ownerId, patientDocuments.patientId)).orderBy(asc(patientDocuments.id)),
+    backups: () => db.select().from(driveBackups).where(filter(driveBackups.ownerId, driveBackups.patientId)).limit(1),
+    signatures: () => db.select().from(consentSignatures).where(and(eq(consentSignatures.ownerId, ownerId), eq(consentSignatures.patientId, patientId), eq(consentSignatures.status, "firmado"))),
+    products: () => db.select().from(biomedicalProducts).where(filter(biomedicalProducts.ownerId, biomedicalProducts.patientId)).orderBy(asc(biomedicalProducts.id)),
+  };
+  type Rows = {
+    patient: (typeof patients.$inferSelect)[]; notes: (typeof evolutions.$inferSelect)[]; plans: (typeof budgets.$inferSelect)[];
+    visits: (typeof appointments.$inferSelect)[]; exams: (typeof periodontalExams.$inferSelect)[]; teeth: (typeof toothStatuses.$inferSelect)[];
+    attachments: (typeof clinicalImages.$inferSelect)[]; documents: (typeof patientDocuments.$inferSelect)[]; backups: (typeof driveBackups.$inferSelect)[];
+    signatures: (typeof consentSignatures.$inferSelect)[]; products: (typeof biomedicalProducts.$inferSelect)[];
+  };
+  let rows: Rows | null = null;
+  // Todo en un solo db.batch: cuenta como UNA consulta contra el tope de 1.000 por invocación del Worker
+  // (antes eran 11 idas y vueltas por ficha y el respaldo automático se quedaba sin consultas).
+  if (extrasReady.every(Boolean)) {
+    try {
+      const [patient, notes, plans, visits, exams, teeth, images, documents, backups, signatures, products] = await db.batch([
+        queries.patient(), queries.notes(), queries.plans(), queries.visits(), queries.exams(), queries.teeth(),
+        queries.attachments(), queries.documents(), queries.backups(), queries.signatures(), queries.products(),
+      ]);
+      rows = { patient, notes, plans, visits, exams, teeth, attachments: images, documents, backups, signatures, products };
+    } catch { rows = null; /* p. ej. una tabla opcional aún no existe: se lee por separado */ }
+  }
+  if (!rows) {
+    const [patient, notes, plans, visits, exams, teeth, images, documents, backups, signatures, products] = await Promise.all([
+      queries.patient(), queries.notes(), queries.plans(), queries.visits(), queries.exams(), queries.teeth(), queries.attachments(),
+      Promise.resolve().then(queries.documents).catch(() => [] as (typeof patientDocuments.$inferSelect)[]),
+      queries.backups(),
+      Promise.resolve().then(queries.signatures).catch(() => [] as (typeof consentSignatures.$inferSelect)[]),
+      // Trazabilidad de productos biomédicos: si la tabla aún no existe o falla, el respaldo sigue sin ella.
+      Promise.resolve().then(queries.products).catch(() => [] as (typeof biomedicalProducts.$inferSelect)[]),
+    ]);
+    rows = { patient, notes, plans, visits, exams, teeth, attachments: images, documents, backups, signatures, products };
+  }
+  const [patient] = rows.patient;
+  if (!patient) return null;
+  const { notes, plans, visits, exams, teeth, attachments: images, documents, backups, signatures, products } = rows;
 
   const [address, anamnesis] = await Promise.all([
     loadAddresses(ownerId).then(map => map.get(patientId) ?? null).catch(() => null),
