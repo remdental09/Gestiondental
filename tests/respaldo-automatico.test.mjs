@@ -8,6 +8,9 @@ test("el respaldo se revisa cada hora y deja constancia aunque no haya cambios",
   const src = read("app/scheduled.ts"), drive = read("app/drive-oauth.ts"), ui = read("components/google-drive-backup.tsx");
   assert.match(src, /HOURLY_BACKUP_CRON = "20 \* \* \* \*"/);
   assert.match(src, /cron === BACKUP_CRON \|\| cron === HOURLY_BACKUP_CRON/);
+  // El respaldo de Drive corre en su propia invocación (tope de 1.000 consultas a D1 por invocación).
+  assert.match(src, /DRIVE_BACKUP_CRON = "10,30,50 \* \* \* \*"/);
+  assert.match(src, /cron === DRIVE_BACKUP_CRON\) \{\s*const \{ runScheduledDriveBackup \}/);
   assert.match(drive, /recordHeartbeat\(connection\.owner_id/);
   assert.match(drive, /"sin cambios pendientes"/);
   assert.match(drive, /recordBackupRun\(user\.userId, "guardado"/);
