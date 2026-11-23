@@ -53,6 +53,8 @@ jobs:
           pnpm exec wrangler d1 execute DB --remote --yes --config wrangler.cloudflare.jsonc --file drizzle/0016_cron_health.sql
           pnpm exec wrangler d1 execute DB --remote --yes --config wrangler.cloudflare.jsonc --file drizzle/0017_account_events.sql
           pnpm exec wrangler d1 execute DB --remote --yes --config wrangler.cloudflare.jsonc --file drizzle/0018_appointment_cycle.sql
+          # Desde la 0019: cada migración nueva se aplica una sola vez y queda anotada en _gd_migrations (scripts/apply-migrations.mjs).
+          node scripts/apply-migrations.mjs
       - name: Desplegar Worker compilado
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN || secrets.CLOUDFLARE_TOKEN || secrets.CF_TOKEN || secrets.WRANGLER_API_TOKEN }}
