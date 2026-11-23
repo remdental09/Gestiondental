@@ -478,3 +478,6 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 ## 2026-11-23 — Sin presupuesto automático en el dictado
 - El dictado ya no propone ni crea presupuestos: la evolución ignora el presupuesto dictado y no ofrece «Presupuestar»; el dictado por pieza (diagnóstico/plan) no crea «Presupuesto preliminar» (solo «Tratamiento realizado» sigue cerrando ítems pendientes). El dentista arma su propio presupuesto con «Presup.».
 - Los prompts exigen fidelidad: solo se registra lo dicho (una pieza ausente no se proyecta como endodoncia/implante).
+
+## 2026-11-23 — Dictado: «eliminación de caries / trepanación» no pregunta la superficie
+- Esa frase es un procedimiento realizado, no un hallazgo: ya no genera la aclaración «Falta la superficie del hallazgo».
