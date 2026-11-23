@@ -671,9 +671,9 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
     ...(diagnosisOperation ? [diagnosisOperation] : []),
   ];
   const canContinue = Boolean(aiReviewedRef.current.diagnosis && aiReviewedRef.current.plan && diagnosisPreview && diagnosisText.trim().length >= 3 && !diagnosisPreview.otherTeeth.length && (!diagnosisPreview.question || answer));
-  const validPlan = planItems.length > 0 && planItems.every(item => item.label.trim().length > 0 && Number.isSafeInteger(Number(item.amount)) && Number(item.amount) >= 0);
+  const validPlan = !isDone() || planItems.length > 0 && planItems.every(item => item.label.trim().length > 0 && Number.isSafeInteger(Number(item.amount)) && Number(item.amount) >= 0);
   canSaveRef.current = canContinue && validPlan && !planOtherTeeth.length;
-  const budgetTitle = `${isDone() ? "Tratamiento realizado" : "Presupuesto preliminar"} · FDI ${formatFdi(tooth)} · Chile ${fdiToChile(tooth)}`;
+  const budgetTitle = `${isDone() ? "Tratamiento realizado" : "Plan"} · FDI ${formatFdi(tooth)} · Chile ${fdiToChile(tooth)}`;
 
   const applyProposal = async () => {
     if (!aiReviewedRef.current.diagnosis || !aiReviewedRef.current.plan || !canContinue || !validPlan || planOtherTeeth.length || !onApply) return;
@@ -685,7 +685,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
     telemetrySaveStartedAt.current = Date.now();
     recordDictationHealthEvent("save_started", "save");
     try {
-      const finalItems = planItems.map(item => ({ ...item, label: item.label.trim(), amount: Number(item.amount), teeth: [tooth] }));
+      const finalItems = (isDone() ? planItems : []).map(item => ({ ...item, label: item.label.trim(), amount: Number(item.amount), teeth: [tooth] }));
       const itemSummary = finalItems.map(item => `${item.label}${item.amount > 0 ? `: ${item.amount.toLocaleString("es-CL")} CLP` : ": valor por definir"}`).join("; ");
       const performedNow = isDone();
       const evolution = performedNow ? {
@@ -700,8 +700,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
         body: [
           `Diagnóstico / hipótesis diagnóstica, revisada con IA: ${diagnosisText.trim()}`,
           `Plan de tratamiento preliminar, revisado con IA: ${planText.trim()}`,
-          `Prestaciones del presupuesto preliminar editable: ${itemSummary}`,
-          "Registro presuntivo: el plan no confirma que se hayan realizado los procedimientos.",
+          "Registro de lo dictado: el plan no confirma que se hayan realizado los procedimientos. No se crea presupuesto.",
         ].join("\n\n"),
       };
       await onApply(tooth, operations, budgetTitle, finalItems, evolution, performedNow);
@@ -789,7 +788,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
                 : proposalReady && planOtherTeeth.length
                   ? `El plan también menciona ${planOtherTeeth.map(other => `FDI ${formatFdi(other)} · Chile ${fdiToChile(other)}`).join(", ")}. Corrígelo para mantener una pieza por vez.`
                   : proposalReady
-                ? `Diagnóstico: ${diagnosisText.trim() || "pendiente"}. Plan de tratamiento: ${planText.trim() || "pendiente"}. Prestaciones presupuestadas: ${planItems.map(item => `${item.label || "prestación sin nombre"}${item.amount > 0 ? ` · ${item.amount.toLocaleString("es-CL")} CLP` : " · valor por definir"}`).join("; ") || "pendiente"}.${diagnosisPreview?.question && !diagnosisPreview.answer ? " Falta confirmar la cara de la caries." : ""}`
+                ? `Diagnóstico: ${diagnosisText.trim() || "pendiente"}. Plan de tratamiento: ${planText.trim() || "pendiente"}.${diagnosisPreview?.question && !diagnosisPreview.answer ? " Falta confirmar la cara de la caries." : ""}`
                 : answerReady || currentText.trim()
                   ? currentText
                   : toothSpeechPrompt(promptStep(step), tooth);
@@ -855,7 +854,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
             <p className="text-sm text-rose-900">{reviewDraft.faces?.length ? "Si la cara sí corresponde, agrégala en el campo de abajo; si no, déjalo como lo dictaste." : "Corrige la cifra en el campo de abajo."} Luego pulsa «Ordenar con IA y escuchar»; no tienes que grabar todo de nuevo.</p>
           </div> : proposalReady && !analysisError && !speechError && !proposalReviewIssue ? <div className="mt-3 grid max-h-40 gap-3 overflow-y-auto border-t border-violet-200 pt-3 text-base leading-relaxed sm:grid-cols-2 sm:text-lg">
             <p><strong className="block text-sm uppercase tracking-wide text-[#625a7c]">Diagnóstico / hipótesis</strong>{diagnosisText.trim() || "Pendiente"}</p>
-            <div><p className="text-sm font-bold uppercase tracking-wide text-[#625a7c]">Plan de tratamiento</p><p>{planText.trim() || "Pendiente"}</p><p className="mt-2 text-sm font-bold uppercase tracking-wide text-[#625a7c]">Presupuesto preliminar</p><p>{planItems.map(item => `${item.label || "prestación sin nombre"}${item.amount > 0 ? ` · ${item.amount.toLocaleString("es-CL")} CLP` : " · valor por definir"}`).join("; ") || "Pendiente"}</p>{diagnosisPreview?.question && !diagnosisPreview.answer ? <span className="mt-1 block font-semibold text-amber-900">Falta confirmar la cara de la caries.</span> : null}</div>
+            <div><p className="text-sm font-bold uppercase tracking-wide text-[#625a7c]">Plan de tratamiento</p><p>{planText.trim() || "Pendiente"}</p>{diagnosisPreview?.question && !diagnosisPreview.answer ? <span className="mt-1 block font-semibold text-amber-900">Falta confirmar la cara de la caries.</span> : null}</div>
           </div> : <p aria-live="off" className="mt-3 max-h-32 overflow-y-auto whitespace-pre-wrap border-t border-violet-200 pt-3 text-base leading-relaxed text-[#302747] sm:text-lg">{liveActivityText}</p>}
         </section>
         </div>
@@ -942,25 +941,25 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
             </>}
         </section>}
 
-        {proposalReady && step === "plan" && planItems.length > 0 && <section className="mt-4 space-y-3 border-t border-[#ebe9f2] pt-4" aria-live="polite">
-          <div>
-            <h3 className="text-xl font-semibold text-[#3b3355] sm:text-2xl">{done ? "Prestaciones realizadas · editables" : "Presupuesto preliminar · editable"}</h3>
+        {proposalReady && step === "plan" && (planItems.length > 0 || !done) && <section className="mt-4 space-y-3 border-t border-[#ebe9f2] pt-4" aria-live="polite">
+          {done && <div>
+            <h3 className="text-xl font-semibold text-[#3b3355] sm:text-2xl">Prestaciones realizadas · editables</h3>
             <p className="mt-1 text-base leading-relaxed text-[#615f73]">{done ? "Quedan como realizadas hoy. Si ya estaban pendientes en un presupuesto de esta pieza, se cierran ahí en vez de duplicarse. Los valores quedan por definir hasta que los completes." : "Los valores quedan por definir hasta que los completes. El plan se guardará como borrador para esta pieza."}</p>
-          </div>
+          </div>}
           {planOtherTeeth.length > 0 && <p role="alert" className="rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm text-rose-900">La respuesta también nombra {planOtherTeeth.map(other => `FDI ${formatFdi(other)}`).join(", ")}. Corrígela para guardar un plan por pieza.</p>}
-          <ul className="space-y-3">
+          {done && <ul className="space-y-3">
             {planItems.map((item, index) => <li key={`${index}-${item.code ?? ""}`} className="grid gap-2 rounded-lg border border-[#e6e4ee] bg-white p-3 sm:grid-cols-[1fr_10rem_auto] sm:items-end">
               <label className="block text-sm font-medium text-[#3b3355]">Prestación<input type="text" value={item.label} maxLength={180} onChange={event => updatePlanItem(index, { label: event.target.value })} className="mt-1 h-10 w-full rounded-lg border border-[#d8d5e2] px-3 font-normal"/></label>
               <label className="block text-sm font-medium text-[#3b3355]">Valor CLP<input type="number" min={0} max={1_000_000_000} step={1000} value={item.amount} onChange={event => updatePlanItem(index, { amount: event.target.value === "" ? 0 : Number(event.target.value) })} className="mt-1 h-10 w-full rounded-lg border border-[#d8d5e2] px-3 font-normal"/></label>
               <Button type="button" variant="ghost" size="sm" aria-label={`Quitar prestación ${index + 1}`} disabled={planItems.length <= 1} onClick={() => setPlanItems(previous => previous.filter((_, at) => at !== index))}><Trash2 className="size-4"/></Button>
             </li>)}
-          </ul>
-          <Button type="button" variant="outline" size="sm" onClick={() => setPlanItems(previous => [...previous, toothPlanBudgetItem("", tooth)])}><Plus className="mr-2 size-4"/>Agregar prestación</Button>
+          </ul>}
+          {done && <Button type="button" variant="outline" size="sm" onClick={() => setPlanItems(previous => [...previous, toothPlanBudgetItem("", tooth)])}><Plus className="mr-2 size-4"/>Agregar prestación</Button>}
           <div className="rounded-lg border border-violet-200 bg-violet-50 p-4 text-base leading-relaxed text-violet-950 sm:text-lg">
             <p className="font-semibold">Resumen para FDI {formatFdi(tooth)} · Chile {fdiToChile(tooth)}</p>
             <p className="mt-1"><strong>Diagnóstico / hipótesis:</strong> {diagnosisText.trim()}</p>
             <p className="mt-1"><strong>Plan de tratamiento:</strong> {planText.trim()}</p>
-            <p className="mt-1"><strong>Prestaciones del presupuesto preliminar:</strong> {planItems.map(item => `${item.label || "prestación sin nombre"}${item.amount > 0 ? ` · ${item.amount.toLocaleString("es-CL")} CLP` : " · valor por definir"}`).join("; ")}</p>
+            {done && <p className="mt-1"><strong>Prestaciones realizadas:</strong> {planItems.map(item => `${item.label || "prestación sin nombre"}${item.amount > 0 ? ` · ${item.amount.toLocaleString("es-CL")} CLP` : " · valor por definir"}`).join("; ")}</p>}
             <p className="mt-2">Para confirmar por voz, di «correcto». También puedes decir «rectificar» o «repetir».</p>
           </div>
           <div className="flex flex-wrap justify-end gap-2 border-t border-[#ebe9f2] pt-3">

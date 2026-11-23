@@ -492,14 +492,12 @@ export function ClinicalDictation({
         ...data.proposal.odontogram.map((item) => ({ ...item, decision: item.conflict || item.advisory ? "rejected" as const : "accepted" as const, toothText: formatFdi(item.tooth) })),
         ...(data.proposal.incomplete ?? []).map((item) => ({ ...item, decision: "rejected" as const, toothText: formatFdi(item.tooth), incompleteCaries: true })),
       ]);
-      setBudgets(data.proposal.budget.map((item) => ({ ...item, decision: "accepted", amountText: item.amount > 0 ? String(item.amount) : "" })));
+      // El presupuesto lo arma el dentista: el dictado no crea presupuestos.
+      setBudgets([]);
       {
         const built = buildEvolutionLines({ items: data.proposal.items ?? [], perio: data.proposal.perio ?? [], budgets: openBudgets });
-        // Lo que el dictado ya presupuesta («presupuesto de corona en la 3.6») no se vuelve a ofrecer.
-        const dictatedBudget = data.proposal.budget.map((item) => item.label).join(" ");
-        const pending = built.filter((line) => line.pendingBudget && !(line.tooth !== null && dictatedBudget.includes(formatTooth(line.tooth))));
-        setLines(built.map((line) => pending.includes(line) || !line.pendingBudget ? line : { ...line, pendingBudget: false, canBudget: false }));
-        setLineSelected(new Set(pending.map((line) => line.id)));
+        setLines(built);
+        setLineSelected(new Set());
         { const editable = openBudgets.filter((b) => b.editable !== false); setLineTarget(editable.length ? String(editable[0].id) : "new"); }
       }
       setFichaItems((data.proposal.ficha ?? []).map((item) => ({ ...item, decision: patient ? "accepted" : "rejected" })));
@@ -523,7 +521,7 @@ export function ClinicalDictation({
         decision: "accepted",
         amountText: String(item.amount),
         methodValue: item.method ?? "",
-        budgetId: suggestedPaymentBudget(item, (data.proposal.budget ?? []).map((budget) => ({ ...budget, decision: "accepted" as const, amountText: String(budget.amount) })), budgetOptions),
+        budgetId: suggestedPaymentBudget(item, [], budgetOptions),
       })));
       // Las caries se derivan en vivo de lo aceptado en el odontograma; el resto se revisa una por una.
       setPrestItems((data.proposal.prestaciones ?? []).map((item) => ({ ...item, decision: item.advisory ? "rejected" as const : "accepted" as const })));
