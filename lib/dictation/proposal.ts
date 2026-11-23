@@ -1952,6 +1952,8 @@ export function structureTranscript(transcript: string, options: { today?: strin
       if (!resolved.surfaces.length) {
         // «pieza 1.6 sin caries» sin cara: queda en la nota, no cambia el odontograma ni pregunta la cara.
         if (surfaceResult.finding.condition === "sound" && /\b(?:sin|no)\s+(?:se\s+observa\s+)?caries\b/i.test(sentence)) continue;
+        // «Se procede a eliminación de caries y trepanación»: es un procedimiento realizado, no un hallazgo; no pregunta la cara.
+        if (/\b(?:eliminaci[oó]n|remoci[oó]n|retiro|elimina|elimin[oó]|remueve|retira)\s+(?:de\s+(?:la\s+|las\s+)?)?caries\b|\btrepanaci[oó]n\b/i.test(sentence)) continue;
         if (!resolved.notes.length) clarifications.push(`Falta la superficie del hallazgo: «${clip(sentence)}».`);
         continue;
       }
