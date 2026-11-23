@@ -6,6 +6,9 @@ export const CALENDAR_CRON = "0 11,16,21 * * *"; // 08/13/18 Chile (UTC-3)
 export const BACKUP_CRON = "*/10 2 * * *"; // 23:00-23:50 Chile (UTC-3), a few fichas per run
 // Revisión cada hora: lo pendiente (p. ej. una cuenta adicional recién conectada) no espera hasta la noche.
 export const HOURLY_BACKUP_CRON = "20 * * * *";
+// Respaldo automático en Google Drive en su propia invocación (cada 20 minutos): así no comparte con las demás tareas
+// el tope de 1.000 consultas a D1 por invocación (incidente 22/23-11: el respaldo moría sin dejar constancia).
+export const DRIVE_BACKUP_CRON = "10,30,50 * * * *";
 // Cada 15 minutos: se leen los calendarios y, si la agenda cambió, se avisa al técnico en el momento.
 export const AGENDA_CHANGES_CRON = "*/15 * * * *";
 
@@ -58,6 +61,9 @@ export async function runScheduled(cron: string, env: CalendarSyncEnv) {
       const { runNightlyBackup } = await import("@/lib/nightly-backup");
       console.log("nightly-backup", JSON.stringify(await job("nightly-backup", () => runNightlyBackup(env as unknown as Parameters<typeof runNightlyBackup>[0]))));
     }
+    return null;
+  }
+  if (cron === DRIVE_BACKUP_CRON) {
     const { runScheduledDriveBackup } = await import("./drive-oauth");
     const result = await job("drive-backup", () => runScheduledDriveBackup());
     console.log("drive-backup", JSON.stringify(result));
