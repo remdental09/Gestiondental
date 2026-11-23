@@ -288,12 +288,12 @@ async function logout(request: Request, env: OAuthEnv): Promise<Response> {
 }
 
 /** Al salir de un equipo compartido se recuerda cerrar también la sesión de Google de ese navegador (la app no puede hacerlo por su cuenta). */
-function sharedLogoutResponse(cookies: string[], method = "GET") {
+function sharedLogoutResponse(cookies: string[], method = "GET", everywhere = false) {
   const headers = securePageHeaders();
   headers.set("Content-Security-Policy", PORTADA_CSP);
   headers.set("Cache-Control", "no-store");
   for (const value of cookies) headers.append("Set-Cookie", value);
-  return new Response(method === "HEAD" ? null : sharedLogoutPage(), { headers });
+  return new Response(method === "HEAD" ? null : sharedLogoutPage(everywhere), { headers });
 }
 
 /** «Cerrar sesión en todos los equipos»: revoca cada sesión abierta de esta cuenta (también la que se dejó en un computador ajeno). */
@@ -305,7 +305,7 @@ async function logoutEverywhere(request: Request, env: OAuthEnv): Promise<Respon
     const found = await readSession(db, token).catch(() => null);
     if (found) await revokeAllSessions(db, found.session.email).catch(() => undefined);
   }
-  return redirect("/", [cookie(SESSION_COOKIE, "", 0), cookie(ENTRY_COOKIE, "", 0)]);
+  return sharedLogoutResponse([cookie(SESSION_COOKIE, "", 0), cookie(ENTRY_COOKIE, "", 0)], request.method, true);
 }
 
 type Identity = { email: string; owner: ClinicOwner; setCookies?: string[]; shared?: boolean };

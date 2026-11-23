@@ -95,7 +95,7 @@ ${error ? `<p class="error" role="alert">${escape(error)}</p>` : ""}
 }
 
 /** Pantalla al salir de un equipo compartido: la sesión de SpeakDent ya se cerró; la de Google del navegador la cierra la persona. */
-export function sharedLogoutPage(): string {
+export function sharedLogoutPage(everywhere = false): string {
   return `<!doctype html>
 <html lang="es-CL"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sesión cerrada · SpeakDent</title><meta name="robots" content="noindex">
@@ -104,8 +104,8 @@ main{max-width:430px}h1{font-size:24px;margin:0 0 8px}p{color:#aebbd4;margin:0 0
 a{display:inline-flex;min-height:44px;align-items:center;padding:0 18px;border-radius:12px;font-weight:600;text-decoration:none;margin:4px 8px 0 0}
 .go{background:#fff;color:#1c1530}.back{border:1px solid #475569;color:#e6eefc}</style></head>
 <body><main>
-<h1>Sesión de SpeakDent cerrada</h1>
-<p>Este era un equipo compartido. Para que nadie más pueda entrar con tu cuenta desde este navegador, cierra también tu sesión de Google.</p>
+<h1>${everywhere ? "Cerraste SpeakDent en todos tus equipos" : "Sesión de SpeakDent cerrada"}</h1>
+<p>${everywhere ? "Ya no queda ninguna sesión de SpeakDent abierta con tu cuenta. SpeakDent no puede cerrar tu cuenta de Google: si este computador es ajeno, ciérrala también aquí." : "Este era un equipo compartido. Para que nadie más pueda entrar con tu cuenta desde este navegador, cierra también tu sesión de Google."}</p>
 <a class="go" href="${GOOGLE_SIGN_OUT_URL}">Cerrar mi sesión de Google</a><a class="back" href="/">Volver al inicio</a>
 <p style="margin-top:18px;font-size:13px">Consejo: en un computador ajeno abre una ventana de incógnito; al cerrarla, el navegador olvida todo.</p>
 </main></body></html>`;
