@@ -832,9 +832,13 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
           }}>{done ? "Cambiar a planificar" : "Cambiar a «ya lo realicé hoy»"}</button>}
         </div>}
         <div className="mt-4 grid grid-cols-2 gap-2" aria-label="Etapas de la evaluación">
-          <div className={`rounded-lg border px-3 py-2.5 text-base font-semibold ${step === "diagnosis" ? "border-[#473a6d] bg-violet-50 text-[#3b3355]" : aiReviewedRef.current.diagnosis ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-[#e6e4ee] text-[#615f73]"}`}>{step !== "diagnosis" && aiReviewedRef.current.diagnosis ? "✓ 1 · Diagnóstico revisado" : "1 · Diagnóstico"}</div>
-          <div className={`rounded-lg border px-3 py-2.5 text-base font-semibold ${step === "plan" ? "border-[#473a6d] bg-violet-50 text-[#3b3355]" : "border-[#e6e4ee] text-[#615f73]"}`}>{done ? "2 · Tratamiento realizado" : "2 · Plan de tratamiento"}</div>
+          <div className={`rounded-lg border px-3 py-1.5 text-sm font-semibold sm:py-2.5 sm:text-base ${step === "diagnosis" ? "border-[#473a6d] bg-violet-50 text-[#3b3355]" : aiReviewedRef.current.diagnosis ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-[#e6e4ee] text-[#615f73]"}`}>{step !== "diagnosis" && aiReviewedRef.current.diagnosis ? "✓ 1 · Diagnóstico revisado" : "1 · Diagnóstico"}</div>
+          <div className={`rounded-lg border px-3 py-1.5 text-sm font-semibold sm:py-2.5 sm:text-base ${step === "plan" ? "border-[#473a6d] bg-violet-50 text-[#3b3355]" : "border-[#e6e4ee] text-[#615f73]"}`}>{done ? "2 · Tratamiento realizado" : "2 · Plan de tratamiento"}</div>
         </div>
+        {step === "plan" && diagnosisText.trim() && <section className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2" data-testid="tooth-diagnosis-recap" aria-label="Diagnóstico ya revisado">
+          <p className="text-xs font-bold uppercase tracking-wide text-emerald-900">Diagnóstico que estableciste</p>
+          <p className="mt-0.5 max-h-24 overflow-y-auto whitespace-pre-wrap text-sm leading-snug text-emerald-950 sm:text-base">{diagnosisText.trim()}</p>
+        </section>}
 
         <section className={`mt-3 rounded-xl border p-4 sm:p-5 ${analysisError || speechError || (proposalReady && proposalReviewIssue) ? "border-rose-300 bg-rose-50" : audioStatus === "recording" ? "border-rose-200 bg-rose-50" : redrafting || analyzing ? "border-sky-200 bg-sky-50" : "border-violet-200 bg-violet-50"}`} role="region" aria-label="Seguimiento en vivo de la revisión" data-testid="tooth-dictation-live-status">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -844,7 +848,12 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
             </div>
             <span className="rounded-full border border-[#d8d3e3] bg-white px-3 py-1 text-xs font-bold uppercase tracking-wide text-[#473a6d]">{analysisError || speechError || (proposalReady && proposalReviewIssue) ? "Revisar" : audioStatus === "recording" ? "Escuchando" : audioStatus === "transcribing" ? "Transcribiendo" : redrafting || analyzing ? "Procesando" : applying ? "Guardando" : proposalReady ? "Propuesta" : answerReady ? "Revisada por IA" : "En curso"}</span>
           </div>
-          {proposalReady && !analysisError && !speechError && !proposalReviewIssue ? <div className="mt-3 grid max-h-40 gap-3 overflow-y-auto border-t border-violet-200 pt-3 text-base leading-relaxed sm:grid-cols-2 sm:text-lg">
+          {reviewDraft ? <div className="mt-3 max-h-52 space-y-2 overflow-y-auto border-t border-rose-200 pt-3" data-testid="tooth-answer-numeric-review">
+            <p className="text-base font-semibold text-rose-950">{reviewDraft.faces?.length ? `Se cuestiona: la IA añadió ${reviewDraft.faces.length > 1 ? "las caras" : "la cara"} «${reviewDraft.faces.join("», «")}», que no dictaste` : "Se cuestiona: la IA cambió una cifra de tu dictado"}</p>
+            <div><p className="text-xs font-bold uppercase tracking-wide text-rose-900">Lo que dictaste</p><p className="mt-0.5 whitespace-pre-wrap text-base leading-snug text-rose-950">{rawAnswerText || currentText}</p></div>
+            <div><p className="text-xs font-bold uppercase tracking-wide text-rose-900">Lo que propuso la IA</p><p className="mt-0.5 whitespace-pre-wrap text-base leading-snug text-rose-950">{reviewDraft.text}</p></div>
+            <p className="text-sm text-rose-900">{reviewDraft.faces?.length ? "Si la cara sí corresponde, agrégala en el campo de abajo; si no, déjalo como lo dictaste." : "Corrige la cifra en el campo de abajo."} Luego pulsa «Ordenar con IA y escuchar»; no tienes que grabar todo de nuevo.</p>
+          </div> : proposalReady && !analysisError && !speechError && !proposalReviewIssue ? <div className="mt-3 grid max-h-40 gap-3 overflow-y-auto border-t border-violet-200 pt-3 text-base leading-relaxed sm:grid-cols-2 sm:text-lg">
             <p><strong className="block text-sm uppercase tracking-wide text-[#625a7c]">Diagnóstico / hipótesis</strong>{diagnosisText.trim() || "Pendiente"}</p>
             <div><p className="text-sm font-bold uppercase tracking-wide text-[#625a7c]">Plan de tratamiento</p><p>{planText.trim() || "Pendiente"}</p><p className="mt-2 text-sm font-bold uppercase tracking-wide text-[#625a7c]">Presupuesto preliminar</p><p>{planItems.map(item => `${item.label || "prestación sin nombre"}${item.amount > 0 ? ` · ${item.amount.toLocaleString("es-CL")} CLP` : " · valor por definir"}`).join("; ") || "Pendiente"}</p>{diagnosisPreview?.question && !diagnosisPreview.answer ? <span className="mt-1 block font-semibold text-amber-900">Falta confirmar la cara de la caries.</span> : null}</div>
           </div> : <p aria-live="off" className="mt-3 max-h-32 overflow-y-auto whitespace-pre-wrap border-t border-violet-200 pt-3 text-base leading-relaxed text-[#302747] sm:text-lg">{liveActivityText}</p>}
@@ -852,10 +861,6 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
-        {step === "plan" && diagnosisText.trim() && <section className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4" data-testid="tooth-diagnosis-recap" aria-label="Diagnóstico ya revisado">
-          <p className="text-xs font-bold uppercase tracking-wide text-emerald-900">Lo que respondiste en el diagnóstico</p>
-          <p className="mt-1 whitespace-pre-wrap text-base leading-relaxed text-emerald-950">{diagnosisText.trim()}</p>
-        </section>}
         <section className="rounded-xl bg-[#f7f6fa] p-4 sm:p-5" aria-live="polite">
           <p className="text-xs font-semibold uppercase tracking-wide text-[#625a7c]">{step === "diagnosis" ? "Pregunta 1 · hipótesis diagnóstica" : done ? "Pregunta 2 · tratamiento realizado" : "Pregunta 2 · plan de tratamiento"}</p>
           <h2 className="mt-2 text-3xl font-semibold leading-tight text-[#302747] sm:text-4xl">{toothPrompt(promptStep(step), tooth)}</h2>
@@ -912,12 +917,6 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
           <p className="font-semibold text-amber-950">Parece que esto ya lo realizaste hoy</p>
           <p className="mt-1 text-sm text-amber-900">Como «plan» quedaría pendiente y el odontograma no cambiaría. Puedes registrarlo como realizado.</p>
           <Button type="button" size="sm" className="mt-2" data-testid="tooth-performed-switch" disabled={redrafting || analyzing || applying || audioStatus !== "idle"} onClick={() => { modeRef.current = "done"; setMode("done"); setAnalysisError(""); void redraftAnswer("plan", rawAnswerText || currentText, true); }}>Registrar como realizado</Button>
-        </section>}
-        {reviewDraft && <section className="mt-3 space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3" role="alert" data-testid="tooth-answer-numeric-review">
-          <p className="font-semibold text-amber-950">{reviewDraft.faces?.length ? `Lo que se cuestiona: la IA añadió ${reviewDraft.faces.length > 1 ? "las caras" : "la cara"} «${reviewDraft.faces.join("», «")}», que no dictaste` : "Lo que se cuestiona: la IA cambió una cifra de tu dictado"}</p>
-          <div><p className="text-xs font-bold uppercase tracking-wide text-amber-900">Lo que dictaste</p><p className="mt-0.5 whitespace-pre-wrap text-base leading-relaxed text-amber-950">{rawAnswerText || currentText}</p></div>
-          <div><p className="text-xs font-bold uppercase tracking-wide text-amber-900">Lo que propuso la IA</p><p className="mt-0.5 whitespace-pre-wrap text-base leading-relaxed text-amber-950">{reviewDraft.text}</p></div>
-          <p className="text-sm text-amber-900">{reviewDraft.faces?.length ? "Si la cara sí corresponde, agrégala en el campo de arriba; si no, déjalo como lo dictaste." : "Corrige la cifra en el campo de arriba."} Luego pulsa «Ordenar con IA y escuchar»; no tienes que grabar todo de nuevo.</p>
         </section>}
 
         {proposalReady && diagnosisPreview && <section className="mt-4 space-y-3 border-t border-[#ebe9f2] pt-4" aria-live="polite">
