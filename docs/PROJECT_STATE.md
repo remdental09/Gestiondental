@@ -484,3 +484,6 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 
 ## 2026-11-23 — Menú: se quita «Ficha clínica»
 - Era lo mismo que «Pacientes»; la entrada del menú se eliminó y, al abrir una ficha, queda marcado «Pacientes». La pantalla de la ficha no cambia.
+
+## 2026-11-23 — Agendar cita: se respeta la duración elegida
+- Al agendar una cita de un paciente, la duración (p. ej. 90 min) no se enviaba al servidor y la cita quedaba de 30 min. Ahora se guarda en la cita y se manda a Google Calendar. Las citas ya creadas de 30 min no cambian solas.

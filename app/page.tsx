@@ -337,7 +337,7 @@ export default function Home(){
     if(newAppt.patientId!==null){
       setAgendaBusy(true);setAgendaError("");
       try{
-        const data=await persist({action:"addAppointment",patientId:newAppt.patientId,day:newAppt.day,time:newAppt.time,reason:newAppt.reason.trim()||"Control",...(newAppt.box?{box:newAppt.box}:{})});
+        const data=await persist({action:"addAppointment",patientId:newAppt.patientId,day:newAppt.day,time:newAppt.time,minutes:newAppt.minutes,reason:newAppt.reason.trim()||"Control",...(newAppt.box?{box:newAppt.box}:{})});
         setAppointments(previous=>[data.appointment,...previous]);
         await reloadAgenda();
         setNewAppt(null);
