@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import type { ChatGPTUser } from "@/app/chatgpt-auth";
 import { attachmentFileName } from "@/lib/attachment-name";
-import { DRIVE_BACKUP_MAX_PER_RUN, fairShare, rotateOwners, runClock } from "@/lib/drive-backup-rotation";
+import { BACKUP_QUERIES, DRIVE_BACKUP_MAX_PER_RUN, SNAPSHOT_QUERIES, affordablePage, fairQueryShare, fairShare, nextCursor, queryBudget, rotateOwners, runClock, type QueryBudget } from "@/lib/drive-backup-rotation";
 import { confirmDriveSnapshot, getDriveSnapshot, listDriveBackupQueue } from "@/app/drive-backup";
 import { saveSender, type MailSender } from "@/app/appointment-mail-db";
 
@@ -730,35 +730,64 @@ export async function syncGoogleDrive(user: ChatGPTUser, body: unknown) {
 export async function runScheduledDriveBackup(maxPatients = DRIVE_BACKUP_MAX_PER_RUN, nowMs = Date.now()) {
   const config = configuration();
   if (!config.configured) return { configured: false, results: [] as Array<Record<string, unknown>> };
+  // Tope de consultas a D1 de esta pasada (Cloudflare corta en 1.000 por invocación; ver lib/drive-backup-rotation.ts).
+  const queries = queryBudget();
   await ensureConnectionTable();
+  await ensureCursorTable();
+  queries.spend(2);
   const { results: allConnections } = await database().prepare(
     "SELECT owner_id, google_email, connected_at FROM google_drive_connections ORDER BY owner_id"
   ).all<{ owner_id: string; google_email: string; connected_at: string }>();
+  queries.spend(1);
   const connections = rotateOwners(allConnections, nowMs);
   const clock = runClock();
   const tokens = new Map<string, string>();
   const results: Array<Record<string, unknown>> = [];
   const failedOwners = new Set<string>();
   const attempted = new Set<string>();
+  const scanned = new Map<string, number>();
+  const passComplete = new Set<string>();
   let budget = maxPatients;
   const share = fairShare(maxPatients, connections.length);
+  const outOfBudget = () => budget <= 0 || clock.expired() || affordablePage(queries) < 1;
+  // También las consultas se reparten: una cuenta grande y al día no se come la pasada revisando fichas sin cambios.
+  const queryShare = fairQueryShare(queries.left, connections.length);
   // Vuelta 1: cuota pareja por cuenta. Vuelta 2: lo que sobre, en el mismo orden rotado.
   for (const quota of [share, Number.POSITIVE_INFINITY]) {
+    const ownerQueries = quota === share ? queryShare : Number.POSITIVE_INFINITY;
     for (const connection of connections) {
-      if (budget <= 0 || clock.expired()) break;
-      if (failedOwners.has(connection.owner_id)) continue;
+      if (outOfBudget()) break;
+      if (failedOwners.has(connection.owner_id) || passComplete.has(connection.owner_id)) continue;
       const user: ChatGPTUser = { userId: connection.owner_id, displayName: "", email: connection.google_email, fullName: null };
       let ownerQuota = quota;
-      let after = 0;
-      while (budget > 0 && ownerQuota > 0 && !failedOwners.has(user.userId) && !clock.expired()) {
-        const queue = await listDriveBackupQueue(user.userId, after, 20, connection.connected_at);
+      // Cada cuenta retoma donde quedó la pasada anterior (antes partía siempre de la ficha 1 y revisaba de nuevo lo ya copiado).
+      let after = await readCursor(user.userId, "principal");
+      queries.spend(1);
+      const ownerStart = queries.used;
+      while (ownerQuota > 0 && !failedOwners.has(user.userId) && !outOfBudget() && queries.used - ownerStart < ownerQueries) {
+        const pageSize = affordablePage(queries, undefined, ownerQueries - (queries.used - ownerStart));
+        if (pageSize < 1) break;
+        queries.spend(1 + pageSize * SNAPSHOT_QUERIES);
+        let queue: Awaited<ReturnType<typeof listDriveBackupQueue>>;
+        try {
+          queue = await listDriveBackupQueue(user.userId, after, pageSize, connection.connected_at);
+        } catch (error) {
+          // Una cuenta con un problema no detiene a las demás ni la constancia de la pasada.
+          const message = error instanceof Error ? error.message : "error";
+          results.push({ ownerId: user.userId, saved: false, error: message });
+          await recordBackupRun(user.userId, "cron", false, "revisión de la cola: " + message);
+          failedOwners.add(user.userId);
+          break;
+        }
+        let stoppedBefore: number | null = null;
         for (const item of queue.pending) {
-          if (budget <= 0 || ownerQuota <= 0 || clock.expired()) break;
+          if (budget <= 0 || ownerQuota <= 0 || clock.expired() || !queries.canAfford(BACKUP_QUERIES)) { stoppedBefore = item.patientId; break; }
           const key = user.userId + ":" + item.patientId;
           if (attempted.has(key)) continue; // una ficha que falló no se reintenta en la misma pasada
           attempted.add(key);
           budget--;
           ownerQuota--;
+          queries.spend(BACKUP_QUERIES);
           try {
             const result = await backupPatient(user, item.patientId, tokens);
             results.push({ ownerId: user.userId, patientId: item.patientId, saved: Boolean(result.saved) });
@@ -767,19 +796,23 @@ export async function runScheduledDriveBackup(maxPatients = DRIVE_BACKUP_MAX_PER
             const message = error instanceof Error ? error.message : "error";
             results.push({ ownerId: user.userId, patientId: item.patientId, saved: false, error: message });
             await recordBackupRun(user.userId, "cron", false, "ficha " + item.patientId + ": " + message);
-            if (!tokens.has(user.userId)) { failedOwners.add(user.userId); break; } // token refresh failed: skip owner
+            if (!tokens.has(user.userId)) { failedOwners.add(user.userId); stoppedBefore = item.patientId; break; } // token refresh failed: skip owner
           }
         }
-        if (queue.nextAfterPatientId === null) break;
-        after = queue.nextAfterPatientId;
+        scanned.set(user.userId, (scanned.get(user.userId) ?? 0) + pageSize);
+        after = nextCursor(after, stoppedBefore, queue.nextAfterPatientId, stoppedBefore === null);
+        if (stoppedBefore === null && queue.nextAfterPatientId === null) { passComplete.add(user.userId); break; }
+        if (stoppedBefore !== null) break;
       }
+      await saveCursor(user.userId, "principal", after);
+      queries.spend(1);
     }
   }
   for (const connection of connections) {
-    if (budget <= 0 || clock.expired()) break;
+    if (budget <= 0 || clock.expired() || !queries.canAfford(SNAPSHOT_QUERIES + 2)) break;
     const user: ChatGPTUser = { userId: connection.owner_id, displayName: "", email: connection.google_email, fullName: null };
     try {
-      const extra = await syncDriveMirrors(user, "cron", budget);
+      const extra = await syncDriveMirrors(user, "cron", budget, undefined, queries);
       results.push(...extra.results.map(item => ({ ownerId: connection.owner_id, ...item })));
       budget = extra.budget;
     } catch (error) {
@@ -787,12 +820,32 @@ export async function runScheduledDriveBackup(maxPatients = DRIVE_BACKUP_MAX_PER
     }
   }
   // Constancia de cada revisión automática, aunque no haya nada que copiar: así se ve que la tarea corre.
+  const unfinished = budget <= 0 || clock.expired() || affordablePage(queries) < 1;
   for (const connection of connections) {
     const own = results.filter(item => item.ownerId === connection.owner_id);
     const saved = own.filter(item => item.saved).length, failed = own.length - saved;
-    await recordHeartbeat(connection.owner_id, own.length ? `${saved} copiada${saved === 1 ? "" : "s"}${failed ? `, ${failed} con error` : ""}${budget <= 0 || clock.expired() ? ", continúa en la próxima revisión" : ""}` : "sin cambios pendientes");
+    const more = !passComplete.has(connection.owner_id) && (unfinished || (scanned.get(connection.owner_id) ?? 0) > 0);
+    await recordHeartbeat(connection.owner_id, own.length
+      ? `${saved} copiada${saved === 1 ? "" : "s"}${failed ? `, ${failed} con error` : ""}${more ? ", continúa en la próxima revisión" : ""}`
+      : more ? `${scanned.get(connection.owner_id) ?? 0} fichas revisadas al día, continúa en la próxima revisión` : "sin cambios pendientes");
   }
-  return { configured: true, owners: connections.length, results, budgetLeft: budget };
+  return { configured: true, owners: connections.length, results, budgetLeft: budget, d1Queries: queries.used };
+}
+
+async function ensureCursorTable() {
+  await database().prepare("CREATE TABLE IF NOT EXISTS drive_backup_cursor (owner_id TEXT NOT NULL, account TEXT NOT NULL, after_patient_id INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL, PRIMARY KEY (owner_id, account))").run();
+}
+/** Última ficha revisada por el respaldo automático de esta cuenta (0 = desde el principio). */
+async function readCursor(ownerId: string, account: string) {
+  try {
+    const row = await database().prepare("SELECT after_patient_id AS after FROM drive_backup_cursor WHERE owner_id = ? AND account = ?").bind(ownerId, account).first<{ after: number }>();
+    return Number(row?.after) || 0;
+  } catch { return 0; }
+}
+async function saveCursor(ownerId: string, account: string, after: number) {
+  try {
+    await database().prepare("INSERT INTO drive_backup_cursor (owner_id, account, after_patient_id, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(owner_id, account) DO UPDATE SET after_patient_id = excluded.after_patient_id, updated_at = excluded.updated_at").bind(ownerId, account, after, now()).run();
+  } catch { /* el cursor nunca impide el respaldo: en el peor caso se revisa de nuevo */ }
 }
 
 async function ensureHeartbeatTable() {
@@ -914,31 +967,56 @@ async function backupPatientToMirror(user: ChatGPTUser, mirror: MirrorConnection
  * Copia a todas las cuentas adicionales las fichas que cambiaron. `budget` limita cuántas fichas se escriben
  * (cada ficha usa ~6 llamadas a Google). Devuelve resultados y el presupuesto restante.
  */
-export async function syncDriveMirrors(user: ChatGPTUser, source: "manual" | "cron" | "guardado", budget = 6, onlyPatientId?: number) {
+export async function syncDriveMirrors(user: ChatGPTUser, source: "manual" | "cron" | "guardado", budget = 6, onlyPatientId?: number, queries: QueryBudget = queryBudget()) {
   const config = configuration();
   if (!config.configured) return { results: [] as Array<Record<string, unknown>>, budget };
   const mirrors = await mirrorsFor(user.userId);
+  queries.spend(2);
   const results: Array<Record<string, unknown>> = [];
   const tokens = new Map<string, string>();
+  if (!onlyPatientId && mirrors.length) { await ensureCursorTable(); queries.spend(1); }
   for (const mirror of mirrors) {
-    const { results: ids } = onlyPatientId
-      ? { results: [{ id: onlyPatientId }] }
-      : await database().prepare("SELECT id FROM patients WHERE owner_id = ? ORDER BY id").bind(user.userId).all<{ id: number }>();
+    const account = "copia:" + mirror.google_sub;
+    // Antes se revisaban TODAS las fichas en cada pasada (~16 consultas por ficha): con cientos de fichas se pasaba
+    // el tope de 1.000 consultas por invocación. Ahora se revisa una página desde donde quedó la pasada anterior.
+    let after = onlyPatientId ? 0 : await readCursor(user.userId, account);
+    let ids: { id: number }[];
+    let reachedEnd = true;
+    if (onlyPatientId) ids = [{ id: onlyPatientId }];
+    else {
+      const pageSize = affordablePage(queries, 200);
+      if (pageSize < 1) break;
+      ({ results: ids } = await database().prepare("SELECT id FROM patients WHERE owner_id = ? AND id > ? ORDER BY id LIMIT ?").bind(user.userId, after, pageSize + 1).all<{ id: number }>());
+      queries.spend(2);
+      reachedEnd = ids.length <= pageSize;
+      ids = ids.slice(0, pageSize);
+    }
+    let stoppedBefore: number | null = null;
     for (const { id } of ids) {
-      if (budget <= 0) break;
+      if (budget <= 0 || !queries.canAfford(SNAPSHOT_QUERIES + 1)) { stoppedBefore = id; break; }
+      queries.spend(SNAPSHOT_QUERIES + 1);
       try {
+        // La copia en sí cuesta otra foto y algunas escrituras: si no alcanza, queda para la próxima pasada.
+        if (!queries.canAfford(SNAPSHOT_QUERIES + 6)) { stoppedBefore = id; break; }
         const result = await backupPatientToMirror(user, mirror, id, tokens);
-        if ((result as { skipped?: boolean }).skipped) continue;
+        if ((result as { skipped?: boolean }).skipped) { after = id; continue; }
+        queries.spend(SNAPSHOT_QUERIES + 6);
         budget--;
+        after = id;
         results.push({ mirror: mirror.google_email, ...result });
         await recordBackupRun(user.userId, source, Boolean(result.saved), "copia en " + mirror.google_email + ": ficha " + id + (result.saved ? " respaldada" : " " + String((result as { message?: string }).message || "")));
       } catch (error) {
         budget--;
+        after = id;
         const message = error instanceof Error ? error.message : "error";
         results.push({ mirror: mirror.google_email, saved: false, patientId: id, message });
         await recordBackupRun(user.userId, source, false, "copia en " + mirror.google_email + ": ficha " + id + ": " + message);
-        if (!tokens.has("mirror:" + mirror.google_sub)) break; // token inválido: no insistir con esta cuenta
+        if (!tokens.has("mirror:" + mirror.google_sub)) { stoppedBefore = id; break; } // token inválido: no insistir con esta cuenta
       }
+    }
+    if (!onlyPatientId) {
+      await saveCursor(user.userId, account, stoppedBefore === null && reachedEnd ? 0 : stoppedBefore !== null ? Math.max(0, stoppedBefore - 1) : after);
+      queries.spend(1);
     }
   }
   return { results, budget };
