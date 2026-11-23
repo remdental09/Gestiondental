@@ -43,6 +43,11 @@ export function dentalSpeechText(text: string): string {
   });
 }
 
+/** Duración máxima razonable de una lectura (aprox. 12 caracteres/seg a velocidad 1) más margen. */
+export function estimateSpeechMs(text: string, rate = 1): number {
+  return Math.round((text.length / (12 * Math.max(rate, 0.5))) * 1000) + 3000;
+}
+
 /** Reproduce una pregunta en la misma interacción del usuario que la solicita. */
 export function speakTextNow(text: string, handlers: SpeechPlaybackHandlers = {}): boolean {
   if (typeof window === "undefined" || !("speechSynthesis" in window) || typeof SpeechSynthesisUtterance === "undefined" || !text.trim()) return false;
@@ -54,11 +59,28 @@ export function speakTextNow(text: string, handlers: SpeechPlaybackHandlers = {}
     const voice = pickLatinVoice(synth.getVoices());
     if (voice) { utterance.voice = voice; utterance.lang = voice.lang; }
     else utterance.lang = "es-CL";
+    // iOS Safari a veces nunca dispara onend: un temporizador de respaldo evita que el flujo quede esperando.
+    let finished = false;
+    let watchdog: ReturnType<typeof setTimeout> | undefined;
+    const finish = (error?: string) => {
+      if (finished) return;
+      finished = true;
+      if (watchdog) clearTimeout(watchdog);
+      if (error !== undefined) handlers.onError?.(error);
+      else handlers.onEnd?.();
+    };
     utterance.onstart = () => handlers.onStart?.();
-    utterance.onend = () => handlers.onEnd?.();
-    utterance.onerror = event => handlers.onError?.(event.error);
+    utterance.onend = () => finish();
+    utterance.onerror = event => finish(event.error);
     synth.speak(utterance);
     if (synth.paused) synth.resume();
+    watchdog = setTimeout(() => {
+      if (finished) return;
+      const cancel = () => { try { synth.cancel(); } catch { /* sin acción */ } };
+      utterance.onend = null; utterance.onerror = null;
+      cancel();
+      finish();
+    }, estimateSpeechMs(text, handlers.rate ?? 1));
     return true;
   } catch {
     return false;
