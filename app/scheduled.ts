@@ -21,6 +21,11 @@ export async function runScheduled(cron: string, env: CalendarSyncEnv) {
     console.log("google-calendars", JSON.stringify(await job("google-calendars", () => syncGoogleCalendars())));
     const result = await job("calendar-sync", () => syncCalendarFromIcs(env));
     console.log("calendar-sync", JSON.stringify(result));
+    // Vigilante diario de respaldos: solo en la pasada de las 08:00 de Chile (11:00 UTC), sin cron adicional.
+    if (new Date().getUTCHours() === 11) {
+      const { runBackupWatchdog } = await import("./backup-watchdog");
+      console.log("backup-watchdog", JSON.stringify(await job("backup-watchdog", () => runBackupWatchdog(env as unknown as Parameters<typeof runBackupWatchdog>[0]))));
+    }
     return result;
   }
   if (cron === AGENDA_CHANGES_CRON) {
