@@ -481,3 +481,6 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 
 ## 2026-11-23 — Dictado: «eliminación de caries / trepanación» no pregunta la superficie
 - Esa frase es un procedimiento realizado, no un hallazgo: ya no genera la aclaración «Falta la superficie del hallazgo».
+
+## 2026-11-23 — Menú: se quita «Ficha clínica»
+- Era lo mismo que «Pacientes»; la entrada del menú se eliminó y, al abrir una ficha, queda marcado «Pacientes». La pantalla de la ficha no cambia.
