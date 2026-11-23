@@ -46,7 +46,8 @@ test("productos: cableado de rutas, rol, kind y respaldo", () => {
   assert.match(read("app/api/images/route.ts"), /Producto biomédico/);
   assert.match(read("components/evolution-rail.tsx"), /rail-producto/);
   assert.match(read("app/page.tsx"), /value:"productos"/);
-  assert.match(read("app/page.tsx"), /item\.kind!=="Producto biomédico"/);
+  assert.doesNotMatch(read("app/page.tsx"), /item\.kind!=="Producto biomédico"/, "la foto del producto también se ve en Imágenes de la ficha");
+  assert.match(read("app/api/images/[id]/route.ts"), /biomedicalProducts\.imageId/);
   assert.match(read("app/drive-backup.ts"), /biomedicalProducts/);
   assert.equal(tabAllowed("recepcion", "productos"), false);
   assert.equal(tabAllowed("asistente", "productos"), false);

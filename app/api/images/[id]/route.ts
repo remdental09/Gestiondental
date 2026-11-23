@@ -2,7 +2,7 @@ import { env } from "cloudflare:workers";
 import { and, eq } from "drizzle-orm";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { getDb } from "@/db";
-import { clinicalImages } from "@/db/schema";
+import { biomedicalProducts, clinicalImages } from "@/db/schema";
 import { IMAGE_CACHE_CONTROL, thumbKey } from "@/lib/image-keys";
 
 export const runtime = "edge";
@@ -37,6 +37,9 @@ export async function DELETE(request: Request, context: Context) {
   if (!env.BUCKET) return fail("Imágenes no disponibles.", 503);
   const image = await owned((await context.params).id, ownerId);
   if (!image) return fail("Imagen no encontrada.", 404);
+  // La foto de la etiqueta de un producto registrado es parte de su trazabilidad: se quita junto con el producto, desde la pestaña Productos.
+  const [linked] = await getDb().select({ id: biomedicalProducts.id }).from(biomedicalProducts).where(and(eq(biomedicalProducts.imageId, image.id), eq(biomedicalProducts.ownerId, ownerId))).limit(1);
+  if (linked) return fail("Esta foto pertenece a un producto del registro de trazabilidad. Quítala desde la pestaña Productos.", 409);
   try {
     await env.BUCKET.delete([image.objectKey, thumbKey(image.objectKey)]);
     await getDb().delete(clinicalImages).where(and(eq(clinicalImages.id, image.id), eq(clinicalImages.ownerId, ownerId)));
