@@ -962,10 +962,17 @@ async function handlePost(request: Request) {
       if (!(await budgetAccess(ownerId, budgetId)).editable) return error(NOT_BUDGET_OWNER, 403);
       const data = decodeBudgetData(existing.items);
       if (index >= data.items.length) return error("La prestación ya no existe en este plan.", 404);
-      if (data.items.length === 1) return error("Es la única prestación del plan; elimina el plan completo desde Presupuestos.", 409);
       const items = data.items.filter((_, itemIndex) => itemIndex !== index);
       const linkedPayments = await db.select({ amount: payments.amount }).from(payments).where(and(eq(payments.ownerId, ownerId), eq(payments.patientId, patientId), eq(payments.budgetId, budgetId)));
       const paid = linkedPayments.reduce((sum, payment) => sum + payment.amount, 0);
+      if (!items.length) {
+        // Era la única prestación: el plan queda vacío y se elimina completo (los planes que nacen de un dictado suelen tener una sola).
+        if (linkedPayments.length) return error("Este plan tiene abonos registrados; no se puede eliminar. Revisa los abonos antes.", 409);
+        await db.delete(budgets).where(and(eq(budgets.id, budgetId), eq(budgets.patientId, patientId), eq(budgets.ownerId, ownerId)));
+        const teamHandle = teamDb();
+        if (teamHandle) await teamHandle.prepare("DELETE FROM budget_authors WHERE owner_id = ? AND budget_id = ?").bind(ownerId, budgetId).run().catch(() => undefined);
+        return Response.json({ removedBudgetId: budgetId });
+      }
       if (budgetTotals(items).total < paid) return error("Al quitar esta prestación el total quedaría bajo los pagos ya registrados. Revisa los abonos antes.", 409);
       const [b] = await db.update(budgets).set({ items: encodeBudgetData(items, data) }).where(and(eq(budgets.id, budgetId), eq(budgets.patientId, patientId), eq(budgets.ownerId, ownerId))).returning();
       return Response.json({ budget: await budgetViewWithAuthor(b, ownerId) });
