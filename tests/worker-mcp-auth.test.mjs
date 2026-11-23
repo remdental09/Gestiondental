@@ -412,7 +412,9 @@ test('entrar con Google deja la sesión pendiente y manda un código al correo; 
   const wrongCode = sent[0].code === '000000' ? '111111' : '000000';
   const wrong = await instance.fetch(withCookie('/auth/codigo', { method: 'POST', body: new URLSearchParams({ codigo: wrongCode }) }), env2, {});
   assert.equal(wrong.status, 400);
-  const right = await instance.fetch(withCookie('/auth/codigo', { method: 'POST', body: new URLSearchParams({ codigo: sent[0].code }) }), env2, {});
+  assert.equal(codePage.headers.get('referrer-policy'), 'same-origin', 'con no-referrer el formulario llegaría con Origin: null');
+  // Como lo envía Chrome desde la pantalla del código: mismo sitio y Origin «null».
+  const right = await instance.fetch(withCookie('/auth/codigo', { method: 'POST', body: new URLSearchParams({ codigo: sent[0].code }), headers: { 'Sec-Fetch-Site': 'same-origin', Origin: 'null' } }), env2, {});
   assert.equal(right.status, 302);
   assert.equal(right.headers.get('location'), '/');
   const after = await instance.fetch(withCookie('/api/clinical'), env2, {});
