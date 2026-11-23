@@ -7,13 +7,13 @@ import { normalizeBudgetItems, itemStatus, withItemStatus } from '../lib/budget-
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 const item = (over) => ({ id: over.id ?? 'i1', tooth: 25, chile: null, surfaces: [], kind: 'realizado', category: 'obturacion', what: 'resina', evidence: '', origin: 'ia+reglas', ...over });
 
-test('línea compacta «2.5 · Resina OD · ✓ realizado», verde y sin presupuesto abierto ofrece presupuestar', () => {
+test('línea compacta «2.5 · Resina OD · ✓ realizado», verde y sin presupuesto abierto NO propone presupuestar', () => {
   const [line] = buildEvolutionLines({ items: [item({ surfaces: ['O', 'D'] })], budgets: [] });
   assert.equal(lineText(line), '2.5 · Resina OD · ✓ realizado');
   assert.equal(line.state, 'ok');
   assert.equal(line.code, '5005018');
   assert.equal(line.pendingBudget, false, 'lo realizado no cuenta como pendiente');
-  assert.equal(line.canBudget, true);
+  assert.equal(line.canBudget, false, 'el dentista arma su propio presupuesto');
 });
 
 test('lo realizado avanza el ítem abierto de la misma pieza y prestación; los de etapas quedan Iniciados', () => {
@@ -25,13 +25,14 @@ test('lo realizado avanza el ítem abierto de la misma pieza y prestación; los 
   assert.equal(nextStatus('corona', 'se cementa corona definitiva', 'iniciada'), 'terminada');
 });
 
-test('diagnóstico y plan nunca se marcan hechos; sin ítem → Presupuestar; con ítem → solo se muestra', () => {
+test('diagnóstico y plan nunca se marcan hechos; nunca propone presupuestar; con ítem → solo se muestra', () => {
   const budgets = [{ id: 3, title: 'P', items: [{ label: 'Endodoncia 4.6', amount: 1, teeth: [46] }] }];
   const lines = buildEvolutionLines({ items: [item({ id: 'a', tooth: 46, kind: 'diagnostico', category: 'lesion_apical', what: 'lesión apical' }), item({ id: 'b', tooth: 16, kind: 'diagnostico', category: 'caries', what: 'caries', surfaces: ['O'] }), item({ id: 'c', tooth: 17, kind: 'diagnostico', category: 'movilidad', what: 'movilidad' })], budgets });
   const a = lines.find(l => l.tooth === 46), b = lines.find(l => l.tooth === 16), c = lines.find(l => l.tooth === 17);
   assert.equal(a.match.to, a.match.from, 'no cambia el estado');
   assert.equal(a.pendingBudget, false);
-  assert.equal(b.pendingBudget, true);
+  assert.equal(b.pendingBudget, false, 'no se propone presupuestar');
+  assert.equal(b.canBudget, false);
   assert.equal(c.canBudget, false, 'movilidad no se presupuesta');
   const [budgetItem] = budgetItemsFor(b, { '5005017': 35000 }, '2026-11-20');
   assert.equal(budgetItem.amount, 35000);
@@ -122,4 +123,13 @@ test('dictado: Guardar / Guardar y presupuestar (N) y líneas al pie de la evolu
   assert.match(ui, /Solo guardar/);
   assert.match(ui, /<EvolutionLinesBlock/);
   assert.match(ui, /line\.kind !== "realizado"/, 'solo lo realizado avanza ítems');
+});
+
+test('una pieza ausente solo se registra como diagnóstico: sin plan de endodoncia ni presupuesto', () => {
+  const lines = buildEvolutionLines({ items: [item({ id: 'x', tooth: 18, kind: 'diagnostico', category: 'ausente', what: 'pieza ausente', surfaces: [] })], budgets: [] });
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].kind, 'diagnostico');
+  assert.notEqual(lines[0].category, 'endodoncia');
+  assert.equal(lines[0].pendingBudget, false);
+  assert.equal(lines[0].canBudget, false);
 });

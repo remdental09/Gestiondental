@@ -221,12 +221,10 @@ export function buildEvolutionLines(input: { items: ClinicalItem[]; perio?: Peri
     if (item.kind === "realizado") {
       if (matches.length === 1 || (matches.length > 1 && matches[0].from === "iniciada" && matches[1].from !== "iniciada")) base.match = matches[0];
       else if (matches.length > 1) { base.options = matches; base.match = matches[0]; base.state = "duda"; base.reason = `Calza con ${matches.length} ítems: elige cuál avanza.`; }
-      base.canBudget = !matches.length && budgetable;
     } else {
       // Diagnóstico o plan: ya presupuestado → se muestra el ítem; si no, «Presupuestar».
       if (matches.length) base.match = { ...matches[0], to: matches[0].from };
-      base.pendingBudget = !matches.length && budgetable;
-      base.canBudget = base.pendingBudget;
+      // El presupuesto lo arma el dentista: el dictado no propone presupuestar.
     }
     lines.push(base);
   }
@@ -248,12 +246,10 @@ export function refreshLine(line: EvolutionLine, budgets: OpenBudget[]): Evoluti
   if (next.kind === "realizado") {
     next.match = matches[0];
     if (matches.length > 1) next.options = matches;
-    next.canBudget = !matches.length && budgetable;
     next.pendingBudget = false;
   } else {
     if (matches.length) next.match = { ...matches[0], to: matches[0].from };
-    next.pendingBudget = !matches.length && budgetable;
-    next.canBudget = next.pendingBudget;
+    next.pendingBudget = false;
   }
   return next;
 }

@@ -546,6 +546,7 @@ export const ITEMS_PROMPT = `13) "lista_clinica": la FUENTE ÚNICA para el odont
 - "codigo_arancel": para "realizado" o "plan", el código de 7 dígitos de la lista de prestaciones candidatas si UNA corresponde claramente; si no, "".
 - "cie11": para "diagnostico" o lo que lo implique (exodoncia por movilidad → enfermedad periodontal DA0C.Z; pieza ausente → DA0A.1), un código CIE-11 del catálogo si es claro; si no, "". No lo uses para afirmar un diagnóstico que no se dictó: es una sugerencia que el odontólogo confirma.
 - "evidencia": cita EXACTA y continua del dictado que contenga la pieza y el hecho.
+Registra solo lo dicho: una pieza ausente es un "diagnostico" de categoría "ausente", y NUNCA genera un elemento "plan" (endodoncia, implante, etc.) que el profesional no haya dicho.
 Todo lo que la nota nombre (cada pieza y cada procedimiento) debe estar en la lista, y nada de la lista puede faltar en la nota.`;
 
 /** Elementos de la IA ya validados (la pieza se resuelve con la misma lógica que los hallazgos). */
