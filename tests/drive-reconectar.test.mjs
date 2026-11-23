@@ -21,3 +21,12 @@ test("el aviso de respaldo ocupa una línea y el detalle aparece al pasar el rat
   assert.match(hidden, /drive-last-check/);
   assert.match(hidden, /Agregar otra cuenta de Drive/);
 });
+
+test("con cientos de fichas, no alcanzar a revisarlas todas al entrar no se informa como fichas pendientes", () => {
+  assert.match(src, /const success = !failed;/, "solo una ficha que falló de verdad cuenta como error");
+  assert.doesNotMatch(src, /complete && !failed/);
+  const section = src.slice(src.indexOf('data-testid="drive-backup-status"'));
+  const details = section.indexOf('data-testid="drive-backup-details"');
+  assert.doesNotMatch(section.slice(0, details), /\{message &&/, "el mensaje largo no ocupa el aviso: va en el detalle");
+  assert.match(section.slice(details), /drive-backup-message/);
+});
