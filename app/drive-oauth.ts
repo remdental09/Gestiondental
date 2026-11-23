@@ -767,11 +767,13 @@ export async function runScheduledDriveBackup(maxPatients = DRIVE_BACKUP_MAX_PER
       while (ownerQuota > 0 && !failedOwners.has(user.userId) && !outOfBudget() && queries.used - ownerStart < ownerQueries) {
         const pageSize = affordablePage(queries, undefined, ownerQueries - (queries.used - ownerStart));
         if (pageSize < 1) break;
-        queries.spend(1 + pageSize * SNAPSHOT_QUERIES);
         let queue: Awaited<ReturnType<typeof listDriveBackupQueue>>;
         try {
           queue = await listDriveBackupQueue(user.userId, after, pageSize, connection.connected_at);
+          // Se descuenta lo que de verdad se revisó (una cuenta con 1 ficha no consume una página entera).
+          queries.spend(1 + queue.scanned * SNAPSHOT_QUERIES);
         } catch (error) {
+          queries.spend(1 + pageSize * SNAPSHOT_QUERIES);
           // Una cuenta con un problema no detiene a las demás ni la constancia de la pasada.
           const message = error instanceof Error ? error.message : "error";
           results.push({ ownerId: user.userId, saved: false, error: message });
@@ -799,7 +801,7 @@ export async function runScheduledDriveBackup(maxPatients = DRIVE_BACKUP_MAX_PER
             if (!tokens.has(user.userId)) { failedOwners.add(user.userId); stoppedBefore = item.patientId; break; } // token refresh failed: skip owner
           }
         }
-        scanned.set(user.userId, (scanned.get(user.userId) ?? 0) + pageSize);
+        scanned.set(user.userId, (scanned.get(user.userId) ?? 0) + queue.scanned);
         after = nextCursor(after, stoppedBefore, queue.nextAfterPatientId, stoppedBefore === null);
         if (stoppedBefore === null && queue.nextAfterPatientId === null) { passComplete.add(user.userId); break; }
         if (stoppedBefore !== null) break;

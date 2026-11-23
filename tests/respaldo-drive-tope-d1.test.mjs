@@ -107,3 +107,9 @@ test("la foto de la ficha lee sus tablas en un solo db.batch (1 consulta del top
   }
   assert.ok(SNAPSHOT_QUERIES <= 10);
 });
+
+test("la pasada descuenta las fichas realmente revisadas, no la página completa", () => {
+  const src = readFileSync(new URL("../app/drive-oauth.ts", import.meta.url), "utf8");
+  assert.match(src, /queries\.spend\(1 \+ queue\.scanned \* SNAPSHOT_QUERIES\)/);
+  assert.match(readFileSync(new URL("../app/drive-backup.ts", import.meta.url), "utf8"), /scanned: selected\.length/);
+});

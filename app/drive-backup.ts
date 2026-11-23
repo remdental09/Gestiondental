@@ -162,6 +162,7 @@ export async function listDriveBackupQueue(ownerId: string, afterPatientId: numb
       digest: s!.digest, attachmentCount: s!.attachmentCount,
     })),
     nextAfterPatientId: hasMore ? selected[selected.length - 1].id : null,
+    scanned: selected.length,
   };
 }
 
