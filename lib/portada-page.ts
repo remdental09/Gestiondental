@@ -34,7 +34,7 @@ body{font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#e
 .hero{position:relative;min-height:100vh;min-height:100dvh;display:flex;align-items:center;overflow:hidden;
  background:#060a17 url(/portada/fondo.webp) 62% center/cover no-repeat}
 .hero::before{content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(6,10,23,.96) 0%,rgba(6,10,23,.86) 30%,rgba(6,10,23,.35) 55%,rgba(6,10,23,0) 72%)}
-.panel{position:relative;width:min(470px,100%);margin-left:clamp(20px,7vw,110px);padding:28px 0}
+.panel{position:relative;width:min(470px,100%);margin-left:clamp(20px,7vw,110px);padding:28px 0 72px}
 .brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:22px;letter-spacing:.2px;color:#fff}
 .brand .word span{color:#5eead4}
 .tag{margin:6px 0 0;font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:#7dd3fc}
