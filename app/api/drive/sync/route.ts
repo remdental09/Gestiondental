@@ -15,9 +15,10 @@ export async function POST(request: Request) {
   }
   try {
     return Response.json(await syncGoogleDrive(user, body), { headers: { "Cache-Control": "no-store" } });
-  } catch {
+  } catch (error) {
+    const reason = error instanceof Error ? error.message.slice(0, 160) : "";
     return Response.json(
-      { error: "No se pudo guardar el respaldo en Google Drive. La ficha clínica sigue guardada en Gestión Dental." },
+      { error: "No se pudo guardar el respaldo en Google Drive. La ficha clínica sigue guardada en Gestión Dental." + (reason ? " Motivo: " + reason : "") },
       { status: 502 },
     );
   }

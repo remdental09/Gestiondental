@@ -46,15 +46,27 @@ export function GoogleDriveBackup() {
     let lastMessage = "";
     try {
       while (!complete && pages < 30) {
-        const response = await fetch("/api/drive/sync", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ afterPatientId }),
-          cache: "no-store",
-          keepalive: true,
-        });
-        const result = await response.json() as SyncResponse;
-        if (!response.ok || !result.connected) throw new Error(result.error || "La cuenta de Drive no está conectada.");
+        // Cada tramo es de pocas fichas; si la conexión falla un momento se reintenta una vez antes de rendirse.
+        let result: SyncResponse | null = null;
+        let lastError = "";
+        for (let attempt = 0; attempt < 2 && !result; attempt++) {
+          try {
+            const response = await fetch("/api/drive/sync", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ afterPatientId }),
+              cache: "no-store",
+              keepalive: true,
+            });
+            const body = await response.json().catch(() => ({})) as SyncResponse;
+            if (!response.ok || !body.connected) throw new Error(body.error || "La cuenta de Drive no está conectada.");
+            result = body;
+          } catch (error) {
+            lastError = error instanceof Error ? error.message : "sin conexión";
+            if (attempt === 0) await new Promise(resolve => setTimeout(resolve, 2500));
+          }
+        }
+        if (!result) throw new Error(lastError || "sin conexión");
         if (result.results?.some(item => !item.saved)) { failed = true; const bad = result.results.find(item => !item.saved && item.message); if (bad?.message) lastMessage = bad.message; }
         complete = Boolean(result.complete);
         afterPatientId = Number(result.nextAfterPatientId || 0);
@@ -66,9 +78,10 @@ export function GoogleDriveBackup() {
         ? "Los respaldos pendientes se sincronizaron con Google Drive."
         : "Hay fichas pendientes de respaldo. Puedes reintentar sin perder los cambios guardados." + (lastMessage ? " Motivo: " + lastMessage : ""));
       return success;
-    } catch {
+    } catch (error) {
       setSyncError(true);
-      setMessage("No se pudo completar el respaldo. Las fichas siguen guardadas en Gestión Dental.");
+      const reason = error instanceof Error ? error.message : "";
+      setMessage("No se pudo completar el respaldo ahora. Las fichas siguen guardadas en Gestión Dental y el respaldo automático continúa cada hora." + (reason ? " Motivo: " + reason : ""));
       return false;
     } finally {
       running.current = false;
