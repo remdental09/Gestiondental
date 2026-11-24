@@ -19,7 +19,7 @@ async function cleanStamp(source: string): Promise<string | null> {
     const result = knockoutBackground(pixels.data, width, height);
     // Si casi no se quitó nada (la foto ya no tenía fondo) o se quitó todo, no sirve.
     if (result.removed < 0.02 || result.removed > 0.97) return null;
-    ctx.putImageData(new ImageData(result.data, width, height), 0, 0);
+    const output = ctx.createImageData(width, height); output.data.set(result.data); ctx.putImageData(output, 0, 0);
     const url = canvas.toDataURL("image/png");
     if (validSignature(url)) return url;
   }
