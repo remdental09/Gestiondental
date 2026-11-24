@@ -17,6 +17,8 @@ import type { ToothDictationOperation } from "@/lib/dictation/tooth-mode";
 import { procedureSessions } from "@/lib/tooth-evolution-milestones";
 import { chileTodayIso } from "@/lib/dictation/voice-command";
 import { OdontogramDateBar } from "@/components/odontogram-date-bar";
+import { EvolutionChangesSheet, type ChangesDecision } from "@/components/evolution-changes-sheet";
+import type { ChangeCard } from "@/lib/evolution-changes";
 import { chartAt, chartDates } from "@/lib/odontogram-timeline";
 import { BUILD_TIME, buildStamp } from "@/lib/build-info";
 import { emptyAddress, formatAddress, type PatientAddress } from "@/lib/patient-address";
@@ -250,6 +252,8 @@ export default function Home(){
   const requestIdRef=useRef("");
   const [clinicalReview,setClinicalReview]=useState<ClinicalReview|null>(null);
   const reviewResolver=useRef<((confirmed:boolean)=>void)|null>(null);
+  const [changesAsk,setChangesAsk]=useState<{cards:ChangeCard[];extra:string[];resolve:(decision:ChangesDecision)=>void}|null>(null);
+  const askChanges=(cards:ChangeCard[],extra:string[])=>new Promise<ChangesDecision>(resolve=>setChangesAsk({cards,extra,resolve:decision=>{setChangesAsk(null);resolve(decision)}}));
   const finishReview=(confirmed:boolean)=>{reviewResolver.current?.(confirmed);reviewResolver.current=null;setClinicalReview(null)};
   const reviewChange=(review:ClinicalReview)=>new Promise<boolean>(resolve=>{
     if(reviewResolver.current){resolve(false);return}
@@ -855,13 +859,39 @@ export default function Home(){
         if(!noteBody.trim())throw new Error("Escribe o dicta el registro clínico antes de guardar.");
         const body=noteBody.trim(),crown=cementedCrownFromEvolution(body),implants=installedImplantTeeth(body);
         const details=[...(implants.length?[`Posible actualización automática del odontograma: implante en FDI ${implants.map(formatFdi).join(", ")}.`]:[]),...(crown?[`Posible actualización automática: corona${crown.onImplant?" sobre implante":""} en FDI ${formatFdi(crown.tooth)}${crown.material?`, material ${crown.material}`:""}${crown.shade?`, color ${crown.shade}`:""}.`]:[])];
-        if(!await reviewChange({patientId:selectedId,heading:noteTitle.trim()||"Evolución clínica",details,body}))return;
+        // Ventana «Esto va a cambiar en el odontograma»: lo que la evolución escrita registraría, para aceptarlo con un toque.
+        let accepted:import("@/lib/dictation/proposal").OdontogramChange[]=[],sheetShown=false;
+        try{
+          const chart=toothStatuses[selectedId];
+          if(chart){
+            const {proposeChangesFromEvolution}=await import("@/lib/evolution-changes");
+            const proposal=proposeChangesFromEvolution(body,chileTodayIso(),chart as never,[...implants,...(crown?[crown.tooth]:[])]);
+            if(proposal.cards.length){
+              sheetShown=true;
+              const decision=await askChanges(proposal.cards,details);
+              if(decision.action==="cancel")return;
+              if(decision.action==="apply")accepted=proposal.items.filter(item=>decision.ids.includes(item.id));
+            }
+          }
+        }catch{if(sheetShown)return}
+        if(!sheetShown&&!await reviewChange({patientId:selectedId,heading:noteTitle.trim()||"Evolución clínica",details,body}))return;
         requestIdRef.current ||= crypto.randomUUID();
         const data=await persist({action:"addNote",patientId:selectedId,title:noteTitle.trim(),body:noteBody.trim(),requestId:requestIdRef.current});
         setNotes(previous=>[data.note,...previous.filter(n=>n.id!==data.note.id)]);
-        const savedOdontogram=data.chart?.odontogram;
+        let savedOdontogram=data.chart?.odontogram;
+        let appliedMessage="";
+        if(accepted.length&&savedOdontogram){
+          try{
+            const {planChartWrites}=await import("@/lib/dictation/proposal");
+            for(const [index,action] of planChartWrites(selectedId,savedOdontogram as never,savedOdontogram as never,accepted).entries()){
+              const result=await persist({...action,sourceEvolutionId:data.note.id,sourceActionId:(data.note.id+":"+(action.sourceActionId||"chart-"+index)).slice(0,180)});
+              if(result.odontogram)savedOdontogram=result.odontogram;
+            }
+            appliedMessage=`Odontograma actualizado: FDI ${[...new Set(accepted.map(item=>item.tooth))].map(formatFdi).join(", ")}.`;
+          }catch(e){appliedMessage=`Evolución guardada, pero no se pudo aplicar todo al odontograma: ${e instanceof Error?e.message:"error"}. Revísalo en la ficha.`}
+        }
         if(savedOdontogram)setToothStatuses(previous=>({...previous,[selectedId]:savedOdontogram}));
-        setChartMessage(data.chart?.warning|| (data.chart?.updatedTeeth?.length?`Odontograma actualizado: FDI ${data.chart.updatedTeeth.map(formatFdi).join(", ")}.`:""));
+        setChartMessage(appliedMessage||data.chart?.warning|| (data.chart?.updatedTeeth?.length?`Odontograma actualizado: FDI ${data.chart.updatedTeeth.map(formatFdi).join(", ")}.`:""));
       }
       if(modal==="budget"){
         const parentHasUndefined=alternativeParentBudgetId!==null&&(patientBudgets.find(b=>b.id===alternativeParentBudgetId)?.items.some(item=>item.amount===0)??false);
@@ -1082,6 +1112,7 @@ export default function Home(){
       </main></SpaceRoleContext.Provider></div>
     {railNotice&&<div role="status" aria-live="polite" className={`fixed inset-x-3 bottom-[max(12px,env(safe-area-inset-bottom))] z-50 mx-auto flex max-w-lg items-start gap-3 rounded-xl border p-3 text-base shadow-lg print:hidden ${railNotice.tone==="ok"?"border-emerald-300 bg-emerald-50 text-emerald-950":"border-amber-300 bg-amber-50 text-amber-950"}`} data-testid="rail-notice"><p className="flex-1">{railNotice.text}</p><button type="button" className="min-h-11 min-w-11 rounded-lg font-semibold" aria-label="Cerrar aviso" onClick={()=>setRailNotice(null)}>✕</button></div>}
     <Suspense fallback={null}><AnnulEvolutionDialog note={annulTarget} onClose={()=>setAnnulTarget(null)} onConfirm={(evolutionId,mode,reason,replacement)=>annulEvolution(annulTarget?.patientId??selectedId,evolutionId,mode,reason,replacement)}/></Suspense>
+    {changesAsk&&<EvolutionChangesSheet cards={changesAsk.cards} extra={changesAsk.extra} patientName={patients.find(item=>item.id===selectedId)?.name||"Paciente"} onDecide={changesAsk.resolve}/>}
     <Dialog open={clinicalReview!==null} onOpenChange={open=>{if(!open)finishReview(false)}}><DialogContent className="max-h-[90vh] supports-[height:1dvh]:max-h-[90dvh] overflow-y-auto bg-white sm:max-w-xl"><DialogHeader><DialogTitle>Revisar antes de guardar</DialogTitle><DialogDescription>Confirma el paciente y los datos clínicos. Puedes volver a corregirlos sin guardar.</DialogDescription></DialogHeader><div className="space-y-3 text-sm"><p>Paciente: <strong>{patients.find(item=>item.id===clinicalReview?.patientId)?.name||"Paciente no identificado"}</strong></p><p className="font-semibold">{clinicalReview?.heading}</p>{clinicalReview?.body&&<div className="max-h-64 overflow-y-auto whitespace-pre-wrap rounded-lg border p-3">{clinicalReview.body}</div>}{clinicalReview?.details.length?<ul className="list-inside list-disc space-y-1 rounded-lg bg-[#f7f6f9] p-3">{clinicalReview.details.map((item,index)=><li key={index}>{item}</li>)}</ul>:<p className="rounded-lg bg-amber-50 p-3 text-amber-950">No se detectaron cambios automáticos en los diagramas. Comprueba si corresponde registrarlos manualmente.</p>}</div><DialogFooter><Button variant="outline" onClick={()=>finishReview(false)}>Volver y corregir</Button><Button className="bg-[#473a6d] hover:bg-[#3a2f5a]" onClick={()=>finishReview(true)}>Confirmar y guardar</Button></DialogFooter></DialogContent></Dialog>
     <Dialog open={modal!==null} onOpenChange={v=>{if(!v)resetModal()}}><DialogContent className={`max-h-[90vh] supports-[height:1dvh]:max-h-[90dvh] overflow-y-auto border-[#dddbe6] bg-white ${modal === "budget" || modal === "editBudget" ? "sm:max-w-2xl" : modal === "patient" ? "sm:max-w-6xl" : modal === "editPatient" ? "sm:max-w-3xl" : "sm:max-w-md"}`}><DialogHeader><DialogTitle>{modal==="patient"?"Nuevo paciente":modal==="editPatient"?"Editar datos del paciente":modal==="note"?"Nueva evolución":modal==="budget"?(alternativeParentBudgetId?"Nueva alternativa de tratamiento":"Nuevo plan de tratamiento"):modal==="editBudget"?"Editar plan de tratamiento":modal==="editAppointment"?"Editar cita":"Nueva cita"}</DialogTitle><DialogDescription>{modal === "budget" || modal === "editBudget" ? (alternativeParentBudgetId ? "Esta cotización no recibe pagos hasta establecerla como plan principal." : "Agrupa las prestaciones por fases y revisa los valores antes de guardar.") : "Los cambios se guardan en la ficha clínica. La fecha de cada evolución se asigna automáticamente."}</DialogDescription></DialogHeader><div className={`space-y-4 py-2 ${modal==="patient"?"[&_input]:h-10 [&_input]:text-sm [&_select]:!h-10 [&_select]:!text-sm [&_label]:text-[13px]":modal==="editPatient"?"[&_input]:h-12 [&_input]:text-base [&_label]:text-base":""}`}>
         

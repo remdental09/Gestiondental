@@ -1173,13 +1173,13 @@ function faceWord(tooth: number, surface: OdontogramSurface): string {
   return "distal";
 }
 
-function facesLabel(tooth: number, surfaces: OdontogramSurface[]): string {
+export function facesLabel(tooth: number, surfaces: OdontogramSurface[]): string {
   const sorted = [...surfaces].sort((a, b) => SURFACE_ORDER.indexOf(a) - SURFACE_ORDER.indexOf(b));
   if (sorted.length === 1) return faceWord(tooth, sorted[0]);
   return sorted.map((surface) => surface === "O" && tooth % 10 <= 3 ? "I" : surface).join("-");
 }
 
-function describeFinding(tooth: number, finding: SurfaceFinding, surfaces: OdontogramSurface[], root = false): string {
+export function describeFinding(tooth: number, finding: SurfaceFinding, surfaces: OdontogramSurface[], root = false): string {
   const faces = facesLabel(tooth, surfaces);
   if (finding.condition === "caries") {
     const name = finding.depth && isCariesDepth(finding.depth) ? CARIES_DEPTH_LABEL[finding.depth].toLowerCase() : "caries (profundidad no consignada)";
