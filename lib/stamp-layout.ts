@@ -16,7 +16,7 @@ export type StampLayout = {
 export type PrintableStampLayout = StampLayout & { mergedMark?: string };
 
 export const DEFAULT_STAMP_LAYOUT: StampLayout = { dx: 0, dy: 0, scale: 1, opacity: 1, knockout: false, onSignature: false, sigDx: 0, sigDy: 0, sigScale: 1, merged: false, mergedBox: null };
-export const STAMP_LIMITS = { dx: [-12, 12], dy: [-24, 4], scale: [0.5, 2], opacity: [0.3, 1], sigDx: [-12, 12], sigDy: [-24, 6], sigScale: [0.5, 2] } as const;
+export const STAMP_LIMITS = { dx: [-12, 12], dy: [-24, 4], scale: [0.5, 2], opacity: [0.3, 1], sigDx: [-12, 12], sigDy: [-24, 6], sigScale: [0.5, 4] } as const;
 /** Medidas del recuadro de la firma en cm (mismas que SIGNATURE_BOX_CM; se repiten aquí para que esta lógica no dependa de otro módulo). */
 export const SIGNATURE_BASE_CM = { width: 6.5, height: 2.7 } as const;
 
