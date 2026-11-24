@@ -151,6 +151,10 @@ function categoriesOf(plain: string): ItemCategory[] {
   const found = CATEGORY_RULES.filter(([, re]) => re.test(plain)).map(([category]) => category);
   // «conexión de implante», «implante con minipilar»: es el pilar, no un implante nuevo.
   if (found.includes("pilar") && found.includes("implante") && !/(?:instala|coloca)\w*\s+(?:un\s+|el\s+|los\s+|dos\s+|tres\s+)?implantes?|implantes?\s+(?:instalad|colocad)/.test(plain)) found.splice(found.indexOf("implante"), 1);
+  // «Instalación de corona sobre implante», «corona sobre pilar TiBase»: se instala la corona; el implante ya estaba.
+  if (found.includes("corona") && found.includes("implante") && /(?:instalacion|cementacion|prueba)\s+(?:y\s+cementacion\s+)?de\s+(?:la\s+)?coronas?|(?:instala|cementa)\w*\s+(?:la\s+|una\s+)?coronas?/.test(plain) && !/(?:instala|coloca)\w*\s+(?:un\s+|el\s+|los\s+|dos\s+|tres\s+)?implantes?|instalacion\s+de\s+(?:un\s+)?implante/.test(plain)) found.splice(found.indexOf("implante"), 1);
+  // «Corona sobre pilar TiBase»: el pilar es parte de la corona, no una conexión de implante.
+  if (found.includes("corona") && found.includes("pilar") && /(?<![a-z])coronas?\b(?:[^.;]|\.(?=\d)){0,60}(?:sobre\s+(?:el\s+)?pilar|tibase)/.test(plain) && !/(?<![a-z])(?:conexion|se\s+conecta|conecto)(?![a-z])/.test(plain)) found.splice(found.indexOf("pilar"), 1);
   // Lo que se extrae no está «ausente» como hallazgo aparte; una prótesis sobre un puente es el puente.
   if (found.includes("exodoncia") && found.includes("ausente")) found.splice(found.indexOf("ausente"), 1);
   // «Control post exodoncia», «zona donde se realizó la exodoncia», «se deriva para exodoncia»: no es una extracción de hoy.
