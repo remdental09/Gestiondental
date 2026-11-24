@@ -276,6 +276,10 @@ export function ClinicalDictation({
   // Prestaciones del plan que NO se marcarán como realizadas aunque la evolución las cierre (el profesional las destildó).
   const [keepPending, setKeepPending] = useState<Set<string>>(new Set());
   const [teeth, setTeeth] = useState<ReviewTooth[]>([]);
+  // Revisión simple por defecto (evolución + odontograma); el detalle completo se abre a pedido y entonces se aplica lo que se acepte allí.
+  const [detail, setDetail] = useState(false);
+  const detailRef = useRef(false);
+  const toggleDetail = (value: boolean) => { detailRef.current = value; setDetail(value); };
   const [budgets, setBudgets] = useState<ReviewBudget[]>([]);
   const [fichaItems, setFichaItems] = useState<ReviewFicha[]>([]);
   const [notRecorded, setNotRecorded] = useState<string[]>([]);
@@ -501,8 +505,8 @@ export function ClinicalDictation({
         setLineSelected(new Set());
         { const editable = openBudgets.filter((b) => b.editable !== false); setLineTarget(editable.length ? String(editable[0].id) : "new"); }
       }
-      setFichaItems((data.proposal.ficha ?? []).map((item) => ({ ...item, decision: patient ? "accepted" : "rejected" })));
-      setPriorEndoItems(onPriorEndo ? (data.proposal.priorEndo ?? []).map((item) => ({ id: item.id, tooth: item.tooth, year: item.year, evidence: item.evidence, decision: "accepted" as const })) : []);
+      setFichaItems((data.proposal.ficha ?? []).map((item) => ({ ...item, decision: patient && detailRef.current ? "accepted" : "rejected" })));
+      setPriorEndoItems(onPriorEndo ? (data.proposal.priorEndo ?? []).map((item) => ({ id: item.id, tooth: item.tooth, year: item.year, evidence: item.evidence, decision: detailRef.current ? "accepted" as const : "rejected" as const })) : []);
       setNotRecorded([]);
       requestId.current = "";
       session.current = crypto.randomUUID();
@@ -511,15 +515,15 @@ export function ClinicalDictation({
       setCorrections(data.proposal.corrected?.corrections ?? []);
       setAnswers({});
       setPerioItems([
-        ...data.proposal.perio.map((item) => ({ id: item.id, toothText: formatFdi(item.tooth), site: item.site, depthText: String(item.depth), bleeding: item.bleeding ?? false, suppuration: item.suppuration ?? false, decision: "accepted" as const, evidence: item.evidence ?? item.sourceText, origin: item.origin, pending: false })),
+        ...data.proposal.perio.map((item) => ({ id: item.id, toothText: formatFdi(item.tooth), site: item.site, depthText: String(item.depth), bleeding: item.bleeding ?? false, suppuration: item.suppuration ?? false, decision: detailRef.current ? "accepted" as const : "rejected" as const, evidence: item.evidence ?? item.sourceText, origin: item.origin, pending: false })),
         ...(data.proposal.perioPending ?? []).map((item) => ({ id: item.id, toothText: formatFdi(item.tooth), site: item.site ?? "" as const, depthText: item.depth === null ? "" : String(item.depth), bleeding: item.bleeding, suppuration: item.suppuration, decision: "rejected" as const, evidence: item.evidence, origin: item.origin, pending: true })),
       ]);
-      setRecessionItems((data.proposal.recession ?? []).map((item) => ({ ...item, decision: "accepted" as const, toothText: formatFdi(item.tooth), mmText: String(item.mm) })));
-      setClassItem(data.proposal.perioClassification ? { ...data.proposal.perioClassification, decision: "accepted" } : null);
-      setMobilityItems((data.proposal.mobility ?? []).map((item) => ({ ...item, decision: "accepted", toothText: formatFdi(item.tooth) })));
+      setRecessionItems((data.proposal.recession ?? []).map((item) => ({ ...item, decision: detailRef.current ? "accepted" as const : "rejected" as const, toothText: formatFdi(item.tooth), mmText: String(item.mm) })));
+      setClassItem(data.proposal.perioClassification ? { ...data.proposal.perioClassification, decision: detailRef.current ? "accepted" : "rejected" } : null);
+      setMobilityItems((data.proposal.mobility ?? []).map((item) => ({ ...item, decision: detailRef.current ? "accepted" : "rejected", toothText: formatFdi(item.tooth) })));
       setPaymentItems((data.proposal.payments ?? []).map((item) => ({
         ...item,
-        decision: "accepted",
+        decision: detailRef.current ? "accepted" : "rejected",
         amountText: String(item.amount),
         methodValue: item.method ?? "",
         budgetId: suggestedPaymentBudget(item, [], budgetOptions),
@@ -530,7 +534,7 @@ export function ClinicalDictation({
       setDxSearch("");
     setAnsweredDxPrompts([]);
       setDismissedNotices(new Set());
-      setAppointmentItems((data.proposal.appointments ?? []).map((item) => ({ ...item, decision: item.day && item.time && !item.timeDoubt ? "accepted" : "rejected", dayValue: item.day ?? "", timeValue: item.time ?? "" })));
+      setAppointmentItems((data.proposal.appointments ?? []).map((item) => ({ ...item, decision: detailRef.current && item.day && item.time && !item.timeDoubt ? "accepted" : "rejected", dayValue: item.day ?? "", timeValue: item.time ?? "" })));
       const control = parseControlFromText(text, chileTodayIso());
       setControlItem(control ? { ...control, note: "", decision: "rejected" } : null);
     } catch (cause) {
@@ -815,7 +819,7 @@ export function ClinicalDictation({
         await persist(linkedAction);
       }
       // Lo que la evolución da por terminado y sigue pendiente en el presupuesto se marca realizado (salvo lo que el profesional destildó).
-      for (const advance of advances) {
+      for (const advance of detail ? advances : []) {
         const link = advance.closable;
         if (!link || keepPending.has(linkKey(link))) continue;
         await once("plan-done:" + linkKey(link), async () => { await persist({ action: "setBudgetItemDone", patientId, budgetId: link.budgetId, index: link.index, done: true, doneOn: attentionDate || chileTodayIso() }); return 1; });
@@ -823,7 +827,7 @@ export function ClinicalDictation({
       // Líneas por pieza: lo realizado avanza su ítem (Iniciada/Terminada); nunca lo diagnosticado o planificado.
       const closedByAdvances = new Set(advances.flatMap((advance) => advance.closable && !keepPending.has(linkKey(advance.closable)) ? [linkKey(advance.closable)] : []));
       const lineDate = attentionDate || chileTodayIso();
-      for (const line of lines) {
+      for (const line of detail ? lines : []) {
         const match = line.match;
         if (line.kind !== "realizado" || !match || match.to === match.from || closedByAdvances.has(`${match.budgetId}:${match.index}`)) continue;
         try {
@@ -1165,6 +1169,7 @@ export function ClinicalDictation({
                 <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-[#615f73]"><span>Una vez guardada, la evolución queda cerrada: solo puede anularse y registrarse otra.</span>{proposal.evolution && (evolutionBody !== proposal.evolution.body || evolutionTitle !== proposal.evolution.title) && <button type="button" className="font-semibold text-[#473a6d] underline" onClick={() => { if (window.confirm("¿Descartar tus cambios y volver al texto propuesto?")) { setEvolutionTitle(proposal.evolution?.title ?? ""); setEvolutionBody(proposal.evolution?.body ?? ""); } }}>Volver al texto propuesto</button>}</div>
               </> : <p className="mt-3 text-[#6b6a7c]">El dictado no produjo una evolución.</p>}
             </section>
+            {detail && <>
             {lines.length > 0 && <EvolutionLinesBlock lines={lines} onChange={setLines} budgets={openBudgets} selected={lineSelected} onToggle={(id) => setLineSelected((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; })} target={lineTarget} onTarget={setLineTarget} disabled={saving || !!result?.ok} onRetooth={(from, to) => setTeeth((current) => current.map((entry) => entry.tooth === from ? { ...entry, tooth: to, toothText: formatFdi(to) } : entry))} />}
             {advances.length > 0 && <section className="rounded-xl border border-[#dddbe6] p-4" data-testid="dictation-advances">
               <h3 className="font-semibold">Tratamientos que avanza esta evolución</h3>
@@ -1270,7 +1275,27 @@ export function ClinicalDictation({
             </section>
               </div>
             </details>
-            <details className="rounded-xl border border-[#dddbe6] bg-white p-3" data-testid="dictation-structured-review">
+            </>}
+            <section className="space-y-3" data-testid="dictation-odontogram-simple">
+              <h3 className="text-xl font-bold text-[#2b2540]">Esto va a cambiar en el odontograma</h3>
+              {teeth.filter((item) => !item.incompleteCaries).length === 0 && <p className="rounded-xl border border-dashed border-[#dddbe6] p-3 text-[#6b6a7c]">Sin cambios de odontograma.</p>}
+              {teeth.map((item, index) => {
+                if (item.incompleteCaries) return null;
+                const currentStatus = odontogram.teeth[item.tooth] || "Sin hallazgos";
+                const nextStatus = item.kind === "crown" ? "Corona" : item.status || currentStatus;
+                return <article key={item.id} className={`rounded-2xl border p-4 ${item.decision === "accepted" ? "border-[#473a6d] bg-[#f5f2fb]" : "border-[#dddbe6] opacity-70"}`} data-testid="dictation-tooth-simple">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-xl font-bold text-[#2b2540]">{item.numberingLabel}</p>
+                    <Decision value={item.decision} onChange={(decision) => setTeeth((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, decision } : entry))} />
+                  </div>
+                  {item.kind === "surface" ? <p className="mt-2 text-lg"><span className="text-[#6b6a7c]">Cara {item.surface ? surfaceLabel[item.surface] : "sin registrar"}: </span><ChangeHighlight current={findingText(item.surface ? odontogram.surfaces[item.tooth]?.[item.surface] : undefined)} next={findingText(item.finding)} /></p>
+                    : <p className="mt-2 text-lg"><span className="text-[#6b6a7c]">Estado general: </span><ChangeHighlight current={currentStatus} next={nextStatus} /></p>}
+                  {item.advisory && <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">{item.advisory}</p>}
+                </article>;
+              })}
+            </section>
+            <button type="button" className="text-sm font-semibold text-[#473a6d] underline" onClick={() => toggleDetail(!detail)} data-testid="dictation-detail-toggle">{detail ? "Ocultar el detalle" : "Ver todo el detalle (presupuesto, pagos, citas, periodontograma…)"}</button>
+            {detail && <details className="rounded-xl border border-[#dddbe6] bg-white p-3" data-testid="dictation-structured-review">
               <summary className="cursor-pointer font-medium text-[#3b3355]">Revisar campos estructurados (opcional)</summary>
               <div className="mt-4 space-y-4">
             <section className="space-y-3">
@@ -1509,7 +1534,7 @@ export function ClinicalDictation({
               </article>)}
             </section>
               </div>
-            </details>
+            </details>}
           </div>}
           {result && <div role="status" className={`rounded-lg p-3 ${result.ok ? "bg-emerald-50 text-emerald-950" : "bg-rose-50 text-rose-950"}`}>
             <p className="font-semibold">{result.ok ? "Guardado y releído." : "La relectura encontró diferencias."}</p>
