@@ -1449,7 +1449,7 @@ const LIKELY_DIAGNOSES: Record<"extraccion" | "endodoncia" | "restauracion" | "c
 const ENDO_DONE = /(?<!\p{L})(?:endodoncia|tratamiento\s+de\s+(?:conductos?|canales)|pulpectom\p{L}*|biopulpectom\p{L}*|necropulpectom\p{L}*|pulpotom\p{L}*|trepanaci\p{L}*|conductometr\p{L}*|obturaci[oó]n\s+de\s+conductos?)(?!\p{L})/iu;
 const RESTORATION_DONE_RAW = /(?<!\p{L})(?:obturaci[oó]n|restauraci[oó]n|resina|composite|amalgama|ion[oó]mero|tapadura|empaste)(?!\p{L})/iu;
 /** Obturación de conductos, retrógrada con MTA, ferulización con resina… no son restauraciones de superficie. */
-const NOT_A_RESTORATION = /(?<!\p{L})(?:conductos?|intraconducto|blanqueamiento\s+intracoronari\p{L}*|tope\s+cervical|gutapercha|retr[oó]grad\p{L}*|apicectom\p{L}*|ferul\p{L}*|f[eé]rula|alambre|mta)(?!\p{L})/iu;
+const NOT_A_RESTORATION = /(?<!\p{L})(?:conductos?|recement\p{L}*|intraconducto|blanqueamiento\s+intracoronari\p{L}*|tope\s+cervical|gutapercha|retr[oó]grad\p{L}*|apicectom\p{L}*|ferul\p{L}*|f[eé]rula|alambre|mta)(?!\p{L})/iu;
 const RESTORATION_DONE = { test: (text: string) => RESTORATION_DONE_RAW.test(text) && !NOT_A_RESTORATION.test(text) };
 const HYGIENE_DONE = /(?<!\p{L})(?:destartraje|detartraje|tartrectom\p{L}*|raspado|alisado\s+radicular|pulido\s+radicular|profilaxis|instrumentaci[oó]n\s+subgingival)(?!\p{L})/iu;
 /** La causa o el diagnóstico ya están dichos («por caries», «por fractura», «diagnóstico…»): no se pregunta. */
@@ -1956,6 +1956,8 @@ export function structureTranscript(transcript: string, options: { today?: strin
       if (distinct.size === 1 && near.every((m) => m.ok)) mentions = [...distinct.values()];
     }
     // «El sellante no se realiza», «destartraje en el grupo V»: una negación o un sector no es una pieza que falte.
+    // «Se utiliza Denticlean, capa híbrida, adhesivo y resina…»: los pasos de una restauración ya registrada; y un plan no es un hallazgo sin pieza.
+    if (!mentions.length && (status || surfaceResult) && (isPlan(sentence) || MATERIAL_STEPS_ONLY.test(sentence))) continue;
     if (!mentions.length && (status || surfaceResult) && (/(?<!\p{L})no\s+se\s+(?:realiz|efect[uú]|colo|inst)\p{L}*|(?<!\p{L})(?:grupo|sextante|sector)\s+(?:[IV]{1,3}|[1-6])(?!\p{L})/iu.test(sentence))) continue;
     if (!mentions.length && (status || surfaceResult)) {
       clarifications.push(`Falta una pieza identificable en: «${clip(sentence)}».`);
@@ -3678,6 +3680,15 @@ function insertProcedureLines(body: string, additions: string[]): string {
   return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
+/** Al menos el 70 % de las palabras de 4 o más letras de `line` aparecen en `text` (misma idea con otra redacción). */
+function mostlyCovered(line: string, text: string): boolean {
+  const words = (value: string) => value.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().match(/[a-z0-9]{4,}/g) ?? [];
+  const wanted = [...new Set(words(line))];
+  if (wanted.length < 2) return false;
+  const have = new Set(words(text));
+  return wanted.filter((word) => have.has(word)).length / wanted.length >= 0.7;
+}
+
 function completeProcedureSection(noteBody: string, aiProcedures: ProcedureItem[], localBody: string, clarifications: string[]): string {
   const localProcedures = noteSectionLines(localBody, PROCEDURE_SECTION);
   if (!localProcedures.length) return noteBody;
@@ -3696,13 +3707,18 @@ function completeProcedureSection(noteBody: string, aiProcedures: ProcedureItem[
     if (existingNote.some((noteLine) => procedureTextMatches(line, noteLine))) continue;
     if (additions.some((addition) => procedureTextMatches(line, addition))) continue;
     // La comparación léxica no demuestra que falte un hecho: no pegar dictado crudo en una nota redactada.
+    // Si casi todas las palabras de la línea ya están en el procedimiento de la nota (solo cambió la redacción), no hay nada que revisar.
+    if (mostlyCovered(line, existingNote.join(" "))) continue;
     clarifications.push(`Revisa que la evolución incluya este procedimiento y sus detalles: «${line}». No se añadió automáticamente para evitar duplicaciones.`);
   }
   return insertProcedureLines(noteBody, additions);
 }
 
+/** Frase que solo lista materiales o pasos («Se utiliza Denticlean, capa híbrida, adhesivo Single Bond y resina Filtek Z250.»). */
+const MATERIAL_STEPS_ONLY = /^\s*(?:se\s+)?(?:utiliza|emplea|usa|aplica)\p{L}*\s+(?:\p{L}+\s+)?(?:denticlean|capa\s+h[ií]brida|adhesivo|resina|clorhexidina)(?!\p{L})/iu;
+
 /** Actos que no son un hallazgo de superficie (cierre de chimenea, muñón, alargamiento, sellado provisorio, algodón…): no se pregunta la cara. */
-const NOT_A_SURFACE_ACT = /(?<!\p{L})(?:chimenea|mu[ñn][oó]n\p{L}*|alargamiento|provisori\p{L}*|sellado|IRM|algod[oó]n|blanqueamiento\s+(?:intracameral|intracoronari\p{L}*)|pulido\s+de\s+la\s+restauraci[oó]n)(?!\p{L})/iu;
+const NOT_A_SURFACE_ACT = /(?<!\p{L})(?:chimenea|mu[ñn][oó]n\p{L}*|alargamiento|provisori\p{L}*|sellado|IRM|algod[oó]n|blanqueamiento\s+(?:intracameral|intracoronari\p{L}*)|pulido\s+de\s+la\s+restauraci[oó]n|(?:retir\p{L}*|remo[cv]\p{L}*|remuev\p{L}*)\s+(?:de\s+)?(?:la\s+|las\s+|el\s+|los\s+)?(?:amalgamas?|restauraci\p{L}*|resinas?|coronas?)|recement\p{L}*|desalojo|sellantes?|posible\s+lesi[oó]n|pendiente\s+de\s+evaluaci[oó]n)(?!\p{L})/iu;
 
 /** Todas las palabras de 3 o más letras de `phrase` están en el dictado: la IA solo juntó lo que se dijo. */
 function wordsCovered(phrase: string, transcript: string): boolean {

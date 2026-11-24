@@ -347,11 +347,13 @@ export function resolveSpokenTime(text: string): SpokenTime | null {
 
 const APPOINTMENT_CUE_FOLDED = /\b(?:proxim[ao]\s+(?:cita|control|sesion|atencion|hora)|(?:se\s+)?(?:cita|agenda|reagenda|cito|agendo)\s+(?:para|el|la|al|en|control)|control\s+(?:el\s+(?:\d|lunes|martes|miercoles|jueves|viernes|sabado|domingo|proxim[ao]|dia|mes|hoy|manana|pasado)|en|para)|vuelve\s+(?:el|en|a\s+control)|nos\s+vemos\s+(?:el|en|la|para|al|dentro)|(?:volver|regresar|regresa)\s+en|nueva\s+(?:cita|hora)|citar\s+(?:el|en|para)|se\s+controla(?:ra)?\s+(?:en|para|dentro|el\s+(?:\d|lunes|martes|miercoles|jueves|viernes|sabado|domingo|proxim[ao]|dia|mes|hoy|manana|pasado)))\b/;
 /** «Para la próxima sesión se planifican fotografías y escaneo»: es plan de tratamiento, no una cita que agendar (sin «cita», «control», «hora» ni «agenda»). */
-const SESSION_PLAN_FOLDED = /\b(?:proxima|siguiente)\s+sesion\b/;
+const SESSION_PLAN_FOLDED = /\b(?:proxima|siguiente)\s+(?:sesion|cita|hora|atencion)\b/;
+const BARE_NEXT_SESSION_FOLDED = /^\W*(?:en|para)\s+la\s+(?:proxima|siguiente)\s+(?:sesion|cita|hora|atencion)\W*$/;
 const PLAN_VERB_FOLDED = /\b(?:se\s+(?:evaluar|planific|realizar|tomar|har|indic|coloc|instalar|cement)\w*|evaluar|planific\w*)/;
 export const isAppointmentText = (text: string) => {
   const folded = fold(text);
-  if (SESSION_PLAN_FOLDED.test(folded) && PLAN_VERB_FOLDED.test(folded) && !/\b(?:cita|citar|control|hora|agend\w*)\b/.test(folded)) return false;
+  if (SESSION_PLAN_FOLDED.test(folded) && PLAN_VERB_FOLDED.test(folded) && !/\b(?:citar|se\s+cita|control|agend\w*|reagend\w*)\b/.test(folded)) return false;
+  if (BARE_NEXT_SESSION_FOLDED.test(folded)) return false;
   return APPOINTMENT_CUE_FOLDED.test(folded);
 };
 
