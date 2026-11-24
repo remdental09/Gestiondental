@@ -623,6 +623,8 @@ const SELF_FIX_TOOTH = new RegExp(`(?<![\\p{L}\\d.])((?:pieza|diente|(?:en\\s+)?
 // «…la 2.4 caries mesial, no, la 2.5»: un «no» seguido de otra pieza con punto FDI también corrige.
 // Solo si la pieza nueva cierra la frase («…, no, la 2.5.» o «…, no, la 2.5, caries…»): «caries no la 4.6 sana» no se toca.
 const SELF_FIX_TOOTH_NO = /(?<![\p{L}\d.])(\d\.\d)((?:(?!\d\.\d|\bpieza\b|\bdiente\b)[^.;\n])*?)[,\s]+no[,\s]+(?:es\s+)?(?:la|el|(?:pieza|diente))\s+(\d\.\d)(?![\d.]?\d)(?=\s*(?:[,.;\n]|$))/giu;
+// «la muela 36 no, la 46 perdón»: la pieza equivocada, un «no», la correcta y el «perdón» al final. Solo con «muela/pieza/diente» delante.
+const SELF_FIX_TOOTH_NO_PARDON = /(?<![\p{L}\d.])((?:la\s+|el\s+)?(?:muela|pieza|diente)\s+)(?:\d\.\d|\d{2})\s*,?\s*no[,\s]+(?:es\s+)?(?:la\s+|el\s+)?(?:(?:muela|pieza|diente)\s+)?(\d\.\d|(?:[1-4]\d|5[1-9]|6\d|7\d|8[0-5]))(?![\d.]?\d)\s*,?\s*(?:perd[oó]n|mejor\s+dicho|digo)(?!\p{L})/giu;
 const FACE = "(?:mesial|distal|oclusal|vestibular|palatin[ao]|lingual|incisal)";
 const SELF_FIX_FACE = new RegExp(`(?<!\\p{L})${FACE}[,\\s]+${FIX_CUE}[,:\\s]+(${FACE})(?!\\p{L})`, "giu");
 
@@ -644,6 +646,7 @@ export function applySelfCorrections(text: string): { text: string; corrections:
     note(whole, value);
     return value;
   });
+  out = out.replace(SELF_FIX_TOOTH_NO_PARDON, (whole, intro: string, next: string) => { const value = `${intro}${next}`; note(whole, value); return value; });
   out = out.replace(SELF_FIX_TOOTH_NO, (whole, _old: string, middle: string, next: string) => { const value = `${next}${middle}`; note(whole, value); return value; });
   // «mesial vestibular 5, perdón, 6 milímetros» / «movilidad uno, no, movilidad dos»: vale lo corregido.
   out = out.replace(/(?<![\d.,])(\d{1,2})(\s*(?:mm|mil[ií]metros)?)\s*,?\s*(?:perd[oó]n|mejor\s+dicho|quise\s+decir|digo)\s*,?\s*(\d{1,2})(?![\d.,]?\d)/giu, (whole, _old: string, _unit: string, next: string) => { note(whole, next); return next; });

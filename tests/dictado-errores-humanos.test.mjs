@@ -50,3 +50,20 @@ test("el plan reparte cada tratamiento a sus piezas, sin cruzarlos con todas", (
 test("sin tramos separables, actPairs devuelve null y queda el cruce de siempre", () => {
   assert.equal(actPairs("Se obtura y se hace endodoncia en las piezas 1.6 y 2.6", [16, 26], ["obturacion", "endodoncia"], tools), null);
 });
+
+test("«la muela 36 no, la 46 perdón» deja solo la 46", () => {
+  const { text, corrections } = applySelfCorrections("Vino por dolor, la muela 36 no, la 46 perdón, tiene una fractura de cúspide.");
+  assert.deepEqual(teeth(text), [46]);
+  assert.equal(corrections.length, 1);
+  assert.equal(applySelfCorrections("Control en la muela 36 no, la 20 de marzo perdón.").corrections.length, 0, "un día del mes no es una pieza");
+});
+
+test("«Hoy no hice nada, solo planifico…» deja las coronas en plan, nunca realizadas", async () => {
+  const { kindOf } = await import("../lib/dictation/clinical-items.ts");
+  const never = () => false;
+  assert.equal(kindOf("Hoy no hice nada, solo planifico un onlay cerámico en la 4.6 y una corona en la 1.6 para después.", null, never), "plan");
+  assert.equal(kindOf("Hoy no hicimos la corona.", null, never), "plan");
+  assert.equal(kindOf("Hoy se realiza la obturación de la 1.6.", null, never), "realizado", "lo hecho hoy sigue siendo realizado");
+  const p = structureTranscript("Hoy no hice nada, solo planifico una corona en la 1.6 para después.", { today: "2026-11-23" });
+  assert.ok(!p.odontogram.some((o) => o.tooth === 16 && /corona/i.test(String(o.status ?? o.finding?.condition ?? "")) && !o.planned && o.origin !== "plan"), "no queda corona hecha en la 1.6");
+});

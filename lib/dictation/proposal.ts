@@ -724,7 +724,7 @@ function isPerformed(sentence: string): boolean {
 }
 
 function isPlanStrict(sentence: string): boolean {
-  return /\b(?:se\s+planifica|planificad[oa]|se\s+indica|a\s+futuro|presupuesto|cotizaci[oó]n|por\s+cotizar|implantes?\s+diferid[oa]s?)\b/i.test(sentence);
+  return /\b(?:se\s+planifica|planific(?:o|amos|ar[eé]|ar)|planteo|propongo|no\s+(?:hice|hicimos|hago)\s+nada|planificad[oa]|se\s+indica|a\s+futuro|presupuesto|cotizaci[oó]n|por\s+cotizar|implantes?\s+diferid[oa]s?)\b/i.test(sentence);
 }
 
 const PLAN_CUE = /(?:^|\P{L})(?:plan\s+(?:de\s+tratamiento|opci[oó]n|alternativ\p{L}*)|(?:fase|etapa)\s+(?:\d+|uno|dos|tres|cuatro|cinco)|opci[oó]n\s+(?:[abc]|be|ce|\d|uno|dos|tres)|alternativa|a\s+decidir|se\s+eval[uú]a(?:r[aá])?|se\s+(?:propone|sugiere|recomienda|planea)|por\s+definir|(?:se\s+)?(?:toma|tom[oó])\s+(?:la\s+)?impresi[oó]n\s+(?:para|de)|(?:se\s+)?(?:env[ií]a|envi[oó])\s+(?:a\s+)?laboratorio)(?!\p{L})/iu;
