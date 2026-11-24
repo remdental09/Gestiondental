@@ -40,8 +40,41 @@ export const CLINIC_ABBREVIATIONS: ReadonlyArray<readonly [string, string]> = [
   ["ROG", "regeneración ósea guiada"],
   ["CBCT / CBTC", "tomografía computarizada de haz cónico"],
   ["ATB / AN / AINES", "antibiótico / analgésico / antiinflamatorios no esteroidales"],
-  ["JIG", "desprogramador oclusal"],
+  ["JIG", "desprogramador oclusal (registro o control de oclusión con JIG)"],
+  ["An-Ab / An", "anotación de la clínica al cierre de la sesión (se deja tal cual en la nota; no es un material ni una pieza)"],
+  ["PIT", "sigla de la clínica para la evaluación del plan de tratamiento (se deja tal cual)"],
+  ["TiBase / TIBASE", "base de titanio: pilar sobre el que se cementa la corona CAD/CAM del implante"],
+  ["Blqto / blqto", "blanqueamiento (intracameral o de pieza desvital, por sesiones)"],
+  ["Tope cervical", "sellado cervical (habitualmente con vidrio ionómero) antes del blanqueamiento interno"],
+  ["H de Ca", "hidróxido de calcio (medicación intraconducto)"],
+  ["Perborato de Na / Peróxido de Na", "agente blanqueador intracameral"],
+  ["B/W", "radiografías bitewing (aleta de mordida)"],
+  ["Cone beam", "tomografía computarizada de haz cónico (CBCT)"],
 ];
+
+/** Siglas del glosario que la IA no debe preguntar (se reconocen también con puntos, guiones o en minúsculas). */
+const KNOWN_ABBREVIATIONS = [
+  "Rc", "RC", "Pza", "Pzas", "Pcte", "Pct", "Cdto", "PQM", "OBC", "IRM", "PFP", "IOS", "ROG", "CBCT", "CBTC", "JIG", "XPF",
+  "SBU", "SB", "ANL", "ATB", "AINES", "An-Ab", "An", "Ab", "PIT", "TiBase", "TIBASE", "Blqto", "Cap Hib", "Denticlean", "VI", "Guta",
+  "Totalfill", "RB25", "RB40", "RB50", "Z250", "Z350", "P60", "H de Ca", "B/W", "Cerec", "Duolink", "Ketac", "U200",
+];
+const fold = (value: string) => value.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/[.\s]+/g, " ").trim();
+const KNOWN_FOLDED = new Set(KNOWN_ABBREVIATIONS.map(fold));
+
+/**
+ * Duda de la IA que solo pregunta qué significa una sigla del glosario («¿Qué significa «An-Ab»?», «¿El JIG corresponde a un
+ * desprogramador?»): sobra, la sigla tiene un único sentido en la clínica. Las dudas clínicas que la nombran (¿se hizo hoy?,
+ * ¿qué zona del CBCT?) se mantienen.
+ */
+export function asksKnownAbbreviation(question: string): boolean {
+  const quoted = [...question.matchAll(/[«“"]([^»”"]{1,24})[»”"]/g)].map((m) => fold(m[1]));
+  const meaning = /qu[eé]\s+significa|significado|a\s+qu[eé]\s+(?:se\s+)?refiere|qu[eé]\s+(?:es|son)\s|abreviatura|sigla/i.test(question);
+  if (meaning && quoted.some((q) => KNOWN_FOLDED.has(q))) return true;
+  // «¿El «jig» corresponde a un plano desprogramador?»: confirma el significado que el glosario ya da.
+  const confirmsMeaning = /^\s*(?:IA:\s*)?¿\s*(?:el|la|los|las)?\s*[«“"]?([\w/-]{2,12})[»”"]?\s+(?:corresponde|equivale|se\s+refiere|significa)\s+a\s+(?:un|una|el|la)?\s*([^?]{0,60})\??/i.exec(question);
+  if (confirmsMeaning && KNOWN_FOLDED.has(fold(confirmsMeaning[1])) && !/hoy|realiz|planific|zona|maxilar|arcada|c[oó]digo|arancel|pieza/i.test(confirmsMeaning[2])) return true;
+  return false;
+}
 
 /** Texto del glosario para el prompt de la IA. */
 export function clinicShorthandPrompt(): string {
@@ -134,6 +167,8 @@ export function expandClinicShorthand(input: string): { text: string; correction
     [/\bATB\b/g, "antibiótico", "ATB = antibiótico."],
     [/(?<=antibi[oó]tico\s+y\s+)AN\b/g, "analgésico", "AN = analgésico."],
     [/\bAMOXI\b/gi, "amoxicilina", "Amoxi = amoxicilina."],
+    [/\b[Bb]lqto\b\.?/g, "blanqueamiento", "Blqto = blanqueamiento."],
+    [/\bH\s+de\s+Ca\b/g, "hidróxido de calcio", "H de Ca = hidróxido de calcio."],
   ];
   for (const [pattern, replacement, reason] of simple) {
     text = text.replace(pattern, (...args: unknown[]) => {

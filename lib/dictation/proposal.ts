@@ -1,5 +1,5 @@
 import { normalizeShades } from "./shade.ts";
-import { expandClinicShorthand } from "./clinic-shorthand.ts";
+import { asksKnownAbbreviation, expandClinicShorthand } from "./clinic-shorthand.ts";
 import { dentalDictionaryHints } from "./dental-lexicon.ts";
 import { APICAL_STATUSES, FRACTURE_STATUSES, isLesionStatus } from "../tooth-status.ts";
 import { calmClarifications, type Sensitivity } from "./sensitivity.ts";
@@ -3467,6 +3467,8 @@ export function validateAiExtraction(input: unknown, transcript: string, options
     const dictatedNumbers = new Set([...numbersIn(transcript)].map((number) => number.replace(".", "")));
     const askedTeeth = [...value.matchAll(/\b(?:pieza|fdi)\s+(\d(?:\.\d)?|\d{2})\b/gi)].map((match) => match[1].replace(".", ""));
     const offTopicTooth = askedTeeth.some((number) => !dictatedNumbers.has(number));
+    // Lo que el glosario de la clínica ya define (An-Ab, JIG, PIT, IRM…) no se pregunta.
+    if (asksKnownAbbreviation(value)) continue;
     if (value && !offTopicTooth && !(asksPerio && !perioDictated) && !/sistema|numeraci|etiqueta|icdas|actividad|profundidad|esmalte|dentina|medio de pago|forma de pago|hora|sitio|temporal o permanente|permanente o temporal/i.test(value)) clarifications.push(`IA: ${value}`);
   }
   // Diagnósticos: la IA elige el concepto y cita la frase; el código lo pone el catálogo, nunca la IA.
