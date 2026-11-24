@@ -1353,7 +1353,7 @@ export async function createAgendaEvent(ownerId: string, input: { title: string;
   if (!results.length) return { ok: false, error: "Primero conecta tu Google Calendar." };
   const row = results.find(r => r.can_write);
   if (!row) return { ok: false, error: "Tu Google Calendar está conectado solo para lectura: vuelve a conectarlo dando permiso para modificar eventos." };
-  const minutes = [15, 30, 45, 60, 90, 120].includes(Number(input.minutes)) ? Number(input.minutes) : 30;
+  const minutes = [15, 30, 45, 60, 90, 120, 150, 180, 240].includes(Number(input.minutes)) ? Number(input.minutes) : 30;
   const endIso = new Date(new Date(startIso).getTime() + minutes * 60000).toISOString();
   const wall = (iso: string) => new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Santiago", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).format(new Date(iso)).replace(" ", "T");
   try {

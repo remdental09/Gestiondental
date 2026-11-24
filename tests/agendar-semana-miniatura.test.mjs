@@ -60,3 +60,10 @@ test("«Ampliar» ensancha el diálogo de Agendar cita y agranda la semana (con 
   assert.match(page, /expanded=\{apptWeekWide\} onExpandedChange=\{setApptWeekWide\}/);
   assert.match(page, /if\(!open\)\{setNewAppt\(null\);setApptWeekWide\(false\)\}/, "al cerrar vuelve al tamaño normal");
 });
+
+test("Agendar cita permite duraciones largas (hasta 4 h) y el servidor las acepta", () => {
+  const page = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const drive = readFileSync(new URL("../app/drive-oauth.ts", import.meta.url), "utf8");
+  assert.match(page, /\[15,30,45,60,90,120,150,180,240\]\.map/);
+  assert.match(drive, /\[15, 30, 45, 60, 90, 120, 150, 180, 240\]\.includes\(Number\(input\.minutes\)\)/);
+});
