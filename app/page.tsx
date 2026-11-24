@@ -1006,7 +1006,7 @@ export default function Home(){
             <button type="button" className="lg:hidden" aria-label="Abrir menú" onClick={()=>setMobileNav(true)}><Menu className="size-6"/></button>
             {section!=="Inicio"&&<button type="button" onClick={goBack} className="flex min-h-10 items-center gap-1 rounded-lg px-2 text-sm font-medium text-[#473a6d] hover:bg-[#e6e4ee]" aria-label="Volver a la sección anterior"><ArrowLeft className="size-4"/><span className="hidden sm:inline">Volver</span></button>}
             <button type="button" onClick={goHome} className="flex min-h-10 items-center gap-1 rounded-lg px-2 text-sm font-medium text-[#473a6d] hover:bg-[#e6e4ee]"><HomeIcon className="size-4"/><span className="hidden sm:inline">Inicio</span></button>
-            <span className="min-w-0 truncate text-sm font-semibold text-[#35343f]">{section}</span>
+            {section!=="Inicio"&&<span className="min-w-0 truncate text-sm font-semibold text-[#35343f]">{section}</span>}
           </div>
           <div className="flex shrink-0 items-center gap-3">
             {(()=>{const stamp=buildStamp(BUILD_TIME);return stamp&&<span className="hidden text-right text-[11px] leading-tight text-[#6b6a7c] md:block" data-testid="app-updated" title="Última actualización de la aplicación (hora de Chile)"><span className="block font-semibold uppercase tracking-wide">Actualizada</span>{stamp.day} · {stamp.time}</span>})()}
