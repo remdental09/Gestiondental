@@ -39,8 +39,10 @@ test("«se extrae la once» marca la pieza ausente", async () => {
 
 test("endodoncia sin vitalidad dictada pregunta en vez de adivinar el código", () => {
   const lines = ["Se realiza tratamiento de conductos en la pieza 3.6 y obturación con gutapercha."];
-  assert.equal(suggestPrestaciones([], lines).length, 0);
-  const questions = endodonticQuestions(lines, []);
+  // Sin vitalidad no se adivina: la variante vital queda propuesta SIN MARCAR y se pregunta.
+  const proposed = suggestPrestaciones([], lines);
+  assert.deepEqual(proposed.map((x) => [x.code, x.tooth, Boolean(x.advisory)]), [["5006003", 36, true]]);
+  const questions = endodonticQuestions(lines, proposed);
   assert.equal(questions.length, 1);
   assert.match(questions[0], /3\.6 estaba vital o con lesión apical/);
 });

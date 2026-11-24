@@ -245,8 +245,33 @@ export function suggestPrestaciones(odontogram: OdontogramChange[], procedureLin
       if (out.some((item) => ENDO_CODES.has(item.code) && item.tooth === tooth)) continue;
       // Sin vitalidad dictada no se adivina el código: queda la pregunta «¿estaba vital o con lesión apical?».
       const known = endodonticCode(tooth, clause);
-      const item = known ? make(known, tooth, "obturación de conductos", out.length + 1) : null;
-      if (item) push(item);
+      if (known) { const item = make(known, tooth, "obturación de conductos", out.length + 1); if (item) push(item); continue; }
+      // Sin vitalidad: la variante «vital» del grupo dentario, desmarcada, para que el profesional la confirme o elija «con lesión apical».
+      const guess = endodonticCode(tooth, "vital");
+      const item = guess ? make(guess, tooth, "obturación de conductos", out.length + 1) : null;
+      if (item) push({ ...item, advisory: "No se dictó si la pieza estaba vital o con lesión apical: márcala si estaba vital o cámbiala por la variante «con lesión apical»." });
+    }
+  }
+  // Corona unitaria instalada o cementada hoy: sobre implante (atornillada con TiBase/chimenea o cementada) o sobre diente,
+  // según el material dictado. Sin material, la variante libre de metal queda desmarcada para elegir.
+  const crownWhole = `${procedureLines.join(" ")} ${dictated}`;
+  const crownTeeth = [...new Set(teethOf(crownWhole))];
+  if (crownTeeth.length >= 1 && crownTeeth.length <= 6) {
+    for (const tooth of crownTeeth) {
+      const fdi = `${Math.floor(tooth / 10)}.${tooth % 10}`;
+      const clause = crownTeeth.length === 1 ? allPlain : fold(crownWhole.split(/(?<=[.;])\s+|\n+/).filter((sentence) => sentence.includes(fdi)).join(" ")) || fold(toothSpan(crownWhole, tooth));
+      const placed = /\b(?:instalacion|cementacion|insercion)\s+de\s+(?:la\s+)?corona|\bcoronas?\b(?:[^.;]|\.(?=\d)){0,80}\b(?:cementad\w*|instalad\w*|duolink|u\s?200|relyx|choi[cs]e|ketac)|\b(?:se\s+)?(?:cementa|instala|cemento|instalo)\w*\s+(?:la\s+|una\s+)?corona/.test(clause);
+      if (!placed || /\b(?:recem\w*|coronas?\s+provisori\w*|retiro\s+de\s+coronas?|para\s+(?:la\s+)?coronas?|se\s+repite)\b/.test(clause)) continue;
+      if (out.some((item) => item.tooth === tooth && /^(?:5007|5011045|5011046|5103|5015)/.test(item.code))) continue;
+      const onImplant = /\b(?:implantes?|tibase|chimenea|atornillad\w*|pilar)\b/.test(clause) || odontogram.some((item) => item.tooth === tooth && (item.status === "Implante" || item.status === "Implante con pilar" || item.foundation === "implant"));
+      if (onImplant) {
+        const code = /\b(?:tibase|chimenea|atornillad\w*|torque)\b/.test(clause) ? "5011045" : "5011046";
+        push(make(code, tooth, "corona sobre implante", out.length + 1));
+        continue;
+      }
+      const material = /metal\s*ceramic/.test(clause) ? "5007002" : /ceromero/.test(clause) ? "5007020" : /resina\s+hibrida/.test(clause) ? "5007047" : /nucleo\s+ceramico/.test(clause) ? "5007013" : /cerec|e-?\s?max|enamic|disilicato|zirconi|circoni|libre\s+de\s+metal|ceramica|blocs/.test(clause) ? "5007041" : null;
+      const item = make(material ?? "5007041", tooth, "instalación de corona", out.length + 1);
+      if (item) push(material ? item : { ...item, advisory: "No se dictó el material de la corona: márcala si es libre de metal o cámbiala por la del material colocado." });
     }
   }
   // Cementación de una prótesis fija plural (PFP / puente): la inserción según el material dictado; el ajuste de oclusión es parte de ella.
@@ -333,7 +358,7 @@ export function withPrestacionesSection(body: string, items: Pick<PrestacionItem
  * Tratamiento de conductos de una pieza sin saber si estaba vital o con lesión apical: el arancel distingue ambos,
  * así que se pregunta en vez de adivinar. Solo cuando ninguna prestación de conductos quedó asignada a esa pieza.
  */
-export function endodonticQuestions(procedureLines: string[], prestaciones: Pick<PrestacionItem, "code" | "tooth">[]): string[] {
+export function endodonticQuestions(procedureLines: string[], prestaciones: (Pick<PrestacionItem, "code" | "tooth"> & { advisory?: string })[]): string[] {
   const out: string[] = [];
   for (const line of procedureLines.flatMap((item) => item.split(/(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑ])/u))) {
     const plain = fold(line);
@@ -345,8 +370,9 @@ export function endodonticQuestions(procedureLines: string[], prestaciones: Pick
     const teeth = own.length ? own : all;
     if (teeth.length !== 1) continue;
     const tooth = teeth[0];
-    if (prestaciones.some((item) => item.tooth === tooth && /^50060(?:01|02|03|07|08|09|15|16)$/.test(item.code))) continue;
-    out.push(`¿La pieza ${Math.floor(tooth / 10)}.${tooth % 10} estaba vital o con lesión apical (necrosis, absceso)? El arancel tiene un código distinto para cada caso y no se sugirió ninguno.`);
+    // La variante «vital» propuesta desmarcada (sin vitalidad dictada) no responde la pregunta: se sigue preguntando.
+    if (prestaciones.some((item) => item.tooth === tooth && !item.advisory && /^50060(?:01|02|03|07|08|09|15|16)$/.test(item.code))) continue;
+    out.push(`¿La pieza ${Math.floor(tooth / 10)}.${tooth % 10} estaba vital o con lesión apical (necrosis, absceso)? El arancel tiene un código distinto para cada caso: quedó propuesta la variante vital, sin marcar.`);
   }
   return [...new Set(out)];
 }
