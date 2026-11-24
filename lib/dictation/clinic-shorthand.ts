@@ -41,8 +41,8 @@ export const CLINIC_ABBREVIATIONS: ReadonlyArray<readonly [string, string]> = [
   ["CBCT / CBTC", "tomografía computarizada de haz cónico"],
   ["ATB / AN / AINES", "antibiótico / analgésico / antiinflamatorios no esteroidales"],
   ["JIG", "desprogramador oclusal (registro o control de oclusión con JIG)"],
-  ["An-Ab / An", "anotación de la clínica al cierre de la sesión (se deja tal cual en la nota; no es un material ni una pieza)"],
-  ["PIT", "sigla de la clínica para la evaluación del plan de tratamiento (se deja tal cual)"],
+  ["An-Ab / Ab-An / AB-AN / ATB y AN", "analgésico y antibiótico: indicación farmacológica (no es un procedimiento, un material ni una pieza)"],
+  ["PIT", "sigla de la clínica de significado por confirmar (se deja tal cual; no la interpretes)"],
   ["TiBase / TIBASE", "base de titanio: pilar sobre el que se cementa la corona CAD/CAM del implante"],
   ["Blqto / blqto", "blanqueamiento (intracameral o de pieza desvital, por sesiones)"],
   ["Tope cervical", "sellado cervical (habitualmente con vidrio ionómero) antes del blanqueamiento interno"],
@@ -55,7 +55,7 @@ export const CLINIC_ABBREVIATIONS: ReadonlyArray<readonly [string, string]> = [
 /** Siglas del glosario que la IA no debe preguntar (se reconocen también con puntos, guiones o en minúsculas). */
 const KNOWN_ABBREVIATIONS = [
   "Rc", "RC", "Pza", "Pzas", "Pcte", "Pct", "Cdto", "PQM", "OBC", "IRM", "PFP", "IOS", "ROG", "CBCT", "CBTC", "JIG", "XPF",
-  "SBU", "SB", "ANL", "ATB", "AINES", "An-Ab", "An", "Ab", "PIT", "TiBase", "TIBASE", "Blqto", "Cap Hib", "Denticlean", "VI", "Guta",
+  "SBU", "SB", "ANL", "ATB", "AINES", "An-Ab", "Ab-An", "An", "Ab", "PIT", "TiBase", "TIBASE", "Blqto", "Cap Hib", "Denticlean", "VI", "Guta",
   "Totalfill", "RB25", "RB40", "RB50", "Z250", "Z350", "P60", "H de Ca", "B/W", "Cerec", "Duolink", "Ketac", "U200",
 ];
 const fold = (value: string) => value.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/[.\s]+/g, " ").trim();
@@ -164,6 +164,9 @@ export function expandClinicShorthand(input: string): { text: string; correction
     [/\bIOS\b/g, "escaneo intraoral", "IOS = escaneo intraoral."],
     [/\bROG\b/g, "regeneración ósea guiada", "ROG = regeneración ósea guiada."],
     [/\bCBTC\b/g, "CBCT", "CBTC = CBCT."],
+    // «An-Ab», «Ab-An», «AB-AN», «ATB y AN»: analgésico y antibiótico (indicación farmacológica de la clínica).
+    [/(?<![\p{L}\d])(?:An-Ab|AN-AB|an-ab|Ab-An|AB-AN|ab-an)(?![\p{L}\d])\.?/gu, "analgésico y antibiótico", "An-Ab = analgésico y antibiótico (indicación farmacológica)."],
+    [/\bATB\s+y\s+AN\b/g, "antibiótico y analgésico", "ATB y AN = antibiótico y analgésico (indicación farmacológica)."],
     [/\bATB\b/g, "antibiótico", "ATB = antibiótico."],
     [/(?<=antibi[oó]tico\s+y\s+)AN\b/g, "analgésico", "AN = analgésico."],
     [/\bAMOXI\b/gi, "amoxicilina", "Amoxi = amoxicilina."],
