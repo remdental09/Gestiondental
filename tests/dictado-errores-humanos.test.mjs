@@ -67,3 +67,12 @@ test("«Hoy no hice nada, solo planifico…» deja las coronas en plan, nunca re
   const p = structureTranscript("Hoy no hice nada, solo planifico una corona en la 1.6 para después.", { today: "2026-11-23" });
   assert.ok(!p.odontogram.some((o) => o.tooth === 16 && /corona/i.test(String(o.status ?? o.finding?.condition ?? "")) && !o.planned && o.origin !== "plan"), "no queda corona hecha en la 1.6");
 });
+
+test("tallado para corona + provisoria + «la definitiva viene en dos semanas» no deja la pieza con corona", async () => {
+  const { kindOf } = await import("../lib/dictation/clinical-items.ts");
+  const t = "Hoy tallé la 1.6 para corona de zirconio, tomé impresión con silicona y dejé una corona provisoria de acrílico cementada con cemento temporal. La corona definitiva viene en dos semanas.";
+  const p = structureTranscript(t, { today: "2026-11-23" });
+  assert.deepEqual(p.odontogram, [], "ni la provisoria ni la definitiva futura cambian el odontograma");
+  assert.equal(kindOf("La corona definitiva viene en dos semanas.", null, () => false), "plan");
+  assert.equal(kindOf("Se realiza obturación de la 1.6, control en dos semanas.", null, () => false), "realizado");
+});

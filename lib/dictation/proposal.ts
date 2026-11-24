@@ -727,7 +727,7 @@ function isPlanStrict(sentence: string): boolean {
   return /\b(?:se\s+planifica|planific(?:o|amos|ar[eé]|ar)|planteo|propongo|no\s+(?:hice|hicimos|hago)\s+nada|planificad[oa]|se\s+indica|a\s+futuro|presupuesto|cotizaci[oó]n|por\s+cotizar|implantes?\s+diferid[oa]s?)\b/i.test(sentence);
 }
 
-const PLAN_CUE = /(?:^|\P{L})(?:plan\s+(?:de\s+tratamiento|opci[oó]n|alternativ\p{L}*)|(?:fase|etapa)\s+(?:\d+|uno|dos|tres|cuatro|cinco)|opci[oó]n\s+(?:[abc]|be|ce|\d|uno|dos|tres)|alternativa|a\s+decidir|se\s+eval[uú]a(?:r[aá])?|se\s+(?:propone|sugiere|recomienda|planea)|por\s+definir|(?:se\s+)?(?:toma|tom[oó])\s+(?:la\s+)?impresi[oó]n\s+(?:para|de)|(?:se\s+)?(?:env[ií]a|envi[oó])\s+(?:a\s+)?laboratorio)(?!\p{L})/iu;
+const PLAN_CUE = /(?:^|\P{L})(?:plan\s+(?:de\s+tratamiento|opci[oó]n|alternativ\p{L}*)|(?:fase|etapa)\s+(?:\d+|uno|dos|tres|cuatro|cinco)|opci[oó]n\s+(?:[abc]|be|ce|\d|uno|dos|tres)|alternativa|a\s+decidir|se\s+eval[uú]a(?:r[aá])?|se\s+(?:propone|sugiere|recomienda|planea)|(?:viene|llega|queda)\s+(?:para\s+)?en\s+(?:\d+|\p{L}+)\s+(?:semanas?|d[ií]as?|meses)|por\s+definir|(?:se\s+)?(?:toma|tom[oó])\s+(?:la\s+)?impresi[oó]n\s+(?:para|de)|(?:se\s+)?(?:env[ií]a|envi[oó])\s+(?:a\s+)?laboratorio)(?!\p{L})/iu;
 const PLAN_HEADER = /(?:^|\P{L})plan\s+(?:de\s+tratamiento|opci[oó]n)(?!\p{L})/iu;
 
 /** Lo que se planifica o se presupuesta no es lo que se hizo: «Plan de tratamiento», «Fase dos», «Opción B», «a decidir». */
@@ -1021,7 +1021,7 @@ function statusFrom(sentence: string): ToothStatus | null {
     if (/\b(?:planific|se\s+indic|program)\b/i.test(sentence) || IMPLANT_LATER.test(sentence)) return null;
     return "Implante";
   }
-  if (/\b(?:coronas?|pr[oó]tesis\s+fija\s+definitiva)\b/i.test(sentence) && !/\bprovisori[ao]s?\b/i.test(sentence) && !/\b(?:alargamiento|aumento|elongaci[oó]n)\s+(?:de\s+)?(?:la\s+)?corona|corona\s+cl[ií]nica|preparaci[oó]n\s+(?:para|de)\s+(?:la\s+)?corona/i.test(sentence)) return "Corona";
+  if (/\b(?:coronas?|pr[oó]tesis\s+fija\s+definitiva)\b/i.test(sentence) && !/\bprovisori[ao]s?\b/i.test(sentence) && !/\b(?:alargamiento|aumento|elongaci[oó]n)\s+(?:de\s+)?(?:la\s+)?corona|corona\s+cl[ií]nica|preparaci[oó]n\s+(?:para|de)\s+(?:la\s+)?corona|\bpara\s+(?:una\s+|la\s+|su\s+)?corona\b/i.test(sentence)) return "Corona";
   if (/\b(?:ausentes?|extra[ií]d[oa]s?|exodonciad[oa]s?)\b/i.test(sentence)) return "Ausente";
   if (/(?<!\p{L})ausencia\s+(?:de(?:l|\s+la)?\s+)?(?:pieza\s+|diente\s+)?\d/iu.test(sentence)) return "Ausente";
   return lesionStatusFrom(sentence);
