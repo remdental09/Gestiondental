@@ -36,6 +36,11 @@ export function proposeChangesFromEvolution(body: string, today: string, chart: 
     }
     return false;
   });
+  return { items, cards: cardsFromChanges(items, chart) };
+}
+
+/** Agrupa cambios propuestos por pieza en tarjetas de antes → después. */
+export function cardsFromChanges(items: OdontogramChange[], chart: ChartSnapshot): ChangeCard[] {
   const byTooth = new Map<number, OdontogramChange[]>();
   for (const item of items) byTooth.set(item.tooth, [...(byTooth.get(item.tooth) ?? []), item]);
   const cards: ChangeCard[] = [...byTooth].sort((a, b) => a[0] - b[0]).map(([tooth, list]) => {
@@ -52,11 +57,11 @@ export function proposeChangesFromEvolution(body: string, today: string, chart: 
       const after = item.kind === "crown" ? (item.foundation === "implant" ? "Implante con corona" : `Corona${item.material ? ` de ${item.material.toLowerCase()}` : ""}`) : item.status ?? "";
       lines.push({ label: "Estado de la pieza", before: chart.teeth?.[tooth] ?? "Sin hallazgos", after });
     }
-    const advisory = list.find((item) => item.advisory || item.coherence === "reemplaza");
+    const advisory = list.find((item) => item.advisory || item.coherence === "reemplaza" || item.conflict);
     return {
       tooth, title: `Pieza ${formatFdiTooth(tooth)}`, lines, ids: list.map((item) => item.id), review: Boolean(advisory),
-      ...(advisory ? { note: advisory.advisory ?? "Reemplaza lo ya registrado: revísalo." } : {}),
+      ...(advisory ? { note: advisory.advisory ?? (advisory.conflict ? "La IA y las reglas no coinciden: revísalo." : "Reemplaza lo ya registrado: revísalo.") } : {}),
     };
   });
-  return { items, cards };
+  return cards;
 }

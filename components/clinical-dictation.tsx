@@ -14,6 +14,8 @@ import { checkPatientMentions, patientVariantNote, patientWarning } from "@/lib/
 import { ageFrom, inferSexFromName } from "@/lib/dictation/clinical-items";
 import { WordDiffView } from "@/components/text-correction";
 import { VoiceCommandCard, type AnnulHandler } from "@/components/evolution-annul";
+import { EvolutionChangesSheet, type ChangesDecision } from "@/components/evolution-changes-sheet";
+import { cardsFromChanges, type ChangeCard } from "@/lib/evolution-changes";
 import { chileTodayIso, parseVoiceCommand, type CommandNote } from "@/lib/dictation/voice-command";
 import { parseControlFromText, type ControlSuggestion } from "@/lib/next-control";
 import { saveControl, WeekendHint } from "@/components/next-controls";
@@ -618,16 +620,28 @@ export function ClinicalDictation({
     return data;
   };
 
-  const confirm = async (budgetize = true) => {
+  const [changesAsk, setChangesAsk] = useState<{ cards: ChangeCard[]; resolve: (decision: ChangesDecision) => void } | null>(null);
+  const askChanges = (cards: ChangeCard[]) => new Promise<ChangesDecision>((resolve) => setChangesAsk({ cards, resolve: (decision) => { setChangesAsk(null); resolve(decision); } }));
+  const confirm = async (budgetize = true, approvedIds?: Set<string>) => {
     if (!outcome || saving || result?.ok) return;
     if (patientBlocked) {
       setFormError(`El dictado nombra a otra persona o a otro RUT. Confirma que corresponde a ${patientName} antes de guardar.`);
       return;
     }
+    // Revisión simple: la misma hoja que al escribir la evolución; el humano aprueba lo que cambia en el odontograma.
+    if (!detail && !approvedIds) {
+      const cards = cardsFromChanges(teeth.filter((item) => !item.incompleteCaries), odontogram as never);
+      if (cards.length) {
+        const decision = await askChanges(cards);
+        if (decision.action === "cancel") return;
+        void confirm(budgetize, new Set(decision.action === "apply" ? decision.ids : []));
+        return;
+      }
+    }
     const reviewWarnings: string[] = [];
     let acceptedTeeth: OdontogramChange[] = [];
     for (const item of teeth) {
-      if (item.decision !== "accepted") continue;
+      if (approvedIds ? !approvedIds.has(item.id) : item.decision !== "accepted") continue;
       const tooth = parseDisplayedFdi(item.toothText);
       if (!tooth) {
         reviewWarnings.push(`${item.numberingLabel}: la pieza no está en nomenclatura FDI válida; no se actualizó el odontograma.`);
@@ -1276,24 +1290,7 @@ export function ClinicalDictation({
               </div>
             </details>
             </>}
-            <section className="space-y-3" data-testid="dictation-odontogram-simple">
-              <h3 className="text-xl font-bold text-[#2b2540]">Esto va a cambiar en el odontograma</h3>
-              {teeth.filter((item) => !item.incompleteCaries).length === 0 && <p className="rounded-xl border border-dashed border-[#dddbe6] p-3 text-[#6b6a7c]">Sin cambios de odontograma.</p>}
-              {teeth.map((item, index) => {
-                if (item.incompleteCaries) return null;
-                const currentStatus = odontogram.teeth[item.tooth] || "Sin hallazgos";
-                const nextStatus = item.kind === "crown" ? "Corona" : item.status || currentStatus;
-                return <article key={item.id} className={`rounded-2xl border p-4 ${item.decision === "accepted" ? "border-[#473a6d] bg-[#f5f2fb]" : "border-[#dddbe6] opacity-70"}`} data-testid="dictation-tooth-simple">
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="text-xl font-bold text-[#2b2540]">{item.numberingLabel}</p>
-                    <Decision value={item.decision} onChange={(decision) => setTeeth((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, decision } : entry))} />
-                  </div>
-                  {item.kind === "surface" ? <p className="mt-2 text-lg"><span className="text-[#6b6a7c]">Cara {item.surface ? surfaceLabel[item.surface] : "sin registrar"}: </span><ChangeHighlight current={findingText(item.surface ? odontogram.surfaces[item.tooth]?.[item.surface] : undefined)} next={findingText(item.finding)} /></p>
-                    : <p className="mt-2 text-lg"><span className="text-[#6b6a7c]">Estado general: </span><ChangeHighlight current={currentStatus} next={nextStatus} /></p>}
-                  {item.advisory && <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">{item.advisory}</p>}
-                </article>;
-              })}
-            </section>
+            <p className="rounded-xl bg-[#f5f2fb] p-3 text-sm text-[#3b3355]" data-testid="dictation-odontogram-simple">Al guardar verás, en una ventana, qué cambiará en el odontograma para aprobarlo.</p>
             <section className="space-y-3">
               <h3 className="font-semibold">Periodontograma</h3>
               <p className="text-xs leading-5 text-[#615f73]">Lo aceptado se guarda como un examen nuevo con solo los sitios dictados; no reemplaza el examen completo ni infiere margen, furcación, EPB ni clasificación.</p>
@@ -1553,6 +1550,7 @@ export function ClinicalDictation({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    {changesAsk && <EvolutionChangesSheet cards={changesAsk.cards} patientName={patientName} escape={false} onDecide={changesAsk.resolve} />}
   </>;
 }
 

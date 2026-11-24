@@ -26,3 +26,9 @@ test("el periodontograma queda a la vista en la revisión simple", () => {
   const detailBlock = source.indexOf("{detail && <details");
   assert.ok(perio > 0 && perio < detailBlock && perio < toggle);
 });
+
+test("al guardar un dictado se abre la misma hoja y solo se aplica lo aprobado", () => {
+  assert.match(source, /EvolutionChangesSheet cards=\{changesAsk\.cards\}/);
+  assert.match(source, /approvedIds \? !approvedIds\.has\(item\.id\) : item\.decision !== "accepted"/);
+  assert.match(source, /decision\.action === "cancel"\) return;/);
+});
