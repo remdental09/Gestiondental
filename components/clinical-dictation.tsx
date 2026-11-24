@@ -196,6 +196,16 @@ function ChangeHighlight({ current, next }: { current: string; next: string }) {
   </span>;
 }
 
+/**
+ * CIE-11 que se guardan marcados: lo dictado y su equivalencia directa (término AAE, caries con compromiso pulpar).
+ * Solo lo deducido del procedimiento («nota») o una equivalencia aproximada espera que el profesional lo confirme.
+ */
+function dxNeedsConfirmation(suggested: unknown): boolean {
+  if (!suggested || typeof suggested !== "object") return false;
+  const from = (suggested as { from?: unknown }).from;
+  return from === "nota" || from === "aproximado";
+}
+
 export function ClinicalDictation({
   patientId,
   patientName,
@@ -525,7 +535,7 @@ export function ClinicalDictation({
       })));
       // Las caries se derivan en vivo de lo aceptado en el odontograma; el resto se revisa una por una.
       setPrestItems((data.proposal.prestaciones ?? []).map((item) => ({ ...item, decision: item.advisory ? "rejected" as const : "accepted" as const })));
-      setDxItems((data.proposal.diagnoses ?? []).filter((item) => !item.code.startsWith("DA08.0")).map((item) => ({ ...item, decision: item.suggested ? "rejected" as const : "accepted" as const, toothText: item.tooth ? formatFdi(item.tooth) : "", findingsText: item.findings ?? "", codeSearch: "" })));
+      setDxItems((data.proposal.diagnoses ?? []).filter((item) => !item.code.startsWith("DA08.0")).map((item) => ({ ...item, decision: dxNeedsConfirmation(item.suggested) ? "rejected" as const : "accepted" as const, toothText: item.tooth ? formatFdi(item.tooth) : "", findingsText: item.findings ?? "", codeSearch: "" })));
       setDxSearch("");
     setAnsweredDxPrompts([]);
       setDismissedNotices(new Set());
@@ -766,7 +776,7 @@ export function ClinicalDictation({
           { category: "movilidad", proposed: (p.mobility ?? []) as ReviewGroup["proposed"], final: mobilityItems as ReviewGroup["final"] },
           { category: "pago", proposed: (p.payments ?? []) as ReviewGroup["proposed"], final: paymentItems.map((item) => ({ ...item, amount: Number(item.amountText) || 0, method: item.methodValue })) as ReviewGroup["final"] },
           { category: "cita", proposed: (p.appointments ?? []) as ReviewGroup["proposed"], final: appointmentItems.map((item) => ({ ...item, day: item.dayValue, time: item.timeValue })) as ReviewGroup["final"], uncheckedByDefault: (item) => !(item.day && item.time && !item.timeDoubt) },
-          { category: "diagnostico", proposed: (p.diagnoses ?? []).filter((item) => !item.code.startsWith("DA08.0")) as ReviewGroup["proposed"], final: dxItems as ReviewGroup["final"], uncheckedByDefault: (item) => Boolean(item.suggested) },
+          { category: "diagnostico", proposed: (p.diagnoses ?? []).filter((item) => !item.code.startsWith("DA08.0")) as ReviewGroup["proposed"], final: dxItems as ReviewGroup["final"], uncheckedByDefault: (item) => dxNeedsConfirmation(item.suggested) },
           // Prestaciones del arancel: cuáles quitó o agregó el profesional (incluye las objetadas por el revisor, marcadas con «objetada»).
           { category: "prestacion", proposed: (p.prestaciones ?? []).map((item) => ({ id: item.id, code: item.code, name: item.name, tooth: item.tooth, objetada: Boolean(item.advisory) })) as ReviewGroup["proposed"], final: prestItems.map((item) => ({ id: item.id, code: item.code, name: item.name, tooth: item.tooth, objetada: Boolean(item.advisory), decision: item.decision })) as ReviewGroup["final"], uncheckedByDefault: (item) => Boolean(item.objetada) },
         ];
@@ -883,7 +893,8 @@ export function ClinicalDictation({
         examId = await once(key, async () => (await persist({ action: "savePerio", patientId, ...(savedNote?.id ? { evolutionId: savedNote.id } : {}), teeth: buildDictatedPerio(perioReadings, perioMobility, perioRecessions), ...(perioClassification ? { classification: perioClassification } : {}), ...(attentionDate ? { clinicalDate: attentionDate } : {}) })).exam?.id);
       }
       if (fichaUpdate && patient) {
-        await persist({ action: "updatePatient", patientId, name: patient.name, rut: patient.rut, phone: patient.phone, email: patient.email, allergies: fichaUpdate.allergies, history: fichaUpdate.history });
+        // Solo alergias y antecedentes: la identidad (nombre, RUT, teléfono, correo) no se reenvía ni se revalida desde el dictado.
+        await persist({ action: "updatePatient", patientId, allergies: fichaUpdate.allergies, history: fichaUpdate.history });
       }
       const finalRead = await reload();
       const noteConfirmed = !!savedNote && finalRead.notes.some((note) => note.patientId === patientId && (savedNote?.id ? note.id === savedNote.id : note.title === savedNote?.title) && note.body === savedNote?.body);

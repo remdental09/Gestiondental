@@ -123,11 +123,17 @@ export function classifyEvolution(text: string, tooth?: string | null, implantIn
     // procedimiento es un registro del examen y sigue con las reglas generales (evaluación/atención).
     if (isControl) return make("implante-control", undefined, true);
   }
-  if (/\b(?:endodoncia|conductometria|biopulpectomia|necropulpectomia|pulpectomia|pulpotomia|trepanacion|instrumentacion|obturacion\s+de\s+conductos?|conductos?\s+radicular)/.test(today) && !/\b(?:se\s+indica|planific|presupuest)\w*\s+(?:la\s+)?endodoncia\b/.test(today)) return make("endodoncia");
-  if (/\b(?:se\s+(?:realiza|realizo|hace|hizo)\s+(?:la\s+)?(?:exodoncia|extraccion)|se\s+extra(?:e|jo)|exodoncia\s+(?:simple|quirurgica|de\s+(?:la\s+)?pieza)|extraccion\s+(?:simple|quirurgica))\b/.test(today)) return make("exodoncia");
-  if (/\b(?:corona|carilla|incrustacion|inlay|onlay|puente|nucleo|munon)\b/.test(today) && /\b(?:cementa\w*|preparacion|impresion|prueba|provisori[ao]|escaneo|instala\w*|coloca\w*|toma\s+de)\b/.test(today) && performed) return make("protesis");
+  if (/\b(?:endodoncia|conductometria|biopulpectomia|necropulpectomia|pulpectomia|pulpotomia|trepanacion|instrumentacion|obturacion\s+de\s+conductos?|conductos?\s+radicular|preparacion\s+quimico|gutapercha|totalfill|conductos?\s+(?:mv\d?|mb\d?|dv|db|ml|dl|mesial|distal|palatino|unico|u|p|v|l)\b)/.test(today) && !/\b(?:se\s+indica|planific|presupuest)\w*\s+(?:la\s+)?endodoncia\b/.test(today) && !(/\b(?:para\s+luego|luego)\s+(?:\w+\s+){0,2}endodoncias?\b/.test(today) && !/\b(?:conducto|trepanacion|gutapercha|obturacion\s+de\s+conductos)/.test(today))) return make("endodoncia");
+  // Taquigrafía de ficha: «Pieza 1.1 restauración de resina compuesta palatino … / Pulido» (Rc) es una obturación hecha,
+  // y «Corona Cerec … / Duolink-Futurabond» una corona cementada, aunque no haya verbo. El pulido es de esa restauración.
+  const shorthandRestoration = /\brestauracion\s+de\s+resina\s+compuesta\s+(?:mesial|distal|oclusal|vestibular|palatin[oa]|lingual|incisal|cervical)\b/.test(today) && !/\b(?:se\s+(?:planifica|indica|decide)|para\s+luego)\b[^.;\n]{0,40}\brestaura/.test(today);
+  const shorthandCrown = /\bcoronas?\b[^.;\n]{0,60}\b(?:duolink|futurabond|ketac|u200|relyx|variolink|choi[cs]e|cementad[oa]s?)\b/.test(today);
+  if (shorthandCrown) return make("protesis");
+  if (shorthandRestoration) return make("obturacion");
+  if (/\b(?:se\s+(?:realiza|realizo|hace|hizo)\s+(?:la\s+)?(?:exodoncia|extraccion)|se\s+extra(?:e|jo)|(?<!post\s)(?<!post-)(?<!post)exodoncia\s+(?:simple|quirurgica|de\s+(?:la\s+)?pieza)|extraccion\s+(?:simple|quirurgica))\b/.test(today)) return make("exodoncia");
+  if (/\b(?:corona|carilla|incrustacion|inlay|onlay|puente|nucleo|munon|protesis\s+fija\s+plural)\b/.test(today) && /\b(?:cementa\w*|preparacion|impresion|prueba|provisori[ao]|escaneo|instala\w*|coloca\w*|toma\s+de)\b/.test(today) && performed) return make("protesis");
   if (/\b(?:obturacion|obtura|restauracion|restaura|resina|amalgama|ionomero)\w*\b/.test(today) && (performed || /\bse\s+(?:obtura|restaura)\b/.test(today))) return make("obturacion");
-  if (/\b(?:protesis|ppr|placa\s+acrilica|rebasad\w*|prueba\s+de\s+(?:dientes|enfilado|metal)|enfilado|cubeta\s+individual)\b/.test(today)) return make("protesis", undefined, !performed);
+  if (/\b(?:protesis|ppr|placa\s+acrilica|rebasad\w*|prueba\s+de\s+(?:dientes|enfilado|metal)|enfilado|cubeta\s+individual)\b/.test(today)) return isControl && !performed && !/\b(?:cementa\w*|prueba|impresion|ajuste|instala\w*)\b/.test(today) ? make("control", undefined, true) : make("protesis", undefined, !performed);
   if (/\b(?:ortodon\w*|ortoped\w*|brackets?|arco|elasticos?|alineador\w*|disyuntor|expansor\w*|placa\s+(?:de\s+)?(?:expansion|hawley|activa)|retenedor\w*|ligaduras?|quad\s*helix)\b/.test(today)) {
     const detail = /\bcambi\w*\s+(?:de\s+)?arco|\barco\s+(?:a|nuevo)|\bse\s+cambia\s+(?:el\s+)?arco/.test(today) ? "cambio de arco"
       : /\bactiva\w*/.test(today) ? "activación"

@@ -70,13 +70,13 @@ const fold = (value: string) => value.normalize("NFD").replace(/\p{M}/gu, "").to
 
 const CATEGORY_RULES: Array<[ItemCategory, RegExp]> = [
   ["exodoncia", /(?<![a-z])(?:exodoncia|extraccion|se\s+extra(?:e|jo|jeron|en)|extraid[oa]s?|avulsion)(?![a-z])/],
-  ["pilar", /(?<![a-z])(?:conexion\s+(?:de(?:l)?\s+)?implantes?|se\s+conecta|minipilar|multi\s*unit|pilar(?:es)?(?!\s+de\s+cicatrizacion)|conectad[oa])(?![a-z])/],
+  ["pilar", /(?<![a-z])(?:conexion\s+(?:de(?:l)?\s+)?implantes?|se\s+conecta|conecto|conectamos|minipilar|multi\s*unit|pilar(?:es)?(?!\s+de\s+cicatrizacion)|conectad[oa])(?![a-z])/],
   ["implante", /(?<![a-z])(?:implantes?)(?![a-z])/],
   ["corona", /(?<![a-z])coronas?(?![a-z])/],
   ["puente", /(?<![a-z])(?:puentes?|protesis\s+fija\s+plural)(?![a-z])/],
   ["protesis", /(?<![a-z])(?:protesis|rehabilita\w*)(?![a-z])/],
-  ["obturacion", /(?<![a-z])(?:obtura\w*|restaura(?:cion|ciones|r|do|da)|resina|composite|amalgama|ionomero|onlays?|inlays?|overlays?|incrustacion(?:es)?)(?![a-z])/],
-  ["endodoncia", /(?<![a-z])(?:endodoncia|tratamiento\s+de\s+conductos?|pulpectomia|pulpotomia|biopulpectomia|necropulpectomia)(?![a-z])/],
+  ["obturacion", /(?<![a-z])(?:obtura\w*(?!\s+de\s+(?:los\s+)?conductos?)|restaura(?:cion|ciones|r|do|da)|resina|composite|amalgama|ionomero|onlays?|inlays?|overlays?|incrustacion(?:es)?)(?![a-z])/],
+  ["endodoncia", /(?<![a-z])(?:endodoncia|tratamiento\s+de\s+conductos?|pulpectomia|pulpotomia|biopulpectomia|necropulpectomia|obturacion\s+de\s+(?:los\s+)?conductos?|preparacion\s+quimico|gutapercha|conductos?\s+(?:mv\d?|mb\d?|dv|db|ml|dl|unico|u|p|v|l)(?=[\s\-\d]))(?![a-z])/],
   ["destartraje", /(?<![a-z])(?:destartraje|detartraje|pulido\s+radicular|raspado|raspaje|alisado(?:\s+radicular)?|profilaxis)(?![a-z])/],
   ["escaneo", /(?<![a-z])(?:escane\w*|scan\s*body|scanbody|escaner\s+intraoral)(?![a-z])/],
   ["sellante", /(?<![a-z])sellantes?(?![a-z])/],
@@ -89,8 +89,10 @@ const CATEGORY_RULES: Array<[ItemCategory, RegExp]> = [
 
 /** Verbos de algo hecho HOY (incluye el sustantivo de procedimiento al inicio de la frase, típico de la sección «Procedimientos»). */
 const DONE = /(?<![a-z])(?<!no\s)(?<!no\sse\s)(?:se\s+(?:le\s+)?(?:realiza|realizo|realizan|hace|hizo|efectua|efectuo|instala|instalo|instalan|coloca|coloco|colocan|conecta|conecto|conectan|cementa|cemento|cementan|obtura|obturo|obturan|restaura|restauro|restauran|extrae|extrajo|extraen|retira|retiran|entrega|toma|escanea|escaneo|escanean|sella|sellan|aplica|aplican|atornilla)|realizad[oa]s?|instalad[oa]s?|efectuad[oa]s?|extraid[oa]s?|cementad[oa]s?|hoy|(?:procede|procedemos|se\s+procede)\s+a\s+(?:instalar|colocar|extraer|realizar|obturar|cementar|conectar))(?![a-z])/;
+/** Taquigrafía de ficha sin verbo («Pieza 1.1 restauración de resina compuesta palatino», «obturación de conductos gutapercha», «Corona Cerec … Duolink»): es lo hecho hoy. */
+const DONE_SHORTHAND = /(?<![a-z])(?:restauracion\s+de\s+resina\s+compuesta\s+(?:mesial|distal|oclusal|vestibular|palatin[oa]|lingual|incisal|cervical)|obturacion\s+de\s+conductos|preparacion\s+quimico|conducto\s+(?:mv\d?|dv|p|u|ml|dl)\s*-?\s*\d|duolink|futurabond|ketac|u\s?200|cementacion\s+de)(?![a-z])|^(?:piezas?\s+[1-8]\.[1-8](?:\s*(?:-|,|y)\s*[1-8]\.[1-8])*\s*[:,.]?\s*)(?:[^.]{0,60}?(?:,|\s))?(?:exodoncia|extraccion|instalacion|cementacion|conexion|reconstruccion|eliminacion\s+de\s+caries|retiro\s+de\s+(?:caries|amalgama|resina|corona))(?![a-z])|(?<![a-z])(?:instalo|coloco|conecto|cemento|aplico|realizo|extraigo|retiro|tallo|obturo|restauro|reconstruyo|se\s+reconstruye|se\s+elimina|elimino|desobturo|instrumento)(?![a-z])/;
 const DONE_NOUN_START = /^(?:procedimientos?(?:\s+realizados?)?\s*:\s*)?(?:conexion|escaneo|destartraje|detartraje|obturacion|instalacion|cementacion|endodoncia|profilaxis|pulido|raspado|toma\s+de)(?![a-z])/;
-const PLAN = /(?<![a-z])(?:se\s+planifica\w*|planific\w*|se\s+plantea|planteo|propongo|proponemos|se\s+propone|se\s+sugiere|se\s+indica|se\s+programa|se\s+evaluara|se\s+considerara|plan(?:\s+de\s+tratamiento)?\s*:|proxim[ao]s?|siguiente\s+sesion|pendiente|a\s+futuro|presupuest\w*|costo|valor|precio|\d[\d.]*\s+pesos|viene\s+en|(?:en|dentro\s+de)\s+(?:\d+|un|una|dos|tres|cuatro|cinco|seis)\s+(?:semanas?|dias?|meses)|se\s+realizara|se\s+hara|se\s+instalara|queda\s+por|por\s+realizar|requiere|necesita|debe\s+(?:realizarse|hacerse))(?![a-z])/;
+const PLAN = /(?<![a-z])(?:se\s+planifica\w*|se\s+decide\w*|decid\w+\s+(?:realizar|hacer|exo|extra|instalar|tallar)|para\s+luego|luego\s+(?:se\s+)?(?:tallar|realizar|instalar|hacer)|derivad[oa]s?\s+(?:a|para|al)|deriv[oa]\s+(?:a|para|al)|desinclusion|fenestracion|se\s+evalua(?:ra)?|evaluacion\s+(?:de|para)|planific\w*|se\s+plantea|planteo|propongo|proponemos|se\s+propone|se\s+sugiere|se\s+indica|se\s+programa|se\s+evaluara|se\s+considerara|plan(?:\s+de\s+tratamiento)?\s*:|proxim[ao]s?|siguiente\s+sesion|pendiente|a\s+futuro|presupuest\w*|costo|valor|precio|\d[\d.]*\s+pesos|viene\s+en|(?:en|dentro\s+de)\s+(?:\d+|un|una|dos|tres|cuatro|cinco|seis)\s+(?:semanas?|dias?|meses)|se\s+realizara|se\s+hara|se\s+instalara|queda\s+por|por\s+realizar|requiere|necesita|debe\s+(?:realizarse|hacerse))(?![a-z])/;
 /** Infinitivo de acción al inicio de una frase del plan («rehabilitar…», «cortar y unir…»). */
 const PLAN_INFINITIVE_START = /^(?:plan\s*:\s*)?(?:rehabilitar|realizar|instalar|colocar|extraer|obturar|cementar|confeccionar|evaluar|controlar|cortar|unir|tomar|hacer)(?![a-z])/;
 const FINDING = /(?<![a-z])(?:se\s+observa\w*|presenta\w*|se\s+evidencia|se\s+detecta|se\s+aprecia|examen|al\s+examen|movilidad|ausente|caries|fractur\w*|dolor|sensibilidad)(?![a-z])/;
@@ -113,7 +115,7 @@ export function kindOf(sentence: string, section: Section, isPlan: (s: string) =
   if (NOT_DONE.test(plain)) return "plan";
   const plan = PLAN.test(plain) || PLAN_INFINITIVE_START.test(plain) || isPlan(sentence);
   // «Hoy no hice nada, solo planifico…»: «hoy» solo ubica la frase en el tiempo, no prueba que se haya hecho algo.
-  const done = (plan ? DONE.test(plain.replace(/(?<![a-z])hoy(?![a-z])/g, " ")) : DONE.test(plain)) || DONE_NOUN_START.test(plain);
+  const done = (plan ? DONE.test(plain.replace(/(?<![a-z])hoy(?![a-z])/g, " ")) : DONE.test(plain)) || DONE_NOUN_START.test(plain) || DONE_SHORTHAND.test(plain);
   if (plan && !done) return "plan";
   // «Se obtura la 14 y se planifica…» se separa antes; si una frase trae ambos, manda lo hecho solo si el plan no la abre.
   if (plan && done) return /^(?:plan\s*:\s*)?(?:se\s+planifica|se\s+plantea|proxim|se\s+indica)/.test(plain) || PLAN_INFINITIVE_START.test(plain) ? "plan" : "realizado";
@@ -138,15 +140,30 @@ function categoriesOf(plain: string): ItemCategory[] {
   if (found.includes("pilar") && found.includes("implante") && !/(?:instala|coloca)\w*\s+(?:un\s+|el\s+|los\s+|dos\s+|tres\s+)?implantes?|implantes?\s+(?:instalad|colocad)/.test(plain)) found.splice(found.indexOf("implante"), 1);
   // Lo que se extrae no está «ausente» como hallazgo aparte; una prótesis sobre un puente es el puente.
   if (found.includes("exodoncia") && found.includes("ausente")) found.splice(found.indexOf("ausente"), 1);
+  // «Control post exodoncia», «zona donde se realizó la exodoncia», «se deriva para exodoncia»: no es una extracción de hoy.
+  if (found.includes("exodoncia") && /(?<![a-z])(?:post\s*-?\s*(?:exodoncia|extraccion)|donde\s+se\s+realizo\s+la\s+(?:exodoncia|extraccion)|zona\s+de\s+(?:la\s+)?(?:exodoncia|extraccion))(?![a-z])/.test(plain) && !/(?<![a-z])se\s+(?:realiza|extrae|hace)\s+(?:la\s+)?(?:exodoncia|extraccion)(?![a-z])/.test(plain)) found.splice(found.indexOf("exodoncia"), 1);
   if (found.includes("puente") && found.includes("protesis")) found.splice(found.indexOf("protesis"), 1);
+  // En una sesión de endodoncia, el vidrio ionómero / IRM / provisorio es el sellado de la cámara, no una obturación aparte.
+  if (found.includes("endodoncia") && found.includes("obturacion") && !/(?<![a-z])(?:resina\s+compuesta|composite|restauracion\s+de\s+resina|amalgama)(?![a-z])/.test(plain)) found.splice(found.indexOf("obturacion"), 1);
+  // «Escaneo intraoral de implantes»: se escanean implantes que ya están; no es instalar uno.
+  if (found.includes("escaneo") && found.includes("implante") && !/(?:instala|coloca|inserta)\w*\s+(?:\w+\s+){0,2}implantes?|instalacion\s+de\s+implante/.test(plain)) found.splice(found.indexOf("implante"), 1);
   return found;
 }
 
 const FINDING_CATEGORIES: ReadonlySet<ItemCategory> = new Set(["caries", "movilidad", "fractura", "lesion_apical", "ausente"]);
 
+const PURPOSE_WORD: Partial<Record<ItemCategory, RegExp>> = { corona: /coronas?/g, implante: /implantes?/g, puente: /puentes?|protesis\s+fija\s+plural/g };
+/** La palabra del tratamiento aparece solo como propósito o plan («para coronas», «para luego … coronas», «se decide … implante»). */
+function onlyAsPurpose(plain: string, category: ItemCategory): boolean {
+  const re = PURPOSE_WORD[category];
+  if (!re) return false;
+  const hits = [...plain.matchAll(new RegExp(re.source, "g"))];
+  return hits.length > 0 && hits.every((hit) => /(?:para(?:\s+(?:las?|los?|un|una|sus))?|para\s+luego[a-z\s,]{0,40}|luego[a-z\s,]{0,40}|se\s+decide[a-z\s,]{0,30}|decid[a-z]+[a-z\s,]{0,30}|planific[a-z]*[a-z\s,]{0,30}|futur[oa]s?|definitiv[oa]s?\s+(?:de|para))\s*$/.test(plain.slice(Math.max(0, (hit.index ?? 0) - 60), hit.index ?? 0)) || /^\s*(?:definitiv|provisori)/.test(plain.slice((hit.index ?? 0) + hit[0].length)) && /(?:para|luego|realizar|tallar)/.test(plain.slice(Math.max(0, (hit.index ?? 0) - 40), hit.index ?? 0)));
+}
+
 /** Frases mixtas («se obtura la 14 y se planifica endodoncia de la 19») se separan en actos independientes. */
 function splitActs(sentence: string): string[] {
-  return sentence.split(/\s*(?:;|,\s+(?=(?:por\s+ahora|por\s+el\s+momento|hoy|ahora|en\s+esta\s+sesi[oó]n)\b)|,?\s+y\s+(?=se\s)|,\s+(?=se\s+(?:planifica|plantea|indica|realiza|extrae|obtura|instala)))\s*/iu).map((part) => part.trim()).filter(Boolean);
+  return sentence.split(/\s*(?:;|\s?\/\s*(?=(?:para\s+luego|luego|se\s+(?:decide|planifica|indica)|(?:e\s+)?impresi[oó]n|escaneo)\b)|,\s+(?=(?:por\s+ahora|por\s+el\s+momento|hoy|ahora|en\s+esta\s+sesi[oó]n)\b)|,?\s+y\s+(?=se\s)|,\s+(?=se\s+(?:planifica|plantea|indica|realiza|extrae|obtura|instala)))\s*/iu).map((part) => part.trim()).filter(Boolean);
 }
 
 /** Rangos «de la 1.4 a la 1.6» / «piezas 12 a 14»: piezas intermedias que toothMentions no ve. */
@@ -224,7 +241,9 @@ export function ruleItems(text: string, tools: ItemTools): ClinicalItem[] {
       if (!teeth.length && categories.some((c) => ["caries", "obturacion", "endodoncia", "corona", "sellante"].includes(c)) && lastTeeth.length === 1 && !/\b(?:dos|tres|cuatro|cinco|seis|varios|todos|ambos)\b/.test(plain)) teeth = lastTeeth;
       if (tools.teethIn(part).length) lastTeeth = teeth;
       if (!categories.length) {
-        // Pieza nombrada sin acto reconocible: se registra igual para que la nota y la lista se puedan comparar.
+        // Pieza nombrada sin acto reconocible: se registra igual para que la nota y la lista se puedan comparar,
+        // pero un renglón suelto («Pza 1.7 / Aún drena…») no es un diagnóstico: sin hallazgo, no entra como tal al historial.
+        if (kind === "diagnostico" && !FINDING.test(plain) && !/(?<![a-z])(?:sondaje|sangra\w*|supura\w*|recesion|bolsa|furca\w*|placa|calculo|mm|milimetros?)(?![a-z])/.test(plain)) continue;
         for (const tooth of teeth) { const own = ownClause(part, tooth, teeth, tools); items.push(makeItem({ tooth, surfaces: [], kind, category: "otro", what: own, evidence: own, origin: "reglas" })); }
         continue;
       }
@@ -232,7 +251,10 @@ export function ruleItems(text: string, tools: ItemTools): ClinicalItem[] {
       const paired = actPairs(part, teeth, categories, tools);
       for (const category of categories) {
         // Un hallazgo dentro de una frase de plan o de acto («obturación por caries») es diagnóstico.
-        const itemKind: ItemKind = FINDING_CATEGORIES.has(category) && kind !== "diagnostico" && categories.some((c) => !FINDING_CATEGORIES.has(c)) ? "diagnostico" : kind;
+        // «Escaneo de implantes para coronas», «se realiza alargamiento … para luego realizar coronas»: la corona es el plan.
+        // («impresión para PFP», «para coronas sobre implantes» tampoco es un diagnóstico: es el plan).
+        const purpose = (kind === "realizado" || kind === "diagnostico") && (category === "corona" || category === "implante" || category === "puente") && onlyAsPurpose(plain, category);
+        const itemKind: ItemKind = purpose ? "plan" : FINDING_CATEGORIES.has(category) && kind !== "diagnostico" && categories.some((c) => !FINDING_CATEGORIES.has(c)) ? "diagnostico" : kind;
         const grade = category === "movilidad" ? gradeOf(plain) : undefined;
         const targets: Array<number | null> = paired ? paired.filter((pair) => pair.category === category).map((pair) => pair.tooth) : teeth.length ? teeth : [null];
         for (const tooth of targets) { const own = tooth !== null && !paired ? ownClause(part, tooth, teeth, tools) : part; items.push(makeItem({ tooth, surfaces: [], kind: itemKind, category, what: own, evidence: own, origin: "reglas", ...(grade ? { grade } : {}) })); }

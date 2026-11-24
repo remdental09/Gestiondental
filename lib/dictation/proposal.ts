@@ -1,4 +1,5 @@
 import { normalizeShades } from "./shade.ts";
+import { expandClinicShorthand } from "./clinic-shorthand.ts";
 import { dentalDictionaryHints } from "./dental-lexicon.ts";
 import { APICAL_STATUSES, FRACTURE_STATUSES, isLesionStatus } from "../tooth-status.ts";
 import { calmClarifications, type Sensitivity } from "./sensitivity.ts";
@@ -1394,7 +1395,8 @@ function diagnosisUncertaintyAnswered(sentence: string, transcript: string): boo
  * Diagnósticos CIE-11 más probables según lo que se hizo, cuando el profesional no dictó el diagnóstico.
  * Todos verificados en el catálogo de la aplicación; se ofrecen como opciones, nunca se guardan solos.
  */
-const LIKELY_DIAGNOSES: Record<"extraccion" | "endodoncia" | "restauracion" | "higiene", { label: string; codes: string[] }> = {
+const LIKELY_DIAGNOSES: Record<"extraccion" | "endodoncia" | "restauracion" | "corona" | "higiene", { label: string; codes: string[] }> = {
+  corona: { label: "corona", codes: ["DA08.0", "NA0D.02", "DA08.2", "DA09.71"] },
   extraccion: { label: "extracción", codes: ["DA08.0", "DA09.1", "DA0C.Z", "NA0D.06"] },
   endodoncia: { label: "endodoncia", codes: ["DA09.0", "DA09.1", "DA09.71", "DA09.62"] },
   restauracion: { label: "restauración", codes: ["DA08.0", "NA0D.02", "DA08.11", "DA08.12"] },
@@ -1472,6 +1474,9 @@ export function deducedDiagnoses(odontogram: OdontogramChange[], diagnoses: Diag
       continue;
     }
     if (own.some((text) => ENDO_DONE.test(text) && !isPriorEndoSentence(text))) { ask(tooth, "endodoncia"); continue; }
+    // Corona hecha hoy sobre diente natural (no sobre implante): también se propone el diagnóstico que la justifica.
+    const crownToday = odontogram.some((change) => change.tooth === tooth && change.status === "Corona" && !change.advisory && change.foundation !== "implant");
+    if (crownToday) { ask(tooth, "corona"); continue; }
     const restored = odontogram.some((change) => change.tooth === tooth && change.kind === "surface" && change.finding?.condition === "restored" && !change.advisory);
     if (restored || own.some((text) => RESTORATION_DONE.test(text) && !/\b(?:corona|carilla|incrustaci)/i.test(text))) ask(tooth, "restauracion");
   }
@@ -4075,6 +4080,96 @@ function mainToothLabel(text: string, odontogram: OdontogramChange[]): string | 
   return mention ? mention.numberingLabel : null;
 }
 
+const PLANNED_BEFORE = /(?:se\s+decide|decid\p{L}*|para\s+luego|luego\s+(?:se\s+)?(?:tallar|realizar|instalar|hacer)|se\s+planifica|planific\p{L}*|se\s+indica|indic\p{L}*\s+(?:de\s+)?|presupuest\p{L}*|se\s+eval[uú]a|evaluaci[oó]n\s+(?:de|para)|derivad[oa]s?|deriv[oa]|necesidad\s+de|a\s+futuro|pr[oó]xim[oa]|para(?:\s+(?:las?|los?|un|una))?|requiere|necesita)\s*(?:[\p{L}\s,]{0,40}?)$/iu;
+const STATUS_WORDS: Record<string, RegExp> = {
+  Implante: /implantes?/giu,
+  "Implante con pilar": /implantes?|pilar(?:es)?/giu,
+  Corona: /coronas?/giu,
+};
+const INCLUDED = /(?<!\p{L})(?:incluid[oa]s?|semi\s*-?\s*erupcionad[oa]s?|semierupcion\p{L}*|retenid[oa]s?|impactad[oa]s?|desinclusi[oó]n|fenestraci[oó]n)(?!\p{L})/iu;
+
+/** Piezas que el texto describe como incluidas, semierupcionadas o a desincluir: no están «ausentes». */
+export function includedTeeth(text: string): Set<number> {
+  const out = new Set<number>();
+  for (const sentence of sentences(text)) {
+    for (const clause of sentence.split(/\s*(?:[,;]|\s-\s)\s*/)) {
+      // «Extracción de la 3.8 incluida»: se sacó hoy; sí queda ausente.
+      if (!INCLUDED.test(clause) || /(?<!\p{L})(?:extracci[oó]n|exodoncia|extra[ií]d[oa]s?|se\s+extra(?:e|jo|en))(?!\p{L})/iu.test(sentence) && !/(?<!\p{L})(?:para|derivad[oa]|indica)\s+(?:\p{L}+\s+){0,2}(?:la\s+)?(?:extracci|exodoncia|desinclusi)/iu.test(sentence)) continue;
+      for (const mention of toothMentions(clause)) if (mention.ok) out.add(mention.tooth);
+    }
+  }
+  return out;
+}
+
+/** ¿Cada vez que se nombra el estado (implante, corona) es como plan («se decide … implante», «para luego … coronas»)? */
+function statusOnlyPlanned(status: string, text: string): boolean {
+  const words = STATUS_WORDS[status];
+  if (!words) return false;
+  const plain = text.replace(/\s+/g, " ");
+  const hits = [...plain.matchAll(new RegExp(words.source, "giu"))];
+  if (!hits.length) return false;
+  return hits.every((hit) => {
+    const start = Math.max(0, (hit.index ?? 0) - 70);
+    const before = plain.slice(start, hit.index ?? 0).split(/[.;/]|\s-\s/).pop() ?? "";
+    // «Retiro de coronas antiguas», «se retira la corona»: lo que se saca hoy no queda como corona.
+    return PLANNED_BEFORE.test(before) || /(?:retiro\s+de(?:\s+(?:la|las|los|el))?|se\s+retiran?(?:\s+(?:la|las|los|el))?|retir[oa]\s+(?:la|las|los|el)?|sin)\s*$/iu.test(before);
+  });
+}
+
+/**
+ * Tramos por grupo de piezas: «Pzas 3.7-3.6 Corona Cerec … / Pzas 4.7-4.5-3.5 Rc …» son dos grupos, cada uno con su texto.
+ * Devuelve, para cada pieza (FDI con punto), el texto de su grupo. Sin dos grupos o más, vacío (no hay nada que separar).
+ */
+export function toothGroupSpans(text: string): Map<number, string> {
+  const marks = [...text.matchAll(/(?<![\p{L}\d.,])([1-8])\.([1-8])(?![\d.,]\d)/gu)].map((m) => ({ at: m.index ?? 0, end: (m.index ?? 0) + m[0].length, tooth: Number(m[1]) * 10 + Number(m[2]) }));
+  const groups: Array<{ teeth: number[]; start: number; end: number }> = [];
+  for (const mark of marks) {
+    const last = groups[groups.length - 1];
+    const gap = last ? text.slice(last.end, mark.at) : "";
+    if (last && /^\s*(?:-|,|y|e|a)?\s*$/iu.test(gap)) { last.teeth.push(mark.tooth); last.end = mark.end; }
+    else groups.push({ teeth: [mark.tooth], start: mark.at, end: mark.end });
+  }
+  const spans = new Map<number, string>();
+  // Solo el estilo de ficha «Pieza(s) X.X <acto>», donde el acto va DESPUÉS de la pieza; en el habla («se cementa corona en
+  // el 3.6») el acto va antes y este corte no sirve.
+  const headed = groups.filter((group) => /(?:^|[\n.;:/]\s*)(?:piezas?|pzas?)\.?\s*:?\s*$/iu.test(text.slice(Math.max(0, group.start - 40), group.start)));
+  if (groups.length < 2 || headed.length < 2 || headed.length !== groups.length) return spans;
+  groups.forEach((group, index) => {
+    const next = groups[index + 1];
+    const span = text.slice(group.start, next ? next.start : text.length);
+    for (const tooth of group.teeth) spans.set(tooth, `${spans.get(tooth) ?? ""} ${span}`);
+  });
+  return spans;
+}
+
+export function guardPlannedStatuses(odontogram: OdontogramChange[], text: string): { odontogram: OdontogramChange[]; removed: string[] } {
+  const included = includedTeeth(text);
+  const spans = toothGroupSpans(text);
+  const removed: string[] = [];
+  const kept = odontogram.filter((item) => {
+    if ((item.kind !== "status" && item.kind !== "crown") || !item.status) return true;
+    if (item.status === "Ausente" && included.has(item.tooth)) {
+      removed.push(`FDI ${formatFdi(item.tooth)}: está incluida o por desincluir; no se marca «Ausente».`);
+      return false;
+    }
+    // El estado de un grupo de piezas no pasa al grupo siguiente (corona de 3.7-3.6 ≠ resinas de 4.7-4.5-3.5).
+    const own = spans.get(item.tooth);
+    const word = STATUS_WORDS[item.status];
+    // Solo si ese grupo dice su propio acto («Rc …», «endodoncia…»); «la 2.1 también» sigue compartiendo el de antes.
+    const ownAct = own !== undefined && /(?<!\p{L})(?:resina|restauraci[oó]n|obturaci[oó]n|endodoncia|conductos?|exodoncia|extracci[oó]n|sellante|carilla|incrustaci[oó]n|onlay|inlay|destartraje|implantes?|coronas?)(?!\p{L})/iu.test(own);
+    if (own !== undefined && ownAct && word && !new RegExp(word.source, "iu").test(own) && new RegExp(word.source, "iu").test(text)) {
+      removed.push(`FDI ${formatFdi(item.tooth)}: «${item.status}» se dictó para otras piezas; no se copia a esta.`);
+      return false;
+    }
+    if (item.status in STATUS_WORDS && statusOnlyPlanned(item.status, text)) {
+      removed.push(`FDI ${formatFdi(item.tooth)}: «${item.status}» se dictó como plan, no como hecho; queda fuera del odontograma.`);
+      return false;
+    }
+    return true;
+  });
+  return { odontogram: kept, removed };
+}
+
 /**
  * Aplica el tipo de evolución al odontograma. Un control no vuelve a marcar lo que ya está registrado
  * (control de un implante que ya figura como implante = sin cambio). Si el odontograma no lo muestra,
@@ -4172,6 +4267,13 @@ export function applyEvolutionPolicy(proposal: DictationProposal, chart: Structu
   const reviewed = clinicalCoherence(odontogram, chart, (tooth) => sentences(text).filter((sentence) => toothMentions(sentence).some((m) => m.ok && m.tooth === tooth)).map((sentence) => neighbourScoped(sentence, tooth)));
   odontogram.splice(0, odontogram.length, ...reviewed.odontogram);
   notes.push(...reviewed.notes);
+  // Plan, examen y derivación no son lo hecho: «se decide exo e implante», «para luego tallar y realizar coronas»,
+  // «derivada para desinclusión de 3.8 y 4.8» / «1.7 incluido» no dejan Implante, Corona ni Ausente en el odontograma.
+  const guarded = guardPlannedStatuses(odontogram, text);
+  if (guarded.removed.length) {
+    odontogram.splice(0, odontogram.length, ...guarded.odontogram);
+    notes.push(...guarded.removed);
+  }
   const changed = odontogram.length !== proposal.odontogram.length || odontogram.some((item) => item.advisory) || pilarItems.length > 0;
   const evolution = proposal.evolution ? { ...proposal.evolution, title: finalKind.title, ...(changed ? { body: replaceExamSection(proposal.evolution.body, odontogram.filter((item) => !item.advisory)) } : {}) } : null;
   return { ...proposal, odontogram, evolution, evolutionKind: finalKind, policyNotes: notes };
@@ -4290,14 +4392,19 @@ export async function proposeFromTranscript(
   // y autocorrecciones dichas en voz alta («la 2.4, no, perdón, la 2.5» → «la 2.5»), visibles en «Texto corregido».
   // 0) Saludo y cierre («Hola, quiero evolucionar la ficha de…», «eso es todo») no van a la nota ni a la IA.
   const frame = stripDictationFrame(transcript);
-  const dictionary = applyLexicon(normalizeShades(frame.text));
+  // Siglas de la clínica (Rc, Pza, OBC, Cdto, A2%, PFP…) antes del diccionario de voz.
+  const shorthand = expandClinicShorthand(frame.text);
+  const dictionary = applyLexicon(normalizeShades(shorthand.text));
   const selfFix = applySelfCorrections(dictionary.text);
-  const lexicon = { text: selfFix.text, corrections: [...frame.corrections, ...dictionary.corrections, ...selfFix.corrections] };
+  const lexicon = { text: selfFix.text, corrections: [...frame.corrections, ...shorthand.corrections, ...dictionary.corrections, ...selfFix.corrections] };
   const fixed = lexicon.text;
   const localOnly = structureTranscript(fixed, { today });
   // Lista clínica (diagnóstico · plan · realizado): reconcilia odontograma, arancel y CIE-11, y pule la nota.
   const withClinicalItems = (proposal: DictationProposal, text: string, aiItems: ClinicalItem[]): DictationProposal => {
-    const applied = applyClinicalItems(proposal, { text, aiItems, chart: input.chart ?? [] }, ITEM_TOOLS);
+    const itemsApplied = applyClinicalItems(proposal, { text, aiItems, chart: input.chart ?? [] }, ITEM_TOOLS);
+    // Lo que la lista clínica reescribió pasa por el mismo filtro de plan/examen que la política.
+    const guard = guardPlannedStatuses(itemsApplied.odontogram, text);
+    const applied = guard.removed.length ? { ...itemsApplied, odontogram: guard.odontogram, itemWarnings: [...(itemsApplied.itemWarnings ?? []), ...guard.removed] } : itemsApplied;
     if (!applied.evolution) return applied;
     const polished = polishNote(applied.evolution.body, input.patient);
     let body = polished.body;
