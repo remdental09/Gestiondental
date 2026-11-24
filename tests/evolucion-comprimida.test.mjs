@@ -20,3 +20,10 @@ test("se puede filtrar por pieza o zona y se conservan las anuladas visibles", (
   assert.match(source, /data-testid="evolution-zone-filter"/);
   assert.match(source, /annulled && <span[^>]*>Anulada/);
 });
+
+test("la lista de evoluciones tiene su propia barra vertical para recorrerla", async () => {
+  const { readFileSync } = await import("node:fs");
+  const ui = readFileSync(new URL("../components/evolution-history.tsx", import.meta.url), "utf8");
+  assert.match(ui, /data-testid="evolution-scroll"/);
+  assert.match(ui, /max-h-\[70dvh\][^"]*overflow-y-auto/);
+});

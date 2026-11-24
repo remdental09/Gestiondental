@@ -91,6 +91,7 @@ export function EvolutionHistory({ notes, allNotes, odontogram, onSyncOdontogram
       <Button type="button" variant="outline" size="sm" className="min-h-10" aria-pressed={allOpen} onClick={() => setExpanded(allOpen ? new Set() : new Set(visibleNotes.map(note => note.id)))} data-testid="evolution-toggle-all">{allOpen ? "Comprimir todo" : "Expandir todo"}</Button>
       {allZones.length > 1 && <label className="flex items-center gap-2 text-xs font-medium text-[#615f73]">Pieza o zona<select className="min-h-10 rounded-lg border border-[#d2d4df] bg-white px-2 text-sm text-[#35343f]" value={zone} onChange={event => setZone(event.target.value)} data-testid="evolution-zone-filter"><option value="">Todas</option>{allZones.map(item => <option key={item} value={item}>{item}</option>)}</select></label>}
     </div>
+    <div className="max-h-[70dvh] space-y-6 overflow-y-auto overscroll-contain pl-2 pr-3" tabIndex={0} role="region" aria-label="Evoluciones: desplázate para recorrerlas" data-testid="evolution-scroll">
     {!sessions.length && <p className="rounded-xl border border-dashed border-[#dddbe6] p-6 text-center text-sm text-[#6b6a7c]">Ninguna evolución menciona «{zone}».</p>}
     {sessions.map(session => {
       const onlyAnnulled = session.notes.every(note => note.status === "anulada");
@@ -133,5 +134,6 @@ export function EvolutionHistory({ notes, allNotes, odontogram, onSyncOdontogram
         </div>
       </section>;
     })}
+    </div>
   </div>;
 }
