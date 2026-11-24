@@ -944,18 +944,14 @@ export function ClinicalDictation({
       savedSinceOpen.current = true;
       setResult(check);
       void logFeedback();
+      // Solo lo que de verdad quedó sin guardar. Lo que el profesional rechazó a propósito y las preguntas que ya
+      // se mostraron antes de guardar no se repiten aquí: demasiadas alertas le suman carga (principio de diseño 1).
       setNotRecorded([
         ...reviewWarnings,
-        ...teeth.filter((item) => item.decision !== "accepted").map((item) => `${item.numberingLabel}${item.surface ? ` · ${surfaceLabel[item.surface]}` : ""}: ${item.kind === "surface" ? findingText(item.finding) : item.kind === "crown" ? "Corona" : item.status} — ${item.incompleteCaries ? "incompleto" : "rechazado"}.`),
-        ...budgets.filter((item) => item.decision !== "accepted").map((item) => `Presupuesto: ${item.label} — rechazado.`),
-        ...fichaItems.filter((item) => item.decision !== "accepted" || !patient).map((item) => `${fichaLabel[item.field]}: ${item.text} — no se pasó a la ficha.`),
-        ...perioItems.filter((item) => item.decision !== "accepted").map((item) => `Sondaje FDI ${item.toothText}${item.site ? ` ${item.site}` : ""}${item.depthText ? ` ${item.depthText} mm` : ""} — ${item.pending ? "incompleto, no se guardó" : "rechazado"}.`),
-        ...paymentItems.filter((item) => item.decision !== "accepted").map((item) => `Pago $${Number(item.amountText || 0).toLocaleString("es-CL")} — no se registró.`),
-        ...appointmentItems.filter((item) => item.decision !== "accepted").map((item) => `Cita «${item.said || item.evidence}» — no se agendó.`),
-        ...(controlItem && controlItem.decision !== "accepted" ? [`Próximo control «${controlItem.said}» — no se programó.`] : []),
-        ...dxItems.filter((item) => item.decision !== "accepted").map((item) => `Diagnóstico ${item.code || "sin código"} ${item.title}${item.toothText ? ` (FDI ${item.toothText})` : ""} — ${item.suggested ? "sugerencia no confirmada" : "rechazado"}.`),
+        ...teeth.filter((item) => item.decision !== "accepted" && item.incompleteCaries).map((item) => `${item.numberingLabel}${item.surface ? ` · ${surfaceLabel[item.surface]}` : ""}: ${item.kind === "surface" ? findingText(item.finding) : item.kind === "crown" ? "Corona" : item.status} — incompleto.`),
+        ...fichaItems.filter((item) => item.decision === "accepted" && !patient).map((item) => `${fichaLabel[item.field]}: ${item.text} — no se pasó a la ficha.`),
+        ...perioItems.filter((item) => item.decision !== "accepted" && item.pending).map((item) => `Sondaje FDI ${item.toothText}${item.site ? ` ${item.site}` : ""}${item.depthText ? ` ${item.depthText} mm` : ""} — incompleto, no se guardó.`),
         ...(!saveEvolution && dxPlan?.tags.length ? ["Los diagnósticos aceptados no se guardaron porque no se generó evolución."] : []),
-        ...outcome.proposal.clarifications.filter((question) => !DEPTH_QUESTION.test(question)),
         ...(!saveEvolution ? ["El dictado no generó texto de evolución; los campos estructurados aceptados se guardaron por separado."] : []),
       ]);
       if (!check.ok) setFormError(noteConfirmed ? "La evolución se guardó y se releyó. Revisa las diferencias en los campos opcionales." : "La relectura no confirmó todo lo aceptado. Revisa el estado detallado antes de volver a guardar.");
