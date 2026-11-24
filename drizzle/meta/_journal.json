@@ -169,6 +169,13 @@
       "when": 1796072800000,
       "tag": "0023_login_code",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1796159200000,
+      "tag": "0024_stamp_layout",
+      "breakpoints": true
     }
   ]
 }

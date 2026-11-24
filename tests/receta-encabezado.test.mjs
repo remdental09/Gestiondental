@@ -28,7 +28,7 @@ test("receta: el QR de la Superintendencia es obligatorio, sin opción para ocul
   const emitir = read("app/api/documentos/emitir/route.ts");
   assert.match(emitir, /if \(!publicRegistration\(reg\)\.qrUrl\) return fail\(/);
   assert.match(emitir, /document: await withRegistration\(issued\)/, "la respuesta trae la habilitación (antes la receta recién emitida salía sin QR)");
-  assert.match(read("app/api/documentos/route.ts"), /document: \{ \.\.\.document, documentMark, registration, authorTitle: profile\?\.title \?\? null(?:, stampMark)? \}/);
+  assert.match(read("app/api/documentos/route.ts"), /document: \{ \.\.\.document, documentMark, registration, authorTitle: profile\?\.title \?\? null(?:, stampMark)?(?:, stampLayout)? \}/);
 });
 
 test("receta: paciente con Nro. de documento, edad, dirección y fecha; firma con nombre, RUT y REG-SIS", () => {

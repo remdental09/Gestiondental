@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, ImagePlus, Lock, Maximize2, Pencil, Save, Trash2 } from "lucide-react";
 import { BASELINE_RATIO, DEFAULT_INK, SIGNATURE_INKS, backingSize, inkBounds, outputScale, strokeWidth, usableInk, worthTrimming } from "@/lib/signature-image";
+import { StampPlacement } from "@/components/stamp-placement";
 
 const loadImage = (src: string) => new Promise<HTMLImageElement>((resolve, reject) => { const image = new window.Image(); image.onload = () => resolve(image); image.onerror = () => reject(new Error("No se pudo leer la imagen.")); image.src = src; });
 
@@ -352,6 +353,7 @@ export function SignatureEditor({ compact = false, kind = "firma" }: { compact?:
       </>}
       <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={event => { void pickFile(event.target.files?.[0]); event.target.value = ""; }}/>
     </div>
+    {isStamp && mark && !dirty && <StampPlacement image={mark}/>}
     {mark === null && <p className="mt-2 text-xs text-[#615f73]" role="status">Cargando tu firma…</p>}
     {error && <p role="alert" className="mt-2 text-sm text-rose-800">{error}</p>}{notice && !error && <p role="status" className="mt-2 text-sm text-emerald-900">{notice}</p>}
   </section>;

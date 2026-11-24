@@ -2,6 +2,7 @@ import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf
 import { budgetItemTotal, budgetPhases, budgetTotals, itemWhereText, type BudgetItem } from "./budget-plans.ts";
 import { DEFAULT_FORMAT, clinicContactGroups, hexToRgb01, shade, tint, type BudgetFormat } from "./budget-format.ts";
 import { SIGNATURE_BOX_CM, STAMP_BOX_CM, cmToPt, fitInBox } from "./signature-image.ts";
+import { isStampMoved, placeStamp, type StampLayout } from "./stamp-layout.ts";
 
 /**
  * PDF del presupuesto / plan de tratamiento, con formato de presupuesto clínico: cabecera de la clínica, número y hora de emisión,
@@ -33,6 +34,8 @@ export type BudgetPdfInput = {
   documentMark?: string;
   /** Timbre del profesional, bajo su firma y datos. */
   stampMark?: string;
+  /** Posición y tamaño del timbre (medidos desde su lugar de siempre). */
+  stampLayout?: StampLayout | null;
 };
 
 const PAGE_W = 595.28, PAGE_H = 841.89, M = 40, R = PAGE_W - M, FOOT = 52, BAND = 84;
@@ -256,7 +259,7 @@ export async function buildBudgetPdf(input: BudgetPdfInput): Promise<Uint8Array>
     ...fitLines(clinic, bold, 9, blockW, 1).map(t => ({ t, f: bold, size: 9 })),
     ...clinicParts.flatMap(part => fitLines(part, regular, 8, blockW, part === [format.clinic.address, format.clinic.city].filter(Boolean).join(", ") ? 2 : 1)).map(t => ({ t, f: regular, size: 8 })),
   ] : [];
-  const stampH = stampImage ? cmToPt(STAMP_BOX_CM.height) + 8 : 0;
+  const stampH = stampImage ? (isStampMoved(input.stampLayout) ? 0 : cmToPt(STAMP_BOX_CM.height) * Math.max(input.stampLayout?.scale ?? 1, 0.5) + 8) : 0;
   const signH = stampH + 80 + Math.max(62 + 13 + (nameInSignature ? 12 * credentialLines.length : 0), 10 + 11 * signClinic.length) + 8;
 
   // Condiciones y observaciones (se dibujan después)
@@ -370,10 +373,11 @@ export async function buildBudgetPdf(input: BudgetPdfInput): Promise<Uint8Array>
   let signEnd = signTop - Math.max(102, 18 + 11 * signClinic.length);
   // El timbre va bajo el nombre y los datos del profesional, centrado bajo su firma.
   if (stampImage) {
-    const fit = fitInBox(stampImage.width, stampImage.height, Math.min(cmToPt(STAMP_BOX_CM.width), R - sx), cmToPt(STAMP_BOX_CM.height));
+    const slotWidth = Math.min(cmToPt(STAMP_BOX_CM.width), R - sx), slotHeight = cmToPt(STAMP_BOX_CM.height);
     const top = y - 6;
-    page.drawImage(stampImage, { x: sx + (R - sx - fit.width) / 2, y: top - fit.height, width: fit.width, height: fit.height });
-    signEnd = Math.min(signEnd, top - fit.height - 6);
+    const at = placeStamp(stampImage, { x: sx + (R - sx - slotWidth) / 2, y: top - slotHeight, width: slotWidth, height: slotHeight }, input.stampLayout, page.getSize(), cmToPt);
+    page.drawImage(stampImage, at);
+    if (!isStampMoved(input.stampLayout)) signEnd = Math.min(signEnd, top - at.height - 6);
   }
   y = signEnd;
 

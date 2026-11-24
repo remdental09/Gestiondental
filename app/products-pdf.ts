@@ -5,7 +5,7 @@ import { biomedicalProducts, clinicalImages, patients } from "@/db/schema";
 import { loadApprovedRegistrations } from "@/app/prestador-db";
 import { loadProfile } from "@/app/clinician-profile-db";
 import { loadClinic } from "@/app/clinic-profile-db";
-import { loadDocumentMark, loadStampMark } from "@/app/document-mark-db";
+import { loadDocumentMark, loadStampLayout, loadStampMark } from "@/app/document-mark-db";
 import { buildDocumentPdf } from "@/lib/document-pdf";
 import { ageFromBirthDate } from "@/lib/clinical-documents";
 import { displayName } from "@/lib/clinician-profile";
@@ -40,9 +40,9 @@ export async function renderProductsPdf(ownerId: string, professionalId: string,
   if (!products.length) return { empty: true as const };
   const imageIds = products.map(product => product.imageId).filter((id): id is number => id !== null);
   const images = imageIds.length ? await db.select().from(clinicalImages).where(and(eq(clinicalImages.ownerId, ownerId), inArray(clinicalImages.id, imageIds))) : [];
-  const [regs, profile, clinic, mark, stamp] = await Promise.all([
+  const [regs, profile, clinic, mark, stamp, stampLayout] = await Promise.all([
     loadApprovedRegistrations([professionalId]).catch(() => new Map()), loadProfile(professionalId).catch(() => null), loadClinic(ownerId).catch(() => null),
-    loadDocumentMark(professionalId).catch(() => ""), loadStampMark(professionalId).catch(() => ""),
+    loadDocumentMark(professionalId).catch(() => ""), loadStampMark(professionalId).catch(() => ""), loadStampLayout(professionalId).catch(() => null),
   ]);
   const reg = regs.get(professionalId) ?? null;
   const doctorName = reg?.fullName ? `${profile?.title ? profile.title + " " : ""}${reg.fullName}`.trim() : (profile ? displayName(profile) : fallbackName) || "Profesional";
@@ -63,7 +63,7 @@ export async function renderProductsPdf(ownerId: string, professionalId: string,
     patientLines: [`Paciente: ${patient.name}`, `Nro. de documento: ${patient.rut ? (isValidChileanRut(patient.rut) ? formatChileanRut(patient.rut) : patient.rut) : "Sin registrar"}`, `Edad: ${age === null ? "Sin registrar" : `${age} años`}`],
     issuedDate: dateLong(new Date().toISOString()), sections: [], figures,
     note: "Registro de los productos biomédicos utilizados en la atención, con la fotografía de su etiqueta. Los datos de lote, serie y vencimiento fueron revisados por el profesional tratante.",
-    doctorMark: mark || undefined, doctorStamp: stamp || undefined,
+    doctorMark: mark || undefined, doctorStamp: stamp || undefined, stampLayout,
   });
   return { empty: false as const, bytes, fileName: `trazabilidad-productos-${String(patientId).padStart(5, "0")}.pdf` };
 }
