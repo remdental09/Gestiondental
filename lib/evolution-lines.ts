@@ -138,6 +138,10 @@ export function inferZones(text: string, teeth: number[], deepTeeth: number[]): 
     return zones.length ? { zones } : { zones: ALL_SEXTANTS, doubt: "¿Qué sextantes? Se propusieron los seis." };
   }
   if (/bitewing|bite wing|aleta de mordida/.test(t)) return { zones: ARCHES };
+  // «en todo el sector», «en esta zona», «de este lado»: es parcial. No se afirma boca completa en silencio;
+  // se propone y se marca la duda para que el profesional elija sextantes (la app propone, él confirma).
+  const partial = /\b(sector(es)?|zona|lado|cuadrante|region)\b/.test(t) && !/toda la boca|boca completa|todos los sextantes|seis (grupos|sextantes)|ambas arcadas/.test(t);
+  if (partial) return { zones: [MOUTH], doubt: "¿Qué sector? Se propuso boca completa; elige los sextantes si fue parcial." };
   if (/profilaxis|higiene|supragingival|destartraje|limpieza/.test(t)) return { zones: [MOUTH] };
   return { zones: [MOUTH] };
 }

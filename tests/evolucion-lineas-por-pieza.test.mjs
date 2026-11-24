@@ -54,6 +54,10 @@ test('zona inferida: subgingival → sextantes, bitewing → arcadas, higiene �
   assert.ok(inferZones('pulido radicular', [], []).doubt);
   assert.deepEqual(inferZones('rx bitewing', [], []).zones, ARCHES);
   assert.deepEqual(inferZones('profilaxis e higiene', [], []).zones, [MOUTH]);
+  assert.equal(inferZones('profilaxis e higiene', [], []).doubt, undefined, 'higiene sin alcance parcial no genera duda');
+  // «sector» es parcial: no se afirma boca completa en silencio
+  assert.ok(inferZones('destartraje en todo el sector', [36], []).doubt, '«todo el sector» marca duda');
+  assert.equal(inferZones('destartraje en toda la boca', [], []).doubt, undefined, '«toda la boca» no genera duda');
   const lines = buildEvolutionLines({ items: [item({ id: 'x', tooth: 16, category: 'destartraje', what: 'destartraje subgingival' }), item({ id: 'y', tooth: 26, category: 'destartraje', what: 'destartraje subgingival' })], budgets: [] });
   assert.equal(lines.length, 1);
   assert.deepEqual(lines[0].zones, ['perm:sext-1', 'perm:sext-3']);
