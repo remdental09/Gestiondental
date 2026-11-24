@@ -1,7 +1,7 @@
 import { eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db";
 import { professionalDocumentSettings } from "@/db/schema";
-import { parseStampLayout, serializeStampLayout, type StampLayout } from "@/lib/stamp-layout";
+import { parseStampLayout, serializeStampLayout, type PrintableStampLayout, type StampLayout } from "@/lib/stamp-layout";
 
 export async function loadDocumentMark(professionalId: string): Promise<string> {
   const [row] = await getDb().select({ mark: professionalDocumentSettings.documentMark })
@@ -58,12 +58,14 @@ export async function saveStampClean(professionalId: string, stampClean: string)
     .onConflictDoUpdate({ target: professionalDocumentSettings.professionalId, set: { stampClean, updatedAt: new Date().toISOString() } });
 }
 
-/** Posición y tamaño del timbre. Quien llama lo trata como opcional: si falla, el timbre queda en su lugar de siempre. */
-export async function loadStampLayout(professionalId: string): Promise<StampLayout | null> {
-  const [row] = await getDb().select({ layout: professionalDocumentSettings.stampLayout })
+/** Diseño de firma y timbre (más la imagen unida, si el profesional la pidió). Quien llama lo trata como opcional: si falla, todo queda como siempre. */
+export async function loadStampLayout(professionalId: string): Promise<PrintableStampLayout | null> {
+  const [row] = await getDb().select({ layout: professionalDocumentSettings.stampLayout, merged: professionalDocumentSettings.mergedMark })
     .from(professionalDocumentSettings).where(eq(professionalDocumentSettings.professionalId, professionalId)).limit(1);
-  return parseStampLayout(row?.layout);
+  return withMerged(parseStampLayout(row?.layout), row?.merged ?? "");
 }
+
+const withMerged = (layout: StampLayout | null, merged: string): PrintableStampLayout | null => layout && layout.merged && merged ? { ...layout, mergedMark: merged } : layout;
 
 export async function saveStampLayout(professionalId: string, layout: StampLayout): Promise<void> {
   const stampLayout = serializeStampLayout(layout);
@@ -71,12 +73,31 @@ export async function saveStampLayout(professionalId: string, layout: StampLayou
     .onConflictDoUpdate({ target: professionalDocumentSettings.professionalId, set: { stampLayout, updatedAt: new Date().toISOString() } });
 }
 
-export async function loadStampLayouts(professionalIds: string[]): Promise<Map<string, StampLayout>> {
+export async function loadStampLayouts(professionalIds: string[]): Promise<Map<string, PrintableStampLayout>> {
   const ids = [...new Set(professionalIds)].filter(Boolean);
   if (!ids.length) return new Map();
-  const rows = await getDb().select({ id: professionalDocumentSettings.professionalId, layout: professionalDocumentSettings.stampLayout })
+  const rows = await getDb().select({ id: professionalDocumentSettings.professionalId, layout: professionalDocumentSettings.stampLayout, merged: professionalDocumentSettings.mergedMark })
     .from(professionalDocumentSettings).where(inArray(professionalDocumentSettings.professionalId, ids));
-  const map = new Map<string, StampLayout>();
-  for (const row of rows) { const layout = parseStampLayout(row.layout); if (layout) map.set(row.id, layout); }
+  const map = new Map<string, PrintableStampLayout>();
+  for (const row of rows) { const layout = withMerged(parseStampLayout(row.layout), row.merged); if (layout) map.set(row.id, layout); }
   return map;
+}
+
+/** ¿Hay una imagen firma+timbre unida guardada? */
+export async function hasMergedMark(professionalId: string): Promise<boolean> {
+  const [row] = await getDb().select({ merged: professionalDocumentSettings.mergedMark })
+    .from(professionalDocumentSettings).where(eq(professionalDocumentSettings.professionalId, professionalId)).limit(1);
+  return !!row?.merged;
+}
+
+export async function saveMergedMark(professionalId: string, mergedMark: string): Promise<void> {
+  await getDb().insert(professionalDocumentSettings).values({ professionalId, mergedMark, updatedAt: new Date().toISOString() })
+    .onConflictDoUpdate({ target: professionalDocumentSettings.professionalId, set: { mergedMark, updatedAt: new Date().toISOString() } });
+}
+
+/** Si cambia la firma o el timbre, la imagen unida ya no vale: se borra y «unir» se apaga hasta pedirlo de nuevo. */
+export async function invalidateMerged(professionalId: string): Promise<void> {
+  const layout = await loadStampLayout(professionalId);
+  await saveMergedMark(professionalId, "");
+  if (layout?.merged) await saveStampLayout(professionalId, { ...layout, merged: false, mergedBox: null });
 }
