@@ -92,7 +92,7 @@ const DONE = /(?<![a-z])(?<!no\s)(?<!no\sse\s)(?:se\s+(?:le\s+)?(?:realiza|reali
 /** Taquigrafía de ficha sin verbo («Pieza 1.1 restauración de resina compuesta palatino», «obturación de conductos gutapercha», «Corona Cerec … Duolink»): es lo hecho hoy. */
 const DONE_SHORTHAND = /(?<![a-z])(?:restauracion\s+de\s+resina\s+compuesta\s+(?:mesial|distal|oclusal|vestibular|palatin[oa]|lingual|incisal|cervical)|obturacion\s+de\s+conductos|preparacion\s+quimico|conducto\s+(?:mv\d?|dv|p|u|ml|dl)\s*-?\s*\d|duolink|futurabond|ketac|u\s?200|cementacion\s+de)(?![a-z])|^(?:piezas?\s+[1-8]\.[1-8](?:\s*(?:-|,|y)\s*[1-8]\.[1-8])*\s*[:,.]?\s*)(?:[^.]{0,60}?(?:,|\s))?(?:exodoncia|extraccion|instalacion|cementacion|conexion|reconstruccion|eliminacion\s+de\s+caries|retiro\s+de\s+(?:caries|amalgama|resina|corona))(?![a-z])|(?<![a-z])(?:instalo|coloco|conecto|cemento|aplico|realizo|extraigo|retiro|tallo|obturo|restauro|reconstruyo|se\s+reconstruye|se\s+elimina|elimino|desobturo|instrumento|hago|hice|hacemos|realice|realizamos|instale|coloque|cemente|extraje|ajusto)(?![a-z])/;
 const DONE_NOUN_START = /^(?:procedimientos?(?:\s+realizados?)?\s*:\s*)?(?:conexion|escaneo|destartraje|detartraje|obturacion|instalacion|cementacion|endodoncia|profilaxis|pulido|raspado|toma\s+de)(?![a-z])/;
-const PLAN = /(?<![a-z])(?:se\s+planifica\w*|se\s+decide\w*|decid\w+\s+(?:realizar|hacer|exo|extra|instalar|tallar)|para\s+luego|luego\s+(?:se\s+)?(?:tallar|realizar|instalar|hacer)|derivad[oa]s?\s+(?:a|para|al)|deriv[oa]\s+(?:a|para|al)|desinclusion|fenestracion|se\s+evalua(?:ra)?|evaluacion\s+(?:de|para)|planific\w*|se\s+plantea|planteo|propongo|proponemos|se\s+propone|se\s+sugiere|se\s+indica|se\s+programa|se\s+evaluara|se\s+considerara|plan(?:\s+de\s+tratamiento)?\s*:|proxim[ao]s?|siguiente\s+sesion|pendiente|a\s+futuro|presupuest\w*|costo|valor|precio|\d[\d.]*\s+pesos|viene\s+en|(?:en|dentro\s+de)\s+(?:\d+|un|una|dos|tres|cuatro|cinco|seis)\s+(?:semanas?|dias?|meses)|se\s+realizara|se\s+hara|se\s+instalara|queda\s+por|por\s+realizar|requiere|necesita|debe\s+(?:realizarse|hacerse))(?![a-z])/;
+const PLAN = /(?<![a-z])(?:se\s+planifica\w*|se\s+decide\w*|decid\w+\s+(?:realizar|hacer|exo|extra|instalar|tallar)|para\s+luego|luego\s+(?:se\s+)?(?:tallar|realizar|instalar|hacer)|derivad[oa]s?\s+(?:a|para|al)|deriv[oa]\s+(?:a|para|al)|desinclusion|fenestracion|se\s+evalua(?:ra)?|evaluacion\s+(?:de|para)|planific\w*|se\s+plantea|planteo|propongo|proponemos|se\s+propone|se\s+sugiere|se\s+indica|se\s+programa|se\s+evaluara|se\s+considerara|plan(?:\s+de\s+tratamiento)?\s*:|proxim[ao]s?|siguiente\s+sesion|pendiente|a\s+futuro|presupuest\w*|costo|valor|precio|\d[\d.]*\s+pesos|viene\s+en|(?:en|dentro\s+de)\s+(?:\d+|un|una|dos|tres|cuatro|cinco|seis)\s+(?:semanas?|dias?|meses)|se\s+realizara|se\s+hara|se\s+instalara|queda\s+por|por\s+realizar|requiere|necesita|debe\s+(?:realizarse|hacerse)|se\s+debe(?:ra|n)?\s+(?:extraer|realizar|hacer|instalar|conectar|tallar|cementar|obturar|tratar|evaluar))(?![a-z])/;
 /** Infinitivo de acción al inicio de una frase del plan («rehabilitar…», «cortar y unir…»). */
 const PLAN_INFINITIVE_START = /^(?:plan\s*:\s*)?(?:rehabilitar|realizar|instalar|colocar|extraer|obturar|cementar|confeccionar|evaluar|controlar|cortar|unir|tomar|hacer)(?![a-z])/;
 const FINDING = /(?<![a-z])(?:se\s+observa\w*|presenta\w*|se\s+evidencia|se\s+detecta|se\s+aprecia|examen|al\s+examen|movilidad|ausente|caries|fractur\w*|dolor|sensibilidad)(?![a-z])/;
@@ -125,6 +125,19 @@ export function kindOf(sentence: string, section: Section, isPlan: (s: string) =
   if (section === "relato") return null;
   if (FINDING.test(plain) || section === "examen") return "diagnostico";
   return "diagnostico";
+}
+
+/** Sustantivo de procedimiento de ficha («3.4 y 3.5, exodoncia», «Retallado pza 2.3», «1 sesión de blanqueamiento»). */
+const PROCEDURE_NOUN = /(?<![a-z])(?:exodoncia|extraccion|endodoncia|trepanacion|pulpectomia|pulpotomia|destartraje|detartraje|blanqueamiento|tallado|retallado|rebasado|cementacion|instalacion|conexion|impresion(?:es)?|escaneo\s+intraoral|reconstruccion|restauracion\s+de\s+resina\s+compuesta|ajuste\s+(?:oclusal|de\s+oclusion)|tope\s+cervical|desobtura\w*|prueba\s+de|apriete\s+de\s+tornillo|cierre\s+de\s+chimenea|retiro\s+de\s+sutura)(?![a-z])/;
+/** Lo que describe algo que ya estaba («con corona antigua», «presenta obturación desadaptada»). */
+const EXISTING = /(?<![a-z])(?:presenta\w*|tiene|antigu[oa]s?|existente|previa|desadaptad[oa]|filtrad[oa]|en\s+boca|control\s+de)(?![a-z])/;
+/**
+ * En el estilo de ficha el acto se escribe sin verbo: si la frase solo trae el sustantivo del procedimiento (sin hallazgo,
+ * sin plan, fuera del examen y sin describir algo que ya estaba), es lo realizado hoy, no un diagnóstico.
+ */
+function ficheStyleDone(kind: ItemKind | null, plain: string, section: Section): ItemKind | null {
+  if (kind !== "diagnostico" || section === "examen" || FINDING.test(plain) || EXISTING.test(plain) || /(?<![a-z])(?:indica\w*|indico|sugier\w*|recomienda\w*|si\s+no)(?![a-z])/.test(plain)) return kind;
+  return PROCEDURE_NOUN.test(plain) ? "realizado" : kind;
 }
 
 const GRADE = /movilidad(?:\s+dentaria)?(?:\s+de)?\s+(?:grado\s+)?(iii|ii|i|3|2|1|tres|dos|uno)(?![a-z0-9])/;
@@ -231,7 +244,9 @@ export function ruleItems(text: string, tools: ItemTools): ClinicalItem[] {
     let sibling: number[] = [];
     for (const part of splitActs(sentence)) {
       const plain = fold(part);
-      const kind = kindOf(part, section, tools.isPlan);
+      const read = kindOf(part, section, tools.isPlan);
+      const kind = ficheStyleDone(read, plain, section);
+      const fiche = read !== kind;
       let teeth = [...new Set([...tools.teethIn(part), ...rangeTeeth(part, tools.teethIn)])];
       // «Se extrae la 2.1 y se instala un implante inmediato»: la segunda parte comparte la pieza de la primera.
       if (!teeth.length && sibling.length) teeth = sibling;
@@ -254,7 +269,10 @@ export function ruleItems(text: string, tools: ItemTools): ClinicalItem[] {
         // «Escaneo de implantes para coronas», «se realiza alargamiento … para luego realizar coronas»: la corona es el plan.
         // («impresión para PFP», «para coronas sobre implantes» tampoco es un diagnóstico: es el plan).
         const purpose = (kind === "realizado" || kind === "diagnostico") && (category === "corona" || category === "implante" || category === "puente") && onlyAsPurpose(plain, category);
-        const itemKind: ItemKind = purpose ? "plan" : FINDING_CATEGORIES.has(category) && kind !== "diagnostico" && categories.some((c) => !FINDING_CATEGORIES.has(c)) ? "diagnostico" : kind;
+        // Leído como acto de ficha: la prótesis o el implante solo cuentan como hechos si el acto es instalarlos, cementarlos o conectarlos
+        // («impresión para coronas sobre implantes» no instala ningún implante).
+        const ownKind: ItemKind | null = fiche && ["implante", "pilar", "corona", "puente", "protesis"].includes(category) && !/(?<![a-z])(?:instalacion|cementacion|conexion|prueba\s+de)(?![a-z])/.test(plain) ? "diagnostico" : kind;
+        const itemKind: ItemKind = purpose ? "plan" : FINDING_CATEGORIES.has(category) && ownKind !== "diagnostico" && categories.some((c) => !FINDING_CATEGORIES.has(c)) ? "diagnostico" : ownKind as ItemKind;
         const grade = category === "movilidad" ? gradeOf(plain) : undefined;
         const targets: Array<number | null> = paired ? paired.filter((pair) => pair.category === category).map((pair) => pair.tooth) : teeth.length ? teeth : [null];
         for (const tooth of targets) { const own = tooth !== null && !paired ? ownClause(part, tooth, teeth, tools) : part; items.push(makeItem({ tooth, surfaces: [], kind: itemKind, category, what: own, evidence: own, origin: "reglas", ...(grade ? { grade } : {}) })); }
@@ -364,7 +382,7 @@ export type ItemsContext = {
  */
 export function applyClinicalItems(proposal: DictationProposal, ctx: ItemsContext, tools: ItemTools): DictationProposal {
   const rules = ruleItems(ctx.text, tools);
-  const items = mergeItems(ctx.aiItems ?? [], rules);
+  const items = tidyDiagnosisItems(mergeItems(ctx.aiItems ?? [], rules), ctx.text);
   const warnings: string[] = [];
   const nonPlan = (tooth: number) => items.filter((item) => item.tooth === tooth && item.kind !== "plan");
   const plans = (tooth: number) => items.filter((item) => item.tooth === tooth && item.kind === "plan");
@@ -540,14 +558,35 @@ export function applyClinicalItems(proposal: DictationProposal, ctx: ItemsContex
 
   return {
     ...proposal,
-    odontogram,
+    odontogram: odontogram.map((change) => (change.evidence ? { ...change, evidence: conciseEvidence(change.evidence, change.tooth) } : change)),
     prestaciones,
     diagnoses,
     clarifications,
     ...(prompts.length ? { diagnosisPrompts: prompts } : { diagnosisPrompts: undefined }),
-    items,
+    items: items.map((item) => ({ ...item, evidence: conciseEvidence(item.evidence, item.tooth) })),
     itemWarnings: [...new Set(warnings)],
   };
+}
+
+/**
+ * Cita breve: de una frase larga de ficha con varias piezas («Pzas 4.3-3.3-3.4 Rc CV -Denticlean-Cap Hib SB-A3 Z250/ Pulido/ …»)
+ * queda el tramo del acto de esa pieza, sin la lista de materiales ni los actos siguientes. Sigue siendo un trozo literal del texto.
+ */
+export function conciseEvidence(evidence: string, tooth: number | null | undefined): string {
+  if (evidence.length <= 60) return evidence;
+  const toothText = tooth ? `${Math.floor(tooth / 10)}.${tooth % 10}` : null;
+  const segments = evidence.split(/\s*(?:\/|;|\s-(?=\s|\p{L})|\.\s)\s*/u).map((segment) => segment.trim()).filter(Boolean);
+  if (segments.length < 2) return evidence;
+  let at = toothText ? segments.findIndex((segment) => segment.includes(toothText)) : 0;
+  if (at < 0) at = 0;
+  let pick = segments[at];
+  // Un tramo que es solo la pieza («Piezas 4.3») se completa con el que sigue en el texto original.
+  if (pick.length < 20 && segments[at + 1]) {
+    const start = evidence.indexOf(pick);
+    const next = evidence.indexOf(segments[at + 1], start + pick.length);
+    if (start >= 0 && next >= 0) pick = evidence.slice(start, next + segments[at + 1].length);
+  }
+  return evidence.includes(pick) && pick.length >= 12 ? pick : evidence;
 }
 
 /** Piezas nombradas en la nota (fuera del relato del paciente y del registro automático del odontograma). */
@@ -757,6 +796,42 @@ export function fallbackDiagnoses(items: ClinicalItem[], odontogram: OdontogramC
   if (![...diagnoses, ...out].length) {
     const general = items.find((item) => !item.tooth && item.kind === "realizado" && FALLBACK_CIE11[item.category] && item.category !== "otro")
     if (general) make(undefined, FALLBACK_CIE11[general.category] as string, general.evidence, general.what);
+  }
+  return out;
+}
+
+const PROCEDURE_CATEGORIES: ReadonlySet<ItemCategory> = new Set(["exodoncia", "implante", "pilar", "corona", "puente", "protesis", "obturacion", "endodoncia", "destartraje", "escaneo", "sellante", "otro"]);
+
+/** El tramo de la frase que trae el hallazgo (no la frase o el texto entero). */
+function findingClause(what: string, tooth: number | null): string {
+  const parts = what.split(/\s*(?:\/|;|\s-\s|\.\s)\s*/).map((part) => part.trim()).filter(Boolean);
+  if (parts.length < 2) return what.length > 140 ? `${what.slice(0, 137).trimEnd()}…` : what;
+  const toothText = tooth ? `${Math.floor(tooth / 10)}.${tooth % 10}` : null;
+  const finding = parts.find((part) => FINDING.test(fold(part))) ?? parts.find((part) => toothText && part.includes(toothText)) ?? parts[0];
+  return finding.length > 140 ? `${finding.slice(0, 137).trimEnd()}…` : finding;
+}
+
+/**
+ * Diagnósticos de la lista que no son hallazgos:
+ * - el «diagnóstico» de procedimiento que repite un acto realizado o planificado de la misma pieza (la frase leída dos veces) sale;
+ * - un hallazgo largo queda con su tramo (no con la frase o el texto entero).
+ */
+export function tidyDiagnosisItems(items: ClinicalItem[], text: string): ClinicalItem[] {
+  const out: ClinicalItem[] = [];
+  for (const item of items) {
+    if (item.kind === "diagnostico" && PROCEDURE_CATEGORIES.has(item.category)) {
+      const acted = items.some((other) => other !== item && other.kind !== "diagnostico" && (other.tooth === item.tooth || (item.tooth === null && other.tooth !== null && item.evidence.includes(other.evidence.slice(0, 20)))) && (compatible(other.category, item.category) || item.category === "otro" || other.category === "otro"));
+      if (acted) continue;
+    }
+    if (item.kind === "diagnostico" && (item.what.length > 140 || (text.length > 60 && item.what.length > 0.6 * text.length) || /^(?:pzas?|piezas?)\b/i.test(item.what))) {
+      let what = findingClause(item.what, item.tooth).replace(/^(?:pzas?|piezas?)\s+[1-8]\.[1-8](?:\s*(?:-|,|y)\s*[1-8]\.[1-8])*\s*[:,.]?\s*/i, "");
+      const max = Math.max(40, Math.floor(0.5 * text.length));
+      if (what.length > max) what = `${what.slice(0, max).replace(/\s+\S*$/, "")}…`;
+      if (!what.trim()) what = item.what.slice(0, max);
+      out.push({ ...item, what });
+      continue;
+    }
+    out.push(item);
   }
   return out;
 }
