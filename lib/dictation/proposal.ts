@@ -1,3 +1,4 @@
+import { keepDictatedDates } from "./dictated-dates.ts";
 import { normalizeShades } from "./shade.ts";
 import { asksKnownAbbreviation, expandClinicShorthand } from "./clinic-shorthand.ts";
 import { dentalDictionaryHints } from "./dental-lexicon.ts";
@@ -4412,7 +4413,8 @@ export async function proposeFromTranscript(
     const applied = guard.removed.length ? { ...itemsApplied, odontogram: guard.odontogram, itemWarnings: [...(itemsApplied.itemWarnings ?? []), ...guard.removed] } : itemsApplied;
     if (!applied.evolution) return applied;
     const polished = polishNote(applied.evolution.body, input.patient);
-    let body = polished.body;
+    // Una fecha escrita en el dictado («Con fecha 03/07…») distinta a la de la evolución no se pierde.
+    let body = keepDictatedDates(polished.body, transcript).body;
     const changed = applied.odontogram.length !== proposal.odontogram.length || applied.odontogram.some((change, index) => change !== proposal.odontogram[index]);
     if (changed && body.split("\n").some((line) => line.trim() === EXAM_REGISTRY_HEADER)) body = replaceExamSection(body, applied.odontogram.filter((item) => !item.advisory));
     return { ...applied, evolution: { ...applied.evolution, body }, itemWarnings: [...(applied.itemWarnings ?? []), ...polished.notes] };
