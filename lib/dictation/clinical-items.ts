@@ -103,7 +103,7 @@ function sectionOf(header: string): Section {
   if (/^(motivo|anamnesis|alergias|medicamentos)/.test(header)) return "relato";
   if (/^(examen|diagnostic|sondaje)/.test(header)) return "examen";
   if (/^procedimiento/.test(header)) return "procedimientos";
-  if (/^plan/.test(header)) return "plan";
+  if (/^(?:plan|presupuesto)/.test(header)) return "plan";
   return null;
 }
 
@@ -115,7 +115,10 @@ export function kindOf(sentence: string, section: Section, isPlan: (s: string) =
   if (NOT_DONE.test(plain)) return "plan";
   const plan = PLAN.test(plain) || PLAN_INFINITIVE_START.test(plain) || isPlan(sentence);
   // «Hoy no hice nada, solo planifico…»: «hoy» solo ubica la frase en el tiempo, no prueba que se haya hecho algo.
-  const done = (plan ? DONE.test(plain.replace(/(?<![a-z])hoy(?![a-z])/g, " ")) : DONE.test(plain)) || DONE_NOUN_START.test(plain) || DONE_SHORTHAND.test(plain);
+  const doneSaid = (plan ? DONE.test(plain.replace(/(?<![a-z])hoy(?![a-z])/g, " ")) : DONE.test(plain)) || DONE_SHORTHAND.test(plain);
+  // Bajo «Plan de tratamiento:» o «Presupuesto:», «obturación con resina…» sin verbo de hecho es lo planificado.
+  if (!doneSaid && section === "plan" && DONE_NOUN_START.test(plain)) return "plan";
+  const done = doneSaid || DONE_NOUN_START.test(plain);
   if (plan && !done) return "plan";
   // «Se obtura la 14 y se planifica…» se separa antes; si una frase trae ambos, manda lo hecho solo si el plan no la abre.
   if (plan && done) return /^(?:plan\s*:\s*)?(?:se\s+planifica|se\s+plantea|proxim|se\s+indica)/.test(plain) || PLAN_INFINITIVE_START.test(plain) ? "plan" : "realizado";
@@ -484,6 +487,29 @@ export function applyClinicalItems(proposal: DictationProposal, ctx: ItemsContex
       if (before && /^Implante/.test(before)) continue;
       add(item, item.category === "pilar" ? "Implante con pilar" : "Implante");
     }
+  }
+
+  // 2b) «Se elimina caries … se restaura con RC»: la pieza restaurada hoy no queda con caries en el odontograma.
+  //     Las caras con caries de esa pieza pasan a restauración (material dictado), salvo que ya haya caras restauradas.
+  for (const item of items) {
+    if (item.kind !== "realizado" || item.category !== "obturacion" || !item.tooth) continue;
+    const evidence = fold(item.evidence);
+    if (!/\b(?:restaur|obtur|resina|rc\b|ionomero|amalgama)/.test(evidence)) continue;
+    const faces = odontogram.filter((change) => change.tooth === item.tooth && change.kind === "surface");
+    if (faces.some((change) => change.finding?.condition === "restored")) continue;
+    const material = /ionomero|vitremer|fuji|ketac/.test(evidence) ? "Vidrio ionómero" : /amalgama/.test(evidence) ? "Amalgama" : "Resina compuesta";
+    // Si la restauración nombra caras, solo esas; una caries dejada para otra sesión no se toca.
+    const named = new Set<string>();
+    for (const [word, code] of [["mesial", "M"], ["distal", "D"], ["oclusal", "O"], ["incisal", "O"], ["vestibular", "V"], ["cervical", "V"], ["palatin", "P"], ["lingual", "P"]] as const) if (evidence.includes(word)) named.add(code);
+    let turned = 0;
+    for (const [index, change] of odontogram.entries()) {
+      if (change.tooth !== item.tooth || change.kind !== "surface" || change.finding?.condition !== "caries" || change.finding?.activity === "inactive") continue;
+      if (named.size && !named.has(change.surface ?? "")) continue;
+      if (PLAN.test(fold(change.sourceText ?? change.evidence ?? ""))) continue;
+      odontogram[index] = { ...change, finding: { condition: "restored", depth: null, icdas: null, activity: null, restorationMaterial: material } };
+      turned++;
+    }
+    if (turned) warnings.push(`${fdi(tools, item.tooth)}: se restauró hoy; sus caras con caries quedan como restauración (${material.toLowerCase()}).`);
   }
 
   // 3) Prestaciones del arancel: una por pieza tratada; la exodoncia con su pieza.
