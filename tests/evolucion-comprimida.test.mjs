@@ -20,3 +20,9 @@ test("se puede filtrar por pieza o zona y se conservan las anuladas visibles", (
   assert.match(source, /data-testid="evolution-zone-filter"/);
   assert.match(source, /annulled && <span[^>]*>Anulada/);
 });
+
+test("la barra de herramientas sale abierta en toda evolución expandida, no solo en la última", () => {
+  const rail = readFileSync(new URL("../components/evolution-rail.tsx", import.meta.url), "utf8");
+  assert.match(rail, /useState\(true\)/);
+  assert.doesNotMatch(rail, /useState\(latest\)/);
+});

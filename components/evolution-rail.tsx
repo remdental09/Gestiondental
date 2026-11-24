@@ -34,8 +34,8 @@ const DOCUMENT_TREE: Array<{ kind: ClinicalDocumentKind; label: string; icon: ty
 const SPRING = "duration-[550ms] ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none motion-reduce:duration-0";
 const LABEL = "text-[9px] font-medium leading-none tracking-tight text-[#615f73]";
 
-export function EvolutionRail({ actions, latest }: { actions: RailActions; latest: boolean }) {
-  const [open, setOpen] = useState(latest);
+export function EvolutionRail({ actions }: { actions: RailActions; latest?: boolean }) {
+  const [open, setOpen] = useState(true);
   const [docsOpen, setDocsOpen] = useState(false);
   const tools: Array<{ key: string; label: string; icon: typeof Mic; run?: () => void; href?: string | null }> = [
     { key: "dictar", label: "Dictar", icon: Mic, run: actions.onDictate },
