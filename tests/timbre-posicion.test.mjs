@@ -22,19 +22,19 @@ test("sin diseño propio el timbre queda exactamente en su lugar de siempre (cen
 
 test("dx mueve a la derecha, dy hacia abajo, y la escala crece desde arriba-centro", () => {
   const base = placeStamp({ width: 400, height: 200 }, slot, null, page, cmToPt);
-  const moved = placeStamp({ width: 400, height: 200 }, slot, { dx: 2, dy: -4, scale: 1, opacity: 1, knockout: false }, page, cmToPt);
+  const moved = placeStamp({ width: 400, height: 200 }, slot, { dx: 2, dy: -4, scale: 1, opacity: 1, knockout: false, onSignature: false }, page, cmToPt);
   assert.ok(Math.abs(moved.x - (base.x + cmToPt(2))) < 1e-6);
   assert.ok(Math.abs(moved.y - (base.y + cmToPt(4))) < 1e-6, "dy negativo sube");
-  const big = placeStamp({ width: 400, height: 200 }, slot, { dx: 0, dy: 0, scale: 2, opacity: 1, knockout: false }, page, cmToPt);
+  const big = placeStamp({ width: 400, height: 200 }, slot, { dx: 0, dy: 0, scale: 2, opacity: 1, knockout: false, onSignature: false }, page, cmToPt);
   assert.ok(Math.abs(big.width - base.width * 2) < 1e-6);
   assert.ok(Math.abs((big.x + big.width / 2) - (base.x + base.width / 2)) < 1e-6, "sigue centrado");
   assert.ok(Math.abs((big.y + big.height) - (base.y + base.height)) < 1e-6, "mantiene el borde superior");
 });
 
 test("el timbre nunca sale de la hoja y las medidas se acotan", () => {
-  const out = placeStamp({ width: 400, height: 200 }, slot, { dx: 12, dy: -24, scale: 2, opacity: 1, knockout: false }, { width: 300, height: 400 }, cmToPt);
+  const out = placeStamp({ width: 400, height: 200 }, slot, { dx: 12, dy: -24, scale: 2, opacity: 1, knockout: false, onSignature: false }, { width: 300, height: 400 }, cmToPt);
   assert.ok(out.x >= 0 && out.x + out.width <= 300 && out.y >= 0 && out.y + out.height <= 400);
-  assert.deepEqual(normalizeStampLayout({ dx: 99, dy: -99, scale: 9, opacity: 0, knockout: "sí" }), { dx: STAMP_LIMITS.dx[1], dy: STAMP_LIMITS.dy[0], scale: STAMP_LIMITS.scale[1], opacity: STAMP_LIMITS.opacity[0], knockout: false });
+  assert.deepEqual(normalizeStampLayout({ dx: 99, dy: -99, scale: 9, opacity: 0, knockout: "sí" }), { dx: STAMP_LIMITS.dx[1], dy: STAMP_LIMITS.dy[0], scale: STAMP_LIMITS.scale[1], opacity: STAMP_LIMITS.opacity[0], knockout: false, onSignature: false });
   assert.deepEqual(normalizeStampLayout({ dx: "x", scale: NaN }), DEFAULT_STAMP_LAYOUT);
   assert.deepEqual(normalizeStampLayout(null), DEFAULT_STAMP_LAYOUT);
 });
@@ -43,18 +43,18 @@ test("se guarda como texto: vacío = lugar de siempre; ida y vuelta sin perder n
   assert.equal(serializeStampLayout(DEFAULT_STAMP_LAYOUT), "");
   assert.equal(parseStampLayout(""), null);
   assert.equal(parseStampLayout("{roto"), null);
-  const layout = { dx: -3.5, dy: -12, scale: 0.8, opacity: 0.6, knockout: true };
+  const layout = { dx: -3.5, dy: -12, scale: 0.8, opacity: 0.6, knockout: true, onSignature: true };
   assert.deepEqual(parseStampLayout(serializeStampLayout(layout)), layout);
   assert.equal(isDefaultStampLayout(layout), false);
-  assert.equal(isStampMoved({ dx: 0, dy: 0, scale: 1.5, opacity: 1, knockout: false }), false, "solo cambiar el tamaño no lo saca de su lugar");
-  assert.equal(isStampMoved({ dx: 0, dy: -1, scale: 1, opacity: 1, knockout: false }), true);
+  assert.equal(isStampMoved({ dx: 0, dy: 0, scale: 1.5, opacity: 1, knockout: false, onSignature: false }), false, "solo cambiar el tamaño no lo saca de su lugar");
+  assert.equal(isStampMoved({ dx: 0, dy: -1, scale: 1, opacity: 1, knockout: false, onSignature: false }), true);
   assert.equal(isDefaultStampLayout({ ...DEFAULT_STAMP_LAYOUT, opacity: 0.5 }), false, "solo cambiar la intensidad ya es un diseño propio");
-  assert.equal(isDefaultStampLayout({ ...DEFAULT_STAMP_LAYOUT, knockout: true }), false);
+  assert.equal(isDefaultStampLayout({ ...DEFAULT_STAMP_LAYOUT, knockout: true, onSignature: false }), false);
   assert.equal(parseStampLayout('{"dx":1,"dy":-2,"scale":1}').opacity, 1, "diseños guardados en la primera entrega siguen valiendo");
 });
 
 test("la vista en pantalla usa las mismas medidas en cm que el PDF", () => {
-  const css = stampCssBox({ dx: 2, dy: -6, scale: 1.5, opacity: 0.7, knockout: false }, { width: 5, height: 2.5 });
+  const css = stampCssBox({ dx: 2, dy: -6, scale: 1.5, opacity: 0.7, knockout: false, onSignature: false }, { width: 5, height: 2.5 });
   assert.equal(css.flow.opacity, 0.7);
   assert.equal(css.flow.width, "7.5cm");
   assert.equal(css.float.height, "3.75cm");
@@ -66,8 +66,8 @@ test("el PDF del documento se genera con y sin diseño de timbre, y movido no oc
   const input = { title: "Certificado", number: "00009", clinicName: "Clínica de prueba", clinicLines: ["Calle 1, Santiago"], doctorName: "Dr. Prueba Ejemplo", doctorLines: ["RUT 1-9"], patientLines: ["Paciente: PACIENTE DE PRUEBA"], issuedDate: "22 de noviembre de 2026", sections: [{ heading: "CERTIFICO", lines: ["Que el paciente asistió a atención odontológica."] }], doctorStamp: stampPng };
   const count = async layout => (await PDFDocument.load(await buildDocumentPdf({ ...input, stampLayout: layout }))).getPageCount();
   assert.equal(await count(undefined), 1);
-  assert.equal(await count({ dx: 0, dy: -12, scale: 1.5, opacity: 0.5, knockout: false }), 1);
-  assert.equal(await count({ dx: 20, dy: 50, scale: 3, opacity: 0, knockout: true }), 1, "valores absurdos se acotan en vez de romper el PDF");
+  assert.equal(await count({ dx: 0, dy: -12, scale: 1.5, opacity: 0.5, knockout: false, onSignature: false }), 1);
+  assert.equal(await count({ dx: 20, dy: 50, scale: 3, opacity: 0, knockout: true, onSignature: false }), 1, "valores absurdos se acotan en vez de romper el PDF");
   const bytes = async layout => (await buildDocumentPdf({ ...input, stampLayout: layout })).length;
   assert.ok(await bytes({ dx: 0, dy: 0, scale: 1 }) > 0);
 });
@@ -100,7 +100,7 @@ test("el editor del timbre ofrece arrastrar, flechas, tamaño y volver al lugar 
 
 test("el presupuesto también respeta el diseño del timbre y no se rompe con valores extremos", async () => {
   const budget = { budget: { id: 7, title: "Plan", date: "22 nov 2026", items: [{ label: "Destartraje", amount: 45000, zone: "perm:boca" }] }, patientName: "Paciente Ejemplo", professionalName: "Dr(a). Ana Pérez", professionalSpecialty: "Periodoncia", professionalDocument: "12.345.678-5", stampMark: stampPng };
-  for (const stampLayout of [undefined, null, { dx: 0, dy: 0, scale: 1.4, opacity: 0.4, knockout: false }, { dx: -6, dy: -10, scale: 1, opacity: 1, knockout: false }, { dx: 99, dy: -99, scale: 9, opacity: 9, knockout: true }]) {
+  for (const stampLayout of [undefined, null, { dx: 0, dy: 0, scale: 1.4, opacity: 0.4, knockout: false, onSignature: false }, { dx: -6, dy: -10, scale: 1, opacity: 1, knockout: false, onSignature: false }, { dx: 99, dy: -99, scale: 9, opacity: 9, knockout: true, onSignature: false }]) {
     const pdf = await PDFDocument.load(await buildBudgetPdf({ ...budget, stampLayout }));
     assert.ok(pdf.getPageCount() >= 1);
   }
@@ -146,4 +146,38 @@ test("la versión sin fondo se usa al imprimir solo si se pidió, y cambiar la i
   assert.match(read("drizzle/meta/_journal.json"), /0025_stamp_clean/);
   const ui = read("components/stamp-placement.tsx");
   for (const id of ["stamp-opacity", "stamp-knockout"]) assert.match(ui, new RegExp(`data-testid="${id}"`));
+});
+
+test("sobre la firma: el timbre se centra en la firma, dx/dy se miden desde ahí y no reserva espacio", () => {
+  const center = { x: 400, y: 600 };
+  const over = placeStamp({ width: 400, height: 200 }, slot, { ...DEFAULT_STAMP_LAYOUT, onSignature: true }, page, cmToPt, center);
+  assert.ok(Math.abs(over.x + over.width / 2 - center.x) < 1e-6 && Math.abs(over.y + over.height / 2 - center.y) < 1e-6);
+  const shifted = placeStamp({ width: 400, height: 200 }, slot, { ...DEFAULT_STAMP_LAYOUT, onSignature: true, dx: 1, dy: -1 }, page, cmToPt, center);
+  assert.ok(Math.abs(shifted.x - (over.x + cmToPt(1))) < 1e-6 && Math.abs(shifted.y - (over.y + cmToPt(1))) < 1e-6, "dy negativo sube");
+  assert.equal(isStampMoved({ ...DEFAULT_STAMP_LAYOUT, onSignature: true }), true);
+  assert.equal(isDefaultStampLayout({ ...DEFAULT_STAMP_LAYOUT, onSignature: true }), false);
+  const without = placeStamp({ width: 400, height: 200 }, slot, { ...DEFAULT_STAMP_LAYOUT, onSignature: true }, page, cmToPt, null);
+  assert.deepEqual(without, placeStamp({ width: 400, height: 200 }, slot, null, page, cmToPt), "sin centro de firma cae al lugar de siempre");
+  assert.equal(stampCssBox({ ...DEFAULT_STAMP_LAYOUT, onSignature: true, dx: 1, dy: -0.5 }, { width: 5, height: 2.5 }).overSignature.top, "calc(50% + -1.75cm)");
+});
+
+test("sobre la firma: todos los PDF y la pantalla pasan el centro de la firma; la firma se dibuja antes que el timbre", () => {
+  const doc = read("lib/document-pdf.ts"), bud = read("lib/budget-pdf.ts");
+  assert.match(doc, /cmToPt, \{ x: cx, y: y - boxHeight \/ 2 \}\)/);
+  assert.match(bud, /cmToPt, \{ x: sx \+ \(R - sx\) \/ 2, y: signTop - 58/);
+  assert.ok(doc.indexOf("page.drawImage(image,") < doc.indexOf("placeStamp(stamp,"), "firma primero, timbre encima");
+  assert.ok(bud.indexOf("page.drawImage(documentMark,") < bud.indexOf("placeStamp(stampImage"), "firma primero, timbre encima");
+  const panel = read("components/documentation-panel.tsx");
+  assert.match(panel, /data-testid="stamp-on-signature"/);
+  assert.match(panel, /!activeDocument\?\.stampLayout\?\.onSignature && \(isStampMoved/);
+  const ui = read("components/stamp-placement.tsx");
+  for (const id of ["stamp-on-signature-button", "stamp-under-signature-button", "stamp-placement-signature"]) assert.ok(ui.includes(id), id);
+});
+
+test("sobre la firma en un PDF real: se genera con firma y timbre superpuestos (sin y con fondo quitado)", async () => {
+  const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+  const input = { title: "Receta", number: "00009", clinicName: "Clínica", clinicLines: [], doctorName: "Dra. Prueba", doctorLines: ["RUT 1-9", "Cirujana Dentista"], patientLines: ["Paciente: X"], issuedDate: "24 nov 2026", sections: [{ heading: "R", lines: ["Texto"] }], doctorMark: png, doctorStamp: stampPng };
+  for (const stampLayout of [{ ...DEFAULT_STAMP_LAYOUT, onSignature: true }, { ...DEFAULT_STAMP_LAYOUT, onSignature: true, knockout: true, opacity: 0.8, dy: -0.5 }]) {
+    assert.equal((await PDFDocument.load(await buildDocumentPdf({ ...input, stampLayout }))).getPageCount(), 1);
+  }
 });

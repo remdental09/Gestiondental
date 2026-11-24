@@ -375,7 +375,7 @@ export async function buildBudgetPdf(input: BudgetPdfInput): Promise<Uint8Array>
   if (stampImage) {
     const slotWidth = Math.min(cmToPt(STAMP_BOX_CM.width), R - sx), slotHeight = cmToPt(STAMP_BOX_CM.height);
     const top = y - 6;
-    const at = placeStamp(stampImage, { x: sx + (R - sx - slotWidth) / 2, y: top - slotHeight, width: slotWidth, height: slotHeight }, input.stampLayout, page.getSize(), cmToPt);
+    const at = placeStamp(stampImage, { x: sx + (R - sx - slotWidth) / 2, y: top - slotHeight, width: slotWidth, height: slotHeight }, input.stampLayout, page.getSize(), cmToPt, { x: sx + (R - sx) / 2, y: signTop - 58 + cmToPt(SIGNATURE_BOX_CM.height) / 2 });
     page.drawImage(stampImage, { ...at, opacity: stampOpacity(input.stampLayout) });
     if (!isStampMoved(input.stampLayout)) signEnd = Math.min(signEnd, top - at.height - 6);
   }
