@@ -1,7 +1,7 @@
 import { loadProfile } from "@/app/clinician-profile-db";
 import { loadClinic } from "@/app/clinic-profile-db";
 import { loadBudgetFormat } from "@/app/budget-format-db";
-import { loadDocumentMark, loadStampMark } from "@/app/document-mark-db";
+import { loadDocumentMark, loadStampLayout, loadStampMark } from "@/app/document-mark-db";
 import { DEFAULT_FORMAT, clinicForBudget, formatForPdf, type BudgetFormat } from "@/lib/budget-format";
 import { budgetAuthorOf, type TeamDb } from "@/app/clinic-team-db";
 import { getSender, mailDb, ensureMailTables } from "@/app/appointment-mail-db";
@@ -41,11 +41,11 @@ export async function renderBudgetPdf(ownerId: string, budgetId: number, mode: B
   const author = authorDb ? await budgetAuthorOf(authorDb as unknown as TeamDb, ownerId, budgetId).catch(() => { throw new Error("No pude confirmar qué profesional armó este presupuesto. Intenta de nuevo en un momento."); }) : null;
   const professionalId = author || ownerId;
   const data = decodeBudgetData(budget.items);
-  const [profile, sender, space, format, clinic, documentMark, stampMark] = await Promise.all([
+  const [profile, sender, space, format, clinic, documentMark, stampMark, stampLayout] = await Promise.all([
     loadProfile(professionalId).catch(() => null), getSender(ownerId).catch(() => null),
     professionalId === ownerId ? Promise.resolve(null) : loadProfile(ownerId).catch(() => null),
     // Formato de quien armó el presupuesto; logo de la clínica (el espacio), no de la consulta personal del colega.
-    loadBudgetFormat(professionalId).catch(() => ({ ...DEFAULT_FORMAT })), loadClinic(ownerId).catch(() => null), loadDocumentMark(professionalId).catch(() => ""), loadStampMark(professionalId).catch(() => ""),
+    loadBudgetFormat(professionalId).catch(() => ({ ...DEFAULT_FORMAT })), loadClinic(ownerId).catch(() => null), loadDocumentMark(professionalId).catch(() => ""), loadStampMark(professionalId).catch(() => ""), loadStampLayout(professionalId).catch(() => null),
   ]);
   // El nombre de la clínica es el del espacio (cuyo correo envía), no el de la consulta personal del profesional.
   const clinicName = (professionalId === ownerId ? profile?.clinicName : space?.clinicName) || undefined;
@@ -56,7 +56,7 @@ export async function renderBudgetPdf(ownerId: string, budgetId: number, mode: B
     patientName: patient.name, patientDocument: patient.rut?.trim() || undefined,
     professionalName: profile ? displayName(profile) : undefined, professionalSpecialty: profile?.specialty || undefined, professionalDocument: profile?.rut || undefined,
     clinicName, contactEmail: sender?.google_email, mode,
-    format: clinicForBudget(pdfFormat, professionalId === ownerId, clinic), professionalTitles: profile?.extraTitles || undefined, logo: clinic?.logo || undefined, documentMark: documentMark || undefined, stampMark: stampMark || undefined,
+    format: clinicForBudget(pdfFormat, professionalId === ownerId, clinic), professionalTitles: profile?.extraTitles || undefined, logo: clinic?.logo || undefined, documentMark: documentMark || undefined, stampMark: stampMark || undefined, stampLayout,
   });
   return { bytes, editable, fileName: budgetPdfFileName({ id: budget.id, isAlternative: data.isAlternative }), isAlternative: data.isAlternative, title: budget.title, patient, profile, sender, clinicName: clinicName || "" };
 }

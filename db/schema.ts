@@ -131,6 +131,8 @@ export const professionalDocumentSettings = sqliteTable("professional_document_s
   documentMark: text("document_mark").notNull().default(""),
   /** Timbre del profesional (imagen), se imprime bajo su firma; mismo formato y protección que la firma. */
   stampMark: text("stamp_mark").notNull().default(""),
+  /** Posición y tamaño del timbre (JSON {dx, dy, scale} medido desde su lugar de siempre); vacío = sin diseño propio. */
+  stampLayout: text("stamp_layout").notNull().default(""),
   updatedAt: text("updated_at").notNull(),
 });
 

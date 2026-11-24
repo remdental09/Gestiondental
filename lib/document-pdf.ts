@@ -2,6 +2,7 @@ import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage, type PDFP
 import qrcode from "qrcode-generator";
 import { pdfSafe, issuedParts } from "./budget-pdf.ts";
 import { SIGNATURE_BOX_CM, STAMP_BOX_CM, cmToPt, fitInBox } from "./signature-image.ts";
+import { isStampMoved, placeStamp, type StampLayout } from "./stamp-layout.ts";
 
 /**
  * PDF de un documento clínico ya emitido (receta, receta magistral, consentimiento) con la misma información que la vista de impresión:
@@ -29,6 +30,8 @@ export type DocumentPdfInput = {
   doctorMark?: string;
   /** Timbre del profesional: se imprime bajo su nombre y datos, debajo de la firma. */
   doctorStamp?: string;
+  /** Posición y tamaño del timbre (medidos desde su lugar de siempre); sin esto queda bajo la firma. */
+  stampLayout?: StampLayout | null;
   patientSignature?: { image: string; name: string; lines: string[] };
   patientLabel?: string;
 };
@@ -150,7 +153,7 @@ export async function buildDocumentPdf(input: DocumentPdfInput): Promise<Uint8Ar
   }
 
   // Firmas: el profesional (timbre o firma dibujada) y, en consentimientos, la del paciente.
-  const stampBoxWidth = cmToPt(STAMP_BOX_CM.width), stampBoxHeight = cmToPt(STAMP_BOX_CM.height), stampSpace = stampImage ? stampBoxHeight + 8 : 0;
+  const stampBoxWidth = cmToPt(STAMP_BOX_CM.width), stampBoxHeight = cmToPt(STAMP_BOX_CM.height), stampSpace = stampImage ? (isStampMoved(input.stampLayout) ? 0 : stampBoxHeight * Math.max(input.stampLayout?.scale ?? 1, 0.5) + 8) : 0;
   const sigBlock = (cx: number, lines: string[], image: PDFImage | null, stamp: PDFImage | null = null) => {
     const boxWidth = cmToPt(SIGNATURE_BOX_CM.width), boxHeight = cmToPt(SIGNATURE_BOX_CM.height);
     if (image) { const fit = fitInBox(image.width, image.height, boxWidth, boxHeight); page.drawImage(image, { x: cx - fit.width / 2, y: y - boxHeight + (boxHeight - fit.height) / 2, width: fit.width, height: fit.height }); }
@@ -158,7 +161,7 @@ export async function buildDocumentPdf(input: DocumentPdfInput): Promise<Uint8Ar
     page.drawLine({ start: { x: cx - 105, y: ly + 8 }, end: { x: cx + 105, y: ly + 8 }, thickness: 0.7, color: MUTED });
     lines.forEach((line, index) => { for (const part of wrap(line, index === 0 ? bold : regular, 9, 210)) { const font = index === 0 ? bold : regular; page.drawText(part, { x: cx - font.widthOfTextAtSize(part, 9) / 2, y: ly - 3, size: 9, font }); ly -= 11; } });
     // El timbre va bajo la firma y los datos del profesional.
-    if (stamp) { const fit = fitInBox(stamp.width, stamp.height, stampBoxWidth, stampBoxHeight); page.drawImage(stamp, { x: cx - fit.width / 2, y: ly - 4 - fit.height, width: fit.width, height: fit.height }); }
+    if (stamp) { const at = placeStamp(stamp, { x: cx - stampBoxWidth / 2, y: ly - 4 - stampBoxHeight, width: stampBoxWidth, height: stampBoxHeight }, input.stampLayout, page.getSize(), cmToPt); page.drawImage(stamp, at); }
   };
   const doctorLines = [input.doctorName, ...input.doctorLines.slice(0, 2)];
   const withPatient = Boolean(input.patientLabel);

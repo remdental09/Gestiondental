@@ -1,11 +1,12 @@
 import { getChatGPTUser, personalIdOf } from "@/app/chatgpt-auth";
-import { loadDocumentMark, loadStampMark, saveDocumentMark, saveStampMark } from "@/app/document-mark-db";
+import { loadDocumentMark, loadStampLayout, loadStampMark, saveDocumentMark, saveStampLayout, saveStampMark } from "@/app/document-mark-db";
 import { archiveMark, consumeUnlock, loadLock } from "@/app/signature-lock-db";
 import { ensureMailTables, mailDb } from "@/app/appointment-mail-db";
 import { sendSystemMail } from "@/app/login-code-mail";
 import { isValidEmail } from "@/lib/appointment-mail";
 import { changesSavedMark, isUnlocked, signatureChangedEmail } from "@/lib/signature-lock";
 import { validSignature } from "@/lib/signature-image";
+import { DEFAULT_STAMP_LAYOUT, normalizeStampLayout } from "@/lib/stamp-layout";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -18,8 +19,9 @@ export async function GET() {
     const professionalId = personalIdOf(user), documentMark = await loadDocumentMark(professionalId);
     // El timbre es opcional: si no se pudo leer (p. ej. migración pendiente), la firma sigue funcionando.
     const stampMark = await loadStampMark(professionalId).catch(() => "");
+    const stampLayout = await loadStampLayout(professionalId).catch(() => null);
     const unlocked = documentMark || stampMark ? isUnlocked(await loadLock(professionalId).catch(() => null), Date.now()) : false;
-    return Response.json({ documentMark, stampMark, locked: !!documentMark && !unlocked, stampLocked: !!stampMark && !unlocked, unlocked }, { headers: { "Cache-Control": "no-store" } });
+    return Response.json({ documentMark, stampMark, stampLayout, locked: !!documentMark && !unlocked, stampLocked: !!stampMark && !unlocked, unlocked }, { headers: { "Cache-Control": "no-store" } });
   }
   catch { return fail("No se pudo leer tu imagen de documentos.", 500); }
 }
@@ -28,7 +30,15 @@ export async function POST(request: Request) {
   const user = await getChatGPTUser();
   if (!user?.userId) return fail("Inicia sesión para guardar tu imagen de documentos.", 401);
   if (request.headers.get("origin") !== new URL(request.url).origin) return fail("Origen no permitido.", 403);
-  const body = await request.json().catch(() => null) as { documentMark?: unknown; stampMark?: unknown } | null;
+  const body = await request.json().catch(() => null) as { documentMark?: unknown; stampMark?: unknown; stampLayout?: unknown } | null;
+  // Posición y tamaño del timbre: es solo presentación (no cambia la imagen), así que no pide el código al correo. null = volver al lugar de siempre.
+  if (body && "stampLayout" in body) {
+    try {
+      const layout = body.stampLayout === null ? DEFAULT_STAMP_LAYOUT : normalizeStampLayout(body.stampLayout);
+      await saveStampLayout(personalIdOf(user), layout);
+      return Response.json({ stampLayout: layout }, { headers: { "Cache-Control": "no-store" } });
+    } catch { return fail("No se pudo guardar la posición del timbre.", 500); }
+  }
   // Un guardado cambia una sola imagen: el timbre (stampMark) o, como siempre, la firma (documentMark).
   const isStamp = typeof body?.stampMark === "string";
   const what = isStamp ? "timbre" : "firma";
