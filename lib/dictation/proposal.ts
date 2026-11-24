@@ -1443,7 +1443,7 @@ const LIKELY_DIAGNOSES: Record<"extraccion" | "endodoncia" | "restauracion" | "c
   extraccion: { label: "extracción", codes: ["DA08.0", "DA09.1", "DA0C.Z", "NA0D.06"] },
   endodoncia: { label: "endodoncia", codes: ["DA09.0", "DA09.1", "DA09.71", "DA09.62"] },
   restauracion: { label: "restauración", codes: ["DA08.0", "NA0D.02", "DA08.11", "DA08.12"] },
-  higiene: { label: "higiene periodontal", codes: ["DA0B.Z", "DA0C.Z"] },
+  higiene: { label: "higiene periodontal", codes: ["DA08.4", "DA0B.Z", "DA0C.Z"] },
 };
 const ENDO_DONE = /(?<!\p{L})(?:endodoncia|tratamiento\s+de\s+(?:conductos?|canales)|pulpectom\p{L}*|biopulpectom\p{L}*|necropulpectom\p{L}*|pulpotom\p{L}*|trepanaci\p{L}*|conductometr\p{L}*|obturaci[oó]n\s+de\s+conductos?)(?!\p{L})/iu;
 const RESTORATION_DONE_RAW = /(?<!\p{L})(?:obturaci[oó]n|restauraci[oó]n|resina|composite|amalgama|ion[oó]mero|tapadura|empaste)(?!\p{L})/iu;

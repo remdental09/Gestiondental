@@ -81,3 +81,44 @@ test("la revisión usa las funciones comunes (no vuelve a botar el DA08.0 ni a d
   assert.match(src, /reviewableDiagnoses\(data\.proposal\.diagnoses/);
   assert.match(src, /withoutAutoProposal\(current, tooth\)/);
 });
+
+// ── Diagnósticos propuestos cercanos a lo dicho (en vez del residual «sin especificación») ──
+const item = (over) => ({ id: "i", tooth: 36, chile: null, surfaces: [], kind: "realizado", category: "obturacion", what: "resina", evidence: "resina oclusal en la 3.6", origin: "reglas", ...over });
+
+test("restauración sin causa dictada NO inventa caries: queda el residual rotulado como propuesta", () => {
+  const out = fallbackDiagnoses([item({})], [], [], tools);
+  assert.deepEqual(out.map((d) => d.code), ["DA08.Z"]);
+  assert.ok(out[0].label.includes("propuesto según la nota"), "queda rotulada como propuesta");
+});
+
+test("si la nota dice la causa (caries, fractura, abrasión, erosión), la propuesta la sigue", () => {
+  const code = (evidence, category = "obturacion") => fallbackDiagnoses([item({ evidence, category })], [], [], tools)[0].code;
+  assert.equal(code("resina por fractura de cúspide"), "NA0D.02");
+  assert.equal(code("resina en lesión por abrasión cervical"), "DA08.11");
+  assert.equal(code("resina por erosión"), "DA08.12");
+  assert.equal(code("resina por caries oclusal"), "DA08.0");
+  assert.equal(code("corona por fractura", "corona"), "NA0D.02");
+  assert.equal(code("corona 3.6", "corona"), "DA08.Z");
+});
+
+test("destartraje sin pieza propone depósitos (DA08.4) aunque la nota ya traiga el diagnóstico de una restauración", () => {
+  const items = [item({}), item({ id: "d", tooth: null, category: "destartraje", what: "destartraje", evidence: "destartraje en todo el sector" })];
+  const out = fallbackDiagnoses(items, [], [], tools);
+  assert.deepEqual(out.map((d) => `${d.tooth ?? "general"}:${d.code}`), ["36:DA08.Z", "general:DA08.4"]);
+});
+
+test("destartraje no repite diagnóstico si la nota ya dice algo gingival o periodontal", () => {
+  const items = [item({ id: "d", tooth: null, category: "destartraje", what: "destartraje", evidence: "destartraje general" })];
+  assert.deepEqual(fallbackDiagnoses(items, [], [{ code: "DA0B.Z", tooth: undefined }], tools), []);
+  assert.deepEqual(fallbackDiagnoses(items, [], [{ code: "DA0C.Z", tooth: 16 }], tools), []);
+});
+
+test("con una pieza ausente en la ficha, la advertencia de incongruencia se mantiene y no aparece el residual genérico (solo reglas, sin modelo)", async () => {
+  const { proposal } = await proposeFromTranscript(
+    { transcript: "Paciente viene por dolor en el 36, destartraje en todo el sector, anestesia infiltrativa con lidocaína y resina oclusal en la 36.", chart: [{ tooth: 36, status: "Ausente" }] },
+    null, () => {}, { today: "2026-11-24", sensitivity: "basic" });
+  const codes = (proposal.diagnoses ?? []).map((d) => d.code);
+  assert.ok(!codes.includes("DA08.Z"), `sin residual genérico: ${codes}`);
+  const warned = proposal.clarifications.some((text) => /figura como ausente|figura ausente/.test(text)) || JSON.stringify(proposal).includes("figura ausente");
+  assert.ok(warned, "se sigue advirtiendo la pieza ausente: " + JSON.stringify(proposal.clarifications));
+});
