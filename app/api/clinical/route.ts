@@ -709,10 +709,12 @@ async function handlePost(request: Request) {
       const hasBirthDate = Object.prototype.hasOwnProperty.call(input, "birthDate");
       const birthDateCandidate = typeof input.birthDate === "string" ? input.birthDate.trim() : "";
       const birthDate = birthDateCandidate ? string(birthDateCandidate, 10) : patient.birthDate;
-      if (!validPhone(phone) || !validEmail(email) || (Object.prototype.hasOwnProperty.call(input, "profile") && !profilePhonesValid(normalizeProfile(input.profile)))) return error("Revisa el teléfono y el correo electrónico.");
+      if ((hasPhone && !validPhone(phone)) || (hasEmail && !validEmail(email)) || (Object.prototype.hasOwnProperty.call(input, "profile") && !profilePhonesValid(normalizeProfile(input.profile)))) return error("Revisa el teléfono y el correo electrónico.");
       if (hasBirthDate && birthDateCandidate && (birthDateCandidate.length > 10 || !validDate(birthDate) || birthDate > dateInChile() || Number(birthDate.slice(0, 4)) < Number(dateInChile().slice(0, 4)) - 125)) return error("Revisa la fecha de nacimiento.");
-      const hasRut = Object.prototype.hasOwnProperty.call(input, "rut");
-      const rutRaw = hasRut ? string(input.rut, 30).trim() : "";
+      // Un RUT que no cambia (el mismo que ya tiene la ficha) no se revalida: guardar alergias o antecedentes no debe fallar por él.
+      const rutSent = Object.prototype.hasOwnProperty.call(input, "rut") ? string(input.rut, 30).trim() : null;
+      const hasRut = rutSent !== null && rutSent !== (patient.rut ?? "").trim();
+      const rutRaw = hasRut ? rutSent ?? "" : "";
       const documentType = asDocumentType(input.documentType);
       if (hasRut && rutRaw && !isValidDocument(rutRaw, documentType)) return error(documentType === "extranjero" ? "Revisa el documento de identidad: de 4 a 20 letras o números, con al menos un número." : "Revisa el RUN / RUT y su dígito verificador.");
       const rut = rutRaw ? storedDocument(rutRaw, documentType) : null;
