@@ -7,7 +7,7 @@ import { consentSignatures } from "@/db/schema";
 import { loadApprovedRegistrations } from "@/app/prestador-db";
 import { loadProfileTitles } from "@/app/clinician-profile-db";
 import { loadClinic } from "@/app/clinic-profile-db";
-import { loadDocumentMark, loadStampLayout, loadStampMark } from "@/app/document-mark-db";
+import { loadDocumentMark, loadPrintableStamp, loadStampLayout } from "@/app/document-mark-db";
 import { getSender, mailDb, ensureMailTables } from "@/app/appointment-mail-db";
 import { sendMailWithSender } from "@/app/drive-oauth";
 import { buildRawMessage, isValidEmail, documentEmail, signRequestEmail, signedCopyEmail } from "@/lib/appointment-mail";
@@ -41,7 +41,7 @@ export async function renderDocumentPdf(ownerId: string, documentId: number, ori
   if (!(doc.kind in FILE_PREFIX)) throw new Error("Este tipo de documento no se envía en PDF.");
   const [patient] = await db.select().from(patients).where(and(eq(patients.id, doc.patientId), eq(patients.ownerId, ownerId))).limit(1);
   if (!patient) throw new Error("No encontré la ficha del paciente.");
-  const [regs, titles, clinic, mark, stamp, stampLayout] = await Promise.all([loadApprovedRegistrations([doc.createdBy]).catch(() => new Map()), loadProfileTitles([doc.createdBy]).catch(() => new Map()), loadClinic(ownerId).catch(() => null), loadDocumentMark(doc.createdBy).catch(() => ""), loadStampMark(doc.createdBy).catch(() => ""), loadStampLayout(doc.createdBy).catch(() => null)]);
+  const [regs, titles, clinic, mark, stamp, stampLayout] = await Promise.all([loadApprovedRegistrations([doc.createdBy]).catch(() => new Map()), loadProfileTitles([doc.createdBy]).catch(() => new Map()), loadClinic(ownerId).catch(() => null), loadDocumentMark(doc.createdBy).catch(() => ""), loadPrintableStamp(doc.createdBy).catch(() => ""), loadStampLayout(doc.createdBy).catch(() => null)]);
   const reg = regs.get(doc.createdBy) ?? null;
   if (requiresHabilitacionQr(doc.kind) && !reg?.qrUrl) throw new Error(`${habilitacionNoun(doc.kind).esta} no se puede enviar sin el QR de habilitación de la Superintendencia de Salud.`);
   const kind = doc.kind as ClinicalDocumentKind;

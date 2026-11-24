@@ -2,7 +2,29 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, RotateCcw, Save } from "lucide-react";
 import { DEFAULT_STAMP_LAYOUT, STAMP_LIMITS, isDefaultStampLayout, normalizeStampLayout, type StampLayout } from "@/lib/stamp-layout";
-import { STAMP_BOX_CM } from "@/lib/signature-image";
+import { STAMP_BOX_CM, SIGNATURE_MAX_WIDTH, validSignature } from "@/lib/signature-image";
+import { knockoutBackground } from "@/lib/stamp-knockout";
+
+/** Timbre sin fondo: se redibuja en un canvas dejando transparente todo lo que se parece al fondo de la foto. Devuelve null si no se pudo. */
+async function cleanStamp(source: string): Promise<string | null> {
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => { const el = new window.Image(); el.onload = () => resolve(el); el.onerror = () => reject(new Error("imagen")); el.src = source; });
+  let scale = Math.min(1, SIGNATURE_MAX_WIDTH / image.naturalWidth);
+  for (let attempt = 0; attempt < 4; attempt++, scale *= 0.75) {
+    const width = Math.max(1, Math.round(image.naturalWidth * scale)), height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const canvas = document.createElement("canvas"); canvas.width = width; canvas.height = height;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return null;
+    ctx.drawImage(image, 0, 0, width, height);
+    const pixels = ctx.getImageData(0, 0, width, height);
+    const result = knockoutBackground(pixels.data, width, height);
+    // Si casi no se quitó nada (la foto ya no tenía fondo) o se quitó todo, no sirve.
+    if (result.removed < 0.02 || result.removed > 0.97) return null;
+    ctx.putImageData(new ImageData(result.data, width, height), 0, 0);
+    const url = canvas.toDataURL("image/png");
+    if (validSignature(url)) return url;
+  }
+  return null;
+}
 
 /** Zona que se ve en la vista (cm, medidos desde el centro del lugar de siempre del timbre: x a la derecha, y hacia abajo desde su borde superior). */
 const VIEW = { x0: -13, x1: 13, y0: -25, y1: 10 } as const;
@@ -17,6 +39,9 @@ export function StampPlacement({ image }: { image: string }) {
   const areaRef = useRef<HTMLDivElement | null>(null);
   const drag = useRef<{ x: number; y: number; layout: StampLayout } | null>(null);
   const [layout, setLayout] = useState<StampLayout>(DEFAULT_STAMP_LAYOUT);
+  // Timbre sin fondo para mostrar (cleanUrl) y si hay uno nuevo por subir al guardar (uploadClean).
+  const [cleanUrl, setCleanUrl] = useState<string | null>(null);
+  const [uploadClean, setUploadClean] = useState(false);
   const [saved, setSaved] = useState<StampLayout>(DEFAULT_STAMP_LAYOUT);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -29,12 +54,26 @@ export function StampPlacement({ image }: { image: string }) {
       const data = await response.json() as { stampLayout?: StampLayout | null };
       const loaded = normalizeStampLayout(data.stampLayout ?? DEFAULT_STAMP_LAYOUT);
       setLayout(loaded); setSaved(loaded);
+      if (loaded.knockout) void cleanStamp(image).then(url => { if (alive) setCleanUrl(url); }).catch(() => undefined);
     }).catch(() => undefined);
     return () => { alive = false; };
-  }, []);
+  }, [image]);
+
+  const toggleKnockout = async (on: boolean) => {
+    setError(""); setNotice("");
+    if (!on) { change({ knockout: false }); setUploadClean(false); return; }
+    setBusy(true);
+    try {
+      const url = await cleanStamp(image);
+      if (!url) { setError("No pude quitar el fondo de esta foto (casi no hay fondo que quitar, o la tinta se parece al fondo). Prueba con una foto con más contraste."); return; }
+      setCleanUrl(url); setUploadClean(true); change({ knockout: true });
+    } catch { setError("No pude leer la imagen del timbre."); }
+    finally { setBusy(false); }
+  };
 
   const change = useCallback((next: Partial<StampLayout>) => { setLayout(current => normalizeStampLayout({ ...current, ...next })); setNotice(""); setError(""); }, []);
-  const dirty = JSON.stringify(layout) !== JSON.stringify(saved);
+  const dirty = JSON.stringify(layout) !== JSON.stringify(saved) || (layout.knockout && uploadClean);
+  const shown = layout.knockout && cleanUrl ? cleanUrl : image;
 
   const pxPerCm = () => (areaRef.current?.clientWidth ?? 1) / VIEW_W;
   const start = (event: ReactPointerEvent) => { event.currentTarget.setPointerCapture(event.pointerId); drag.current = { x: event.clientX, y: event.clientY, layout }; };
@@ -48,11 +87,12 @@ export function StampPlacement({ image }: { image: string }) {
   const persist = async (value: StampLayout | null) => {
     setBusy(true); setError(""); setNotice("");
     try {
-      const response = await fetch("/api/documentos/imagen", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ stampLayout: value }) });
-      const result = await response.json() as { stampLayout?: StampLayout; error?: string };
+      const response = await fetch("/api/documentos/imagen", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ stampLayout: value, ...(value?.knockout && uploadClean && cleanUrl ? { stampClean: cleanUrl } : {}) }) });
+      const result = await response.json() as { stampLayout?: StampLayout; error?: string; locked?: boolean };
+      if (response.status === 403 && result.locked) throw new Error((result.error || "Pide el código a tu correo.") + " Pulsa «Cambiar timbre» más arriba, confirma el código y vuelve a guardar aquí.");
       if (!response.ok || !result.stampLayout) throw new Error(result.error || "No se pudo guardar la posición del timbre.");
       const confirmed = normalizeStampLayout(result.stampLayout);
-      setLayout(confirmed); setSaved(confirmed);
+      setLayout(confirmed); setSaved(confirmed); setUploadClean(false); if (!confirmed.knockout) setCleanUrl(null);
       setNotice(value === null ? "Listo: el timbre volvió a su lugar de siempre." : "Listo: tus documentos usarán esta posición.");
     } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo guardar la posición del timbre."); }
     finally { setBusy(false); }
@@ -66,7 +106,7 @@ export function StampPlacement({ image }: { image: string }) {
 
   return <div className="mt-4 rounded-xl border border-[#e6e4ee] bg-[#faf9fc] p-3" data-testid="stamp-placement">
     <h4 className="font-semibold">Dónde va tu timbre</h4>
-    <p className="mt-0.5 text-sm text-[#615f73]">Arrástralo donde quieras. Vale para todos tus documentos: se mide desde tu firma, así que queda igual en recetas, certificados, consentimientos y presupuestos.</p>
+    <p className="mt-0.5 text-sm text-[#615f73]">Arrástralo donde quieras (incluso sobre tu firma). Vale para todos tus documentos: se mide desde tu firma, así que queda igual en recetas, certificados, consentimientos y presupuestos.</p>
     <div ref={areaRef} className="relative mt-3 w-full max-w-[420px] touch-none select-none overflow-hidden rounded-lg border border-[#dddbe6] bg-white" style={{ aspectRatio: `${VIEW_W} / ${VIEW_H}` }} data-testid="stamp-placement-area" aria-label="Hoja en miniatura: arrastra el timbre para ubicarlo">
       {/* Hoja de referencia: texto del documento arriba y, sobre el lugar de siempre del timbre, la firma y los datos del profesional. */}
       {[0, 1, 2, 3, 4, 5, 6, 7].map(row => <span key={row} aria-hidden="true" className="absolute rounded-full bg-[#ecebf2]" style={{ left: "10%", width: row % 3 === 2 ? "45%" : "80%", top: pct(-24 + row * 1.6 - VIEW.y0, VIEW_H), height: "0.9%" }}/>)}
@@ -75,7 +115,7 @@ export function StampPlacement({ image }: { image: string }) {
       <span aria-hidden="true" className="absolute rounded-full bg-[#ecebf2]" style={{ left: pct(-2.5 - VIEW.x0, VIEW_W), width: pct(5, VIEW_W), top: pct(-1.4 - VIEW.y0, VIEW_H), height: "0.9%" }}/>
       <span aria-hidden="true" className="absolute rounded border border-dashed border-[#b8b1d6]" style={{ left: pct(slotLeft, VIEW_W), top: pct(slotTop, VIEW_H), width: pct(STAMP_BOX_CM.width, VIEW_W), height: pct(STAMP_BOX_CM.height, VIEW_H) }}/>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={image} alt="Tu timbre" draggable={false} onPointerDown={start} onPointerMove={move} onPointerUp={stop} onPointerCancel={stop} data-testid="stamp-draggable" className="absolute cursor-grab touch-none object-contain active:cursor-grabbing" style={{ left: pct(layout.dx - width / 2 - VIEW.x0, VIEW_W), top: pct(layout.dy - VIEW.y0, VIEW_H), width: pct(width, VIEW_W), height: pct(height, VIEW_H) }}/>
+      <img src={shown} alt="Tu timbre" draggable={false} onPointerDown={start} onPointerMove={move} onPointerUp={stop} onPointerCancel={stop} data-testid="stamp-draggable" className="absolute cursor-grab touch-none object-contain active:cursor-grabbing" style={{ left: pct(layout.dx - width / 2 - VIEW.x0, VIEW_W), top: pct(layout.dy - VIEW.y0, VIEW_H), width: pct(width, VIEW_W), height: pct(height, VIEW_H), opacity: layout.opacity }}/>
     </div>
     <div className="mt-3 flex flex-wrap items-center gap-3">
       <div className="grid grid-cols-3 gap-1" role="group" aria-label="Mover el timbre con flechas">
@@ -88,6 +128,13 @@ export function StampPlacement({ image }: { image: string }) {
         <input type="range" min={limits.scale[0]} max={limits.scale[1]} step={0.05} value={layout.scale} onChange={event => change({ scale: Number(event.target.value) })} className="mt-1 block w-full accent-[#473a6d]" data-testid="stamp-scale"/>
       </label>
     </div>
+    <label className="mt-3 block text-sm font-medium text-[#615f73]">Intensidad de la tinta: {Math.round(layout.opacity * 100)} %
+      <input type="range" min={limits.opacity[0]} max={limits.opacity[1]} step={0.05} value={layout.opacity} onChange={event => change({ opacity: Number(event.target.value) })} className="mt-1 block w-full accent-[#473a6d]" data-testid="stamp-opacity"/>
+    </label>
+    <label className="mt-3 flex min-h-11 items-center gap-3 rounded-xl border border-[#dddbe6] bg-white px-3 text-sm font-medium text-[#35343f]">
+      <input type="checkbox" checked={layout.knockout} disabled={busy} onChange={event => void toggleKnockout(event.target.checked)} className="size-5 accent-[#473a6d]" data-testid="stamp-knockout"/>
+      <span>Quitar el fondo de la foto <span className="block text-xs font-normal text-[#615f73]">Deja solo la tinta, sin el recuadro gris o blanco. Para guardarlo se pide el código al correo, igual que para cambiar el timbre.</span></span>
+    </label>
     <div className="mt-3 grid grid-cols-2 gap-2">
       <button type="button" disabled={busy || isDefaultStampLayout(layout) && isDefaultStampLayout(saved)} onClick={() => void persist(null)} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border-2 border-[#dddbe6] bg-white px-3 text-base font-semibold text-[#57566a] hover:bg-[#f7f6fa] disabled:opacity-50" data-testid="stamp-reset"><RotateCcw className="size-5" aria-hidden="true"/>Lugar de siempre</button>
       <button type="button" disabled={busy || !dirty} onClick={() => void persist(layout)} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-[#473a6d] px-3 text-base font-semibold text-white hover:bg-[#3a2f5a] disabled:opacity-50" data-testid="stamp-layout-save"><Save className="size-5" aria-hidden="true"/>{busy ? "Guardando…" : "Guardar posición"}</button>

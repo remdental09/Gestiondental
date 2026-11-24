@@ -6,7 +6,7 @@ import { loadProfile, loadProfileTitles } from "@/app/clinician-profile-db";
 import { displayName } from "@/lib/clinician-profile";
 import { getDb } from "@/db";
 import { patientDocuments, patients, professionalDocumentSettings } from "@/db/schema";
-import { loadDocumentMark, loadStampLayout, loadStampLayouts, loadStampMark, loadStampMarks } from "@/app/document-mark-db";
+import { loadDocumentMark, loadPrintableStamp, loadStampLayout, loadStampLayouts, loadStampMarks } from "@/app/document-mark-db";
 import { loadApprovedRegistrations } from "@/app/prestador-db";
 import { CLINICAL_DOCUMENT_LABEL, cleanClinicalDocumentContent, isClinicalDocumentKind, type ClinicalDocumentKind } from "@/lib/clinical-documents";
 
@@ -66,7 +66,7 @@ export async function POST(request: Request) {
       createdBy: personalId, createdByName: authorName, createdAt: new Date().toISOString(), replacesId: replaces,
     }).returning();
     const documentMark = await loadDocumentMark(personalId).catch(() => "");
-    const stampMark = await loadStampMark(personalId).catch(() => "");
+    const stampMark = await loadPrintableStamp(personalId).catch(() => "");
     const stampLayout = await loadStampLayout(personalId).catch(() => null);
     // La habilitación va con el documento desde el primer momento (antes llegaba solo al recargar: la receta recién creada salía sin el QR).
     const registration = (await loadApprovedRegistrations([personalId]).catch(() => new Map())).get(personalId) ?? null;

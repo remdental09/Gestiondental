@@ -1,7 +1,7 @@
 import { loadProfile } from "@/app/clinician-profile-db";
 import { loadClinic } from "@/app/clinic-profile-db";
 import { loadBudgetFormat } from "@/app/budget-format-db";
-import { loadDocumentMark, loadStampLayout, loadStampMark } from "@/app/document-mark-db";
+import { loadDocumentMark, loadPrintableStamp, loadStampLayout } from "@/app/document-mark-db";
 import { DEFAULT_FORMAT, clinicForBudget, formatForPdf, type BudgetFormat } from "@/lib/budget-format";
 import { budgetAuthorOf, type TeamDb } from "@/app/clinic-team-db";
 import { getSender, mailDb, ensureMailTables } from "@/app/appointment-mail-db";
@@ -45,7 +45,7 @@ export async function renderBudgetPdf(ownerId: string, budgetId: number, mode: B
     loadProfile(professionalId).catch(() => null), getSender(ownerId).catch(() => null),
     professionalId === ownerId ? Promise.resolve(null) : loadProfile(ownerId).catch(() => null),
     // Formato de quien armó el presupuesto; logo de la clínica (el espacio), no de la consulta personal del colega.
-    loadBudgetFormat(professionalId).catch(() => ({ ...DEFAULT_FORMAT })), loadClinic(ownerId).catch(() => null), loadDocumentMark(professionalId).catch(() => ""), loadStampMark(professionalId).catch(() => ""), loadStampLayout(professionalId).catch(() => null),
+    loadBudgetFormat(professionalId).catch(() => ({ ...DEFAULT_FORMAT })), loadClinic(ownerId).catch(() => null), loadDocumentMark(professionalId).catch(() => ""), loadPrintableStamp(professionalId).catch(() => ""), loadStampLayout(professionalId).catch(() => null),
   ]);
   // El nombre de la clínica es el del espacio (cuyo correo envía), no el de la consulta personal del profesional.
   const clinicName = (professionalId === ownerId ? profile?.clinicName : space?.clinicName) || undefined;
