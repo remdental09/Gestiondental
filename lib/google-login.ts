@@ -10,6 +10,10 @@ export const LOGIN_PATH = "/auth/google";
 export const CALLBACK_PATH = "/auth/google/callback";
 export const LOGOUT_PATH = "/auth/salir";
 export const LOGOUT_ALL_PATH = "/auth/salir-todo";
+/** Entrada con correo: se escribe el correo y se recibe un código de 6 dígitos; no pasa por Google. */
+export const EMAIL_LOGIN_PATH = "/auth/correo";
+/** Solo recuerda cómo se entró («correo»), para no pedir cerrar Google a quien nunca lo usó. No da acceso a nada. */
+export const VIA_COOKIE = "sd_via";
 /** Marca (10 min) de que el ingreso en curso es desde un equipo compartido; la elige la portada con `?equipo=compartido`. */
 export const SHARED_COOKIE = "sd_oauth_shared";
 export const SHARED_SESSION_MS = 2 * 3_600_000;

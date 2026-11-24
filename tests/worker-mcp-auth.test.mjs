@@ -14,6 +14,7 @@ import * as clinicTeam from '../lib/clinic-team.ts';
 import * as rolePolicy from '../lib/role-policy.ts';
 import * as buildAssets from '../lib/build-assets.ts';
 import * as loginCode from '../lib/login-code.ts';
+import * as emailLogin from '../lib/email-login.ts';
 
 const source = readFileSync(new URL('../worker.ts', import.meta.url), 'utf8');
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText;
@@ -48,6 +49,7 @@ function worker(options = {}) {
     './lib/role-policy': rolePolicy,
     './lib/build-assets': buildAssets,
     './lib/login-code': loginCode,
+    './lib/email-login': emailLogin,
     './app/login-code-mail': { sendLoginCode: options.sendLoginCode ?? (async () => ({ status: 'sent', from: 'sistema@example.test' })) },
   };
   runInNewContext(compiled, { exports: exported, require: name => { assert.ok(name in imports, name); return imports[name]; }, Request, Response, Headers, URL, URLSearchParams, Map, atob, btoa, console, crypto, TextEncoder, TextDecoder, Date, fetch: options.fetch ?? (async () => { throw new Error('sin red en pruebas'); }) });
@@ -421,7 +423,7 @@ test('entrar con Google deja la sesión pendiente y manda un código al correo; 
   assert.equal(after.status, 200);
 });
 
-test('código: cinco errores cierran la sesión; reenviar respeta la espera; sin Gmail conectado se entra sin código', async () => {
+test('código: cinco errores cierran la sesión; reenviar respeta la espera; reenviar nunca salta el código', async () => {
   sessionStore.forgetCachedSessions();
   const DB = sqliteDb();
   const instance = worker();
@@ -438,10 +440,142 @@ test('código: cinco errores cierran la sesión; reenviar respeta la espera; sin
   const cross = await instance.fetch(new Request('https://example.test/auth/codigo', { method: 'POST', body: new URLSearchParams({ codigo: '1' }), headers: { Cookie: 'sd_session=' + token, 'Sec-Fetch-Site': 'cross-site' } }), env2, {});
   assert.equal(cross.headers.get('location'), '/');
 
+  // Reenviar nunca salta el código, aunque no haya cómo enviarlo.
   const open = worker({ sendLoginCode: async () => ({ status: 'no-sender' }) });
   const pending = await sessionStore.createSession(DB, { email, name: '' }, Date.now() - 60_000, false, true);
   const r = await open.fetch(new Request('https://example.test/auth/codigo/reenviar', { method: 'POST', headers: { Cookie: 'sd_session=' + pending } }), env2, {});
-  assert.equal(r.headers.get('location'), '/');
+  assert.equal(r.status, 200);
+  assert.match(await r.text(), /No pudimos enviar el código/);
   sessionStore.forgetCachedSessions();
-  assert.equal((await sessionStore.readSession(DB, pending)).pending, false);
+  assert.equal((await sessionStore.readSession(DB, pending)).pending, true);
+});
+
+test('solo entrar con Google, sin ningún Gmail para enviar el código (app sin configurar), entra sin código', async () => {
+  sessionStore.forgetCachedSessions();
+  const DB = sqliteDb();
+  const googleFetch = async (url) => String(url).includes('oauth2.googleapis.com/token') ? Response.json({ access_token: 'tok' }) : Response.json({ email, email_verified: true, name: 'Prueba' });
+  const open = worker({ fetch: googleFetch, sendLoginCode: async () => ({ status: 'no-sender' }) });
+  const callback = await open.fetch(new Request('https://example.test/auth/google/callback?code=c&state=s', { headers: { Cookie: 'sd_oauth_state=s' } }), { ...googleEnv, DB }, {});
+  assert.equal(callback.headers.get('location'), '/');
+});
+
+// ---------- Entrada con correo (sin Google) ----------
+
+const openEnv = (DB) => ({ ...googleEnv, DB, CLINIC_OPEN_REGISTRATION: 'true' });
+const same = { 'Sec-Fetch-Site': 'same-origin', Origin: 'null' };
+const emailPost = (instance, DB, body, headers = {}, extra = {}) =>
+  instance.fetch(new Request('https://example.test/auth/correo', { method: 'POST', body: new URLSearchParams(body), headers: { ...same, ...headers } }), { ...openEnv(DB), ...extra }, {});
+
+test('la portada pide el correo primero, permite el formulario y deja Google como opción', async () => {
+  const instance = worker();
+  const out = await instance.fetch(new Request('https://example.test/', { headers: { Accept: 'text/html' } }), googleEnv, {});
+  const html = await out.text();
+  assert.match(html, /action="\/auth\/correo"/);
+  assert.match(html, /Continuar con Google/);
+  assert.equal(out.headers.get('referrer-policy'), 'same-origin', 'con no-referrer el formulario llegaría con Origin: null');
+  assert.equal(instance.count(), 0);
+});
+
+test('entrar con un correo cualquiera: llega un código, sin él no hay acceso y con él se entra; Google nunca interviene', async () => {
+  sessionStore.forgetCachedSessions();
+  const DB = sqliteDb();
+  const sent = [];
+  const instance = worker({ sendLoginCode: async (to, code, owners) => { sent.push({ to, code, owners }); return { status: 'sent', from: 'codigo@speakdent.cl' }; }, fetch: async (u) => { throw new Error('no debe usar la red: ' + u); } });
+  const out = await emailPost(instance, DB, { correo: '  Colega@Outlook.com ', entrada: 'personal' });
+  assert.equal(out.headers.get('location'), '/auth/codigo');
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].to, 'colega@outlook.com', 'correo normalizado');
+  assert.match(sent[0].code, /^\d{6}$/);
+  const cookies = out.headers.get('set-cookie');
+  const token = /sd_session=(v2\.[^;]+)/.exec(cookies)[1];
+  assert.match(cookies, /sd_via=correo/);
+  assert.doesNotMatch(cookies, /accounts\.google/);
+  const withCookie = (path, init = {}) => new Request('https://example.test' + path, { ...init, headers: { Cookie: 'sd_session=' + token, ...(init.headers ?? {}) } });
+  const env2 = openEnv(DB);
+  assert.equal((await instance.fetch(withCookie('/api/clinical'), env2, {})).status, 401, 'sin el código la API no responde');
+  const page = await instance.fetch(withCookie('/', { headers: { Accept: 'text/html' } }), env2, {});
+  assert.equal(page.headers.get('location'), '/auth/codigo');
+  const codeHtml = await (await instance.fetch(withCookie('/auth/codigo'), env2, {})).text();
+  assert.doesNotMatch(codeHtml, /colega@outlook/, 'el correo se muestra enmascarado');
+  const wrong = await instance.fetch(withCookie('/auth/codigo', { method: 'POST', body: new URLSearchParams({ codigo: sent[0].code === '000000' ? '111111' : '000000' }), headers: same }), env2, {});
+  assert.equal(wrong.status, 400);
+  const right = await instance.fetch(withCookie('/auth/codigo', { method: 'POST', body: new URLSearchParams({ codigo: sent[0].code }), headers: same }), env2, {});
+  assert.equal(right.headers.get('location'), '/');
+  assert.equal((await instance.fetch(withCookie('/api/clinical'), env2, {})).status, 200);
+});
+
+test('con correo escrito el código nunca se salta: si no se puede enviar, no se entra', async () => {
+  sessionStore.forgetCachedSessions();
+  const DB = sqliteDb();
+  for (const result of [{ status: 'no-sender' }, { status: 'failed', reason: 'x' }]) {
+    const instance = worker({ sendLoginCode: async () => result });
+    const out = await emailPost(instance, DB, { correo: 'otro' + result.status.length + '@outlook.com', entrada: 'personal' });
+    assert.equal(out.headers.get('location'), '/auth/codigo?m=envio');
+    const token = /sd_session=(v2\.[^;]+)/.exec(out.headers.get('set-cookie'))[1];
+    sessionStore.forgetCachedSessions();
+    assert.equal((await sessionStore.readSession(DB, token)).pending, true);
+    assert.equal((await instance.fetch(new Request('https://example.test/api/clinical', { headers: { Cookie: 'sd_session=' + token } }), openEnv(DB), {})).status, 401);
+    const resend = await instance.fetch(new Request('https://example.test/auth/codigo/reenviar', { method: 'POST', headers: { Cookie: 'sd_session=' + token, ...same } }), openEnv(DB), {});
+    assert.equal(resend.status, 200);
+    sessionStore.forgetCachedSessions();
+    assert.equal((await sessionStore.readSession(DB, token)).pending, true, 'reenviar tampoco la abre');
+  }
+});
+
+test('el correo escrito no revela si la cuenta existe: misma respuesta, y sin acceso no se envía nada', async () => {
+  sessionStore.forgetCachedSessions();
+  const DB = sqliteDb();
+  const sent = [];
+  const instance = worker({ sendLoginCode: async (to) => { sent.push(to); return { status: 'sent', from: 'codigo@speakdent.cl' }; } });
+  const known = await emailPost(instance, DB, { correo: email, entrada: 'personal' });
+  const closed = await emailPost(instance, DB, { correo: 'desconocido@outlook.com', entrada: 'personal' }, {}, { CLINIC_OPEN_REGISTRATION: 'false' });
+  assert.equal(known.headers.get('location'), '/auth/codigo');
+  assert.equal(closed.headers.get('location'), '/auth/codigo', 'misma pantalla exista o no la cuenta');
+  assert.deepEqual(sent, [email], 'a quien no tiene acceso no se le envía nada');
+  const token = /sd_session=(v2\.[^;]+)/.exec(closed.headers.get('set-cookie'))[1];
+  const api = await instance.fetch(new Request('https://example.test/api/clinical', { headers: { Cookie: 'sd_session=' + token } }), { ...openEnv(DB), CLINIC_OPEN_REGISTRATION: 'false' }, {});
+  assert.equal(api.status, 401);
+});
+
+test('correo escrito: rechaza otro sitio y correos inválidos, y limita los códigos por correo y por conexión', async () => {
+  sessionStore.forgetCachedSessions();
+  const DB = sqliteDb();
+  const sent = [];
+  const instance = worker({ sendLoginCode: async (to) => { sent.push(to); return { status: 'sent', from: 'codigo@speakdent.cl' }; } });
+  const cross = await emailPost(instance, DB, { correo: 'a@outlook.com' }, { 'Sec-Fetch-Site': 'cross-site' });
+  assert.equal(cross.headers.get('location'), '/');
+  assert.equal(sent.length, 0);
+  for (const bad of ['', 'sin-arroba', 'a@b.cl, c@d.cl']) assert.equal((await emailPost(instance, DB, { correo: bad })).headers.get('location'), '/?error=correo-invalido');
+  assert.equal(sent.length, 0);
+  const outcomes = [];
+  for (let i = 0; i < 7; i++) outcomes.push((await emailPost(instance, DB, { correo: 'victima@outlook.com' }, { 'CF-Connecting-IP': '198.51.100.' + i })).headers.get('location'));
+  assert.deepEqual(outcomes.slice(0, 5), Array(5).fill('/auth/codigo'));
+  assert.deepEqual(outcomes.slice(5), Array(2).fill('/?error=demasiados'), 'desde 7 conexiones distintas, a un mismo correo solo llegan 5');
+  assert.equal(sent.filter(x => x === 'victima@outlook.com').length, 5);
+  const byIp = [];
+  for (let i = 0; i <= sessionStore.LOGIN_LIMIT; i++) byIp.push((await emailPost(instance, DB, { correo: 'persona' + i + '@outlook.com' }, { 'CF-Connecting-IP': '203.0.113.50' })).headers.get('location'));
+  assert.equal(byIp.at(-1), '/?error=demasiados', 'una sola conexión tampoco puede pedir códigos sin tope');
+});
+
+test('equipo compartido con correo: sesión del navegador, 2 horas, aviso de leer el código en el celular y salida sin pedir cerrar Google', async () => {
+  sessionStore.forgetCachedSessions();
+  const DB = sqliteDb();
+  const sent = [];
+  const instance = worker({ sendLoginCode: async (to, code) => { sent.push(code); return { status: 'sent', from: 'codigo@speakdent.cl' }; } });
+  const out = await emailPost(instance, DB, { correo: 'viaje@outlook.com', entrada: 'clinica', equipo: 'compartido' });
+  const raw = out.headers.get('set-cookie');
+  assert.match(raw, /sd_session=v2\.[^;]+; Path=\/; HttpOnly; Secure; SameSite=Lax(,|$)/, 'sin Max-Age: se borra al cerrar el navegador');
+  assert.doesNotMatch(/sd_session=[^,]*/.exec(raw)[0], /Max-Age/);
+  const token = /sd_session=(v2\.[^;]+)/.exec(raw)[1];
+  const env2 = openEnv(DB);
+  const html = await (await instance.fetch(new Request('https://example.test/auth/codigo', { headers: { Cookie: 'sd_session=' + token } }), env2, {})).text();
+  assert.match(html, /lee el código en tu celular/);
+  await instance.fetch(new Request('https://example.test/auth/codigo', { method: 'POST', body: new URLSearchParams({ codigo: sent[0] }), headers: { Cookie: 'sd_session=' + token, ...same } }), env2, {});
+  sessionStore.forgetCachedSessions();
+  const row = await sessionStore.readSession(DB, token);
+  assert.equal(row.shared, true);
+  const bye = await instance.fetch(new Request('https://example.test/auth/salir', { headers: { Cookie: 'sd_session=' + token + '; sd_via=correo', 'Sec-Fetch-Site': 'same-origin' } }), env2, {});
+  const byeHtml = await bye.text();
+  assert.doesNotMatch(byeHtml, /accounts\.google\.com/, 'quien entró con correo no tiene una sesión de Google que cerrar');
+  assert.match(bye.headers.get('set-cookie'), /sd_via=; .*Max-Age=0/);
 });
