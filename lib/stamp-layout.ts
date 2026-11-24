@@ -4,9 +4,9 @@
  * y scale (1 = 5 × 2,5 cm). Además, opacity (1 = tinta plena) y knockout (quitar el fondo de la foto y dejar solo la tinta).
  * Sin diseño guardado, el timbre queda exactamente como antes.
  */
-export type StampLayout = { dx: number; dy: number; scale: number; opacity: number; knockout: boolean };
+export type StampLayout = { dx: number; dy: number; scale: number; opacity: number; knockout: boolean; onSignature: boolean };
 
-export const DEFAULT_STAMP_LAYOUT: StampLayout = { dx: 0, dy: 0, scale: 1, opacity: 1, knockout: false };
+export const DEFAULT_STAMP_LAYOUT: StampLayout = { dx: 0, dy: 0, scale: 1, opacity: 1, knockout: false, onSignature: false };
 export const STAMP_LIMITS = { dx: [-12, 12], dy: [-24, 4], scale: [0.5, 2], opacity: [0.3, 1] } as const;
 
 const clamp = (value: number, [min, max]: readonly [number, number]) => Math.min(max, Math.max(min, value));
@@ -21,6 +21,7 @@ export function normalizeStampLayout(value: unknown): StampLayout {
     scale: Math.round(clamp(num(raw.scale, 1), STAMP_LIMITS.scale) * 100) / 100,
     opacity: Math.round(clamp(num(raw.opacity, 1), STAMP_LIMITS.opacity) * 100) / 100,
     knockout: raw.knockout === true,
+    onSignature: raw.onSignature === true,
   };
 }
 
@@ -30,9 +31,9 @@ export function parseStampLayout(text: string | null | undefined): StampLayout |
   try { return normalizeStampLayout(JSON.parse(text)); } catch { return null; }
 }
 
-export const isDefaultStampLayout = (layout: StampLayout | null | undefined) => !layout || (layout.dx === 0 && layout.dy === 0 && layout.scale === 1 && layout.opacity === 1 && !layout.knockout);
+export const isDefaultStampLayout = (layout: StampLayout | null | undefined) => !layout || (layout.dx === 0 && layout.dy === 0 && layout.scale === 1 && layout.opacity === 1 && !layout.knockout && !layout.onSignature);
 /** ¿Se movió de su lugar? Si es así ya no reserva espacio bajo la firma. */
-export const isStampMoved = (layout: StampLayout | null | undefined) => !!layout && (layout.dx !== 0 || layout.dy !== 0);
+export const isStampMoved = (layout: StampLayout | null | undefined) => !!layout && (layout.onSignature || layout.dx !== 0 || layout.dy !== 0);
 export const serializeStampLayout = (layout: StampLayout) => isDefaultStampLayout(normalizeStampLayout(layout)) ? "" : JSON.stringify(normalizeStampLayout(layout));
 /** Opacidad lista para el PDF (1 = plena). */
 export const stampOpacity = (layout: StampLayout | null | undefined) => layout ? normalizeStampLayout(layout).opacity : 1;
@@ -44,16 +45,22 @@ export type Box = { x: number; y: number; width: number; height: number };
  * `slot`: caja de siempre (ancho/alto del timbre sin escalar) con su esquina inferior izquierda en (x, y).
  * El timbre se escala desde el centro del lugar de siempre, se mueve dx/dy y nunca sale de la hoja.
  */
-export function placeStamp(image: { width: number; height: number }, slot: Box, layout: StampLayout | null | undefined, page: { width: number; height: number }, cmToPt: (cm: number) => number): Box {
+export function placeStamp(image: { width: number; height: number }, slot: Box, layout: StampLayout | null | undefined, page: { width: number; height: number }, cmToPt: (cm: number) => number, signatureCenter?: { x: number; y: number } | null): Box {
   const l = layout ? normalizeStampLayout(layout) : DEFAULT_STAMP_LAYOUT;
   const boxW = slot.width * l.scale, boxH = slot.height * l.scale;
   const fit = Math.min(boxW / image.width, boxH / image.height);
   const width = image.width * fit, height = image.height * fit;
+  const clampBox = (x: number, y: number): Box => ({ x: Math.min(Math.max(x, 0), Math.max(0, page.width - width)), y: Math.min(Math.max(y, 0), Math.max(0, page.height - height)), width, height });
+  // «Sobre la firma»: el timbre se centra en la firma (dx/dy se miden desde ahí) y, si es de letras sueltas (sin fondo), la firma se ve debajo.
+  if (l.onSignature && signatureCenter) return clampBox(signatureCenter.x - width / 2 + cmToPt(l.dx), signatureCenter.y - height / 2 - cmToPt(l.dy));
   // Se mantiene arriba-centro del lugar de siempre (el timbre cuelga bajo la firma), como en la versión sin diseño.
   const centerX = slot.x + slot.width / 2, top = slot.y + slot.height;
   const x = centerX - width / 2 + cmToPt(l.dx), y = top - height - cmToPt(l.dy);
-  return { x: Math.min(Math.max(x, 0), Math.max(0, page.width - width)), y: Math.min(Math.max(y, 0), Math.max(0, page.height - height)), width, height };
+  return clampBox(x, y);
 }
+
+/** Alto aproximado (cm) entre el centro de la firma y el borde superior del lugar de siempre del timbre, para dibujar la miniatura del editor. */
+export const SIGNATURE_CENTER_ABOVE_SLOT_CM = 2.8;
 
 /**
  * Estilo CSS para la vista en pantalla (mismo cálculo que el PDF, en cm).
@@ -65,5 +72,7 @@ export function stampCssBox(layout: StampLayout | null | undefined, base: { widt
   return {
     flow: { width: `${width}cm`, height: `${height}cm`, opacity: l.opacity },
     float: { width: `${width}cm`, height: `${height}cm`, left: `calc(50% + ${l.dx - width / 2}cm)`, top: `calc(0.375rem + ${l.dy}cm)`, opacity: l.opacity },
+    // Dentro del recuadro de la firma, centrado en ella (modo «sobre la firma»).
+    overSignature: { width: `${width}cm`, height: `${height}cm`, left: `calc(50% + ${l.dx - width / 2}cm)`, top: `calc(50% + ${l.dy - height / 2}cm)`, opacity: l.opacity },
   };
 }

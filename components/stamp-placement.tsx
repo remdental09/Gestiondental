@@ -1,8 +1,8 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, RotateCcw, Save } from "lucide-react";
-import { DEFAULT_STAMP_LAYOUT, STAMP_LIMITS, isDefaultStampLayout, normalizeStampLayout, type StampLayout } from "@/lib/stamp-layout";
-import { STAMP_BOX_CM, SIGNATURE_MAX_WIDTH, validSignature } from "@/lib/signature-image";
+import { DEFAULT_STAMP_LAYOUT, SIGNATURE_CENTER_ABOVE_SLOT_CM, STAMP_LIMITS, isDefaultStampLayout, normalizeStampLayout, type StampLayout } from "@/lib/stamp-layout";
+import { SIGNATURE_BOX_CM, STAMP_BOX_CM, SIGNATURE_MAX_WIDTH, validSignature } from "@/lib/signature-image";
 import { knockoutBackground } from "@/lib/stamp-knockout";
 
 /** Timbre sin fondo: se redibuja en un canvas dejando transparente todo lo que se parece al fondo de la foto. Devuelve null si no se pudo. */
@@ -40,6 +40,7 @@ export function StampPlacement({ image }: { image: string }) {
   const drag = useRef<{ x: number; y: number; layout: StampLayout } | null>(null);
   const [layout, setLayout] = useState<StampLayout>(DEFAULT_STAMP_LAYOUT);
   // Timbre sin fondo para mostrar (cleanUrl) y si hay uno nuevo por subir al guardar (uploadClean).
+  const [signature, setSignature] = useState("");
   const [cleanUrl, setCleanUrl] = useState<string | null>(null);
   const [uploadClean, setUploadClean] = useState(false);
   const [saved, setSaved] = useState<StampLayout>(DEFAULT_STAMP_LAYOUT);
@@ -51,7 +52,8 @@ export function StampPlacement({ image }: { image: string }) {
     let alive = true;
     void fetch("/api/documentos/imagen", { cache: "no-store" }).then(async response => {
       if (!response.ok || !alive) return;
-      const data = await response.json() as { stampLayout?: StampLayout | null };
+      const data = await response.json() as { stampLayout?: StampLayout | null; documentMark?: string };
+      if (alive) setSignature(data.documentMark ?? "");
       const loaded = normalizeStampLayout(data.stampLayout ?? DEFAULT_STAMP_LAYOUT);
       setLayout(loaded); setSaved(loaded);
       if (loaded.knockout) void cleanStamp(image).then(url => { if (alive) setCleanUrl(url); }).catch(() => undefined);
@@ -69,6 +71,13 @@ export function StampPlacement({ image }: { image: string }) {
       setCleanUrl(url); setUploadClean(true); change({ knockout: true });
     } catch { setError("No pude leer la imagen del timbre."); }
     finally { setBusy(false); }
+  };
+
+  const chooseAnchor = async (onSignature: boolean) => {
+    if (layout.onSignature === onSignature) return;
+    change({ onSignature, dx: 0, dy: 0 });
+    // Sobre la firma solo se ve bien si el timbre son letras sueltas: se prepara el fondo transparente de inmediato.
+    if (onSignature && !layout.knockout) await toggleKnockout(true);
   };
 
   const change = useCallback((next: Partial<StampLayout>) => { setLayout(current => normalizeStampLayout({ ...current, ...next })); setNotice(""); setError(""); }, []);
@@ -101,6 +110,9 @@ export function StampPlacement({ image }: { image: string }) {
   const width = STAMP_BOX_CM.width * layout.scale, height = STAMP_BOX_CM.height * layout.scale;
   const pct = (cm: number, total: number) => `${(cm / total) * 100}%`;
   const slotLeft = -STAMP_BOX_CM.width / 2 - VIEW.x0, slotTop = -VIEW.y0;
+  // Centro de la firma en la miniatura (arriba del lugar de siempre del timbre) y esquina superior izquierda del timbre según dónde esté anclado.
+  const signatureY = -SIGNATURE_CENTER_ABOVE_SLOT_CM;
+  const stampLeft = layout.dx - width / 2, stampTop = layout.onSignature ? signatureY + layout.dy - height / 2 : layout.dy;
   const arrow = "inline-flex size-11 items-center justify-center rounded-xl border border-[#dddbe6] bg-white text-[#473a6d] hover:bg-[#f7f6fa] disabled:opacity-40";
   const limits = STAMP_LIMITS;
 
@@ -110,13 +122,17 @@ export function StampPlacement({ image }: { image: string }) {
     <div ref={areaRef} className="relative mt-3 w-full max-w-[420px] touch-none select-none overflow-hidden rounded-lg border border-[#dddbe6] bg-white" style={{ aspectRatio: `${VIEW_W} / ${VIEW_H}` }} data-testid="stamp-placement-area" aria-label="Hoja en miniatura: arrastra el timbre para ubicarlo">
       {/* Hoja de referencia: texto del documento arriba y, sobre el lugar de siempre del timbre, la firma y los datos del profesional. */}
       {[0, 1, 2, 3, 4, 5, 6, 7].map(row => <span key={row} aria-hidden="true" className="absolute rounded-full bg-[#ecebf2]" style={{ left: "10%", width: row % 3 === 2 ? "45%" : "80%", top: pct(-24 + row * 1.6 - VIEW.y0, VIEW_H), height: "0.9%" }}/>)}
-      <span aria-hidden="true" className="absolute border-t border-[#9a93ad]" style={{ left: pct(-5 - VIEW.x0, VIEW_W), width: pct(10, VIEW_W), top: pct(-3.2 - VIEW.y0, VIEW_H) }}/>
-      <span aria-hidden="true" className="absolute rounded-full bg-[#d9d6e4]" style={{ left: pct(-3.5 - VIEW.x0, VIEW_W), width: pct(7, VIEW_W), top: pct(-2.6 - VIEW.y0, VIEW_H), height: "0.9%" }}/>
-      <span aria-hidden="true" className="absolute rounded-full bg-[#ecebf2]" style={{ left: pct(-2.5 - VIEW.x0, VIEW_W), width: pct(5, VIEW_W), top: pct(-1.4 - VIEW.y0, VIEW_H), height: "0.9%" }}/>
+      {signature && <>{/* eslint-disable-next-line @next/next/no-img-element */}<img src={signature} alt="Tu firma" draggable={false} className="pointer-events-none absolute object-contain" data-testid="stamp-placement-signature" style={{ left: pct(-SIGNATURE_BOX_CM.width / 2 - VIEW.x0, VIEW_W), top: pct(signatureY - SIGNATURE_BOX_CM.height / 2 - VIEW.y0, VIEW_H), width: pct(SIGNATURE_BOX_CM.width, VIEW_W), height: pct(SIGNATURE_BOX_CM.height, VIEW_H) }}/></>}
+      <span aria-hidden="true" className="absolute border-t border-[#9a93ad]" style={{ left: pct(-5 - VIEW.x0, VIEW_W), width: pct(10, VIEW_W), top: pct(-1.6 - VIEW.y0, VIEW_H) }}/>
+      {[[-1.25, 7], [-0.8, 5], [-0.35, 6]].map(([top, wide]) => <span key={top} aria-hidden="true" className="absolute rounded-full bg-[#d9d6e4]" style={{ left: pct(-(wide ?? 5) / 2 - VIEW.x0, VIEW_W), width: pct(wide ?? 5, VIEW_W), top: pct((top ?? 0) - VIEW.y0, VIEW_H), height: "0.9%" }}/>)}
       <span aria-hidden="true" className="absolute rounded border border-dashed border-[#b8b1d6]" style={{ left: pct(slotLeft, VIEW_W), top: pct(slotTop, VIEW_H), width: pct(STAMP_BOX_CM.width, VIEW_W), height: pct(STAMP_BOX_CM.height, VIEW_H) }}/>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={shown} alt="Tu timbre" draggable={false} onPointerDown={start} onPointerMove={move} onPointerUp={stop} onPointerCancel={stop} data-testid="stamp-draggable" className="absolute cursor-grab touch-none object-contain active:cursor-grabbing" style={{ left: pct(layout.dx - width / 2 - VIEW.x0, VIEW_W), top: pct(layout.dy - VIEW.y0, VIEW_H), width: pct(width, VIEW_W), height: pct(height, VIEW_H), opacity: layout.opacity }}/>
+      <img src={shown} alt="Tu timbre" draggable={false} onPointerDown={start} onPointerMove={move} onPointerUp={stop} onPointerCancel={stop} data-testid="stamp-draggable" className="absolute cursor-grab touch-none object-contain active:cursor-grabbing" style={{ left: pct(stampLeft - VIEW.x0, VIEW_W), top: pct(stampTop - VIEW.y0, VIEW_H), width: pct(width, VIEW_W), height: pct(height, VIEW_H), opacity: layout.opacity }}/>
     </div>
+    <div className="mt-3 grid grid-cols-2 gap-2" role="group" aria-label="Dónde se ancla el timbre">
+      {([[false, "Bajo mi firma"], [true, "Sobre mi firma"]] as const).map(([onSignature, label]) => <button key={label} type="button" disabled={busy} aria-pressed={layout.onSignature === onSignature} onClick={() => void chooseAnchor(onSignature)} className={`inline-flex min-h-11 items-center justify-center rounded-xl border-2 px-3 text-sm font-semibold ${layout.onSignature === onSignature ? "border-[#473a6d] bg-[#efeef4] text-[#473a6d]" : "border-[#dddbe6] bg-white text-[#57566a] hover:bg-[#f7f6fa]"}`} data-testid={onSignature ? "stamp-on-signature-button" : "stamp-under-signature-button"}>{label}</button>)}
+    </div>
+    {layout.onSignature && !layout.knockout && <p className="mt-2 text-xs text-[#8a4b00]">Para que tu firma se vea a través del timbre activa «Quitar el fondo de la foto»; si no, el timbre la tapa.</p>}
     <div className="mt-3 flex flex-wrap items-center gap-3">
       <div className="grid grid-cols-3 gap-1" role="group" aria-label="Mover el timbre con flechas">
         <span/><button type="button" className={arrow} aria-label="Subir" onClick={() => change({ dy: layout.dy - STEP })} disabled={layout.dy <= limits.dy[0]}><ArrowUp className="size-4" aria-hidden="true"/></button><span/>
