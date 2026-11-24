@@ -811,7 +811,7 @@ function collectRawSurfaces(sentence: string): RawSurface[] {
   const add = (code: OdontogramSurface, via: SurfaceVia) => {
     if (!found.some((item) => item.code === code && item.via === via)) found.push({ code, via });
   };
-  for (const match of text.matchAll(/\b(mesio|disto|ocluso|vestibulo|linguo|palato)\s*-?\s*(oclusal|oclual|incisal|distal|mesial|vestibular|bucal|labial|lingual|palatina|palatino)\b/g)) {
+  for (const match of text.matchAll(/\b(mesio|disto|ocluso|vestibulo|linguo|palato|cervico)\s*-?\s*(oclusal|oclual|incisal|distal|mesial|vestibular|bucal|labial|lingual|palatina|palatino)\b/g)) {
     const prefix = match[1];
     const rest = match[2];
     if (prefix === "mesio") add("M", "mesial");
@@ -883,7 +883,28 @@ export function resolveDictatedSurfaces(sentence: string, tooth: number): { surf
     }
     add(item.code);
   }
+  // Clasificación de Black sin caras nombradas: solo las clases con una lectura única. II, III y IV dependen de qué cara proximal
+  // (mesial o distal) y no se adivinan; quedan en la nota.
+  if (!surfaces.length) {
+    const black = blackClassOf(sentence);
+    if (black === "V") {
+      add("V");
+      note(`En ${label}, «clase V» se registró como cara vestibular (cervical); si fue lingual o palatina, corrígelo.`);
+    } else if (black === "I" && !anterior) {
+      add("O");
+      note(`En ${label}, «clase I» se registró como cara oclusal; si fue una fosa vestibular o palatina, corrígelo.`);
+    }
+  }
   return { surfaces, notes };
+}
+
+/** «Restauración clase V / clase 5 / quinta clase»: solo reconoce I y V (sin confundir «clase II», «clase VI»). */
+function blackClassOf(sentence: string): "I" | "V" | null {
+  const match = sentence.match(/(?<!\p{L})(?:clase|cl\.)\s+(v|5|quinta|i|1|primera)(?![\p{L}\d])/iu) ?? sentence.match(/(?<!\p{L})(quinta|primera)\s+clase(?!\p{L})/iu);
+  const value = match?.[1]?.toLowerCase();
+  if (value === "v" || value === "5" || value === "quinta") return "V";
+  if (value === "i" || value === "1" || value === "primera") return "I";
+  return null;
 }
 
 function icdasFrom(sentence: string): number | null {
