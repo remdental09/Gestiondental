@@ -515,12 +515,12 @@ export function ClinicalDictation({
       setCorrections(data.proposal.corrected?.corrections ?? []);
       setAnswers({});
       setPerioItems([
-        ...data.proposal.perio.map((item) => ({ id: item.id, toothText: formatFdi(item.tooth), site: item.site, depthText: String(item.depth), bleeding: item.bleeding ?? false, suppuration: item.suppuration ?? false, decision: detailRef.current ? "accepted" as const : "rejected" as const, evidence: item.evidence ?? item.sourceText, origin: item.origin, pending: false })),
+        ...data.proposal.perio.map((item) => ({ id: item.id, toothText: formatFdi(item.tooth), site: item.site, depthText: String(item.depth), bleeding: item.bleeding ?? false, suppuration: item.suppuration ?? false, decision: "accepted" as const, evidence: item.evidence ?? item.sourceText, origin: item.origin, pending: false })),
         ...(data.proposal.perioPending ?? []).map((item) => ({ id: item.id, toothText: formatFdi(item.tooth), site: item.site ?? "" as const, depthText: item.depth === null ? "" : String(item.depth), bleeding: item.bleeding, suppuration: item.suppuration, decision: "rejected" as const, evidence: item.evidence, origin: item.origin, pending: true })),
       ]);
-      setRecessionItems((data.proposal.recession ?? []).map((item) => ({ ...item, decision: detailRef.current ? "accepted" as const : "rejected" as const, toothText: formatFdi(item.tooth), mmText: String(item.mm) })));
-      setClassItem(data.proposal.perioClassification ? { ...data.proposal.perioClassification, decision: detailRef.current ? "accepted" : "rejected" } : null);
-      setMobilityItems((data.proposal.mobility ?? []).map((item) => ({ ...item, decision: detailRef.current ? "accepted" : "rejected", toothText: formatFdi(item.tooth) })));
+      setRecessionItems((data.proposal.recession ?? []).map((item) => ({ ...item, decision: "accepted" as const, toothText: formatFdi(item.tooth), mmText: String(item.mm) })));
+      setClassItem(data.proposal.perioClassification ? { ...data.proposal.perioClassification, decision: "accepted" } : null);
+      setMobilityItems((data.proposal.mobility ?? []).map((item) => ({ ...item, decision: "accepted", toothText: formatFdi(item.tooth) })));
       setPaymentItems((data.proposal.payments ?? []).map((item) => ({
         ...item,
         decision: detailRef.current ? "accepted" : "rejected",
@@ -1294,6 +1294,54 @@ export function ClinicalDictation({
                 </article>;
               })}
             </section>
+            <section className="space-y-3">
+              <h3 className="font-semibold">Periodontograma</h3>
+              <p className="text-xs leading-5 text-[#615f73]">Lo aceptado se guarda como un examen nuevo con solo los sitios dictados; no reemplaza el examen completo ni infiere margen, furcación, EPB ni clasificación.</p>
+              {perioItems.length === 0 && mobilityItems.length === 0 && recessionItems.length === 0 && !classItem && <p className="rounded-lg border border-dashed border-[#dddbe6] p-3 text-[#6b6a7c]">Sin sondaje en el dictado.</p>}
+              {perioItems.map((item, index) => <article key={item.id} className={`rounded-xl border p-4 ${item.decision === "accepted" ? "border-emerald-200" : "border-[#e6e4ee] opacity-70"}`} data-testid="dictation-perio">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <p className="font-medium">FDI {item.toothText} · {item.site ? SITE_LABEL[item.site] : "sitio pendiente"} · {item.depthText ? `${item.depthText} mm` : "mm pendientes"}{item.bleeding ? " · sangrado" : ""}{item.suppuration ? " · supuración" : ""}<OriginBadge origin={item.origin} /></p>
+                    <Evidence text={item.evidence} />
+                    {item.pending && <p className="mt-1 text-xs font-medium text-amber-800">Incompleto: completa sitio y milímetros (o responde la aclaración) para aceptarlo.</p>}
+                  </div>
+                  <Decision value={item.decision} onChange={(decision) => setPerioItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, decision } : entry))} />
+                </div>
+                {item.decision === "accepted" && <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
+                  <label className="space-y-1">Pieza FDI<input className="flex h-10 w-full rounded-md border px-3 text-base sm:h-9 sm:text-sm" value={item.toothText} onChange={(event) => setPerioItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, toothText: event.target.value } : entry))} /></label>
+                  <label className="space-y-1">Sitio<select className="h-10 w-full rounded-md border px-2 text-base sm:h-9 sm:text-sm" value={item.site} onChange={(event) => setPerioItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, site: event.target.value as PerioSite | "" } : entry))}><option value="">Elegir…</option>{PERIO_SITES.map((site) => <option key={site} value={site}>{SITE_LABEL[site]}</option>)}</select></label>
+                  <label className="space-y-1">mm<input className="flex h-10 w-full rounded-md border px-3 text-base sm:h-9 sm:text-sm" inputMode="numeric" value={item.depthText} onChange={(event) => setPerioItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, depthText: event.target.value } : entry))} /></label>
+                  <label className="flex items-center gap-2 pt-6"><input type="checkbox" className="size-5" checked={item.bleeding} onChange={(event) => setPerioItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, bleeding: event.target.checked } : entry))} />Sangrado</label>
+                  <label className="flex items-center gap-2 pt-6"><input type="checkbox" className="size-5" checked={item.suppuration} onChange={(event) => setPerioItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, suppuration: event.target.checked } : entry))} />Supuración</label>
+                </div>}
+              </article>)}
+              {recessionItems.map((item, index) => <article key={item.id} className={`rounded-xl border p-4 ${item.decision === "accepted" ? "border-emerald-200" : "border-[#e6e4ee] opacity-70"}`}>
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div><p className="font-medium">Recesión FDI {item.toothText} {item.site}: {item.mmText} mm desde la LAC<OriginBadge origin={item.origin} /></p><Evidence text={item.evidence} /></div>
+                  <Decision value={item.decision} onChange={(decision) => setRecessionItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, decision } : entry))} />
+                </div>
+                {item.decision === "accepted" && <div className="mt-3 grid grid-cols-2 gap-2">
+                  <label className="space-y-1">Pieza FDI<input className="flex h-10 w-full rounded-md border px-3 text-base sm:h-9 sm:text-sm" value={item.toothText} onChange={(event) => setRecessionItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, toothText: event.target.value } : entry))} /></label>
+                  <label className="space-y-1">Milímetros<input inputMode="numeric" className="flex h-10 w-full rounded-md border px-3 text-base sm:h-9 sm:text-sm" value={item.mmText} onChange={(event) => setRecessionItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, mmText: event.target.value } : entry))} /></label>
+                </div>}
+              </article>)}
+              {classItem && <article className={`rounded-xl border p-4 ${classItem.decision === "accepted" ? "border-emerald-200" : "border-[#e6e4ee] opacity-70"}`}>
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div><p className="font-medium">Clasificación periodontal AAP-EFP 2017{classItem.stage ? `: estadio ${classItem.stage}` : ""}{classItem.grade ? `, grado ${classItem.grade}` : ""}<OriginBadge origin={classItem.origin} /></p><Evidence text={classItem.evidence} /></div>
+                  <Decision value={classItem.decision} onChange={(decision) => setClassItem((current) => current ? { ...current, decision } : current)} />
+                </div>
+              </article>}
+              {mobilityItems.map((item, index) => <article key={item.id} className={`rounded-xl border p-4 ${item.decision === "accepted" ? "border-emerald-200" : "border-[#e6e4ee] opacity-70"}`}>
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div><p className="font-medium">{item.kind === "furcacion" ? "Furcación" : "Movilidad"} FDI {item.toothText}: grado {item.grade}<OriginBadge origin={item.origin} /></p><Evidence text={item.evidence} /></div>
+                  <Decision value={item.decision} onChange={(decision) => setMobilityItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, decision } : entry))} />
+                </div>
+                {item.decision === "accepted" && <div className="mt-3 grid grid-cols-2 gap-2">
+                  <label className="space-y-1">Pieza FDI<input className="flex h-10 w-full rounded-md border px-3 text-base sm:h-9 sm:text-sm" value={item.toothText} onChange={(event) => setMobilityItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, toothText: event.target.value } : entry))} /></label>
+                  <label className="space-y-1">Grado<select className="h-10 w-full rounded-md border px-2 text-base sm:h-9 sm:text-sm" value={item.grade} onChange={(event) => setMobilityItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, grade: event.target.value as MobilityChange["grade"] } : entry))}>{(item.kind === "furcacion" ? ["I", "II", "III"] as const : ["0", "I", "II", "III"] as const).map((grade) => <option key={grade} value={grade}>{grade}</option>)}</select></label>
+                </div>}
+              </article>)}
+            </section>
             <button type="button" className="text-sm font-semibold text-[#473a6d] underline" onClick={() => toggleDetail(!detail)} data-testid="dictation-detail-toggle">{detail ? "Ocultar el detalle" : "Ver todo el detalle (presupuesto, pagos, citas, periodontograma…)"}</button>
             {detail && <details className="rounded-xl border border-[#dddbe6] bg-white p-3" data-testid="dictation-structured-review">
               <summary className="cursor-pointer font-medium text-[#3b3355]">Revisar campos estructurados (opcional)</summary>
@@ -1485,54 +1533,6 @@ export function ClinicalDictation({
                 </div>}
               </article>
             </section>}
-            <section className="space-y-3">
-              <h3 className="font-semibold">Periodontograma</h3>
-              <p className="text-xs leading-5 text-[#615f73]">Lo aceptado se guarda como un examen nuevo con solo los sitios dictados; no reemplaza el examen completo ni infiere margen, furcación, EPB ni clasificación.</p>
-              {perioItems.length === 0 && mobilityItems.length === 0 && recessionItems.length === 0 && !classItem && <p className="rounded-lg border border-dashed border-[#dddbe6] p-3 text-[#6b6a7c]">Sin sondaje en el dictado.</p>}
-              {perioItems.map((item, index) => <article key={item.id} className={`rounded-xl border p-4 ${item.decision === "accepted" ? "border-emerald-200" : "border-[#e6e4ee] opacity-70"}`} data-testid="dictation-perio">
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div>
-                    <p className="font-medium">FDI {item.toothText} · {item.site ? SITE_LABEL[item.site] : "sitio pendiente"} · {item.depthText ? `${item.depthText} mm` : "mm pendientes"}{item.bleeding ? " · sangrado" : ""}{item.suppuration ? " · supuración" : ""}<OriginBadge origin={item.origin} /></p>
-                    <Evidence text={item.evidence} />
-                    {item.pending && <p className="mt-1 text-xs font-medium text-amber-800">Incompleto: completa sitio y milímetros (o responde la aclaración) para aceptarlo.</p>}
-                  </div>
-                  <Decision value={item.decision} onChange={(decision) => setPerioItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, decision } : entry))} />
-                </div>
-                {item.decision === "accepted" && <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
-                  <label className="space-y-1">Pieza FDI<input className="flex h-10 w-full rounded-md border px-3 text-base sm:h-9 sm:text-sm" value={item.toothText} onChange={(event) => setPerioItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, toothText: event.target.value } : entry))} /></label>
-                  <label className="space-y-1">Sitio<select className="h-10 w-full rounded-md border px-2 text-base sm:h-9 sm:text-sm" value={item.site} onChange={(event) => setPerioItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, site: event.target.value as PerioSite | "" } : entry))}><option value="">Elegir…</option>{PERIO_SITES.map((site) => <option key={site} value={site}>{SITE_LABEL[site]}</option>)}</select></label>
-                  <label className="space-y-1">mm<input className="flex h-10 w-full rounded-md border px-3 text-base sm:h-9 sm:text-sm" inputMode="numeric" value={item.depthText} onChange={(event) => setPerioItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, depthText: event.target.value } : entry))} /></label>
-                  <label className="flex items-center gap-2 pt-6"><input type="checkbox" className="size-5" checked={item.bleeding} onChange={(event) => setPerioItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, bleeding: event.target.checked } : entry))} />Sangrado</label>
-                  <label className="flex items-center gap-2 pt-6"><input type="checkbox" className="size-5" checked={item.suppuration} onChange={(event) => setPerioItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, suppuration: event.target.checked } : entry))} />Supuración</label>
-                </div>}
-              </article>)}
-              {recessionItems.map((item, index) => <article key={item.id} className={`rounded-xl border p-4 ${item.decision === "accepted" ? "border-emerald-200" : "border-[#e6e4ee] opacity-70"}`}>
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div><p className="font-medium">Recesión FDI {item.toothText} {item.site}: {item.mmText} mm desde la LAC<OriginBadge origin={item.origin} /></p><Evidence text={item.evidence} /></div>
-                  <Decision value={item.decision} onChange={(decision) => setRecessionItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, decision } : entry))} />
-                </div>
-                {item.decision === "accepted" && <div className="mt-3 grid grid-cols-2 gap-2">
-                  <label className="space-y-1">Pieza FDI<input className="flex h-10 w-full rounded-md border px-3 text-base sm:h-9 sm:text-sm" value={item.toothText} onChange={(event) => setRecessionItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, toothText: event.target.value } : entry))} /></label>
-                  <label className="space-y-1">Milímetros<input inputMode="numeric" className="flex h-10 w-full rounded-md border px-3 text-base sm:h-9 sm:text-sm" value={item.mmText} onChange={(event) => setRecessionItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, mmText: event.target.value } : entry))} /></label>
-                </div>}
-              </article>)}
-              {classItem && <article className={`rounded-xl border p-4 ${classItem.decision === "accepted" ? "border-emerald-200" : "border-[#e6e4ee] opacity-70"}`}>
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div><p className="font-medium">Clasificación periodontal AAP-EFP 2017{classItem.stage ? `: estadio ${classItem.stage}` : ""}{classItem.grade ? `, grado ${classItem.grade}` : ""}<OriginBadge origin={classItem.origin} /></p><Evidence text={classItem.evidence} /></div>
-                  <Decision value={classItem.decision} onChange={(decision) => setClassItem((current) => current ? { ...current, decision } : current)} />
-                </div>
-              </article>}
-              {mobilityItems.map((item, index) => <article key={item.id} className={`rounded-xl border p-4 ${item.decision === "accepted" ? "border-emerald-200" : "border-[#e6e4ee] opacity-70"}`}>
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div><p className="font-medium">{item.kind === "furcacion" ? "Furcación" : "Movilidad"} FDI {item.toothText}: grado {item.grade}<OriginBadge origin={item.origin} /></p><Evidence text={item.evidence} /></div>
-                  <Decision value={item.decision} onChange={(decision) => setMobilityItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, decision } : entry))} />
-                </div>
-                {item.decision === "accepted" && <div className="mt-3 grid grid-cols-2 gap-2">
-                  <label className="space-y-1">Pieza FDI<input className="flex h-10 w-full rounded-md border px-3 text-base sm:h-9 sm:text-sm" value={item.toothText} onChange={(event) => setMobilityItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, toothText: event.target.value } : entry))} /></label>
-                  <label className="space-y-1">Grado<select className="h-10 w-full rounded-md border px-2 text-base sm:h-9 sm:text-sm" value={item.grade} onChange={(event) => setMobilityItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, grade: event.target.value as MobilityChange["grade"] } : entry))}>{(item.kind === "furcacion" ? ["I", "II", "III"] as const : ["0", "I", "II", "III"] as const).map((grade) => <option key={grade} value={grade}>{grade}</option>)}</select></label>
-                </div>}
-              </article>)}
-            </section>
               </div>
             </details>}
           </div>}
