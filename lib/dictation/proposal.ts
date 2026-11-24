@@ -504,7 +504,16 @@ export function toothClause(sentence: string, tooth: number): string | null {
     for (let next = index + 1; !hasDetail(text) && next < parts.length; next += 1) text = `${text} ${parts[next]}`;
     own.push(text);
   });
-  return own.length ? own.join(" ") : null;
+  if (!own.length) return null;
+  // «…en la 1.3 y la 2.3 por vestibular con ionómero»: la cara y el material dichos una sola vez al final valen para todas.
+  const withFaces = parts.filter((part) => collectRawSurfaces(part).length > 0);
+  const joined = own.join(" ");
+  if (withFaces.length === 1 && !collectRawSurfaces(joined).length && /(?:^|\s)y\s+(?:la|el)\s/iu.test(sentence)) {
+    const last = withFaces[0];
+    const mention = [...last.matchAll(/\d{1,2}(?:\.\d)?(?![\d.]?\d)/gu)].pop();
+    if (mention && mention.index !== undefined) return `${joined} ${last.slice(mention.index + mention[0].length).trim()}`.trim();
+  }
+  return joined;
 }
 
 function surfaceScope(sentence: string): string {
@@ -1453,6 +1462,8 @@ export function deducedDiagnoses(odontogram: OdontogramChange[], diagnoses: Diag
   for (const change of odontogram) if (!change.advisory) add(change.tooth);
   for (const text of all) if ((ENDO_DONE.test(text) && !isPriorEndoSentence(text)) || RESTORATION_DONE.test(text)) for (const tooth of toothOf(text)) add(tooth);
   const adviseOnly = new Set(odontogram.filter((change) => change.advisory).map((change) => change.tooth));
+  // Un diagnóstico dictado sin pieza («Diagnóstico: pulpitis irreversible») cuando se trató una sola pieza es el de esa pieza.
+  if (teeth.length === 1 && diagnoses.some((dx) => dx.tooth === undefined && dx.code)) covered.add(teeth[0]);
 
   for (const tooth of teeth) {
     if (covered.has(tooth) || adviseOnly.has(tooth)) continue;

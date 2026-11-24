@@ -647,6 +647,8 @@ export function applySelfCorrections(text: string): { text: string; corrections:
     return value;
   });
   out = out.replace(SELF_FIX_TOOTH_NO_PARDON, (whole, intro: string, next: string) => { const value = `${intro}${next}`; note(whole, value); return value; });
+  // «la 4.8 incluida, no la 3.8 perdón»: vale la segunda pieza; el «perdón» se va con la corrección.
+  out = out.replace(/(?<![\p{L}\d.])(\d\.\d)((?:(?!\d\.\d|\bpieza\b|\bdiente\b)[^.;\n])*?)[,\s]+no[,\s]+(?:es\s+)?(?:la|el)\s+(\d\.\d)(?![\d.]?\d)\s*,?\s*(?:perd[oó]n|mejor\s+dicho)(?!\p{L})/giu, (whole, _old: string, middle: string, next: string) => { const value = `${next}${middle}`; note(whole, value); return value; });
   out = out.replace(SELF_FIX_TOOTH_NO, (whole, _old: string, middle: string, next: string) => { const value = `${next}${middle}`; note(whole, value); return value; });
   // «mesial vestibular 5, perdón, 6 milímetros» / «movilidad uno, no, movilidad dos»: vale lo corregido.
   out = out.replace(/(?<![\d.,])(\d{1,2})(\s*(?:mm|mil[ií]metros)?)\s*,?\s*(?:perd[oó]n|mejor\s+dicho|quise\s+decir|digo)\s*,?\s*(\d{1,2})(?![\d.,]?\d)/giu, (whole, _old: string, _unit: string, next: string) => { note(whole, next); return next; });
