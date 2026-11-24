@@ -1,10 +1,10 @@
 // Código de seguridad para cambiar o quitar la firma guardada. Llega al correo con que se ingresó a la aplicación.
 import { getChatGPTUser, personalIdOf } from "@/app/chatgpt-auth";
-import { ensureMailTables, getSender, mailDb } from "@/app/appointment-mail-db";
-import { sendMailWithSender } from "@/app/drive-oauth";
+import { ensureMailTables, mailDb } from "@/app/appointment-mail-db";
+import { sendSystemMail } from "@/app/login-code-mail";
 import { loadDocumentMark, loadStampMark } from "@/app/document-mark-db";
 import { grantUnlock, loadLock, reserveAttempt, storeCode } from "@/app/signature-lock-db";
-import { buildRawMessage, isValidEmail } from "@/lib/appointment-mail";
+import { isValidEmail } from "@/lib/appointment-mail";
 import { sha256Hex } from "@/lib/consent-signature";
 import { CODE_TTL_MS, UNLOCK_TTL_MS, canResend, cleanCode, isCodeShape, judgeAttempt, newUnlockCode, unlockCodeEmail } from "@/lib/signature-lock";
 
@@ -27,13 +27,12 @@ export async function POST(request: Request) {
       const lock = await loadLock(professionalId);
       if (!canResend(lock, now)) return json({ error: "Espera un minuto antes de pedir otro código." }, 429);
       const db = mailDb(); if (db) await ensureMailTables(db);
-      const sender = await getSender(user.userId);
-      if (!sender) return json({ error: "Primero conecta el correo de envío (Agenda → correo a pacientes): desde ahí se manda el código." }, 409);
       const code = newUnlockCode();
       // Primero se guarda (solo su huella) y luego se envía: si el envío falla, el código anterior queda invalidado igual.
       await storeCode(professionalId, await sha256Hex(`${professionalId}:${code}`), new Date(now + CODE_TTL_MS).toISOString(), new Date(now).toISOString());
       const mail = unlockCodeEmail(code);
-      await sendMailWithSender(sender, buildRawMessage({ from: sender.google_email, fromName: "Gestión Dental", to: user.email.trim(), ...mail }));
+      const sent = await sendSystemMail(user.email.trim(), mail, [user.userId]);
+      if (sent.status !== "sent") return json({ error: "No se pudo enviar el código a tu correo. Intenta de nuevo en un minuto." }, 502);
       return json({ ok: true, to: maskEmail(user.email.trim()) });
     }
     if (body?.action === "verificar") {

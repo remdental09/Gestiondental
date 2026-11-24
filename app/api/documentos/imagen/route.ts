@@ -1,9 +1,9 @@
 import { getChatGPTUser, personalIdOf } from "@/app/chatgpt-auth";
 import { loadDocumentMark, loadStampMark, saveDocumentMark, saveStampMark } from "@/app/document-mark-db";
 import { archiveMark, consumeUnlock, loadLock } from "@/app/signature-lock-db";
-import { ensureMailTables, getSender, mailDb } from "@/app/appointment-mail-db";
-import { sendMailWithSender } from "@/app/drive-oauth";
-import { buildRawMessage, isValidEmail } from "@/lib/appointment-mail";
+import { ensureMailTables, mailDb } from "@/app/appointment-mail-db";
+import { sendSystemMail } from "@/app/login-code-mail";
+import { isValidEmail } from "@/lib/appointment-mail";
 import { changesSavedMark, isUnlocked, signatureChangedEmail } from "@/lib/signature-lock";
 import { validSignature } from "@/lib/signature-image";
 
@@ -53,8 +53,6 @@ export async function POST(request: Request) {
 async function notifyChange(ownerId: string, email: string, action: "cambiada" | "quitada", now: number, what: "firma" | "timbre") {
   if (!isValidEmail(email)) return;
   const db = mailDb(); if (db) await ensureMailTables(db);
-  const sender = await getSender(ownerId);
-  if (!sender) return;
   const when = new Date(now).toLocaleString("es-CL", { timeZone: "America/Santiago", dateStyle: "short", timeStyle: "short" });
-  await sendMailWithSender(sender, buildRawMessage({ from: sender.google_email, fromName: "Gestión Dental", to: email.trim(), ...signatureChangedEmail(action, when, what) }));
+  await sendSystemMail(email.trim(), signatureChangedEmail(action, when, what), [ownerId]);
 }
