@@ -2,7 +2,7 @@ import { getChatGPTUser, personalIdOf } from "@/app/chatgpt-auth";
 import { loadBudgetFormat, saveBudgetFormat } from "@/app/budget-format-db";
 import { loadProfile } from "@/app/clinician-profile-db";
 import { loadClinic } from "@/app/clinic-profile-db";
-import { loadDocumentMark, loadStampLayout, loadStampMark } from "@/app/document-mark-db";
+import { loadDocumentMark, loadPrintableStamp, loadStampLayout } from "@/app/document-mark-db";
 import { checkBudgetFormat } from "@/lib/budget-format";
 import { buildBudgetPdf } from "@/lib/budget-pdf";
 import { displayName } from "@/lib/clinician-profile";
@@ -50,7 +50,7 @@ export async function POST(request: Request) {
       const [profile, clinic, space, documentMark, stampMark, stampLayout] = await Promise.all([
         loadProfile(personalId).catch(() => null), loadClinic(user.userId).catch(() => null),
         personalId === user.userId ? Promise.resolve(null) : loadProfile(user.userId).catch(() => null),
-        loadDocumentMark(personalId).catch(() => ""), loadStampMark(personalId).catch(() => ""), loadStampLayout(personalId).catch(() => null),
+        loadDocumentMark(personalId).catch(() => ""), loadPrintableStamp(personalId).catch(() => ""), loadStampLayout(personalId).catch(() => null),
       ]);
       const bytes = await buildBudgetPdf({
         budget: { id: 123, title: "Plan de ejemplo (vista previa)", date: "17 nov 2026", items: [

@@ -2,7 +2,7 @@ import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf
 import { budgetItemTotal, budgetPhases, budgetTotals, itemWhereText, type BudgetItem } from "./budget-plans.ts";
 import { DEFAULT_FORMAT, clinicContactGroups, hexToRgb01, shade, tint, type BudgetFormat } from "./budget-format.ts";
 import { SIGNATURE_BOX_CM, STAMP_BOX_CM, cmToPt, fitInBox } from "./signature-image.ts";
-import { isStampMoved, placeStamp, type StampLayout } from "./stamp-layout.ts";
+import { isStampMoved, placeStamp, stampOpacity, type StampLayout } from "./stamp-layout.ts";
 
 /**
  * PDF del presupuesto / plan de tratamiento, con formato de presupuesto clínico: cabecera de la clínica, número y hora de emisión,
@@ -376,7 +376,7 @@ export async function buildBudgetPdf(input: BudgetPdfInput): Promise<Uint8Array>
     const slotWidth = Math.min(cmToPt(STAMP_BOX_CM.width), R - sx), slotHeight = cmToPt(STAMP_BOX_CM.height);
     const top = y - 6;
     const at = placeStamp(stampImage, { x: sx + (R - sx - slotWidth) / 2, y: top - slotHeight, width: slotWidth, height: slotHeight }, input.stampLayout, page.getSize(), cmToPt);
-    page.drawImage(stampImage, at);
+    page.drawImage(stampImage, { ...at, opacity: stampOpacity(input.stampLayout) });
     if (!isStampMoved(input.stampLayout)) signEnd = Math.min(signEnd, top - at.height - 6);
   }
   y = signEnd;

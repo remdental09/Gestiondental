@@ -5,7 +5,7 @@ import { biomedicalProducts, clinicalImages, patients } from "@/db/schema";
 import { loadApprovedRegistrations } from "@/app/prestador-db";
 import { loadProfile } from "@/app/clinician-profile-db";
 import { loadClinic } from "@/app/clinic-profile-db";
-import { loadDocumentMark, loadStampLayout, loadStampMark } from "@/app/document-mark-db";
+import { loadDocumentMark, loadPrintableStamp, loadStampLayout } from "@/app/document-mark-db";
 import { buildDocumentPdf } from "@/lib/document-pdf";
 import { ageFromBirthDate } from "@/lib/clinical-documents";
 import { displayName } from "@/lib/clinician-profile";
@@ -42,7 +42,7 @@ export async function renderProductsPdf(ownerId: string, professionalId: string,
   const images = imageIds.length ? await db.select().from(clinicalImages).where(and(eq(clinicalImages.ownerId, ownerId), inArray(clinicalImages.id, imageIds))) : [];
   const [regs, profile, clinic, mark, stamp, stampLayout] = await Promise.all([
     loadApprovedRegistrations([professionalId]).catch(() => new Map()), loadProfile(professionalId).catch(() => null), loadClinic(ownerId).catch(() => null),
-    loadDocumentMark(professionalId).catch(() => ""), loadStampMark(professionalId).catch(() => ""), loadStampLayout(professionalId).catch(() => null),
+    loadDocumentMark(professionalId).catch(() => ""), loadPrintableStamp(professionalId).catch(() => ""), loadStampLayout(professionalId).catch(() => null),
   ]);
   const reg = regs.get(professionalId) ?? null;
   const doctorName = reg?.fullName ? `${profile?.title ? profile.title + " " : ""}${reg.fullName}`.trim() : (profile ? displayName(profile) : fallbackName) || "Profesional";

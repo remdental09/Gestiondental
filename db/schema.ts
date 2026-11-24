@@ -133,6 +133,8 @@ export const professionalDocumentSettings = sqliteTable("professional_document_s
   stampMark: text("stamp_mark").notNull().default(""),
   /** Posición y tamaño del timbre (JSON {dx, dy, scale} medido desde su lugar de siempre); vacío = sin diseño propio. */
   stampLayout: text("stamp_layout").notNull().default(""),
+  /** Timbre sin fondo (PNG con transparencia), generado en el navegador a partir de `stampMark`; vacío = no hay. Se borra si cambia la imagen. */
+  stampClean: text("stamp_clean").notNull().default(""),
   updatedAt: text("updated_at").notNull(),
 });
 

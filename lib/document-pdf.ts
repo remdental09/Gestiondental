@@ -2,7 +2,7 @@ import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage, type PDFP
 import qrcode from "qrcode-generator";
 import { pdfSafe, issuedParts } from "./budget-pdf.ts";
 import { SIGNATURE_BOX_CM, STAMP_BOX_CM, cmToPt, fitInBox } from "./signature-image.ts";
-import { isStampMoved, placeStamp, type StampLayout } from "./stamp-layout.ts";
+import { isStampMoved, placeStamp, stampOpacity, type StampLayout } from "./stamp-layout.ts";
 
 /**
  * PDF de un documento clínico ya emitido (receta, receta magistral, consentimiento) con la misma información que la vista de impresión:
@@ -161,7 +161,7 @@ export async function buildDocumentPdf(input: DocumentPdfInput): Promise<Uint8Ar
     page.drawLine({ start: { x: cx - 105, y: ly + 8 }, end: { x: cx + 105, y: ly + 8 }, thickness: 0.7, color: MUTED });
     lines.forEach((line, index) => { for (const part of wrap(line, index === 0 ? bold : regular, 9, 210)) { const font = index === 0 ? bold : regular; page.drawText(part, { x: cx - font.widthOfTextAtSize(part, 9) / 2, y: ly - 3, size: 9, font }); ly -= 11; } });
     // El timbre va bajo la firma y los datos del profesional.
-    if (stamp) { const at = placeStamp(stamp, { x: cx - stampBoxWidth / 2, y: ly - 4 - stampBoxHeight, width: stampBoxWidth, height: stampBoxHeight }, input.stampLayout, page.getSize(), cmToPt); page.drawImage(stamp, at); }
+    if (stamp) { const at = placeStamp(stamp, { x: cx - stampBoxWidth / 2, y: ly - 4 - stampBoxHeight, width: stampBoxWidth, height: stampBoxHeight }, input.stampLayout, page.getSize(), cmToPt); page.drawImage(stamp, { ...at, opacity: stampOpacity(input.stampLayout) }); }
   };
   const doctorLines = [input.doctorName, ...input.doctorLines.slice(0, 2)];
   const withPatient = Boolean(input.patientLabel);
