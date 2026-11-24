@@ -25,7 +25,8 @@ test("una pieza que solo vieron las reglas sigue pidiendo revisión si no es una
 test("«obturación de conductos» no genera «falta la superficie»", () => {
   const proposal = structureTranscript("Se realiza tratamiento de conductos en la 3.6 con obturación de conductos.", { today: "2026-11-06" });
   assert.equal(proposal.clarifications.some((note) => /Falta la superficie/.test(note)), false);
-  assert.equal(proposal.odontogram.length, 0);
+  // No propone caras, solo el estado general de la pieza: conductos obturados = endodoncia terminada.
+  assert.deepEqual(proposal.odontogram.map((item) => [item.kind, item.status]), [["status", "Endodoncia terminada"]]);
 });
 
 test("avisa cuando se dicta un tratamiento sobre un implante o una pieza ausente de la ficha", () => {

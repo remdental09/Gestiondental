@@ -8,7 +8,7 @@ const statuses = (text) => run(text).odontogram.filter(item => item.kind === "st
 
 test("los 13 estados de lesiones y fracturas son estados válidos del dictado", () => {
   for (const status of [...APICAL_STATUSES, ...FRACTURE_STATUSES]) assert.ok(TOOTH_STATUSES.includes(status), status);
-  assert.equal(TOOTH_STATUSES.length, 7 + 13);
+  assert.equal(TOOTH_STATUSES.length, 7 + 2 + 13);
 });
 
 test("cada lesión dictada con su nombre propone su estado (Chile 14 = FDI 2.6)", () => {

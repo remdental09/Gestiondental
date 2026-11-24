@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { APICAL_STATUSES, FRACTURE_STATUSES } from "@/lib/tooth-status";
+import { APICAL_STATUSES, ENDO_STATUSES, FRACTURE_STATUSES } from "@/lib/tooth-status";
 import { CROWN_MATERIALS, EVOLVE_MATERIALS, KIND_LABEL, evolveProblem, type EvolveInput } from "@/lib/tooth-evolve";
 import { faceName } from "@/lib/tooth-story";
 import { formatFdi, type OdontogramSurface, type SurfaceFinding } from "@/app/clinical-data";
@@ -68,7 +68,7 @@ export function ToothEvolve({ tooth, surfaces, today, onEvolve, disabled }: {
             {withCrown && <label className="block text-xs font-medium text-[#57566a]">Material de la corona<select value={crownMaterial} onChange={e => setCrownMaterial(e.target.value)} className={fieldClass}>{CROWN_MATERIALS.map(item => <option key={item}>{item}</option>)}</select></label>}
           </>}
           {kind === "extraccion" && <label className="block text-xs font-medium text-[#57566a]">Causa de la pérdida<select value={reason} onChange={e => setReason(e.target.value as typeof reason)} className={fieldClass}><option value="unknown">Sin registrar</option><option value="caries">Caries</option><option value="other">Otra causa</option></select></label>}
-          {kind === "lesion" && <label className="block text-xs font-medium text-[#57566a]">Lesión<select value={lesion} onChange={e => setLesion(e.target.value)} className={fieldClass}><optgroup label="Lesiones apicales">{APICAL_STATUSES.map(item => <option key={item}>{item}</option>)}</optgroup><optgroup label="Fracturas">{FRACTURE_STATUSES.map(item => <option key={item}>{item}</option>)}</optgroup></select></label>}
+          {kind === "lesion" && <label className="block text-xs font-medium text-[#57566a]">Lesión<select value={lesion} onChange={e => setLesion(e.target.value)} className={fieldClass}><optgroup label="Lesiones apicales">{APICAL_STATUSES.map(item => <option key={item}>{item}</option>)}</optgroup><optgroup label="Endodoncia">{ENDO_STATUSES.map(item => <option key={item}>{item}</option>)}</optgroup><optgroup label="Fracturas">{FRACTURE_STATUSES.map(item => <option key={item}>{item}</option>)}</optgroup></select></label>}
           <label className="block text-xs font-medium text-[#57566a]">Fecha en que se hizo<input type="date" data-testid="evolve-date" value={date} max={today} onChange={e => setDate(e.target.value)} className={fieldClass} /></label>
           <label className="block text-xs font-medium text-[#57566a]">{kind === "nota" ? "Evolución" : "Nota (opcional)"}<textarea data-testid="evolve-note" value={note} maxLength={kind === "nota" ? 400 : 300} onChange={e => setNote(e.target.value)} rows={3} className="mt-1 block w-full rounded-lg border border-[#d8d3e3] bg-white px-3 py-2 text-sm" /></label>
           {message && <p role="alert" className="text-xs font-medium text-rose-700">{message}</p>}

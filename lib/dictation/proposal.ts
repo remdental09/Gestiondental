@@ -1,7 +1,7 @@
 import { normalizeShades } from "./shade.ts";
 import { asksKnownAbbreviation, expandClinicShorthand } from "./clinic-shorthand.ts";
 import { dentalDictionaryHints } from "./dental-lexicon.ts";
-import { APICAL_STATUSES, FRACTURE_STATUSES, isLesionStatus } from "../tooth-status.ts";
+import { APICAL_STATUSES, ENDO_STATUSES, FRACTURE_STATUSES, isLesionStatus } from "../tooth-status.ts";
 import { calmClarifications, type Sensitivity } from "./sensitivity.ts";
 import { applyClinicalRegister } from "./clinical-register.ts";
 import { applyAiReview, clinicalCoherence, parseReview, parseReviewExtras, REVIEW_PROMPT, reviewPayload } from "./clinical-review.ts";
@@ -83,6 +83,7 @@ export const TOOTH_STATUSES = [
   "Indicación de exodoncia",
   "Resto radicular con endodoncia",
   // Lesiones apicales y fracturas: se registran cuando el profesional dicta el diagnóstico o hallazgo con su nombre.
+  ...ENDO_STATUSES,
   ...APICAL_STATUSES,
   ...FRACTURE_STATUSES,
 ] as const;
@@ -1028,6 +1029,24 @@ export function lesionStatusesFrom(sentence: string): ToothStatus[] {
   return found.sort((a, b) => a[0] - b[0]).map(([, status]) => status);
 }
 
+/** Endodoncia terminada: conductos obturados o tratamiento concluido (o ya hecho antes de la atención). */
+const ENDO_FINISHED = /(?<!\p{L})(?:endodoncia\s+(?:terminada|finalizada|completa|completada|concluida)|(?:termin|finaliz|concluy|complet)\p{L}*\s+(?:la\s+|el\s+)?(?:endodoncia|tratamiento\s+de\s+(?:conductos?|canales))|obturaci[oó]n\s+(?:definitiva\s+)?(?:de\s+)?(?:los\s+)?(?:conductos?|canales)|obtur\p{L}*\s+(?:los\s+)?(?:conductos?|canales))(?!\p{L})/iu;
+/** Endodoncia en proceso: la pieza quedó abierta o con medicación entre sesiones. */
+const ENDO_OPEN = /(?<!\p{L})(?:endodoncia\s+(?:en\s+(?:proceso|curso)|iniciada|inicia\p{L}*)|trepanaci\p{L}*|apertura\s+cameral|acceso\s+endod[oó]ntico|(?:bio|necro)?pulpectom\p{L}*|conductometr\p{L}*|(?:instrumentaci[oó]n|preparaci[oó]n\s+qu[ií]mico[-\s]?mec[aá]nica)\s+(?:de\s+)?(?:los\s+)?(?:conductos?|canales)|(?:medicaci[oó]n|curaci[oó]n)\s+intraconducto|hidr[oó]xido\s+de\s+calcio\s+en\s+(?:los\s+)?(?:conductos?|canales)|pieza\s+abierta|dej\p{L}*\s+(?:la\s+pieza\s+)?abiert\p{L}*)(?!\p{L})/iu;
+
+/** Estado endodóntico dictado en la frase. Terminada gana si se dicta todo el recorrido en una misma frase. */
+export function endoStatusFrom(sentence: string): ToothStatus | null {
+  if (isPatient(sentence)) return null;
+  for (const [status, pattern] of [["Endodoncia terminada", ENDO_FINISHED], ["Endodoncia en proceso", ENDO_OPEN]] as const) {
+    const match = pattern.exec(sentence);
+    if (!match) continue;
+    const before = sentence.slice(Math.max(0, match.index - 70), match.index);
+    if (LESION_NOT_CONFIRMED.test(before) || isNegatedFinding(before + match[0])) continue;
+    return status;
+  }
+  return isPriorEndoSentence(sentence) ? "Endodoncia terminada" : null;
+}
+
 function statusFrom(sentence: string): ToothStatus | null {
   if (EXTRACTION_DONE.test(sentence) && !/\b(?:planific|se\s+indic|se\s+plante)/i.test(sentence)) {
     // Extracción e instalación en la misma frase («extracción y se instala un implante en el alvéolo fresco»): queda el implante.
@@ -1046,7 +1065,7 @@ function statusFrom(sentence: string): ToothStatus | null {
   if (/\b(?:coronas?|pr[oó]tesis\s+fija\s+definitiva)\b/i.test(sentence) && !/\bprovisori[ao]s?\b/i.test(sentence) && !/\b(?:alargamiento|aumento|elongaci[oó]n)\s+(?:de\s+)?(?:la\s+)?corona|corona\s+cl[ií]nica|preparaci[oó]n\s+(?:para|de)\s+(?:la\s+)?corona|\bpara\s+(?:una\s+|la\s+|su\s+)?corona\b/i.test(sentence)) return "Corona";
   if (/\b(?:ausentes?|extra[ií]d[oa]s?|exodonciad[oa]s?)\b/i.test(sentence)) return "Ausente";
   if (/(?<!\p{L})ausencia\s+(?:de(?:l|\s+la)?\s+)?(?:pieza\s+|diente\s+)?\d/iu.test(sentence)) return "Ausente";
-  return lesionStatusFrom(sentence);
+  return endoStatusFrom(sentence) ?? lesionStatusFrom(sentence);
 }
 
 type FindingResult = { finding: SurfaceFinding; depthNote?: string } | { error: string; partial?: SurfaceFinding } | null;
@@ -2827,7 +2846,7 @@ export const AI_JSON_SCHEMA = {
           sistema: { type: "string", enum: ["chilena", "FDI", "universal", "sin_etiqueta"] },
           tipo: { type: "string", enum: ["superficie", "estado"] },
           condicion: { type: "string", enum: ["", "caries", "obturacion", "sellante", "otra_restauracion", "sana"] },
-          estado: { type: "string", enum: ["", "Ausente", "Implante", "Corona", "Indicación de exodoncia", ...APICAL_STATUSES, ...FRACTURE_STATUSES, "Resto radicular con endodoncia"] },
+          estado: { type: "string", enum: ["", "Ausente", "Implante", "Corona", "Indicación de exodoncia", ...ENDO_STATUSES, ...APICAL_STATUSES, ...FRACTURE_STATUSES, "Resto radicular con endodoncia"] },
           caras: { type: "array", items: { type: "string", enum: ["M", "O", "D", "V", "P"] } },
           profundidad: { type: "string", enum: ["", "esmalte", "dentina_superficial", "dentina_profunda", "pulpar"] },
           material: STRING,
@@ -3057,6 +3076,8 @@ const STATUS_CUE: Record<string, RegExp> = {
   Corona: /(?<!\p{L})(?:coronas?|pr[oó]tesis\s+fija)(?!\p{L})/iu,
   "Indicación de exodoncia": /(?<!\p{L})(?:indicaci[oó]n\s+de\s+exodoncia|indica\s+(?:la\s+)?exodoncia|exodoncia\s+indicada|para\s+exodoncia)(?!\p{L})/iu,
   "Resto radicular con endodoncia": /(?<!\p{L})resto\s+radicular(?!\p{L})/iu,
+  "Endodoncia terminada": new RegExp(`${ENDO_FINISHED.source}|(?<!\\p{L})endodonci\\p{L}*(?!\\p{L})|tratamiento\\s+de\\s+conductos?|conductos?\\s+tratad\\p{L}*`, "iu"),
+  "Endodoncia en proceso": ENDO_OPEN,
   ...Object.fromEntries(LESION_SPOKEN.map(([status, pattern]) => [status, pattern])),
 };
 
