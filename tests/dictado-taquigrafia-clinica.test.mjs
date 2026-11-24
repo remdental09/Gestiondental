@@ -153,10 +153,9 @@ test("una corona hecha hoy en diente natural también pide su diagnóstico", asy
   assert.ok((p.diagnosisPrompts ?? []).some((q) => q.tooth === 46 && /corona/.test(q.procedure)));
 });
 
-test("al guardar, los CIE-11 dictados (equivalencia AAE) quedan marcados; solo lo deducido espera confirmación", () => {
+test("al guardar, los CIE-11 propuestos (dictados, AAE, deducidos o aproximados) parten marcados y el profesional los desmarca", () => {
   const src = readFileSync(new URL("../components/clinical-dictation.tsx", import.meta.url), "utf8");
-  assert.match(src, /function dxNeedsConfirmation[\s\S]{0,300}from === "nota" \|\| from === "aproximado"/);
-  assert.match(src, /decision: dxNeedsConfirmation\(item\.suggested\)/);
+  assert.match(src, /decision: dxStartsChecked\(item\) \? "accepted" as const : "rejected" as const/);
 });
 
 // 6) Historial
