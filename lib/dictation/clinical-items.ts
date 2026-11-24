@@ -75,22 +75,22 @@ const CATEGORY_RULES: Array<[ItemCategory, RegExp]> = [
   ["corona", /(?<![a-z])coronas?(?![a-z])/],
   ["puente", /(?<![a-z])(?:puentes?|protesis\s+fija\s+plural)(?![a-z])/],
   ["protesis", /(?<![a-z])(?:protesis|rehabilita\w*)(?![a-z])/],
-  ["obturacion", /(?<![a-z])(?:obtura\w*|restaura(?:cion|ciones|r|do|da)|resina|composite|amalgama|ionomero|onlays?|inlays?|overlays?|incrustacion(?:es)?)(?![a-z])/],
-  ["endodoncia", /(?<![a-z])(?:endodoncia|tratamiento\s+de\s+conductos?|pulpectomia|pulpotomia|biopulpectomia|necropulpectomia)(?![a-z])/],
+  ["obturacion", /(?<![a-z])(?<!cemento\s(?:de\s)?)(?<!cemento\sresinoso\s)(?:(?!obtur\w*\s+(?:de\s+)?(?:los\s+)?conductos?)obtura\w*|carillas?|restaura(?:cion|ciones|r|do|da)|(?<!cemento\sde\s)resina(?!\s+dual)|composite|amalgama|ionomero|onlays?|inlays?|overlays?|incrustacion(?:es)?)(?![a-z])/],
+  ["endodoncia", /(?<![a-z])(?:endodoncia|retratamiento|desobtur\w*|apertura\s+cameral|conductometria|trepanacion|medicacion\s+intraconducto|instrument\w*\s+(?:hasta|con|los\s+conductos)|obtur\w*\s+(?:de\s+)?(?:los\s+)?conductos?|tratamiento\s+de\s+conductos?|pulpectomia|pulpotomia|biopulpectomia|necropulpectomia)(?![a-z])/],
   ["destartraje", /(?<![a-z])(?:destartraje|detartraje|pulido\s+radicular|raspado|raspaje|alisado(?:\s+radicular)?|profilaxis)(?![a-z])/],
   ["escaneo", /(?<![a-z])(?:escane\w*|scan\s*body|scanbody|escaner\s+intraoral)(?![a-z])/],
   ["sellante", /(?<![a-z])sellantes?(?![a-z])/],
   ["ausente", /(?<![a-z])(?:ausente|ausencia|perdida\s+(?:de\s+la\s+pieza|dentaria))(?![a-z])/],
   ["caries", /(?<![a-z])(?:caries|lesion\s+cariosa)(?![a-z])/],
   ["movilidad", /(?<![a-z])movilidad(?![a-z])/],
-  ["fractura", /(?<![a-z])(?:fractur\w*|fisura\w*)(?![a-z])/],
+  ["fractura", /(?<![a-z])(?:fractur\w*|(?<!fosas\sy\s)fisura\w*)(?![a-z])/],
   ["lesion_apical", /(?<![a-z])(?:absceso|granuloma|quiste\s+apical|periodontitis\s+apical|lesion\s+apical)(?![a-z])/],
 ];
 
 /** Verbos de algo hecho HOY (incluye el sustantivo de procedimiento al inicio de la frase, típico de la sección «Procedimientos»). */
-const DONE = /(?<![a-z])(?<!no\s)(?<!no\sse\s)(?:se\s+(?:le\s+)?(?:realiza|realizo|realizan|hace|hizo|efectua|efectuo|instala|instalo|instalan|coloca|coloco|colocan|conecta|conecto|conectan|cementa|cemento|cementan|obtura|obturo|obturan|restaura|restauro|restauran|extrae|extrajo|extraen|retira|retiran|entrega|toma|escanea|escaneo|escanean|sella|sellan|aplica|aplican|atornilla)|realizad[oa]s?|instalad[oa]s?|efectuad[oa]s?|extraid[oa]s?|cementad[oa]s?|hoy|(?:procede|procedemos|se\s+procede)\s+a\s+(?:instalar|colocar|extraer|realizar|obturar|cementar|conectar))(?![a-z])/;
+const DONE = /(?<![a-z])(?<!no\s)(?<!no\sse\s)(?:se\s+(?:le\s+)?(?:realiza|realizo|realizan|hace|hizo|efectua|efectuo|instala|instalo|instalan|coloca|coloco|colocan|conecta|conecto|conectan|cementa|cemento|cementan|obtura|obturo|obturan|restaura|restauro|restauran|extrae|extrajo|extraen|retira|retiran|entrega|toma|escanea|escaneo|escanean|sella|sellan|aplica|aplican|atornilla)|realizad[oa]s?|instalad[oa]s?|efectuad[oa]s?|extraid[oa]s?|cementad[oa]s?|hoy|hice|hicimos|realice|realizamos|efectue|termine|terminamos|restaure|restauramos|obture|obturamos|cemente|cementamos|aplique|aplicamos|instale|instalamos|coloque|colocamos|extraje|extrajimos|saque|sacamos|desobture|instrumente|irrigue|trepane|drene|talle|tome|pule|puli|ajuste|selle|suture|deje|(?:procede|procedemos|se\s+procede)\s+a\s+(?:instalar|colocar|extraer|realizar|obturar|cementar|conectar))(?![a-z])/;
 const DONE_NOUN_START = /^(?:procedimientos?(?:\s+realizados?)?\s*:\s*)?(?:conexion|escaneo|destartraje|detartraje|obturacion|instalacion|cementacion|endodoncia|profilaxis|pulido|raspado|toma\s+de)(?![a-z])/;
-const PLAN = /(?<![a-z])(?:se\s+planifica\w*|planific\w*|se\s+plantea|planteo|propongo|proponemos|se\s+propone|se\s+sugiere|se\s+indica|se\s+programa|se\s+evaluara|se\s+considerara|plan(?:\s+de\s+tratamiento)?\s*:|proxim[ao]s?|siguiente\s+sesion|pendiente|a\s+futuro|presupuest\w*|costo|valor|precio|\d[\d.]*\s+pesos|viene\s+en|(?:en|dentro\s+de)\s+(?:\d+|un|una|dos|tres|cuatro|cinco|seis)\s+(?:semanas?|dias?|meses)|se\s+realizara|se\s+hara|se\s+instalara|queda\s+por|por\s+realizar|requiere|necesita|debe\s+(?:realizarse|hacerse))(?![a-z])/;
+const PLAN = /(?<![a-z])(?:se\s+planifica\w*|planific\w*|se\s+plantea|planteo|propongo|proponemos|se\s+propone|se\s+sugiere|se\s+indica|se\s+programa|se\s+evaluara|se\s+considerara|plan(?:\s+de\s+tratamiento)?\s*:|proxim[ao]s?|siguiente\s+sesion|pendiente|a\s+futuro|presupuest\w*|costo|valor|precio|\d[\d.]*\s+pesos|viene\s+en|(?:dejo|dejamos|queda|quedan)\s+para\s+(?:despues|otra|la\s+proxima|mas\s+adelante)|para\s+despues|despues\s+(?:obturo|hago|cemento|instalo|coloco|termino|hacemos)|(?:en|dentro\s+de)\s+(?:\d+|un|una|dos|tres|cuatro|cinco|seis)\s+(?:semanas?|dias?|meses)|se\s+realizara|se\s+hara|se\s+instalara|queda\s+por|por\s+realizar|requiere|necesita|debe\s+(?:realizarse|hacerse))(?![a-z])/;
 /** Infinitivo de acción al inicio de una frase del plan («rehabilitar…», «cortar y unir…»). */
 const PLAN_INFINITIVE_START = /^(?:plan\s*:\s*)?(?:rehabilitar|realizar|instalar|colocar|extraer|obturar|cementar|confeccionar|evaluar|controlar|cortar|unir|tomar|hacer)(?![a-z])/;
 const FINDING = /(?<![a-z])(?:se\s+observa\w*|presenta\w*|se\s+evidencia|se\s+detecta|se\s+aprecia|examen|al\s+examen|movilidad|ausente|caries|fractur\w*|dolor|sensibilidad)(?![a-z])/;
@@ -116,7 +116,7 @@ export function kindOf(sentence: string, section: Section, isPlan: (s: string) =
   const done = (plan ? DONE.test(plain.replace(/(?<![a-z])hoy(?![a-z])/g, " ")) : DONE.test(plain)) || DONE_NOUN_START.test(plain);
   if (plan && !done) return "plan";
   // «Se obtura la 14 y se planifica…» se separa antes; si una frase trae ambos, manda lo hecho solo si el plan no la abre.
-  if (plan && done) return /^(?:plan\s*:\s*)?(?:se\s+planifica|se\s+plantea|proxim|se\s+indica)/.test(plain) || PLAN_INFINITIVE_START.test(plain) ? "plan" : "realizado";
+  if (plan && done) return /^(?:plan\s*:\s*)?(?:se\s+planifica|se\s+plantea|proxim|se\s+indica|planific\w*|planteo|propongo)/.test(plain) || PLAN_INFINITIVE_START.test(plain) ? "plan" : "realizado";
   if (done) return "realizado";
   if (section === "plan") return "plan";
   if (section === "procedimientos") return "realizado";
@@ -146,7 +146,7 @@ const FINDING_CATEGORIES: ReadonlySet<ItemCategory> = new Set(["caries", "movili
 
 /** Frases mixtas («se obtura la 14 y se planifica endodoncia de la 19») se separan en actos independientes. */
 function splitActs(sentence: string): string[] {
-  return sentence.split(/\s*(?:;|,\s+(?=(?:por\s+ahora|por\s+el\s+momento|hoy|ahora|en\s+esta\s+sesi[oó]n)\b)|,?\s+y\s+(?=se\s)|,\s+(?=se\s+(?:planifica|plantea|indica|realiza|extrae|obtura|instala)))\s*/iu).map((part) => part.trim()).filter(Boolean);
+  return sentence.split(/\s*(?:;|,\s+y\s+(?=(?:la|el)\s+(?:pieza\s+)?\d(?:\.\d)?\s+(?:tiene|presenta|queda|est[aá])\b)|,\s+(?=(?:por\s+ahora|por\s+el\s+momento|hoy|ahora|en\s+esta\s+sesi[oó]n)\b)|,?\s+y\s+(?=se\s)|,\s+(?=se\s+(?:planifica|plantea|indica|realiza|extrae|obtura|instala)))\s*/iu).map((part) => part.trim()).filter(Boolean);
 }
 
 /** Rangos «de la 1.4 a la 1.6» / «piezas 12 a 14»: piezas intermedias que toothMentions no ve. */
@@ -459,6 +459,7 @@ export function applyClinicalItems(proposal: DictationProposal, ctx: ItemsContex
     if (template && /MULTIPLE/.test(prestacionByCode(template.code)?.name ?? "")) continue;
     let code = template?.code ?? (item.arancel && prestacionByCode(item.arancel) ? item.arancel : rule.code);
     if (item.category === "exodoncia" && (doneOf(item.tooth, "implante") || /implante\s+inmediato/.test(fold(item.evidence)))) code = "5011018";
+    else if (item.category === "exodoncia" && code === rule.code && /quirurgic|colgajo|osteotomia|odontosecci/.test(fold(item.evidence))) code = "5003002";
     const name = prestacionByCode(code)?.name ?? "";
     prestaciones.push({ id: "", code, name, tooth: item.tooth, evidence: item.evidence, ...(item.origin === "ia" ? { advisory: "Solo la IA lo leyó así; confírmala." } : {}) });
   }

@@ -106,3 +106,55 @@ test("lo que el dictado dice que ya se hizo no se queda bajo «Plan de tratamien
   movePerformedOutOfPlan(futuro, "Se planifica destartraje para la próxima sesión.");
   assert.match(futuro.plan, /destartraje/, "un plan real no se mueve");
 });
+
+// ── Lote de simulaciones con errores humanos (Ana, sin ortodoncia) ──────────────────────────────
+const lote = async (t) => (await import("../lib/dictation/clinical-items.ts")).ruleItems(t, { ...tools, isPlan: () => false });
+const has = (items, tooth, kind, category) => items.some((i) => i.tooth === tooth && i.kind === kind && i.category === category);
+
+test("lote: la primera persona del pasado («restauré», «cementé», «apliqué», «hice») es realizado", async () => {
+  assert.ok(has(await lote("Le apliqué sellante en la 1.7 y la 2.7 en las fosas y fisuras."), 17, "realizado", "sellante"));
+  assert.ok(has(await lote("Cementé el onlay cerámico en la 4.6 con cemento de resina dual."), 46, "realizado", "obturacion"));
+  assert.ok(has(await lote("Hice carillas de resina en la 1.1 y la 2.1."), 21, "realizado", "obturacion"));
+  assert.ok(has(await lote("Urgencia: absceso en la 1.2, hice trepanación y drenaje."), 12, "realizado", "endodoncia"));
+});
+
+test("lote: «fosas y fisuras» no es fractura; el cemento de resina no es una obturación", async () => {
+  assert.ok(!(await lote("Le apliqué sellante en la 1.7 en las fosas y fisuras.")).some((i) => i.category === "fractura"));
+  assert.ok(!has(await lote("Hoy cementé la corona de zirconio definitiva en la 1.6 con cemento de resina."), 16, "realizado", "obturacion"));
+});
+
+test("lote: endodoncia y retratamiento se reconocen por sus actos; lo de «después» queda en plan", async () => {
+  assert.ok(has(await lote("Apertura cameral de la 2.5, conductometría a 21 milímetros, instrumenté hasta la lima 30."), 25, "realizado", "endodoncia"));
+  const re = await lote("Retratamiento de la 1.1, desobturé con limas reciproc. Después obturo los conductos y hago el muñón.");
+  assert.ok(has(re, 11, "realizado", "endodoncia"));
+  assert.ok(!has(re, 11, "realizado", "obturacion"), "«después obturo» no es una obturación hecha");
+});
+
+test("lote: «la 3.4 tiene una abfracción que dejo para después» queda en plan y no como restaurada", async () => {
+  const items = await lote("Restauré lesiones cervicales no cariosas en la 1.3 y la 2.3 por vestibular con ionómero de vidrio, y la 3.4 tiene una abfracción que dejo para después.");
+  assert.ok(has(items, 13, "realizado", "obturacion") && has(items, 23, "realizado", "obturacion"));
+  assert.ok(!items.some((i) => i.tooth === 34 && i.kind === "realizado"));
+  const p = structureTranscript("Restauré lesiones cervicales no cariosas en la 1.3 y la 2.3 por vestibular con ionómero de vidrio.", { today: "2026-11-24" });
+  assert.deepEqual(p.odontogram.map((o) => `${o.tooth}${o.surface}`).sort(), ["13V", "23V"], "la cara dicha al final vale para las dos");
+});
+
+test("lote: «la 4.8 incluida, no la 3.8 perdón» deja solo la 3.8; «planifico prótesis… tomé impresión» es plan", async () => {
+  const { text } = applySelfCorrections("Al examen veo la 4.8 incluida, no la 3.8 perdón, en posición mesioangulada.");
+  assert.deepEqual(teeth(text), [38]);
+  assert.ok(has(await lote("Planifico prótesis removible inferior para reemplazar la 3.6 y la 4.7, tomé impresión con alginato."), 36, "plan", "protesis"));
+});
+
+test("lote: la exodoncia quirúrgica con colgajo de la evolución cobra la extracción a colgajo, no la simple", async () => {
+  const { proposeFromTranscript } = await import("../lib/dictation/proposal.ts");
+  const r = await proposeFromTranscript({ transcript: "Hoy le saqué la 3.8, exodoncia quirúrgica con colgajo y osteotomía, sutura.", chart: [] }, null, () => {}, { today: "2026-11-24" });
+  const codes = (r.proposal ?? r).prestaciones.map((x) => x.code);
+  assert.ok(codes.includes("5003002") && !codes.includes("5003001"));
+});
+
+test("lote: un diagnóstico dictado sin pieza cubre la única pieza tratada (no se pide de nuevo)", async () => {
+  const { deducedDiagnoses } = await import("../lib/dictation/proposal.ts");
+  const odo = [{ id: "o", tooth: 16, kind: "surface", surface: "O", finding: { condition: "restored" }, origin: "reglas", numbering: "FDI", numberingLabel: "FDI 1.6", sourceText: "", evidence: "" }];
+  const dx = [{ id: "d", code: "DA08.0", title: "Caries dental", label: "", evidence: "", findings: "", origin: "reglas" }];
+  assert.equal(deducedDiagnoses(odo, dx, "Diagnóstico caries. Obturé la 1.6 oclusal con resina.").prompts.length, 0);
+  assert.equal(deducedDiagnoses(odo, [], "Obturé la 1.6 oclusal con resina.").prompts.length, 1, "sin diagnóstico sí pregunta");
+});
