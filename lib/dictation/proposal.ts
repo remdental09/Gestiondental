@@ -1448,7 +1448,7 @@ const LIKELY_DIAGNOSES: Record<"extraccion" | "endodoncia" | "restauracion" | "c
 const ENDO_DONE = /(?<!\p{L})(?:endodoncia|tratamiento\s+de\s+(?:conductos?|canales)|pulpectom\p{L}*|biopulpectom\p{L}*|necropulpectom\p{L}*|pulpotom\p{L}*|trepanaci\p{L}*|conductometr\p{L}*|obturaci[oó]n\s+de\s+conductos?)(?!\p{L})/iu;
 const RESTORATION_DONE_RAW = /(?<!\p{L})(?:obturaci[oó]n|restauraci[oó]n|resina|composite|amalgama|ion[oó]mero|tapadura|empaste)(?!\p{L})/iu;
 /** Obturación de conductos, retrógrada con MTA, ferulización con resina… no son restauraciones de superficie. */
-const NOT_A_RESTORATION = /(?<!\p{L})(?:conductos?|gutapercha|retr[oó]grad\p{L}*|apicectom\p{L}*|ferul\p{L}*|f[eé]rula|alambre|mta)(?!\p{L})/iu;
+const NOT_A_RESTORATION = /(?<!\p{L})(?:conductos?|intraconducto|blanqueamiento\s+intracoronari\p{L}*|tope\s+cervical|gutapercha|retr[oó]grad\p{L}*|apicectom\p{L}*|ferul\p{L}*|f[eé]rula|alambre|mta)(?!\p{L})/iu;
 const RESTORATION_DONE = { test: (text: string) => RESTORATION_DONE_RAW.test(text) && !NOT_A_RESTORATION.test(text) };
 const HYGIENE_DONE = /(?<!\p{L})(?:destartraje|detartraje|tartrectom\p{L}*|raspado|alisado\s+radicular|pulido\s+radicular|profilaxis|instrumentaci[oó]n\s+subgingival)(?!\p{L})/iu;
 /** La causa o el diagnóstico ya están dichos («por caries», «por fractura», «diagnóstico…»): no se pregunta. */
@@ -2058,7 +2058,7 @@ export function structureTranscript(transcript: string, options: { today?: strin
         // «pieza 1.6 sin caries» sin cara: queda en la nota, no cambia el odontograma ni pregunta la cara.
         if (ownResult.finding.condition === "sound" && /\b(?:sin|no)\s+(?:se\s+observa\s+)?caries\b/i.test(sentence)) continue;
         // «Se procede a eliminación de caries y trepanación»: es un procedimiento realizado, no un hallazgo; no pregunta la cara.
-        if (/\b(?:eliminaci[oó]n|remoci[oó]n|retiro|elimina|elimin[oó]|remueve|retira)\s+(?:de\s+(?:la\s+|las\s+)?)?caries\b|\btrepanaci[oó]n\b/i.test(sentence)) continue;
+        if (/\b(?:eliminaci[oó]n|remoci[oó]n|retiro|elimina|elimin[oó]|remueve|retira)\s+(?:de\s+(?:la\s+|las\s+)?)?caries\b|\btrepanaci[oó]n\b|\bintraconducto\b|\bblanqueamiento\s+intracoronari\w*|\btope\s+cervical\b/i.test(sentence)) continue;
         if (!resolved.notes.length) clarifications.push(`Falta la superficie del hallazgo: «${clip(sentence)}».`);
         continue;
       }
