@@ -1209,6 +1209,9 @@ const FICHA_HEADER: Record<FichaField, string> = { allergies: "Alergias", histor
 
 function fichaFrom(sentence: string): FichaField | null {
   if (/(?<!\p{L})(?:se\s+indica|receta|prescrib\p{L}*|se\s+deja)(?!\p{L})/iu.test(sentence)) return null;
+  // «Se toma CBCT / Rx / impresión» es un examen o registro de hoy, no un medicamento; «sesión de polinucleótidos 2 mg» es lo
+  // aplicado en la consulta. Ninguno va a los antecedentes de la ficha.
+  if (/(?<!\p{L})(?:se\s+toman?|sesi[oó]n|toma\s+(?:de\s+)?(?:rx|radiograf\p{L}*|cbct|cone\s+beam|scanner|esc[aá]ner|impresi[oó]n\p{L}*|fotos?|fotograf\p{L}*|muestras?|registros?|modelos?|pano\p{L}*|tele\p{L}*|un\s+vuelo))(?!\p{L})/iu.test(sentence)) return null;
   if (/(?<!\p{L})al[eé]rg\p{L}*/iu.test(sentence)) return "allergies";
   if (/(?<!\p{L})(?:medicamentos?|f[aá]rmacos?|toma(?!\s+de(?!\p{L}))|tomando|consume|en\s+tratamiento\s+con|losart[aá]n|metformina|aspirina|clopidogrel|anticoagulante\p{L}*|warfarina|acenocumarol|levotiroxina|enalapril|insulina|omeprazol|atorvastatina)(?!\p{L})|\d+\s*(?:mg|mcg)(?!\p{L})/iu.test(sentence)) return "medications";
   if (/(?<!\p{L})(?:antecedentes?|hipertens\p{L}*|diab[eé]t\p{L}*|cardi[oó]pat\p{L}*|asm[aá]tic\p{L}*|asma|embarazad\p{L}*|epilep\p{L}*|hipotiroid\p{L}*|hipertiroid\p{L}*|fumador\p{L}*|tabaquismo|bifosfonatos?|radioterapia|quimioterapia|vih|hepatitis|marcapasos|anticoagulad\p{L}*)(?!\p{L})/iu.test(sentence)) return "history";
