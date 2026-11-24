@@ -4,12 +4,13 @@ import app from "vinext/server/fetch-handler";
 import { aboutPage, privacyPage, termsPage } from "./lib/public-pages";
 import { portadaPage, sharedLogoutPage, PORTADA_CSP } from "./lib/portada-page";
 import {
-  SESSION_COOKIE, STATE_COOKIE, SESSION_DAYS, LOGIN_PATH, CALLBACK_PATH, LOGOUT_PATH, LOGOUT_ALL_PATH, SHARED_COOKIE, SHARED_SESSION_MS, browserSessionCookie,
+  SESSION_COOKIE, STATE_COOKIE, SESSION_DAYS, LOGIN_PATH, CALLBACK_PATH, LOGOUT_PATH, LOGOUT_ALL_PATH, SHARED_COOKIE, SHARED_SESSION_MS, browserSessionCookie, EMAIL_LOGIN_PATH, VIA_COOKIE,
   signSession, verifySession, readCookie, cookie, randomToken, googleAuthUrl, acceptedGoogleProfile,
 } from "./lib/google-login";
 import { allowLogin, confirmWithoutCode, createSession, crossSiteWrite, isStoredToken, newLoginCode, readSession, revokeAllSessions, revokeSession, sameSiteNavigation, setLoginCode, verifyLoginCode, SESSION_TTL_MS, type SessionDb } from "./lib/session-store";
 import { CODE_PATH, CODE_RESEND_PATH, loginCodePage } from "./lib/login-code";
 import { sendLoginCode } from "./app/login-code-mail";
+import { normalizeEmail, EMAIL_LIMIT_SHORT, EMAIL_LIMIT_DAY } from "./lib/email-login";
 import { resolveOwner, resolveOwnerWithRegistration, type OwnerConfig, type ClinicOwner } from "./app/access-owners";
 import { activeMemberships, membershipsOf, type TeamDb } from "./app/clinic-team-db";
 import { ENTRY_COOKIE, chooseSpaceForEntry, isSupportRole, parseEntry, type Space } from "./lib/clinic-team";
@@ -198,6 +199,8 @@ const sessionCookie = (token: string) => cookie(SESSION_COOKIE, token, SESSION_T
 function portadaResponse(errorCode: string | null, method = "GET", status = 200) {
   const headers = securePageHeaders();
   headers.set("Content-Security-Policy", PORTADA_CSP);
+  // La portada tiene el formulario del correo: con «no-referrer» el navegador enviaría Origin: null.
+  headers.set("Referrer-Policy", "same-origin");
   return new Response(method === "HEAD" ? null : portadaPage(errorCode), { status, headers });
 }
 
@@ -222,6 +225,44 @@ async function startGoogleLogin(request: Request, env: OAuthEnv): Promise<Respon
   // Equipo compartido (cibercafé, aeropuerto): la portada lo pide con ?equipo=compartido; se recuerda durante el ingreso en una cookie corta.
   const shared = params.get("equipo") === "compartido";
   return redirect(googleAuthUrl(config.clientId, redirectUri, state), [cookie(STATE_COOKIE, state, 600), cookie(SHARED_COOKIE, shared ? "1" : "", shared ? 600 : 0), entryCookie(entry, shared)]);
+}
+
+/** Tope de códigos por correo (para que nadie llene la bandeja de otra persona): se cuenta aparte de la conexión. */
+async function emailQuotaOk(db: SessionDb, email: string): Promise<boolean> {
+  const short = await allowLogin(db, "correo10:" + email, Date.now(), EMAIL_LIMIT_SHORT.limit, EMAIL_LIMIT_SHORT.windowMs);
+  const day = await allowLogin(db, "correo24:" + email, Date.now(), EMAIL_LIMIT_DAY.limit, EMAIL_LIMIT_DAY.windowMs);
+  return short && day;
+}
+
+/**
+ * Entrada con correo (sin Google): se escribe el correo y se envía un código de 6 dígitos. La sesión nace pendiente y no da acceso
+ * hasta escribir el código; nunca se entra sin él. La respuesta es la misma exista o no la cuenta (no se puede averiguar quién usa SpeakDent).
+ */
+async function startEmailLogin(request: Request, env: OAuthEnv): Promise<Response> {
+  if (crossSiteWrite(request)) return redirect("/");
+  const db = sessionDb(env);
+  if (!db) return redirect("/?error=configuracion");
+  const form = await request.formData().catch(() => null);
+  const email = normalizeEmail(form?.get("correo"));
+  if (!email) return redirect("/?error=correo-invalido");
+  const entry = parseEntry(String(form?.get("entrada") ?? ""));
+  const shared = form?.get("equipo") === "compartido";
+  if (!(await allowLogin(db, clientIp(request))) || !(await emailQuotaOk(db, email))) return redirect("/?error=demasiados");
+  const resolved = await resolveOwnerWithRegistration(email, ownerConfig(env));
+  if (!resolved.ok && resolved.status === 503) return redirect("/?error=configuracion");
+  const token = await createSession(db, { email, name: "" }, Date.now(), shared, true).catch(() => null);
+  if (!token) return redirect("/?error=configuracion");
+  let next = CODE_PATH;
+  if (resolved.ok) {
+    const delivery = await deliverLoginCode(env, db, token, email, resolved.owner.ownerId);
+    if (delivery === "failed" || delivery === "confirmed") next = CODE_PATH + "?m=envio";
+  }
+  const lifetime = SESSION_DAYS * 86_400;
+  return redirect(next, [
+    shared ? browserSessionCookie(SESSION_COOKIE, token) : cookie(SESSION_COOKIE, token, lifetime),
+    shared ? browserSessionCookie(VIA_COOKIE, "correo") : cookie(VIA_COOKIE, "correo", lifetime),
+    entryCookie(entry, shared),
+  ]);
 }
 
 /** Cambiar de puerta sin volver a pasar por Google: la sesión es la misma persona; el acceso a cada clínica se valida en cada solicitud. */
@@ -270,12 +311,12 @@ async function finishGoogleLogin(request: Request, env: OAuthEnv): Promise<Respo
     if (!db) return redirect("/?error=configuracion", [clearState]);
     const token = await createSession(db, { email: profile.email, name: profile.name }, Date.now(), shared, true).catch(() => null);
     if (!token) return redirect("/?error=configuracion", [clearState]);
-    const delivery = await deliverLoginCode(env, db, token, profile.email, resolved.owner.ownerId);
+    const delivery = await deliverLoginCode(env, db, token, profile.email, resolved.owner.ownerId, true);
     // Recepción y asistentes no tienen consulta propia: entran siempre por la puerta de la clínica que los invitó.
     const team = (env as unknown as { DB?: TeamDb }).DB;
     const support = team ? await membershipsOf(team, profile.email.trim().toLowerCase()).then(rows => rows.some(m => isSupportRole(m.role))).catch(() => false) : false;
     const next = delivery === "confirmed" ? "/" : CODE_PATH + (delivery === "failed" ? "?m=envio" : "");
-    return redirect(next, [clearState, cookie(SHARED_COOKIE, "", 0), shared ? browserSessionCookie(SESSION_COOKIE, token) : cookie(SESSION_COOKIE, token, SESSION_DAYS * 86_400), ...(support ? [entryCookie("clinica", shared)] : [])]);
+    return redirect(next, [clearState, cookie(SHARED_COOKIE, "", 0), cookie(VIA_COOKIE, "", 0), shared ? browserSessionCookie(SESSION_COOKIE, token) : cookie(SESSION_COOKIE, token, SESSION_DAYS * 86_400), ...(support ? [entryCookie("clinica", shared)] : [])]);
   } catch {
     return redirect("/?error=vencido", [clearState]);
   }
@@ -292,29 +333,31 @@ async function codeSenderOwners(env: OAuthEnv, ownerId: string): Promise<string[
 }
 
 /**
- * Genera y envía el código. «confirmed»: no hay ningún Gmail conectado para enviar (la app aún no está configurada),
- * así que se entra sin código para no dejar a nadie fuera; «wait»: se pidió otro hace menos de 30 s.
+ * Genera y envía el código. «confirmed» (solo con `allowSkip`, es decir, ingreso con Google): no hay ningún Gmail conectado para enviar
+ * (la app aún no está configurada), así que se entra sin código para no dejar a nadie fuera; «wait»: se pidió otro hace menos de 30 s.
  */
-async function deliverLoginCode(env: OAuthEnv, db: SessionDb, token: string, email: string, ownerId: string): Promise<"sent" | "failed" | "wait" | "confirmed"> {
+async function deliverLoginCode(env: OAuthEnv, db: SessionDb, token: string, email: string, ownerId: string, allowSkip = false): Promise<"sent" | "failed" | "wait" | "confirmed"> {
   const code = newLoginCode();
   if (!(await setLoginCode(db, token, code).catch(() => false))) return "wait";
   const result = await sendLoginCode(email, code, await codeSenderOwners(env, ownerId)).catch(() => ({ status: "failed" as const, reason: "" }));
   if (result.status === "sent") return "sent";
-  if (result.status === "no-sender") {
+  // Solo el ingreso con Google (donde Google ya comprobó el correo) puede entrar sin código cuando no hay cómo enviarlo.
+  // Con el correo escrito a mano el código es la única prueba: sin envío no se entra.
+  if (result.status === "no-sender" && allowSkip) {
     console.warn("Código de ingreso: no hay Gmail conectado para enviarlo; se entra sin código.");
     await confirmWithoutCode(db, token).catch(() => undefined);
     return "confirmed";
   }
-  console.warn("Código de ingreso: Gmail no aceptó el envío.", result.reason);
+  console.warn("Código de ingreso: no se pudo enviar.", result.status === "failed" ? result.reason : "sin cuenta de envío");
   return "failed";
 }
 
-function codePageResponse(email: string, message: string | null, method = "GET", status = 200) {
+function codePageResponse(email: string, message: string | null, method = "GET", status = 200, shared = false) {
   const headers = securePageHeaders();
   headers.set("Content-Security-Policy", PORTADA_CSP);
   // Con «no-referrer» el navegador envía el formulario con Origin: null y se rechazaría como de otro sitio.
   headers.set("Referrer-Policy", "same-origin");
-  return new Response(method === "HEAD" ? null : loginCodePage(email, message), { status, headers });
+  return new Response(method === "HEAD" ? null : loginCodePage(email, message, shared), { status, headers });
 }
 
 /** Pantalla del código (GET), comprobación (POST) y reenvío. Solo para una sesión pendiente; sin ella, vuelve a la portada. */
@@ -328,20 +371,25 @@ async function loginCodeRoute(request: Request, env: OAuthEnv, resend: boolean):
   if (!found.pending) return redirect("/");
   const email = found.session.email;
   if (resend) {
-    if (!(await allowLogin(db, clientIp(request)))) return codePageResponse(email, "espera", request.method, 429);
+    if (!(await allowLogin(db, clientIp(request))) || !(await emailQuotaOk(db, email))) return codePageResponse(email, "espera", request.method, 429, found.shared);
     const resolved = await resolveOwnerWithRegistration(email, ownerConfig(env));
-    if (!resolved.ok) return redirect("/?error=sin-acceso", [cookie(SESSION_COOKIE, "", 0)]);
+    if (!resolved.ok) return codePageResponse(email, "reenviado", request.method, 200, found.shared);
+    // Reenviar nunca salta el código (solo el primer ingreso con Google, sin cómo enviarlo, puede hacerlo).
     const delivery = await deliverLoginCode(env, db, token, email, resolved.owner.ownerId);
-    if (delivery === "confirmed") return redirect("/");
-    return codePageResponse(email, delivery === "sent" ? "reenviado" : delivery === "wait" ? "espera" : "envio", request.method);
+    return codePageResponse(email, delivery === "sent" ? "reenviado" : delivery === "wait" ? "espera" : "envio", request.method, 200, found.shared);
   }
-  if (request.method !== "POST") return codePageResponse(email, new URL(request.url).searchParams.get("m"), request.method);
+  if (request.method !== "POST") return codePageResponse(email, new URL(request.url).searchParams.get("m"), request.method, 200, found.shared);
   const form = await request.formData().catch(() => null);
   const code = String(form?.get("codigo") ?? "");
   const check = await verifyLoginCode(db, token, code);
-  if (check === "ok") return redirect("/");
-  if (check === "wrong") return codePageResponse(email, "incorrecto", "POST", 400);
-  if (check === "expired" && (await readSession(db, token).catch(() => null))?.pending) return codePageResponse(email, "vencido", "POST", 400);
+  if (check === "ok") {
+    // Recepción y asistentes no tienen consulta propia: entran siempre por la puerta de la clínica que los invitó.
+    const team = (env as unknown as { DB?: TeamDb }).DB;
+    const support = team ? await membershipsOf(team, email.trim().toLowerCase()).then(rows => rows.some(m => isSupportRole(m.role))).catch(() => false) : false;
+    return redirect("/", support ? [entryCookie("clinica", found.shared)] : []);
+  }
+  if (check === "wrong") return codePageResponse(email, "incorrecto", "POST", 400, found.shared);
+  if (check === "expired" && (await readSession(db, token).catch(() => null))?.pending) return codePageResponse(email, "vencido", "POST", 400, found.shared);
   return redirect("/?error=codigo", [cookie(SESSION_COOKIE, "", 0)]);
 }
 
@@ -351,20 +399,21 @@ async function logout(request: Request, env: OAuthEnv): Promise<Response> {
   const token = readCookie(request.headers.get("Cookie"), SESSION_COOKIE);
   const db = sessionDb(env);
   const wasShared = db && isStoredToken(token) ? await revokeSession(db, token).catch(() => false) : false;
+  const viaEmail = readCookie(request.headers.get("Cookie"), VIA_COOKIE) === "correo";
   // Si aún se entró por Cloudflare Access, también se cierra esa sesión.
   const viaAccess = Boolean(request.headers.get("Cf-Access-Jwt-Assertion"));
-  const cleared = [cookie(SESSION_COOKIE, "", 0), cookie(ENTRY_COOKIE, "", 0)];
-  if (wasShared && !viaAccess) return sharedLogoutResponse(cleared, request.method);
+  const cleared = [cookie(SESSION_COOKIE, "", 0), cookie(ENTRY_COOKIE, "", 0), cookie(VIA_COOKIE, "", 0)];
+  if (wasShared && !viaAccess) return sharedLogoutResponse(cleared, request.method, false, viaEmail);
   return redirect(viaAccess ? "/cdn-cgi/access/logout" : "/", cleared);
 }
 
 /** Al salir de un equipo compartido se recuerda cerrar también la sesión de Google de ese navegador (la app no puede hacerlo por su cuenta). */
-function sharedLogoutResponse(cookies: string[], method = "GET", everywhere = false) {
+function sharedLogoutResponse(cookies: string[], method = "GET", everywhere = false, viaEmail = false) {
   const headers = securePageHeaders();
   headers.set("Content-Security-Policy", PORTADA_CSP);
   headers.set("Cache-Control", "no-store");
   for (const value of cookies) headers.append("Set-Cookie", value);
-  return new Response(method === "HEAD" ? null : sharedLogoutPage(everywhere), { headers });
+  return new Response(method === "HEAD" ? null : sharedLogoutPage(everywhere, viaEmail), { headers });
 }
 
 /** «Cerrar sesión en todos los equipos»: revoca cada sesión abierta de esta cuenta (también la que se dejó en un computador ajeno). */
@@ -376,7 +425,8 @@ async function logoutEverywhere(request: Request, env: OAuthEnv): Promise<Respon
     const found = await readSession(db, token).catch(() => null);
     if (found) await revokeAllSessions(db, found.session.email).catch(() => undefined);
   }
-  return sharedLogoutResponse([cookie(SESSION_COOKIE, "", 0), cookie(ENTRY_COOKIE, "", 0)], request.method, true);
+  const viaEmail = readCookie(request.headers.get("Cookie"), VIA_COOKIE) === "correo";
+  return sharedLogoutResponse([cookie(SESSION_COOKIE, "", 0), cookie(ENTRY_COOKIE, "", 0), cookie(VIA_COOKIE, "", 0)], request.method, true, viaEmail);
 }
 
 type Identity = { email: string; owner: ClinicOwner; setCookies?: string[]; shared?: boolean };
@@ -638,6 +688,7 @@ const oauthProvider = new OAuthProvider<OAuthEnv>({
       // Portada: imágenes públicas, inicio y cierre de sesión con Google.
       if (path.startsWith("/portada/") && (request.method === "GET" || request.method === "HEAD")) return (env as unknown as { ASSETS: Fetcher }).ASSETS.fetch(request);
       if (path === LOGIN_PATH && request.method === "GET") return startGoogleLogin(request, env);
+      if (path === EMAIL_LOGIN_PATH && request.method === "POST") return startEmailLogin(request, env);
       if (path === CALLBACK_PATH && request.method === "GET") return finishGoogleLogin(request, env);
       if (path === LOGOUT_PATH && (request.method === "GET" || request.method === "POST")) return logout(request, env);
       if (path === LOGOUT_ALL_PATH && (request.method === "GET" || request.method === "POST")) return logoutEverywhere(request, env);

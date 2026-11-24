@@ -21,14 +21,14 @@ export function loginCodeEmail(code: string, when: Date) {
     "Escríbelo en la pantalla de ingreso. Vence en 10 minutos.",
     `Solicitado el ${hour} (hora de Chile).`,
     "",
-    "Si no fuiste tú, alguien tiene abierta tu cuenta de Google: no compartas este código y cambia tu clave de Google.",
+    "Si no fuiste tú, ignora este mensaje: sin el código nadie puede entrar. No lo compartas con nadie.",
   ].join("\n");
   const html = `<div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:460px;color:#2b2a36">
 <p style="margin:0 0 6px;font-size:15px">Tu código de ingreso a <strong>SpeakDent</strong> es:</p>
 <p style="margin:0 0 14px;font-size:34px;letter-spacing:8px;font-weight:700;color:#473a6d">${escape(code)}</p>
 <p style="margin:0 0 6px;font-size:14px">Escríbelo en la pantalla de ingreso. Vence en 10 minutos.</p>
 <p style="margin:0 0 16px;font-size:13px;color:#6b6a7c">Solicitado el ${escape(hour)} (hora de Chile).</p>
-<p style="margin:0;font-size:13px;color:#9a3412">Si no fuiste tú, alguien tiene abierta tu cuenta de Google: no compartas este código y cambia tu clave de Google.</p>
+<p style="margin:0;font-size:13px;color:#9a3412">Si no fuiste tú, ignora este mensaje: sin el código nadie puede entrar. No lo compartas con nadie.</p>
 </div>`;
   return { subject, text, html };
 }
@@ -41,7 +41,7 @@ const MESSAGES: Record<string, string> = {
   reenviado: "Te enviamos un código nuevo. El anterior ya no sirve.",
 };
 
-export function loginCodePage(email: string, messageCode?: string | null): string {
+export function loginCodePage(email: string, messageCode?: string | null, shared = false): string {
   const message = messageCode ? MESSAGES[messageCode] ?? "" : "";
   const isError = Boolean(message) && messageCode !== "reenviado";
   return `<!doctype html>
@@ -59,6 +59,7 @@ a{color:#c9d6ee}</style></head>
 <body><main>
 <h1>Revisa tu correo</h1>
 <p>Te enviamos un código de 6 dígitos a <strong>${escape(maskEmail(email))}</strong>. Vence en 10 minutos.</p>
+${shared ? `<p class="msg ok" role="note">Estás en un equipo compartido: lee el código en tu celular. No abras tu correo en este computador, porque podría quedar abierto.</p>` : ""}
 ${message ? `<p class="msg ${isError ? "err" : "ok"}" role="${isError ? "alert" : "status"}">${escape(message)}</p>` : ""}
 <form method="post" action="${CODE_PATH}">
 <label for="codigo">Código de ingreso</label>
@@ -66,6 +67,6 @@ ${message ? `<p class="msg ${isError ? "err" : "ok"}" role="${isError ? "alert" 
 <button type="submit">Entrar</button>
 </form>
 <form method="post" action="${CODE_RESEND_PATH}"><button class="link" type="submit">Enviar otro código</button></form>
-<p style="margin-top:14px;font-size:13px">¿No es tu cuenta? <a href="/auth/salir">Cancelar y entrar con otra</a></p>
+<p style="margin-top:14px;font-size:13px">¿Te equivocaste de correo? <a href="/auth/salir">Cancelar y volver al inicio</a></p>
 </main></body></html>`;
 }

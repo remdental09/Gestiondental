@@ -43,17 +43,25 @@ test("Google: solo pide correo y nombre, y exige correo verificado", () => {
   assert.equal(acceptedGoogleProfile(null), null);
 });
 
-test("la portada tiene el botón de Google, no refleja texto ajeno y su fondo existe", () => {
+test("la portada pide el correo primero, deja Google como opción, no refleja texto ajeno y su fondo existe", () => {
   const html = portadaPage();
-  assert.match(html, /href="\/auth\/google\?entrada=personal"[^>]*>[\s\S]*?Entrar a mi consulta/);
-  assert.match(html, /href="\/auth\/google\?entrada=clinica"[^>]*>[\s\S]*?Entrar a una clínica/);
+  assert.match(html, /<form class="mail" method="post" action="\/auth\/correo"/);
+  assert.match(html, /<input id="correo" name="correo" type="email"[^>]*required/);
+  assert.match(html, /<button[^>]*name="entrada" value="personal"[^>]*>Entrar a mi consulta/);
+  assert.match(html, /<button[^>]*name="entrada" value="clinica"[^>]*>[\s\S]*?Entrar a una clínica/);
+  assert.match(html, /href="\/auth\/google\?entrada=personal"[^>]*>[\s\S]*?Continuar con Google/);
+  assert.match(html, /href="\/auth\/google\?entrada=clinica"/);
+  assert.ok(html.indexOf('action="/auth/correo"') < html.indexOf('href="/auth/google?entrada=personal"'), "el correo va antes que Google");
+  assert.match(html, /name="equipo" value="compartido"/);
   assert.match(html, /Santiago de Chile/);
   assert.doesNotMatch(html, /role="alert"/);
   assert.match(portadaPage("cancelado"), /Se canceló/);
+  assert.match(portadaPage("correo-invalido"), /correo válido/);
   const injected = portadaPage("<script>alert(1)</script>");
   assert.doesNotMatch(injected, /<script>alert/);
   assert.match(injected, /No se pudo iniciar sesión/);
   assert.match(PORTADA_CSP, /default-src 'none'/);
+  assert.match(PORTADA_CSP, /form-action 'self'/);
   assert.ok(existsSync(new URL("../public/portada/fondo.webp", import.meta.url)));
   assert.ok(existsSync(new URL("../public/portada/fondo-movil.webp", import.meta.url)));
 });
@@ -71,13 +79,13 @@ test("el worker: sesión de Google primero, Access como respaldo, portada sin se
   assert.doesNotMatch(page, /cdn-cgi\/access\/logout/);
 });
 
-test('la portada ofrece entrar como equipo compartido y la pantalla de salida invita a cerrar Google', async () => {
+test('la portada ofrece equipo compartido con el correo y la pantalla de salida solo pide cerrar Google a quien lo usó', async () => {
   const { sharedLogoutPage } = await import("../lib/portada-page.ts");
-  const html = portadaPage();
-  assert.match(html, /href="\/auth\/google\?entrada=personal&amp;equipo=compartido"/);
-  assert.match(html, /href="\/auth\/google\?entrada=clinica&amp;equipo=compartido"/);
-  assert.match(html, /15 minutos sin uso/);
+  assert.match(portadaPage(), /15 minutos sin uso/);
   assert.match(sharedLogoutPage(), /href="https:\/\/accounts\.google\.com\/Logout"/);
+  const viaCorreo = sharedLogoutPage(false, true);
+  assert.doesNotMatch(viaCorreo, /accounts\.google\.com/);
+  assert.match(viaCorreo, /no queda abierta ninguna cuenta/);
 });
 
 test('correo del código: lleva el código, su vencimiento y el aviso si no fuiste tú; el correo se enmascara', async () => {
@@ -86,6 +94,7 @@ test('correo del código: lleva el código, su vencimiento y el aviso si no fuis
   assert.match(mail.subject, /048213/);
   assert.match(mail.text, /Vence en 10 minutos/);
   assert.match(mail.text, /Si no fuiste tú/);
+  assert.doesNotMatch(mail.text + mail.html, /Google/, 'el código sirve para entrar con correo: no habla de Google');
   assert.equal(maskEmail("remdental09@gmail.com"), "re••••••09@gmail.com");
   assert.doesNotMatch(loginCodePage("remdental09@gmail.com"), /remdental09/);
 });

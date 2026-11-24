@@ -1,5 +1,5 @@
-/** Portada pública de speakdent.cl: presentación y botón «Entrar con Google». No muestra ni pide datos clínicos. */
-import { LOGIN_PATH, GOOGLE_SIGN_OUT_URL } from "./google-login.ts";
+/** Portada pública de speakdent.cl: presentación, entrada con correo y código, y entrada con Google. No muestra ni pide datos clínicos. */
+import { LOGIN_PATH, EMAIL_LOGIN_PATH, GOOGLE_SIGN_OUT_URL } from "./google-login.ts";
 
 const escape = (value: string) => value.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
 
@@ -15,10 +15,11 @@ const ERRORS: Record<string, string> = {
   cancelado: "Se canceló el inicio de sesión con Google.",
   vencido: "El inicio de sesión tardó demasiado. Vuelve a intentarlo.",
   "no-verificado": "Esa cuenta de Google no tiene el correo verificado.",
+  "correo-invalido": "Escribe un correo válido, por ejemplo nombre@dominio.cl.",
   "sin-acceso": "Esa cuenta no tiene acceso. Escríbenos si eres dentista y quieres usar SpeakDent.",
   configuracion: "El inicio de sesión aún se está configurando. Intenta más tarde.",
-  codigo: "El código de ingreso venció o se equivocó demasiadas veces. Vuelve a entrar con Google para recibir uno nuevo.",
-  demasiados: "Demasiados intentos de inicio de sesión desde esta conexión. Espera unos minutos y vuelve a intentarlo.",
+  codigo: "El código de ingreso venció o se equivocó demasiadas veces. Vuelve a entrar para recibir uno nuevo.",
+  demasiados: "Se pidieron demasiados códigos o intentos de ingreso. Espera unos minutos y vuelve a intentarlo.",
 };
 
 export function portadaPage(errorCode?: string | null): string {
@@ -55,6 +56,18 @@ h1 em{font-style:normal;background:linear-gradient(90deg,#5eead4,#38bdf8);-webki
 .shared a{color:#c9d6ee;text-decoration:underline;text-underline-offset:3px}
 .shared a:hover,.shared a:focus-visible{color:#fff}
 .google:focus-visible{outline:3px solid #5eead4;outline-offset:3px}
+.mail{display:grid;gap:12px;max-width:400px}
+.mail label.f{font-size:14px;color:#c9d6ee}
+.mail input[type=email]{width:100%;min-height:52px;padding:0 16px;border-radius:12px;border:1px solid #475569;background:#0f172a;color:#fff;font-size:16px}
+.mail input[type=email]:focus-visible{outline:3px solid #5eead4;outline-offset:2px}
+.mail button{cursor:pointer;font-family:inherit;border:0}
+.mail button.clinic{border:1px solid rgba(251,146,60,.65)}
+.own{display:flex;gap:10px;align-items:flex-start;font-size:13px;color:#aebbd4}
+.own input{margin-top:3px;width:18px;height:18px;flex:none}
+.sep{display:flex;align-items:center;gap:12px;margin:18px 0 12px;max-width:400px;font-size:13px;color:#8b9bb8}
+.sep::before,.sep::after{content:"";flex:1;height:1px;background:rgba(139,155,184,.3)}
+.alt{display:inline-flex;align-items:center;justify-content:center;gap:12px;min-height:48px;padding:0 22px;border-radius:12px;background:rgba(255,255,255,.06);color:#fff;font-weight:600;font-size:15px;text-decoration:none;border:1px solid rgba(255,255,255,.25)}
+.alt:hover{background:rgba(255,255,255,.12)}.alt:focus-visible{outline:3px solid #5eead4;outline-offset:3px}
 .note{margin:16px 0 0;font-size:13px;color:#8b9bb8;max-width:400px}
 .error{margin:0 0 18px;padding:10px 14px;border-radius:10px;border:1px solid rgba(251,146,60,.5);background:rgba(124,45,18,.35);color:#fed7aa;font-size:14px}
 ul{list-style:none;margin:34px 0 0;padding:0;display:grid;gap:10px;font-size:15px;color:#cbd5e1}
@@ -65,10 +78,10 @@ footer a{color:#94a3b8}
 .city b{color:#f59e0b;font-weight:600}
 @media (max-width:760px){
  .hero{align-items:flex-end;background-image:url(/portada/fondo-movil.webp);background-position:center top}
- .hero::before{background:linear-gradient(180deg,rgba(6,10,23,.1) 0%,rgba(6,10,23,.15) 42%,rgba(6,10,23,.9) 60%,#060a17 74%)}
+ .hero::before{background:linear-gradient(180deg,rgba(6,10,23,.1) 0%,rgba(6,10,23,.15) 14%,rgba(6,10,23,.9) 32%,#060a17 42%)}
  .panel{margin:0;padding:0 22px 76px}
  h1{margin-top:22px}.lead{font-size:16px;margin-bottom:22px}
- .google,.clinic{width:100%}
+ .google,.clinic,.alt{width:100%}
  ul{display:none}
  footer{left:22px;right:auto}.city{display:none}
 }
@@ -81,13 +94,20 @@ footer a{color:#94a3b8}
 <h1 id="titulo">Dicta la atención. <em>La ficha se escribe sola.</em></h1>
 <p class="lead">Evolución, odontograma y presupuesto a partir de tu voz. Hecho para dentistas en Chile.</p>
 ${error ? `<p class="error" role="alert">${escape(error)}</p>` : ""}
+<form class="mail" method="post" action="${EMAIL_LOGIN_PATH}" data-entrada-correo>
+<label class="f" for="correo">Tu correo electrónico</label>
+<input id="correo" name="correo" type="email" inputmode="email" autocomplete="email" autocapitalize="none" spellcheck="false" maxlength="254" placeholder="Tu dirección de correo electrónico" required>
+<button class="google" type="submit" name="entrada" value="personal" data-entrada="personal">Entrar a mi consulta</button>
+<button class="clinic" type="submit" name="entrada" value="clinica" data-entrada="clinica">${BUILDING}Entrar a una clínica</button>
+<label class="own"><input type="checkbox" name="equipo" value="compartido"><span>Es un computador que no es mío (cibercafé, aeropuerto). La sesión se cierra a los 15 minutos sin uso y a las 2 horas.</span></label>
+<p class="door-note">Te enviamos un código de 6 dígitos a ese correo y entras con él. No necesitas clave ni cuenta de Google. ¿Una clínica te invitó? Usa «Entrar a una clínica» con el mismo correo.</p>
+</form>
+<p class="sep" aria-hidden="true">o</p>
 <div class="doors">
-<a class="google" href="${LOGIN_PATH}?entrada=personal" data-entrada="personal">${GOOGLE_G}Entrar a mi consulta</a>
-<a class="clinic" href="${LOGIN_PATH}?entrada=clinica" data-entrada="clinica">${BUILDING}Entrar a una clínica</a>
-<p class="door-note">¿Una clínica te invitó a atender a sus pacientes? Entra por «Entrar a una clínica» con tu mismo Gmail. Tu consulta personal queda aparte.</p>
+<a class="alt" href="${LOGIN_PATH}?entrada=personal" data-entrada="personal">${GOOGLE_G}Continuar con Google</a>
+<p class="door-note">Con Google la sesión de Google queda abierta en ese navegador. Úsalo solo en tu propio equipo. <a href="${LOGIN_PATH}?entrada=clinica" data-entrada="clinica" style="color:#c9d6ee">Entrar a una clínica con Google</a></p>
 </div>
-<p class="shared" data-equipo="compartido">¿Computador que no es tuyo (cibercafé, aeropuerto)? Entra como equipo compartido: la sesión se cierra a los 15 minutos sin uso y a las 2 horas, y no queda nada guardado. <a href="${LOGIN_PATH}?entrada=personal&amp;equipo=compartido">A mi consulta</a> · <a href="${LOGIN_PATH}?entrada=clinica&amp;equipo=compartido">A una clínica</a></p>
-<p class="note">Entras con tu cuenta de Google (Gmail). Cada dentista ve solo sus propias fichas.</p>
+<p class="note">Cada dentista ve solo sus propias fichas.</p>
 <ul><li>Dictado clínico que propone y tú confirmas</li><li>Odontograma con nomenclatura FDI y chilena</li><li>Respaldo en tu propio Google Drive</li></ul>
 </section>
 <p class="city">Hecho en <b>Santiago de Chile</b></p>
@@ -96,7 +116,7 @@ ${error ? `<p class="error" role="alert">${escape(error)}</p>` : ""}
 }
 
 /** Pantalla al salir de un equipo compartido: la sesión de SpeakDent ya se cerró; la de Google del navegador la cierra la persona. */
-export function sharedLogoutPage(everywhere = false): string {
+export function sharedLogoutPage(everywhere = false, viaEmail = false): string {
   return `<!doctype html>
 <html lang="es-CL"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sesión cerrada · SpeakDent</title><meta name="robots" content="noindex">
@@ -106,8 +126,10 @@ a{display:inline-flex;min-height:44px;align-items:center;padding:0 18px;border-r
 .go{background:#fff;color:#1c1530}.back{border:1px solid #475569;color:#e6eefc}</style></head>
 <body><main>
 <h1>${everywhere ? "Cerraste SpeakDent en todos tus equipos" : "Sesión de SpeakDent cerrada"}</h1>
-<p>${everywhere ? "Ya no queda ninguna sesión de SpeakDent abierta con tu cuenta. SpeakDent no puede cerrar tu cuenta de Google: si este computador es ajeno, ciérrala también aquí." : "Este era un equipo compartido. Para que nadie más pueda entrar con tu cuenta desde este navegador, cierra también tu sesión de Google."}</p>
+${viaEmail ? `<p>${everywhere ? "Ya no queda ninguna sesión de SpeakDent abierta con tu correo." : "Entraste con tu correo y su código, así que en este computador no queda abierta ninguna cuenta ni sesión tuya."}</p>
+<a class="go" href="/">Volver al inicio</a>
+<p style="margin-top:18px;font-size:13px">Si en este computador abriste tu correo para leer el código, ciérralo también.</p>` : `<p>${everywhere ? "Ya no queda ninguna sesión de SpeakDent abierta con tu cuenta. SpeakDent no puede cerrar tu cuenta de Google: si este computador es ajeno, ciérrala también aquí." : "Este era un equipo compartido. Para que nadie más pueda entrar con tu cuenta desde este navegador, cierra también tu sesión de Google."}</p>
 <a class="go" href="${GOOGLE_SIGN_OUT_URL}">Cerrar mi sesión de Google</a><a class="back" href="/">Volver al inicio</a>
-<p style="margin-top:18px;font-size:13px">Consejo: en un computador ajeno abre una ventana de incógnito; al cerrarla, el navegador olvida todo.</p>
+<p style="margin-top:18px;font-size:13px">Consejo: en un computador ajeno abre una ventana de incógnito; al cerrarla, el navegador olvida todo.</p>`}
 </main></body></html>`;
 }
