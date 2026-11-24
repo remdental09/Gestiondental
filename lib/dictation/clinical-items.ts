@@ -90,7 +90,7 @@ const CATEGORY_RULES: Array<[ItemCategory, RegExp]> = [
 /** Verbos de algo hecho HOY (incluye el sustantivo de procedimiento al inicio de la frase, típico de la sección «Procedimientos»). */
 const DONE = /(?<![a-z])(?<!no\s)(?<!no\sse\s)(?:se\s+(?:le\s+)?(?:realiza|realizo|realizan|hace|hizo|efectua|efectuo|instala|instalo|instalan|coloca|coloco|colocan|conecta|conecto|conectan|cementa|cemento|cementan|obtura|obturo|obturan|restaura|restauro|restauran|extrae|extrajo|extraen|retira|retiran|entrega|toma|escanea|escaneo|escanean|sella|sellan|aplica|aplican|atornilla)|realizad[oa]s?|instalad[oa]s?|efectuad[oa]s?|extraid[oa]s?|cementad[oa]s?|hoy|(?:procede|procedemos|se\s+procede)\s+a\s+(?:instalar|colocar|extraer|realizar|obturar|cementar|conectar))(?![a-z])/;
 /** Taquigrafía de ficha sin verbo («Pieza 1.1 restauración de resina compuesta palatino», «obturación de conductos gutapercha», «Corona Cerec … Duolink»): es lo hecho hoy. */
-const DONE_SHORTHAND = /(?<![a-z])(?:restauracion\s+de\s+resina\s+compuesta\s+(?:mesial|distal|oclusal|vestibular|palatin[oa]|lingual|incisal|cervical)|obturacion\s+de\s+conductos|preparacion\s+quimico|conducto\s+(?:mv\d?|dv|p|u|ml|dl)\s*-?\s*\d|duolink|futurabond|ketac|u\s?200|cementacion\s+de)(?![a-z])|^(?:piezas?\s+[1-8]\.[1-8](?:\s*(?:-|,|y)\s*[1-8]\.[1-8])*\s*[:,.]?\s*)(?:[^.]{0,60}?(?:,|\s))?(?:exodoncia|extraccion|instalacion|cementacion|conexion|reconstruccion|eliminacion\s+de\s+caries|retiro\s+de\s+(?:caries|amalgama|resina|corona))(?![a-z])|(?<![a-z])(?:instalo|coloco|conecto|cemento|aplico|realizo|extraigo|retiro|tallo|obturo|restauro|reconstruyo|se\s+reconstruye|se\s+elimina|elimino|desobturo|instrumento)(?![a-z])/;
+const DONE_SHORTHAND = /(?<![a-z])(?:restauracion\s+de\s+resina\s+compuesta\s+(?:mesial|distal|oclusal|vestibular|palatin[oa]|lingual|incisal|cervical)|obturacion\s+de\s+conductos|preparacion\s+quimico|conducto\s+(?:mv\d?|dv|p|u|ml|dl)\s*-?\s*\d|duolink|futurabond|ketac|u\s?200|cementacion\s+de)(?![a-z])|^(?:piezas?\s+[1-8]\.[1-8](?:\s*(?:-|,|y)\s*[1-8]\.[1-8])*\s*[:,.]?\s*)(?:[^.]{0,60}?(?:,|\s))?(?:exodoncia|extraccion|instalacion|cementacion|conexion|reconstruccion|eliminacion\s+de\s+caries|retiro\s+de\s+(?:caries|amalgama|resina|corona))(?![a-z])|(?<![a-z])(?:instalo|coloco|conecto|cemento|aplico|realizo|extraigo|retiro|tallo|obturo|restauro|reconstruyo|se\s+reconstruye|se\s+elimina|elimino|desobturo|instrumento|hago|hice|hacemos|realice|realizamos|instale|coloque|cemente|extraje|ajusto)(?![a-z])/;
 const DONE_NOUN_START = /^(?:procedimientos?(?:\s+realizados?)?\s*:\s*)?(?:conexion|escaneo|destartraje|detartraje|obturacion|instalacion|cementacion|endodoncia|profilaxis|pulido|raspado|toma\s+de)(?![a-z])/;
 const PLAN = /(?<![a-z])(?:se\s+planifica\w*|se\s+decide\w*|decid\w+\s+(?:realizar|hacer|exo|extra|instalar|tallar)|para\s+luego|luego\s+(?:se\s+)?(?:tallar|realizar|instalar|hacer)|derivad[oa]s?\s+(?:a|para|al)|deriv[oa]\s+(?:a|para|al)|desinclusion|fenestracion|se\s+evalua(?:ra)?|evaluacion\s+(?:de|para)|planific\w*|se\s+plantea|planteo|propongo|proponemos|se\s+propone|se\s+sugiere|se\s+indica|se\s+programa|se\s+evaluara|se\s+considerara|plan(?:\s+de\s+tratamiento)?\s*:|proxim[ao]s?|siguiente\s+sesion|pendiente|a\s+futuro|presupuest\w*|costo|valor|precio|\d[\d.]*\s+pesos|viene\s+en|(?:en|dentro\s+de)\s+(?:\d+|un|una|dos|tres|cuatro|cinco|seis)\s+(?:semanas?|dias?|meses)|se\s+realizara|se\s+hara|se\s+instalara|queda\s+por|por\s+realizar|requiere|necesita|debe\s+(?:realizarse|hacerse))(?![a-z])/;
 /** Infinitivo de acción al inicio de una frase del plan («rehabilitar…», «cortar y unir…»). */
@@ -531,6 +531,10 @@ export function applyClinicalItems(proposal: DictationProposal, ctx: ItemsContex
     diagnoses.push(dx);
   }
 
+  // Ninguna pieza tratada o con hallazgo queda sin CIE-11: se propone el diagnóstico de la familia del procedimiento
+  // (la variante «sin especificación» cuando la nota no permite precisar). Queda propuesto y el profesional lo cambia o lo quita.
+  diagnoses = [...diagnoses, ...fallbackDiagnoses(items, odontogram, diagnoses, tools)];
+
   // 5) Coherencia entre la nota y la lista.
   warnings.push(...consistencyWarnings(proposal.evolution?.body ?? "", items, tools));
 
@@ -707,4 +711,52 @@ export function polishNote(body: string, patient: PatientContext | undefined): {
   out = out.replace(hedgeAfter, (_m, teeth: string, comma?: string) => `${teeth}${comma ? "," : ""}`).replace(hedgeBefore, (_m, rest: string) => rest);
   if (out !== before) notes.push("Se quitó «aproximadamente» junto a los números de pieza: confirma que las piezas registradas son las correctas.");
   return { body: out.replace(/ ,/g, ",").replace(/ {2,}/g, " "), notes };
+}
+
+/**
+ * CIE-11 de respaldo por categoría del elemento clínico. Se usa solo cuando la pieza no tiene ningún diagnóstico
+ * (ni dictado, ni deducido, ni de la IA). Los códigos residuales («sin especificación») no afirman más de lo que dice la nota.
+ */
+const FALLBACK_CIE11: Partial<Record<ItemCategory, string>> = {
+  exodoncia: "DA0A.Z", implante: "DA0A.1", pilar: "DA0A.1", ausente: "DA0A.1",
+  corona: "DA08.Z", puente: "DA0A.1", protesis: "DA08.Z", escaneo: "DA08.Z", obturacion: "DA08.Z",
+  endodoncia: "DA09.Z", destartraje: "DA08.4", otro: "DA0A.Z",
+};
+const FALLBACK_BY_STATUS: Partial<Record<string, string>> = {
+  Implante: "DA0A.1", "Implante con pilar": "DA0A.1", Ausente: "DA0A.1",
+  "Resto radicular con endodoncia": "DA0A.3",
+};
+const MAX_FALLBACK_DIAGNOSES = 6;
+
+export function fallbackDiagnoses(items: ClinicalItem[], odontogram: OdontogramChange[], diagnoses: DiagnosisItem[], tools: ItemTools): DiagnosisItem[] {
+  const out: DiagnosisItem[] = [];
+  const covered = (tooth: number | undefined) => [...diagnoses, ...out].some((dx) => (dx.tooth ?? undefined) === tooth);
+  const make = (tooth: number | undefined, code: string, evidence: string, term: string) => {
+    if (!ICD11[code] || out.length >= MAX_FALLBACK_DIAGNOSES || covered(tooth)) return;
+    const dx: DiagnosisItem = { id: `dx-respaldo-${tooth ?? "general"}-${out.length + 1}`, ...(tooth ? { tooth } : {}), code, title: ICD11[code].title, label: "", evidence: evidence.slice(0, 400), findings: "", origin: "reglas", suggested: { from: "nota", term: term.slice(0, 120) } };
+    dx.label = `${tooth ? `FDI ${tools.formatFdi(tooth)}: ` : ""}${dx.title} (CIE-11 ${code}, propuesto según la nota; cámbialo si corresponde)`;
+    out.push(dx);
+  };
+  // Implante, pilar o prótesis sobre implante: la pieza falta (DA0A.1) aunque la categoría sea corona o escaneo.
+  const onImplant = (tooth: number) => items.some((item) => item.tooth === tooth && (item.category === "implante" || item.category === "pilar") && item.kind !== "plan")
+    || odontogram.some((change) => change.tooth === tooth && (change.status === "Implante" || change.status === "Implante con pilar" || change.foundation === "implant"));
+  // Solo lo REALIZADO: los hallazgos ya llegan como cambios del odontograma (que respetan negaciones y relato del paciente).
+  for (const item of items.filter((x) => x.tooth && x.kind === "realizado")) {
+    const tooth = item.tooth as number;
+    const code = onImplant(tooth) && ["exodoncia", "corona", "puente", "protesis", "escaneo", "otro"].includes(item.category) ? "DA0A.1" : FALLBACK_CIE11[item.category];
+    if (code) make(tooth, code, item.evidence, item.what);
+  }
+  for (const change of odontogram) {
+    if (change.advisory) continue;
+    // Del odontograma solo lo que es hallazgo de hoy con diagnóstico propio: caries (DA08.0) e implante o ausencia (DA0A.1).
+    // Una obturación o corona vista al examen puede ser antigua: su diagnóstico sale de lo realizado, no de verla.
+    if (change.kind === "surface") { if (change.finding?.condition === "caries") make(change.tooth, "DA08.0", change.evidence ?? "", "caries"); }
+    else if (change.kind === "status" && change.status && FALLBACK_BY_STATUS[change.status]) make(change.tooth, FALLBACK_BY_STATUS[change.status] as string, change.evidence ?? "", change.status);
+  }
+  // Procedimiento sin pieza (p. ej. «instalo implante» sin decir cuál) y la nota no tiene ningún diagnóstico: uno general.
+  if (![...diagnoses, ...out].length) {
+    const general = items.find((item) => !item.tooth && item.kind === "realizado" && FALLBACK_CIE11[item.category] && item.category !== "otro")
+    if (general) make(undefined, FALLBACK_CIE11[general.category] as string, general.evidence, general.what);
+  }
+  return out;
 }

@@ -17,7 +17,8 @@ test("extracción sin causa: pregunta el motivo con opciones verificadas del CIE
   assert.match(prompt.question, /Es probable que hayas olvidado el diagnóstico de FDI 2\.1 \(extracción\)/);
   assert.equal(prompt.options.length, 4);
   for (const option of prompt.options) assert.equal(ICD11[option.code]?.title, option.title, `${option.code} existe en el catálogo`);
-  assert.deepEqual(p.diagnoses, []);
+  // No se inventa la causa: solo queda propuesta la pérdida dentaria (implante inmediato), para que el CIE-11 no se pierda.
+  assert.deepEqual(p.diagnoses.map((d) => `${d.tooth}:${d.code}:${d.suggested?.from}`), ["21:DA0A.1:nota"]);
 });
 
 test("la pregunta también se dice en voz alta", async () => {
@@ -68,9 +69,9 @@ test("una extracción solo indicada no genera pregunta ni sugerencia", async () 
   assert.ok(!p.diagnoses.some((item) => item.suggested?.from === "nota"));
 });
 
-test("segunda fase de un implante que ya existe: no se sugiere diagnóstico", async () => {
+test("segunda fase de un implante que ya existe: no se pregunta; solo queda propuesta la pérdida dentaria (DA0A.1)", async () => {
   const p = await run("Segunda fase del implante de la pieza 36. Se realiza el descubrimiento del implante con bisturí y se instala un pilar de cicatrización de 4 milímetros de altura.");
-  assert.ok(!p.diagnoses.some((item) => item.suggested?.from === "nota"));
+  assert.ok(p.diagnoses.every((item) => item.suggested?.from !== "nota" || (item.code === "DA0A.1" && item.id.startsWith("dx-respaldo"))), JSON.stringify(p.diagnoses));
   assert.equal(p.diagnosisPrompts?.length ?? 0, 0);
 });
 

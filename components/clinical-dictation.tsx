@@ -1,5 +1,6 @@
 "use client";
 
+import { dxStartsChecked, reviewableDiagnoses, withoutAutoProposal } from "@/lib/dictation/diagnosis-review";
 import { chileDay } from "@/lib/chile-day";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Mic, MicOff, Sparkles } from "lucide-react";
@@ -194,16 +195,6 @@ function ChangeHighlight({ current, next }: { current: string; next: string }) {
     <span aria-hidden="true">→</span>
     <span className="rounded bg-emerald-100 px-1.5 py-0.5 font-medium text-emerald-950">{next}</span>
   </span>;
-}
-
-/**
- * CIE-11 que se guardan marcados: lo dictado y su equivalencia directa (término AAE, caries con compromiso pulpar).
- * Solo lo deducido del procedimiento («nota») o una equivalencia aproximada espera que el profesional lo confirme.
- */
-function dxNeedsConfirmation(suggested: unknown): boolean {
-  if (!suggested || typeof suggested !== "object") return false;
-  const from = (suggested as { from?: unknown }).from;
-  return from === "nota" || from === "aproximado";
 }
 
 export function ClinicalDictation({
@@ -535,7 +526,7 @@ export function ClinicalDictation({
       })));
       // Las caries se derivan en vivo de lo aceptado en el odontograma; el resto se revisa una por una.
       setPrestItems((data.proposal.prestaciones ?? []).map((item) => ({ ...item, decision: item.advisory ? "rejected" as const : "accepted" as const })));
-      setDxItems((data.proposal.diagnoses ?? []).filter((item) => !item.code.startsWith("DA08.0")).map((item) => ({ ...item, decision: dxNeedsConfirmation(item.suggested) ? "rejected" as const : "accepted" as const, toothText: item.tooth ? formatFdi(item.tooth) : "", findingsText: item.findings ?? "", codeSearch: "" })));
+      setDxItems(reviewableDiagnoses(data.proposal.diagnoses ?? [], data.proposal.odontogram).map((item) => ({ ...item, decision: dxStartsChecked(item) ? "accepted" as const : "rejected" as const, toothText: item.tooth ? formatFdi(item.tooth) : "", findingsText: item.findings ?? "", codeSearch: "" })));
       setDxSearch("");
     setAnsweredDxPrompts([]);
       setDismissedNotices(new Set());
@@ -776,7 +767,7 @@ export function ClinicalDictation({
           { category: "movilidad", proposed: (p.mobility ?? []) as ReviewGroup["proposed"], final: mobilityItems as ReviewGroup["final"] },
           { category: "pago", proposed: (p.payments ?? []) as ReviewGroup["proposed"], final: paymentItems.map((item) => ({ ...item, amount: Number(item.amountText) || 0, method: item.methodValue })) as ReviewGroup["final"] },
           { category: "cita", proposed: (p.appointments ?? []) as ReviewGroup["proposed"], final: appointmentItems.map((item) => ({ ...item, day: item.dayValue, time: item.timeValue })) as ReviewGroup["final"], uncheckedByDefault: (item) => !(item.day && item.time && !item.timeDoubt) },
-          { category: "diagnostico", proposed: (p.diagnoses ?? []).filter((item) => !item.code.startsWith("DA08.0")) as ReviewGroup["proposed"], final: dxItems as ReviewGroup["final"], uncheckedByDefault: (item) => dxNeedsConfirmation(item.suggested) },
+          { category: "diagnostico", proposed: reviewableDiagnoses(p.diagnoses ?? [], p.odontogram) as ReviewGroup["proposed"], final: dxItems as ReviewGroup["final"], uncheckedByDefault: (item) => !dxStartsChecked(item as { code: string }) },
           // Prestaciones del arancel: cuáles quitó o agregó el profesional (incluye las objetadas por el revisor, marcadas con «objetada»).
           { category: "prestacion", proposed: (p.prestaciones ?? []).map((item) => ({ id: item.id, code: item.code, name: item.name, tooth: item.tooth, objetada: Boolean(item.advisory) })) as ReviewGroup["proposed"], final: prestItems.map((item) => ({ id: item.id, code: item.code, name: item.name, tooth: item.tooth, objetada: Boolean(item.advisory), decision: item.decision })) as ReviewGroup["final"], uncheckedByDefault: (item) => Boolean(item.objetada) },
         ];
@@ -1075,6 +1066,7 @@ export function ClinicalDictation({
     setDxSearch("");
   };
   const answerDxPrompt = (promptId: string, code: string, title: string, tooth?: number) => {
+    setDxItems((current) => withoutAutoProposal(current, tooth));
     addManualDiagnosis(code, title, tooth);
     setAnsweredDxPrompts((current) => [...current, promptId]);
   };
@@ -1345,7 +1337,7 @@ export function ClinicalDictation({
                           {item.origin && item.origin !== "manual" && <OriginBadge origin={item.origin} />}
                           {item.origin === "manual" && <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700">Agregado a mano</span>}
                         </p>
-                        {item.suggested && <p className="mt-1 text-xs font-medium text-amber-800" data-testid="dictation-diagnosis-suggested">{item.suggested.from === "AAE" ? `Sugerido: equivalencia de «${item.suggested.term}» (AAE). Confírmalo si corresponde.` : item.suggested.from === "nota" ? `Sugerido a partir de lo que describiste («${item.suggested.term}»): no dictaste un diagnóstico. Confírmalo si corresponde o déjalo fuera.` : item.suggested.from === "aproximado" ? `Aproximado: «${item.suggested.term}» no figura tal cual en la CIE-11; este es el más cercano. Confírmalo o cámbialo.` : "Sugerido por caries con compromiso pulpar: confirma o cambia el diagnóstico pulpar."}</p>}
+                        {item.suggested && <p className="mt-1 text-xs font-medium text-amber-800" data-testid="dictation-diagnosis-suggested">{item.suggested.from === "AAE" ? `Sugerido: equivalencia de «${item.suggested.term}» (AAE). Confírmalo si corresponde.` : item.suggested.from === "nota" ? `Propuesto a partir de lo que describiste («${item.suggested.term}»): no dictaste un diagnóstico. Queda marcado para no perderlo; cámbialo o desmárcalo si no corresponde.` : item.suggested.from === "aproximado" ? `Aproximado: «${item.suggested.term}» no figura tal cual en la CIE-11; este es el más cercano. Queda marcado; cámbialo o desmárcalo si no corresponde.` : "Sugerido por caries con compromiso pulpar: confirma o cambia el diagnóstico pulpar."}</p>}
                         <Evidence text={item.evidence} />
                       </div>
                       <div className="flex gap-2">
