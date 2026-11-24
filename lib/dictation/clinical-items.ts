@@ -775,6 +775,20 @@ const FALLBACK_CIE11: Partial<Record<ItemCategory, string>> = {
   corona: "DA08.Z", puente: "DA0A.1", protesis: "DA08.Z", escaneo: "DA08.Z", obturacion: "DA08.Z",
   endodoncia: "DA09.Z", destartraje: "DA08.4", otro: "DA0A.Z",
 };
+/**
+ * Restauración o corona sin diagnóstico dictado: la propuesta sigue lo que dice la nota. Si habla de caries, fractura, abrasión
+ * o erosión se propone eso; si no dice la causa NO se inventa una (una resina hecha no es caries): queda el residual
+ * «sin especificación» y la pregunta con opciones cercanas. Siempre es una propuesta rotulada que el profesional confirma o cambia.
+ */
+const RESTORATION_CAUSES: ReadonlyArray<{ test: RegExp; code: string }> = [
+  { test: /(?<!\p{L})(?:fractur\p{L}*|quebr\p{L}*|desportill\p{L}*)(?!\p{L})/iu, code: "NA0D.02" },
+  { test: /(?<!\p{L})(?:abrasi\p{L}*|abfracci\p{L}*|desgaste\p{L}*)(?!\p{L})/iu, code: "DA08.11" },
+  { test: /(?<!\p{L})eros\p{L}*(?!\p{L})/iu, code: "DA08.12" },
+  { test: /(?<!\p{L})(?:caries|cariad\p{L}*|cariosa|cariosas|cari[oó]s\p{L}*)(?!\p{L})/iu, code: "DA08.0" },
+];
+export function restorationDiagnosisCode(text: string): string {
+  return RESTORATION_CAUSES.find((cause) => cause.test.test(text))?.code ?? "DA08.Z";
+}
 const FALLBACK_BY_STATUS: Partial<Record<string, string>> = {
   Implante: "DA0A.1", "Implante con pilar": "DA0A.1", Ausente: "DA0A.1",
   "Resto radicular con endodoncia": "DA0A.3",
@@ -796,7 +810,9 @@ export function fallbackDiagnoses(items: ClinicalItem[], odontogram: OdontogramC
   // Solo lo REALIZADO: los hallazgos ya llegan como cambios del odontograma (que respetan negaciones y relato del paciente).
   for (const item of items.filter((x) => x.tooth && x.kind === "realizado")) {
     const tooth = item.tooth as number;
-    const code = onImplant(tooth) && ["exodoncia", "corona", "puente", "protesis", "escaneo", "otro"].includes(item.category) ? "DA0A.1" : FALLBACK_CIE11[item.category];
+    const natural = item.category === "obturacion" || item.category === "corona";
+    const code = onImplant(tooth) && ["exodoncia", "corona", "puente", "protesis", "escaneo", "otro"].includes(item.category) ? "DA0A.1"
+      : natural ? restorationDiagnosisCode(`${item.what} ${item.evidence}`) : FALLBACK_CIE11[item.category];
     if (code) make(tooth, code, item.evidence, item.what);
   }
   for (const change of odontogram) {
@@ -811,6 +827,10 @@ export function fallbackDiagnoses(items: ClinicalItem[], odontogram: OdontogramC
     const general = items.find((item) => !item.tooth && item.kind === "realizado" && FALLBACK_CIE11[item.category] && item.category !== "otro")
     if (general) make(undefined, FALLBACK_CIE11[general.category] as string, general.evidence, general.what);
   }
+  // Destartraje sin pieza: aunque la nota ya traiga otro diagnóstico (p. ej. de una restauración), la higiene propone el suyo
+  // (depósitos en los dientes) si la nota no dice nada gingival, periodontal ni de depósitos.
+  const hygiene = items.find((item) => !item.tooth && item.kind === "realizado" && item.category === "destartraje");
+  if (hygiene && ![...diagnoses, ...out].some((dx) => /^DA0[BC]|^DA08\.4/.test(dx.code))) make(undefined, "DA08.4", hygiene.evidence, hygiene.what);
   return out;
 }
 
