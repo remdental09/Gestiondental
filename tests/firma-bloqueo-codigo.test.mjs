@@ -52,7 +52,7 @@ test("el servidor exige el código para cambiar o quitar la firma y la archiva",
   assert.match(route, /archiveMark\(/);
   assert.match(route, /consumeUnlock\(/);
   const codigo = readFileSync(new URL("../app/api/documentos/imagen/codigo/route.ts", import.meta.url), "utf8");
-  assert.match(codigo, /to: user\.email\.trim\(\)/);
+  assert.match(codigo, /sendSystemMail\(user\.email\.trim\(\)/); // solo al correo con que ingresó
   assert.match(codigo, /reserveAttempt\(/);
   const db = readFileSync(new URL("../app/signature-lock-db.ts", import.meta.url), "utf8");
   assert.match(db, /attempts < \? RETURNING/);

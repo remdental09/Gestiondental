@@ -39,3 +39,35 @@ export async function sendLoginCode(to: string, code: string, senderOwnerIds: st
   }
   return any ? { status: "failed", reason: failures.join(" · ") } : { status: "no-sender" };
 }
+
+export type SystemMailSend = LoginCodeSend;
+
+/**
+ * Correo de seguridad al dentista (código para cambiar firma o timbre, aviso de cambio). Sale de SpeakDent (codigo@speakdent.cl),
+ * igual que el código de ingreso; el Gmail de la Agenda (correo a pacientes) solo sirve de respaldo y ya no es requisito.
+ */
+export async function sendSystemMail(to: string, mail: { subject: string; text: string; html: string }, senderOwnerIds: string[]): Promise<SystemMailSend> {
+  const failures: string[] = [];
+  const binding = (env as unknown as Cloudflare.Env).EMAIL;
+  if (binding) {
+    try {
+      await binding.send({ from: { email: LOGIN_CODE_FROM, name: "SpeakDent" }, to, subject: mail.subject, text: mail.text, html: mail.html });
+      return { status: "sent", from: LOGIN_CODE_FROM };
+    } catch (error) {
+      failures.push("speakdent.cl: " + (error instanceof Error ? error.message.slice(0, 120) : "error"));
+    }
+  }
+  let any = Boolean(binding);
+  for (const ownerId of [...new Set(senderOwnerIds.filter(Boolean))]) {
+    const sender = await getSender(ownerId).catch(() => null);
+    if (!sender) continue;
+    any = true;
+    try {
+      await sendMailWithSender(sender, buildRawMessage({ from: sender.google_email, fromName: "SpeakDent", to, subject: mail.subject, text: mail.text, html: mail.html }));
+      return { status: "sent", from: sender.google_email };
+    } catch (error) {
+      failures.push(error instanceof Error ? error.message.slice(0, 120) : "error");
+    }
+  }
+  return any ? { status: "failed", reason: failures.join(" · ") } : { status: "no-sender" };
+}
