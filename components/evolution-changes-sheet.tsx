@@ -1,22 +1,26 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import type { ChangeCard } from "@/lib/evolution-changes";
 
 export type ChangesDecision = { action: "apply"; ids: string[] } | { action: "skip" } | { action: "cancel" };
 
 /** Hoja emergente al guardar una evolución: qué va a cambiar en el odontograma, para aceptarlo con un toque. */
-export function EvolutionChangesSheet({ cards, patientName, extra = [], busy = false, onDecide }: { cards: ChangeCard[]; patientName: string; extra?: string[]; busy?: boolean; onDecide: (decision: ChangesDecision) => void }) {
+export function EvolutionChangesSheet({ cards, patientName, extra = [], busy = false, escape = true, onDecide }: { cards: ChangeCard[]; patientName: string; extra?: string[]; busy?: boolean; escape?: boolean; onDecide: (decision: ChangesDecision) => void }) {
   const [off, setOff] = useState<Set<string>>(() => new Set(cards.filter((card) => card.review).map((card) => card.ids.join("|"))));
   const key = (card: ChangeCard) => card.ids.join("|");
   const chosen = useMemo(() => cards.filter((card) => !off.has(key(card))), [cards, off]);
   useEffect(() => {
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape" && !busy) onDecide({ action: "cancel" }); };
+    const onKey = (event: KeyboardEvent) => { if (escape && event.key === "Escape" && !busy) onDecide({ action: "cancel" }); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [busy, onDecide]);
+  }, [busy, escape, onDecide]);
   const toggle = (card: ChangeCard) => setOff((previous) => { const next = new Set(previous); if (next.has(key(card))) next.delete(key(card)); else next.add(key(card)); return next; });
-  return (
-    <div className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center" data-testid="changes-sheet">
+  if (typeof document === "undefined") return null;
+  // Va al <body> y aísla los eventos: si se abre sobre otro diálogo, ese no debe leerlos como un toque «afuera».
+  const isolate = (event: { stopPropagation: () => void }) => event.stopPropagation();
+  return createPortal(
+    <div className="fixed inset-0 z-[80] flex items-end justify-center sm:items-center" style={{ pointerEvents: "auto" }} data-testid="changes-sheet" onPointerDown={isolate} onPointerUp={isolate} onMouseDown={isolate} onFocus={isolate} onKeyDown={isolate}>
       <style>{`
         @keyframes gd-sheet-in{from{transform:translateY(32px) scale(.98);opacity:0}to{transform:none;opacity:1}}
         @keyframes gd-fade-in{from{opacity:0}to{opacity:1}}
@@ -65,6 +69,7 @@ export function EvolutionChangesSheet({ cards, patientName, extra = [], busy = f
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
