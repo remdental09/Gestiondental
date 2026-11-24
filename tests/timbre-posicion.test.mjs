@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { PDFDocument } from "pdf-lib";
-import { DEFAULT_STAMP_LAYOUT, STAMP_LIMITS, isDefaultStampLayout, isStampMoved, normalizeStampLayout, parseStampLayout, placeStamp, serializeStampLayout, stampCssBox, stampOpacity } from "../lib/stamp-layout.ts";
+import { DEFAULT_STAMP_LAYOUT, STAMP_LIMITS, fittedRectCm, unionBox, isDefaultStampLayout, isStampMoved, normalizeStampLayout, parseStampLayout, placeStamp, serializeStampLayout, stampCssBox, stampOpacity } from "../lib/stamp-layout.ts";
 import { knockoutBackground } from "../lib/stamp-knockout.ts";
 import { buildDocumentPdf } from "../lib/document-pdf.ts";
 import { buildBudgetPdf } from "../lib/budget-pdf.ts";
@@ -34,7 +34,7 @@ test("dx mueve a la derecha, dy hacia abajo, y la escala crece desde arriba-cent
 test("el timbre nunca sale de la hoja y las medidas se acotan", () => {
   const out = placeStamp({ width: 400, height: 200 }, slot, { dx: 12, dy: -24, scale: 2, opacity: 1, knockout: false, onSignature: false }, { width: 300, height: 400 }, cmToPt);
   assert.ok(out.x >= 0 && out.x + out.width <= 300 && out.y >= 0 && out.y + out.height <= 400);
-  assert.deepEqual(normalizeStampLayout({ dx: 99, dy: -99, scale: 9, opacity: 0, knockout: "sí" }), { dx: STAMP_LIMITS.dx[1], dy: STAMP_LIMITS.dy[0], scale: STAMP_LIMITS.scale[1], opacity: STAMP_LIMITS.opacity[0], knockout: false, onSignature: false });
+  assert.deepEqual(normalizeStampLayout({ dx: 99, dy: -99, scale: 9, opacity: 0, knockout: "sí" }), { ...DEFAULT_STAMP_LAYOUT, dx: STAMP_LIMITS.dx[1], dy: STAMP_LIMITS.dy[0], scale: STAMP_LIMITS.scale[1], opacity: STAMP_LIMITS.opacity[0] });
   assert.deepEqual(normalizeStampLayout({ dx: "x", scale: NaN }), DEFAULT_STAMP_LAYOUT);
   assert.deepEqual(normalizeStampLayout(null), DEFAULT_STAMP_LAYOUT);
 });
@@ -43,7 +43,7 @@ test("se guarda como texto: vacío = lugar de siempre; ida y vuelta sin perder n
   assert.equal(serializeStampLayout(DEFAULT_STAMP_LAYOUT), "");
   assert.equal(parseStampLayout(""), null);
   assert.equal(parseStampLayout("{roto"), null);
-  const layout = { dx: -3.5, dy: -12, scale: 0.8, opacity: 0.6, knockout: true, onSignature: true };
+  const layout = { ...DEFAULT_STAMP_LAYOUT, dx: -3.5, dy: -12, scale: 0.8, opacity: 0.6, knockout: true, onSignature: true, sigDx: 1.5, sigDy: -2, sigScale: 1.2, merged: true, mergedBox: { x: -3, y: -2, w: 7, h: 4 } };
   assert.deepEqual(parseStampLayout(serializeStampLayout(layout)), layout);
   assert.equal(isDefaultStampLayout(layout), false);
   assert.equal(isStampMoved({ dx: 0, dy: 0, scale: 1.5, opacity: 1, knockout: false, onSignature: false }), false, "solo cambiar el tamaño no lo saca de su lugar");
@@ -163,15 +163,16 @@ test("sobre la firma: el timbre se centra en la firma, dx/dy se miden desde ahí
 
 test("sobre la firma: todos los PDF y la pantalla pasan el centro de la firma; la firma se dibuja antes que el timbre", () => {
   const doc = read("lib/document-pdf.ts"), bud = read("lib/budget-pdf.ts");
-  assert.match(doc, /cmToPt, \{ x: cx, y: y - boxHeight \/ 2 \}\)/);
-  assert.match(bud, /cmToPt, \{ x: sx \+ \(R - sx\) \/ 2, y: signTop - 58/);
-  assert.ok(doc.indexOf("page.drawImage(image,") < doc.indexOf("placeStamp(stamp,"), "firma primero, timbre encima");
+  assert.match(doc, /movedSignatureCenter\(center, input\.stampLayout, cmToPt\)/);
+  assert.match(bud, /signatureCenter = \{ x: sx \+ \(R - sx\) \/ 2, y: signTop - 58/);
+  assert.ok(doc.indexOf("page.drawImage(image, moved)") < doc.indexOf("placeStamp(stamp,"), "firma primero, timbre encima");
   assert.ok(bud.indexOf("page.drawImage(documentMark,") < bud.indexOf("placeStamp(stampImage"), "firma primero, timbre encima");
   const panel = read("components/documentation-panel.tsx");
   assert.match(panel, /data-testid="stamp-on-signature"/);
   assert.match(panel, /!activeDocument\?\.stampLayout\?\.onSignature && \(isStampMoved/);
   const ui = read("components/stamp-placement.tsx");
-  for (const id of ["stamp-on-signature-button", "stamp-under-signature-button", "stamp-placement-signature"]) assert.ok(ui.includes(id), id);
+  assert.ok(read("components/stamp-placement.tsx").includes("stamp-target-${which}"));
+  for (const id of ["stamp-on-signature-button", "stamp-under-signature-button", "stamp-placement-signature", "stamp-merge"]) assert.ok(ui.includes(id), id);
 });
 
 test("sobre la firma en un PDF real: se genera con firma y timbre superpuestos (sin y con fondo quitado)", async () => {
@@ -180,4 +181,29 @@ test("sobre la firma en un PDF real: se genera con firma y timbre superpuestos (
   for (const stampLayout of [{ ...DEFAULT_STAMP_LAYOUT, onSignature: true }, { ...DEFAULT_STAMP_LAYOUT, onSignature: true, knockout: true, opacity: 0.8, dy: -0.5 }]) {
     assert.equal((await PDFDocument.load(await buildDocumentPdf({ ...input, stampLayout }))).getPageCount(), 1);
   }
+});
+
+test("firma movible y unión: límites, ida y vuelta, y la unión solo vale con su caja", () => {
+  const moved = normalizeStampLayout({ sigDx: 99, sigDy: -99, sigScale: 9 });
+  assert.deepEqual([moved.sigDx, moved.sigDy, moved.sigScale], [STAMP_LIMITS.sigDx[1], STAMP_LIMITS.sigDy[0], STAMP_LIMITS.sigScale[1]]);
+  assert.equal(normalizeStampLayout({ merged: true }).merged, false, "sin caja no hay unión");
+  const ok = normalizeStampLayout({ merged: true, mergedBox: { x: -3, y: -2, w: 6, h: 3 } });
+  assert.equal(ok.merged, true);
+  assert.equal(normalizeStampLayout({ merged: false, mergedBox: { x: 0, y: 0, w: 1, h: 1 } }).mergedBox, null);
+  assert.equal(isDefaultStampLayout({ ...DEFAULT_STAMP_LAYOUT, sigDx: 1 }), false);
+});
+test("fittedRectCm y unionBox: la imagen cabe en su caja y la unión cubre ambas piezas", () => {
+  const r = fittedRectCm(2, 6, 2, 1, 1);
+  assert.deepEqual([r.w, r.h, r.x, r.y], [4, 2, -1, 0]);
+  const u = unionBox({ x: 0, y: 0, w: 2, h: 2 }, { x: 1, y: -1, w: 3, h: 2 });
+  assert.deepEqual(u, { x: 0, y: -1, w: 4, h: 3 });
+});
+test("unión: migración 0026, el guardado gasta un solo código y cambiar imágenes invalida la unión", () => {
+  const sql = read("drizzle/0026_merged_mark.sql"), journal = read("drizzle/meta/_journal.json");
+  assert.match(sql, /merged_mark/);
+  assert.ok(journal.includes("0026_merged_mark"));
+  const route = read("app/api/documentos/imagen/route.ts"), db = read("app/document-mark-db.ts");
+  assert.equal((route.match(/consumeUnlock\(/g) ?? []).length >= 1, true);
+  assert.ok(route.includes("invalidateMerged") && db.includes("export async function invalidateMerged"));
+  assert.ok(read("components/documentation-panel.tsx").includes('data-testid="merged-mark"'));
 });

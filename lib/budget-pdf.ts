@@ -2,7 +2,7 @@ import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf
 import { budgetItemTotal, budgetPhases, budgetTotals, itemWhereText, type BudgetItem } from "./budget-plans.ts";
 import { DEFAULT_FORMAT, clinicContactGroups, hexToRgb01, shade, tint, type BudgetFormat } from "./budget-format.ts";
 import { SIGNATURE_BOX_CM, STAMP_BOX_CM, cmToPt, fitInBox } from "./signature-image.ts";
-import { isStampMoved, placeStamp, stampOpacity, type StampLayout } from "./stamp-layout.ts";
+import { isStampMoved, movedSignatureCenter, placeMerged, placeSignature, placeStamp, stampOpacity, type PrintableStampLayout } from "./stamp-layout.ts";
 
 /**
  * PDF del presupuesto / plan de tratamiento, con formato de presupuesto clínico: cabecera de la clínica, número y hora de emisión,
@@ -35,7 +35,7 @@ export type BudgetPdfInput = {
   /** Timbre del profesional, bajo su firma y datos. */
   stampMark?: string;
   /** Posición y tamaño del timbre (medidos desde su lugar de siempre). */
-  stampLayout?: StampLayout | null;
+  stampLayout?: PrintableStampLayout | null;
 };
 
 const PAGE_W = 595.28, PAGE_H = 841.89, M = 40, R = PAGE_W - M, FOOT = 52, BAND = 84;
@@ -184,6 +184,12 @@ export async function buildBudgetPdf(input: BudgetPdfInput): Promise<Uint8Array>
         stampImage = match[1] === "png" ? await pdf.embedPng(bytes) : await pdf.embedJpg(bytes);
       } catch { /* un timbre inválido no debe impedir emitir el presupuesto */ }
     }
+  }
+  // Firma y timbre unidos en una sola pieza (PNG): si el profesional la pidió y se puede incrustar, se dibuja ella sola.
+  let mergedImage: Awaited<ReturnType<PDFDocument["embedPng"]>> | null = null;
+  if (input.stampLayout?.merged && input.stampLayout.mergedMark && input.stampLayout.mergedBox) {
+    const match = /^data:image\/png;base64,([A-Za-z0-9+/=]+)$/.exec(input.stampLayout.mergedMark);
+    if (match) { try { mergedImage = await pdf.embedPng(Uint8Array.from(atob(match[1]), ch => ch.charCodeAt(0))); } catch { /* si falla, firma y timbre salen por separado */ } }
   }
   const LOGO_BOX = 56;
   const headerX = logoImage ? M + LOGO_BOX + 14 : M;
@@ -357,9 +363,13 @@ export async function buildBudgetPdf(input: BudgetPdfInput): Promise<Uint8Array>
   // Más aire sobre la línea: la firma se dibuja grande (recuadro ≈ 6,5 × 2,7 cm), escalada para llenarlo sin deformarse.
   y -= 80;
   const signTop = y;
-  if (documentMark) {
+  const signatureCenter = { x: sx + (R - sx) / 2, y: signTop - 58 + cmToPt(SIGNATURE_BOX_CM.height) / 2 };
+  const mergedBox = mergedImage ? input.stampLayout?.mergedBox ?? null : null;
+  if (mergedImage && mergedBox) page.drawImage(mergedImage, placeMerged(mergedBox, signatureCenter, page.getSize(), cmToPt));
+  else if (documentMark) {
     const box = fitInBox(documentMark.width, documentMark.height, Math.min(cmToPt(SIGNATURE_BOX_CM.width), R - sx), cmToPt(SIGNATURE_BOX_CM.height));
-    page.drawImage(documentMark, { x: sx + (R - sx - box.width) / 2, y: signTop - 58, width: box.width, height: box.height });
+    const moved = placeSignature(documentMark, { width: Math.min(cmToPt(SIGNATURE_BOX_CM.width), R - sx), height: cmToPt(SIGNATURE_BOX_CM.height) }, signatureCenter, input.stampLayout, page.getSize(), cmToPt);
+    page.drawImage(documentMark, moved ?? { x: sx + (R - sx - box.width) / 2, y: signTop - 58, width: box.width, height: box.height });
   }
   y = signTop - 62; rule(sx, R);
   const signName = pdfSafe(nameInSignature && input.professionalName ? input.professionalName : nameInSignature ? "Profesional tratante" : "Firma del profesional tratante");
@@ -372,10 +382,10 @@ export async function buildBudgetPdf(input: BudgetPdfInput): Promise<Uint8Array>
   signClinic.forEach((row, i) => { y = signTop - 10 - (i ? 3 : 0) - 11 * i; text(row.t, M, row.size, row.f, row.f === bold ? INK : MUTED); });
   let signEnd = signTop - Math.max(102, 18 + 11 * signClinic.length);
   // El timbre va bajo el nombre y los datos del profesional, centrado bajo su firma.
-  if (stampImage) {
+  if (stampImage && !mergedBox) {
     const slotWidth = Math.min(cmToPt(STAMP_BOX_CM.width), R - sx), slotHeight = cmToPt(STAMP_BOX_CM.height);
     const top = y - 6;
-    const at = placeStamp(stampImage, { x: sx + (R - sx - slotWidth) / 2, y: top - slotHeight, width: slotWidth, height: slotHeight }, input.stampLayout, page.getSize(), cmToPt, { x: sx + (R - sx) / 2, y: signTop - 58 + cmToPt(SIGNATURE_BOX_CM.height) / 2 });
+    const at = placeStamp(stampImage, { x: sx + (R - sx - slotWidth) / 2, y: top - slotHeight, width: slotWidth, height: slotHeight }, input.stampLayout, page.getSize(), cmToPt, movedSignatureCenter(signatureCenter, input.stampLayout, cmToPt));
     page.drawImage(stampImage, { ...at, opacity: stampOpacity(input.stampLayout) });
     if (!isStampMoved(input.stampLayout)) signEnd = Math.min(signEnd, top - at.height - 6);
   }

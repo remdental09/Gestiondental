@@ -183,6 +183,13 @@
       "when": 1796245600000,
       "tag": "0025_stamp_clean",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1796332000000,
+      "tag": "0026_merged_mark",
+      "breakpoints": true
     }
   ]
 }

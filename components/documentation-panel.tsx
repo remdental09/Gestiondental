@@ -12,7 +12,7 @@ import { ConsentSigningCard, PatientSignatureImage } from "@/components/consent-
 import { ConsentTemplatePicker } from "@/components/consent-template-picker";
 import { SIGNER_ROLE_LABEL, SIGN_METHOD_LABEL, isSignMethod, isSignerRole, signatureListMark, type SignatureView } from "@/lib/consent-signature";
 import { formatAddress, type PatientAddress } from "@/lib/patient-address";
-import { isStampMoved, stampCssBox, type StampLayout } from "@/lib/stamp-layout";
+import { isSignatureMoved, isStampMoved, stampCssBox, type PrintableStampLayout } from "@/lib/stamp-layout";
 import { registrationLine, type PublicRegistration } from "@/lib/prestador-certificate";
 import { formatChileanRut, isValidChileanRut } from "@/lib/patient-document";
 import { asProfessionalTitle, withTitle } from "@/lib/clinician-profile";
@@ -23,7 +23,7 @@ import { mountPrintCopy, printNode, PRINT_CLASS } from "@/lib/print-node";
 import { scrollBelowHeader } from "@/lib/scroll-below-header";
 
 type Patient = { id: number; name: string; birthDate: string; rut: string; phone: string; email: string; address?: PatientAddress };
-type SavedDocument = { id: number; patientId: number; kind: ClinicalDocumentKind; title: string; content: string; status: string; createdBy: string; createdByName: string; authorTitle?: string | null; createdAt: string; documentMark: string; stampMark?: string; stampLayout?: StampLayout | null; verifyToken?: string | null; contentHash?: string; issuedAt?: string; revokedAt?: string; revokedReason?: string; replacesId?: number | null; registration?: PublicRegistration | null; signature?: SignatureView | null };
+type SavedDocument = { id: number; patientId: number; kind: ClinicalDocumentKind; title: string; content: string; status: string; createdBy: string; createdByName: string; authorTitle?: string | null; createdAt: string; documentMark: string; stampMark?: string; stampLayout?: PrintableStampLayout | null; verifyToken?: string | null; contentHash?: string; issuedAt?: string; revokedAt?: string; revokedReason?: string; replacesId?: number | null; registration?: PublicRegistration | null; signature?: SignatureView | null };
 type ClinicInfo = { clinicName: string; address: string; city: string; phone: string; email: string; logo: string };
 type Field = { key: string; label: string; hint: string; rows?: number };
 const fields: Record<ClinicalDocumentKind, Field[]> = {
@@ -130,6 +130,8 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
   const activeDocument = documents.find(item => item.id === activeDocumentId) ?? null;
   const printableMark = useTrimmedMark(activeDocument?.documentMark ?? "");
   const printableStamp = useTrimmedMark(activeDocument?.stampMark ?? "");
+  // Pieza firma+timbre unida (si el profesional la pidió): posición respecto del recuadro de la firma.
+  const mergedPiece = activeDocument?.stampLayout?.merged && activeDocument.stampLayout.mergedMark ? stampCssBox(activeDocument.stampLayout, { width: 5, height: 2.5 }).merged : null;
   // Cmd+P o Compartir → Imprimir con un documento abierto: también se imprime solo el documento (no la app entera).
   useEffect(() => {
     if (!activeDocument) return;
@@ -350,9 +352,12 @@ export function DocumentationPanel({ patients, budgetCounts, onOpenBudgets, embe
         const patientDocument = patient.rut ? (isValidChileanRut(patient.rut) ? formatChileanRut(patient.rut) : patient.rut) : "Sin registrar";
         const patientAddress = formatAddress(patient.address);
         const signature = <div className="flex w-[7cm] max-w-full flex-col items-center justify-end text-center [break-inside:avoid]" data-testid="signature-block">
-          <div className="relative flex h-[2.8cm] w-[6.5cm] max-w-full items-end justify-center" data-testid="signature-box">{printableMark && <Image src={printableMark} alt="Firma o timbre del profesional" width={900} height={400} unoptimized className="h-full w-full object-contain object-bottom"/>}{printableStamp && activeDocument?.stampLayout?.onSignature && <div className="absolute z-10" data-testid="stamp-on-signature" style={stampCssBox(activeDocument.stampLayout, { width: 5, height: 2.5 }).overSignature}><Image src={printableStamp} alt="Timbre del profesional" width={900} height={400} unoptimized className="h-full w-full object-contain"/></div>}</div>
+          <div className="relative flex h-[2.8cm] w-[6.5cm] max-w-full items-end justify-center" data-testid="signature-box">{mergedPiece
+            // Firma y timbre unidos en una sola pieza: se muestra ella sola, tal como se imprime.
+            ? <div className="absolute z-10" data-testid="merged-mark" style={mergedPiece}><Image src={activeDocument!.stampLayout!.mergedMark!} alt="Firma y timbre del profesional" width={900} height={400} unoptimized className="h-full w-full object-contain"/></div>
+            : <>{printableMark && <Image src={printableMark} alt="Firma o timbre del profesional" width={900} height={400} unoptimized className={isSignatureMoved(activeDocument?.stampLayout) ? "h-full w-full object-contain" : "h-full w-full object-contain object-bottom"} style={isSignatureMoved(activeDocument?.stampLayout) ? stampCssBox(activeDocument?.stampLayout, { width: 5, height: 2.5 }).signature : undefined}/>}{printableStamp && activeDocument?.stampLayout?.onSignature && <div className="absolute z-10" data-testid="stamp-on-signature" style={stampCssBox(activeDocument.stampLayout, { width: 5, height: 2.5 }).overSignature}><Image src={printableStamp} alt="Timbre del profesional" width={900} height={400} unoptimized className="h-full w-full object-contain"/></div>}</>}</div>
           <div className="mt-1 w-full border-t border-[#555] pt-1.5 text-[12px] leading-snug text-[#1f1d2b]" data-testid="signature-name"><p className="font-semibold">{doctorName}</p>{doctorRut && <p>RUT {doctorRut}</p>}{reg && <p>{professionLine}</p>}</div>
-          {printableStamp && !activeDocument?.stampLayout?.onSignature && (isStampMoved(activeDocument?.stampLayout)
+          {printableStamp && !mergedPiece && !activeDocument?.stampLayout?.onSignature && (isStampMoved(activeDocument?.stampLayout)
             // Movido: el timbre flota desde su lugar de siempre (no ocupa espacio bajo la firma) y se imprime donde el profesional lo dejó.
             ? <div className="relative h-0 w-full" data-testid="stamp-box" data-stamp-moved="true"><div className="absolute z-10" style={stampCssBox(activeDocument?.stampLayout, { width: 5, height: 2.5 }).float}><Image src={printableStamp} alt="Timbre del profesional" width={900} height={400} unoptimized className="h-full w-full object-contain object-top"/></div></div>
             : <div className="mt-1.5 flex max-w-full items-start justify-center" data-testid="stamp-box" style={stampCssBox(activeDocument?.stampLayout, { width: 5, height: 2.5 }).flow}><Image src={printableStamp} alt="Timbre del profesional" width={900} height={400} unoptimized className="h-full w-full object-contain object-top"/></div>)}

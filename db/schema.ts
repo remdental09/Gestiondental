@@ -135,6 +135,8 @@ export const professionalDocumentSettings = sqliteTable("professional_document_s
   stampLayout: text("stamp_layout").notNull().default(""),
   /** Timbre sin fondo (PNG con transparencia), generado en el navegador a partir de `stampMark`; vacío = no hay. Se borra si cambia la imagen. */
   stampClean: text("stamp_clean").notNull().default(""),
+  /** Firma y timbre unidos en una sola imagen (PNG con transparencia, generada en el navegador); vacío = no hay. Se borra si cambia la firma o el timbre. */
+  mergedMark: text("merged_mark").notNull().default(""),
   updatedAt: text("updated_at").notNull(),
 });
 
