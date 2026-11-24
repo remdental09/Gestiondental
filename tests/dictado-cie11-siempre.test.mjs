@@ -122,3 +122,8 @@ test("con una pieza ausente en la ficha, la advertencia de incongruencia se mant
   const warned = proposal.clarifications.some((text) => /figura como ausente|figura ausente/.test(text)) || JSON.stringify(proposal).includes("figura ausente");
   assert.ok(warned, "se sigue advirtiendo la pieza ausente: " + JSON.stringify(proposal.clarifications));
 });
+
+test("prótesis fija plural entre dos piezas naturales: no se propone «pieza ausente» para los pilares", () => {
+  const items = [12, 23].map((tooth, i) => ({ id: `i${i}`, tooth, chile: null, surfaces: [], kind: "realizado", category: "puente", what: "impresión", evidence: "impresión para prótesis fija plural entre la 1.2 y la 2.3", origin: "ia" }));
+  assert.deepEqual(fallbackDiagnoses(items, [], [], tools), []);
+});

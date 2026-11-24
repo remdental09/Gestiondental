@@ -3031,6 +3031,8 @@ function numbersIn(value: string, articlesAsNumbers = true): Set<string> {
     if (number >= 51 && number <= 85) found.add(`${Math.floor(number / 10)}.${number % 10}`);
   }
   for (const match of spoken.matchAll(/\b(\d+)\s+mil\b/g)) found.add(String(Number(match[1]) * 1000));
+  // «19 coma 5» (cifras separadas por la palabra) es 19.5.
+  for (const match of spoken.matchAll(/\b(\d+)\s+(?:coma|punto)\s+(\d+)\b/g)) found.add(`${match[1]}.${match[2]}`);
   // «cero coma doce» se escribe 0.12; «cuatro coma cinco», 4.5.
   for (const match of spoken.matchAll(/\b([a-z]+)\s+coma\s+([a-z]+(?:\s+y\s+[a-z]+)?)\b/g)) {
     const whole = numberRuns(match[1])[0]?.value;
@@ -4537,7 +4539,10 @@ export async function proposeFromTranscript(
     const placedTeeth = new Set([...finished.odontogram.map((item) => item.tooth), ...(finished.diagnoses ?? []).flatMap((item) => (item.tooth ? [item.tooth] : []))]);
     const alreadyPlaced = (item: string) => {
       const match = /^La IA propuso la pieza «([1-8])\.([1-8])», pero la cita no la contiene/.exec(item);
-      return Boolean(match && placedTeeth.has(Number(match[1]) * 10 + Number(match[2])));
+      if (!match) return false;
+      const tooth = Number(match[1]) * 10 + Number(match[2]);
+      // Si el dictado completo nombra esa pieza («en la 3.1»), la cita de la IA era solo un recorte: la pregunta sobra.
+      return placedTeeth.has(tooth) || toothMentions(text).some((mention) => mention.ok && mention.tooth === tooth);
     };
     const hasPrestaciones = (finished.prestaciones ?? []).length > 0;
     const endoQuestions = endodonticQuestions(procedureLinesOf(finished.evolution?.body ?? ""), finished.prestaciones ?? []).filter((item) => !finished.clarifications.includes(item));
