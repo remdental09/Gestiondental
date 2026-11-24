@@ -78,3 +78,29 @@ test("negaciones y sectores no piden una pieza: «el sellante no se realiza», �
     assert.ok(!p.clarifications.some((c) => /Falta una pieza identificable/.test(c)), `${text} -> ${JSON.stringify(p.clarifications)}`);
   }
 });
+
+test("retiro de amalgama, recementación y sellantes no son hallazgos de superficie: no preguntan la cara", async () => {
+  for (const text of [
+    "Se realiza retiro de amalgama en la pieza 3.6.",
+    "Se recementa la restauración de la pieza 2.5 con RelyX U200 color A2.",
+    "Se realiza higiene oral y aplicación de sellante en las piezas 1.6, 2.6, 3.6 y 4.6.",
+  ]) {
+    const p = await run(text);
+    assert.ok(!p.clarifications.some((c) => /Falta la (?:superficie|cara)/.test(c)), `${text} -> ${JSON.stringify(p.clarifications)}`);
+  }
+});
+
+test("una frase que solo lista los materiales de una restauración ya dicha no pide una pieza; un plan sin pieza tampoco", async () => {
+  const p = await run("En las piezas 4.7 y 4.6 se realiza restauración de resina compuesta oclusal. Se utiliza Denticlean, capa híbrida, adhesivo Single Bond Universal y resina Filtek Z250.");
+  assert.ok(!p.clarifications.some((c) => /Falta una pieza identificable/.test(c)), JSON.stringify(p.clarifications));
+  const q = await run("Se planifica continuar con el control de los terceros molares hasta establecer la indicación de exodoncia.");
+  assert.ok(!q.clarifications.some((c) => /Falta una pieza identificable/.test(c)), JSON.stringify(q.clarifications));
+});
+
+test("«en la próxima hora/cita» con un plan, y «en la próxima sesión» suelto, no preguntan el día", () => {
+  assert.equal(isAppointmentText("Se planifica blanqueamiento en la próxima hora."), false);
+  assert.equal(isAppointmentText("Se planifica instalar aparatología Roth en la próxima cita."), false);
+  assert.equal(isAppointmentText("En la próxima sesión"), false);
+  assert.equal(isAppointmentText("Próxima cita el lunes 30."), true);
+  assert.equal(isAppointmentText("Se agenda control en 3 semanas."), true);
+});
