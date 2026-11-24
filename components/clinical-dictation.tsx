@@ -199,6 +199,9 @@ function ChangeHighlight({ current, next }: { current: string; next: string }) {
   </span>;
 }
 
+/** Tras un guardado limpio, la hoja del dictado se cierra sola pasado este tiempo (ms). */
+const AUTO_CLOSE_MS = 2500;
+
 export function ClinicalDictation({
   patientId,
   patientName,
@@ -982,6 +985,15 @@ export function ClinicalDictation({
     window.addEventListener("gd-open-dictation", openFromRail);
     return () => window.removeEventListener("gd-open-dictation", openFromRail);
   }, [prominent]);
+  // Guardado limpio (releído y sin avisos): la hoja se cierra sola tras unos segundos; así el profesional no tiene que pulsar «Cerrar»
+  // (principio de diseño 2). Si quedó algo que revisar, la hoja sigue abierta. Cerrar a mano sigue funcionando igual.
+  const closeRef = useRef(close);
+  closeRef.current = close;
+  useEffect(() => {
+    if (!open || !result?.ok || notRecorded.length > 0) return;
+    const timer = setTimeout(() => closeRef.current(), AUTO_CLOSE_MS);
+    return () => clearTimeout(timer);
+  }, [open, result, notRecorded]);
   // Arancel propio (valores por código) para presupuestar las líneas: se lee una vez al aparecer líneas.
   useEffect(() => {
     if (!lines.some((line) => line.canBudget) || arancel) return;
