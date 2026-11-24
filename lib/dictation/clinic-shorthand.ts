@@ -147,8 +147,8 @@ export function expandClinicShorthand(input: string): { text: string; correction
     [/\bCap\s*Hib\b/g, "capa híbrida", "Cap Hib = capa híbrida (paso adhesivo)."],
     [/\bSBU\b/g, "adhesivo Single Bond Universal", "SBU = Single Bond Universal."],
     [/(?<=[-\s/])SB(?=[-\s/])/g, "adhesivo Single Bond", "SB = Single Bond."],
-    [/\b([zZ])\s?(250|350)\b/g, (_m: string, _z: string, n: string) => `resina Filtek Z${n}`, "Z250/Z350 = resina compuesta Filtek."],
-    [/\b[pP](60)\b/g, "resina Filtek P60", "P60 = resina compuesta Filtek P60."],
+    [/(?:\b[rR]esina\s+)?(?:\b[fF]iltek\s+)?\b([zZ])\s?(250|350)\b/g, (_m: string, _z: string, n: string) => `resina Filtek Z${n}`, "Z250/Z350 = resina compuesta Filtek."],
+    [/(?:\b[rR]esina\s+)?(?:\b[fF]iltek\s+)?\b[pP](60)\b/g, "resina Filtek P60", "P60 = resina compuesta Filtek P60."],
     // Color VITA pegado a guion o barra («SB-A3», «- B2»): «color A3». La anestesia lleva «%».
     [/(?<=[-/]\s?)([A-D][1-4](?:[.,]5)?)(?!\s*%|\s*-\s*\d\s*%|\d)/g, (_m: string, shade: string) => `color ${shade.replace(",", ".")}`, "Color VITA de la resina."],
     [/(?<!anestesia\s)\bA\s?([1-4](?:\s*-\s*[1-4])?)\s?%/g, (_m: string, c: string) => `anestesia al ${c.replace(/\s+/g, "")}%`, "A2% / A4% = anestesia local (concentración)."],
