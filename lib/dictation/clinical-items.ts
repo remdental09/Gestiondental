@@ -159,6 +159,33 @@ function rangeTeeth(sentence: string, teethIn: (s: string) => number[]): number[
   return out;
 }
 
+/**
+ * Reparte los tratamientos de una frase con varias piezas y varios tratamientos: cada tratamiento se queda con las piezas
+ * de su tramo («obturar 1.6 y 2.5, endodoncia en la 3.6 y después corona» → obturación 1.6 y 2.5; endodoncia y corona 3.6).
+ * Un tramo que solo nombra piezas («…, 2.5») continúa el tratamiento anterior; un tramo con tratamiento y sin pieza usa
+ * las piezas del tramo anterior. Devuelve null si no se puede repartir con seguridad (se usa el cruce de siempre).
+ */
+export function actPairs(part: string, teeth: number[], categories: ItemCategory[], tools: ItemTools): Array<{ tooth: number; category: ItemCategory }> | null {
+  if (categories.length < 2 || teeth.length < 2) return null;
+  const segments = part.split(/\s*,\s*|\s+(?:y\s+)?(?:despu[eé]s|luego|posteriormente|m[aá]s\s+adelante)\s+/iu).map((segment) => segment.trim()).filter(Boolean);
+  if (segments.length < 2) return null;
+  const pairs: Array<{ tooth: number; category: ItemCategory }> = [];
+  let carryCats: ItemCategory[] = [];
+  let carryTeeth: number[] = [];
+  for (const segment of segments) {
+    const segCats = categoriesOf(fold(segment));
+    const segTeeth = [...new Set([...tools.teethIn(segment), ...rangeTeeth(segment, tools.teethIn)])];
+    if (segCats.length && segTeeth.length) { for (const category of segCats) for (const tooth of segTeeth) pairs.push({ tooth, category }); carryCats = segCats; carryTeeth = segTeeth; }
+    else if (segCats.length) { for (const category of segCats) for (const tooth of carryTeeth) pairs.push({ tooth, category }); carryCats = segCats; }
+    else if (segTeeth.length && /^(?:y\s+)?(?:(?:la|el|las|los)\s+)?(?:(?:pieza|piezas|diente|dientes)\s+)?(?:fdi\s+)?[\d.\s,y]+$/iu.test(segment)) { for (const category of carryCats) for (const tooth of segTeeth) pairs.push({ tooth, category }); carryTeeth = segTeeth; }
+    else if (segTeeth.length) carryTeeth = segTeeth;
+  }
+  if (!pairs.length) return null;
+  // Si alguna pieza o tratamiento de la frase quedó sin repartir, se prefiere el cruce de siempre a perder información.
+  const covered = new Set(pairs.map((pair) => pair.category));
+  return categories.every((category) => covered.has(category)) ? pairs : null;
+}
+
 let counter = 0;
 const nextId = () => `it-${++counter}`;
 
@@ -200,11 +227,13 @@ export function ruleItems(text: string, tools: ItemTools): ClinicalItem[] {
         for (const tooth of teeth) items.push(makeItem({ tooth, surfaces: [], kind, category: "otro", what: part, evidence: part, origin: "reglas" }));
         continue;
       }
+      // «Obturar 1.6 y 2.5, endodoncia en la 3.6 y después corona»: cada tratamiento va con SUS piezas, no con todas.
+      const paired = actPairs(part, teeth, categories, tools);
       for (const category of categories) {
         // Un hallazgo dentro de una frase de plan o de acto («obturación por caries») es diagnóstico.
         const itemKind: ItemKind = FINDING_CATEGORIES.has(category) && kind !== "diagnostico" && categories.some((c) => !FINDING_CATEGORIES.has(c)) ? "diagnostico" : kind;
         const grade = category === "movilidad" ? gradeOf(plain) : undefined;
-        const targets: Array<number | null> = teeth.length ? teeth : [null];
+        const targets: Array<number | null> = paired ? paired.filter((pair) => pair.category === category).map((pair) => pair.tooth) : teeth.length ? teeth : [null];
         for (const tooth of targets) items.push(makeItem({ tooth, surfaces: [], kind: itemKind, category, what: part, evidence: part, origin: "reglas", ...(grade ? { grade } : {}) }));
       }
     }

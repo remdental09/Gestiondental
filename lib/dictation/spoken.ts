@@ -615,11 +615,11 @@ export function reconcileCorrection(source: string, aiText: string): { text: str
 const SPOKEN_UNIT = "(?:uno|dos|tres|cuatro|cinco|seis|siete|ocho)";
 const TOOTH_TOKEN = `(?:\\d\\.\\d|\\d{1,2}|${SPOKEN_UNIT}\\s+(?:punto\\s+)?${SPOKEN_UNIT})`;
 const FIX_CUE = "(?:no[,\\s]+)?(?:perd[oó]n|mejor\\s+dicho|digo|corrijo|me\\s+equivoqu[eé])";
-const TOOTH_INTRO = "(?:es\\s+)?(?:en\\s+)?(?:la\\s+|el\\s+|(?:pieza|diente)\\s+)?";
+const TOOTH_INTRO = "(?:es\\s+)?(?:en\\s+)?(?:la\\s+|el\\s+|(?:pieza|diente)\\s+)?(?:(?:fdi|iso)\\s+)?";
 // Lo que va entre la pieza dicha y la corrección no puede nombrar otra pieza.
 const NO_OTHER_TOOTH = "(?:(?!\\d\\.\\d|\\bpieza\\b|\\bdiente\\b)[^.;\\n])*?";
 const NOT_A_TOOTH_AFTER = "(?![\\d.]?\\d)(?!\\s*(?:mil\\b|mm\\b|mil[ií]metros|pesos|%|hrs?\\b|horas))";
-const SELF_FIX_TOOTH = new RegExp(`(?<![\\p{L}\\d.])((?:pieza|diente)\\s+)?(${TOOTH_TOKEN})${NOT_A_TOOTH_AFTER}(${NO_OTHER_TOOTH})[,\\s]+${FIX_CUE}[,:\\s]+${TOOTH_INTRO}(${TOOTH_TOKEN})${NOT_A_TOOTH_AFTER}`, "giu");
+const SELF_FIX_TOOTH = new RegExp(`(?<![\\p{L}\\d.])((?:pieza|diente|(?:en\\s+)?(?:la|el))\\s+)?(?:(?:fdi|iso)\\s+)?(${TOOTH_TOKEN})${NOT_A_TOOTH_AFTER}(${NO_OTHER_TOOTH})[,\\s]+${FIX_CUE}[,:\\s]+${TOOTH_INTRO}(${TOOTH_TOKEN})${NOT_A_TOOTH_AFTER}`, "giu");
 // «…la 2.4 caries mesial, no, la 2.5»: un «no» seguido de otra pieza con punto FDI también corrige.
 // Solo si la pieza nueva cierra la frase («…, no, la 2.5.» o «…, no, la 2.5, caries…»): «caries no la 4.6 sana» no se toca.
 const SELF_FIX_TOOTH_NO = /(?<![\p{L}\d.])(\d\.\d)((?:(?!\d\.\d|\bpieza\b|\bdiente\b)[^.;\n])*?)[,\s]+no[,\s]+(?:es\s+)?(?:la|el|(?:pieza|diente))\s+(\d\.\d)(?![\d.]?\d)(?=\s*(?:[,.;\n]|$))/giu;
@@ -634,8 +634,12 @@ export function applySelfCorrections(text: string): { text: string; corrections:
   const corrections: TranscriptCorrection[] = [];
   const note = (original: string, corrected: string) => corrections.push({ original, corrected, origin: "diccionario", applied: true, reason: "Autocorrección dictada" });
   let out = text.replace(SELF_FIX_TOOTH, (whole, intro: string | undefined, old: string, middle: string, next: string) => {
-    // Un número suelto («20 … perdón 30») no es una pieza: solo «pieza 20», «2.4» o «dos cuatro».
+    // Un número suelto («20 … perdón 30») no es una pieza: solo «pieza 20», «la 16», «2.4» o «dos cuatro».
+    // «la 16» (artículo) solo cuenta si el número puede ser una pieza y no es un día del mes («la 20 de marzo»).
+    const article = Boolean(intro) && !/^(?:pieza|diente)/i.test(intro ?? "");
     if (/^\d{1,2}$/.test(old) && !intro) return whole;
+    if (article && /^\d{1,2}$/.test(old) && (!/^(?:1\d|2\d|3\d|4[0-8]|5[1-9]|6\d|7\d|8[0-5])$/.test(old) || /^\s*de\s+(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)/i.test(middle))) return whole;
+    // El artículo y la etiqueta «FDI» de lo corregido no se repiten: «la 16 por oclusal, no perdón, en la FDI 1.6» → «la 1.6 por oclusal».
     const value = `${intro ?? ""}${next}${middle}`;
     note(whole, value);
     return value;
