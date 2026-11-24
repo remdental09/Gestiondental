@@ -2911,6 +2911,31 @@ export function buildModelUserPrompt(input: StructureInput): string {
 }
 
 /** Normaliza para comparar citas: sin tildes, minúsculas y solo letras o números. */
+const FIRST_PERSON_DONE = /(?<!\p{L})(?<!no\s)(?:hice|hicimos|realic[eé]|realizamos|efectu[eé]|apliqu[eé]|obtur[eé]|extraj[eo]|coloqu[eé]|instal[eé]|pul[ií]|cement[eé])(?!\p{L})/iu;
+const PLAN_SENTENCE_DONE = /^\s*Se\s+(?:realiza|efect[uú]a|hace|administra|aplica|obtura|extrae|instala|coloca|pule|cementa|ense[ñn]a)(?!\p{L})/iu;
+
+/**
+ * La IA a veces deja bajo «Plan de tratamiento» lo que el dictado dice que ya se hizo («hice destartraje» → «Se realiza
+ * destartraje…» en el plan). Esas frases pasan a «Procedimientos realizados» solo si el dictado las respalda como hechas.
+ */
+export function movePerformedOutOfPlan(nota: Record<string, unknown>, transcript: string): void {
+  if (typeof nota.plan !== "string" || !nota.plan.trim()) return;
+  const done = sentences(transcript).filter((line) => (FIRST_PERSON_DONE.test(line) || PERFORMED_TODAY.test(line)) && !isPlan(line) && !planContextOfSegment(line, transcript));
+  if (!done.length) return;
+  const keep: string[] = [];
+  const moved: string[] = [];
+  for (const sentence of nota.plan.split(/(?<=[.!?])\s+/u).map((part) => part.trim()).filter(Boolean)) {
+    const words = normalizeEvidence(sentence).split(/\s+/).filter((word) => word.length >= 6 && !/^(?:realiza|efectua|administra|aplica)$/.test(word));
+    const backed = words.some((word) => done.some((line) => normalizeEvidence(line).includes(word)));
+    if (PLAN_SENTENCE_DONE.test(sentence) && !/(?<!\p{L})(?:control|cita|pr[oó]xim\p{L}*|sesi[oó]n|futur\p{L}*)(?!\p{L})/iu.test(sentence) && backed) moved.push(sentence);
+    else keep.push(sentence);
+  }
+  if (!moved.length) return;
+  const proc = typeof nota.procedimientos === "string" ? nota.procedimientos.trim() : "";
+  nota.procedimientos = [proc, ...moved.filter((sentence) => !normalizeEvidence(proc).includes(normalizeEvidence(sentence)))].filter(Boolean).join(" ");
+  nota.plan = keep.join(" ");
+}
+
 export function normalizeEvidence(value: string): string {
   return speechText(value).replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 }
@@ -3176,6 +3201,7 @@ export function validateAiExtraction(input: unknown, transcript: string, options
       nota.procedimientos = "";
     }
   }
+  movePerformedOutOfPlan(nota, transcript);
   const noteText = Object.values(nota).filter((value): value is string => typeof value === "string").join(" ");
   if (notDone && !/\b(?:no\s+(?:(?:se\s+)?(?:ha\s+)?)?(?:realiz|efectu|inici)|sin\s+(?:realizar|efectuar|iniciar)|pendiente\s+de\s+(?:realizar|efectuar|iniciar))/iu.test(noteText)) {
     nota.plan = [typeof nota.plan === "string" ? nota.plan : "", ensurePeriod(capitalize(notDone[0]))].filter(Boolean).join(" ");

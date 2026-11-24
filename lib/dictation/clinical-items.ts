@@ -75,9 +75,9 @@ const CATEGORY_RULES: Array<[ItemCategory, RegExp]> = [
   ["corona", /(?<![a-z])coronas?(?![a-z])/],
   ["puente", /(?<![a-z])(?:puentes?|protesis\s+fija\s+plural)(?![a-z])/],
   ["protesis", /(?<![a-z])(?:protesis|rehabilita\w*)(?![a-z])/],
-  ["obturacion", /(?<![a-z])(?:obtura\w*|restaura(?:cion|ciones|r|do|da)|resina|composite|amalgama|ionomero)(?![a-z])/],
+  ["obturacion", /(?<![a-z])(?:obtura\w*|restaura(?:cion|ciones|r|do|da)|resina|composite|amalgama|ionomero|onlays?|inlays?|overlays?|incrustacion(?:es)?)(?![a-z])/],
   ["endodoncia", /(?<![a-z])(?:endodoncia|tratamiento\s+de\s+conductos?|pulpectomia|pulpotomia|biopulpectomia|necropulpectomia)(?![a-z])/],
-  ["destartraje", /(?<![a-z])(?:destartraje|detartraje|pulido\s+radicular|raspado|profilaxis)(?![a-z])/],
+  ["destartraje", /(?<![a-z])(?:destartraje|detartraje|pulido\s+radicular|raspado|raspaje|alisado(?:\s+radicular)?|profilaxis)(?![a-z])/],
   ["escaneo", /(?<![a-z])(?:escane\w*|scan\s*body|scanbody|escaner\s+intraoral)(?![a-z])/],
   ["sellante", /(?<![a-z])sellantes?(?![a-z])/],
   ["ausente", /(?<![a-z])(?:ausente|ausencia|perdida\s+(?:de\s+la\s+pieza|dentaria))(?![a-z])/],
@@ -225,7 +225,7 @@ export function ruleItems(text: string, tools: ItemTools): ClinicalItem[] {
       if (tools.teethIn(part).length) lastTeeth = teeth;
       if (!categories.length) {
         // Pieza nombrada sin acto reconocible: se registra igual para que la nota y la lista se puedan comparar.
-        for (const tooth of teeth) items.push(makeItem({ tooth, surfaces: [], kind, category: "otro", what: part, evidence: part, origin: "reglas" }));
+        for (const tooth of teeth) { const own = ownClause(part, tooth, teeth, tools); items.push(makeItem({ tooth, surfaces: [], kind, category: "otro", what: own, evidence: own, origin: "reglas" })); }
         continue;
       }
       // «Obturar 1.6 y 2.5, endodoncia en la 3.6 y después corona»: cada tratamiento va con SUS piezas, no con todas.
@@ -235,7 +235,7 @@ export function ruleItems(text: string, tools: ItemTools): ClinicalItem[] {
         const itemKind: ItemKind = FINDING_CATEGORIES.has(category) && kind !== "diagnostico" && categories.some((c) => !FINDING_CATEGORIES.has(c)) ? "diagnostico" : kind;
         const grade = category === "movilidad" ? gradeOf(plain) : undefined;
         const targets: Array<number | null> = paired ? paired.filter((pair) => pair.category === category).map((pair) => pair.tooth) : teeth.length ? teeth : [null];
-        for (const tooth of targets) items.push(makeItem({ tooth, surfaces: [], kind: itemKind, category, what: part, evidence: part, origin: "reglas", ...(grade ? { grade } : {}) }));
+        for (const tooth of targets) { const own = tooth !== null && !paired ? ownClause(part, tooth, teeth, tools) : part; items.push(makeItem({ tooth, surfaces: [], kind: itemKind, category, what: own, evidence: own, origin: "reglas", ...(grade ? { grade } : {}) })); }
       }
     }
   }
@@ -252,6 +252,19 @@ function dedupe(items: ClinicalItem[]): ClinicalItem[] {
     if (!twin.grade && item.grade) twin.grade = item.grade;
   }
   return out;
+}
+
+/**
+ * «Sondaje de 5 mm por distal de la 4.6 con sangrado, y de 4 por mesial de la 4.5»: cada pieza conserva SU tramo
+ * (con su medida y su sitio) y no la frase entera. Si no se puede separar, devuelve la frase completa.
+ */
+export function ownClause(part: string, tooth: number, teeth: number[], tools: ItemTools): string {
+  if (teeth.length < 2) return part;
+  const segments = part.split(/\s*,\s*(?:y\s+)?(?=de\s+\d|\d)/u).map((segment) => segment.trim()).filter(Boolean);
+  if (segments.length < 2) return part;
+  const mine = segments.filter((segment) => tools.teethIn(segment).includes(tooth));
+  if (!mine.length || mine.length === segments.length) return part;
+  return mine.join(", ");
 }
 
 /** Une la lista de la IA con la de reglas: coincidencias quedan «ia+reglas»; lo de una sola fuente conserva su origen. */

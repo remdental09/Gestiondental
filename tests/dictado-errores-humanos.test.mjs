@@ -76,3 +76,33 @@ test("tallado para corona + provisoria + «la definitiva viene en dos semanas» 
   assert.equal(kindOf("La corona definitiva viene en dos semanas.", null, () => false), "plan");
   assert.equal(kindOf("Se realiza obturación de la 1.6, control en dos semanas.", null, () => false), "realizado");
 });
+
+test("sondaje de dos piezas: cada una conserva su tramo, con su medida y su sitio", async () => {
+  const { ruleItems } = await import("../lib/dictation/clinical-items.ts");
+  const items = ruleItems("Sondaje de 5 milímetros por distal de la 4.6 con sangrado, y de 4 por mesial de la 4.5.", tools);
+  const of = (tooth) => items.find((i) => i.tooth === tooth)?.evidence ?? "";
+  assert.match(of(46), /5 mil[ií]metros por distal/);
+  assert.doesNotMatch(of(46), /mesial/);
+  assert.match(of(45), /4 por mesial/);
+  assert.doesNotMatch(of(45), /distal/);
+});
+
+test("raspaje y alisado radicular cuenta como destartraje realizado, y un onlay planificado como restauración en plan", async () => {
+  const { ruleItems } = await import("../lib/dictation/clinical-items.ts");
+  const rar = ruleItems("Hoy hice raspaje y alisado radicular del cuadrante 4.", { ...tools, isPlan: () => false });
+  assert.ok(rar.some((i) => i.category === "destartraje" && i.kind === "realizado"));
+  const onlay = ruleItems("Planifico un onlay cerámico en la 4.6.", tools);
+  assert.ok(onlay.some((i) => i.tooth === 46 && i.category === "obturacion" && i.kind === "plan"));
+});
+
+test("lo que el dictado dice que ya se hizo no se queda bajo «Plan de tratamiento» de la nota", async () => {
+  const { movePerformedOutOfPlan } = await import("../lib/dictation/proposal.ts");
+  const nota = { procedimientos: "", plan: "Se realiza destartraje supragingival y subgingival en toda la boca con ultrasonido. Se programa control en 15 días." };
+  movePerformedOutOfPlan(nota, "Hoy hice destartraje supra y subgingival en toda la boca con ultrasonido. Control en 15 días.");
+  assert.match(nota.procedimientos, /destartraje/);
+  assert.match(nota.plan, /control/i);
+  assert.doesNotMatch(nota.plan, /destartraje/);
+  const futuro = { procedimientos: "", plan: "Se realiza destartraje en la próxima sesión." };
+  movePerformedOutOfPlan(futuro, "Se planifica destartraje para la próxima sesión.");
+  assert.match(futuro.plan, /destartraje/, "un plan real no se mueve");
+});
