@@ -277,7 +277,9 @@ export function lineText(line: EvolutionLine): string {
   return `${where} · ${what}${surf} · ${KIND_MARK[line.kind]}`;
 }
 function shortWhat(what: string): string {
-  const clean = what.replace(/\s+(?:en\s+(?:la\s+)?)?(?:pieza\s+)?\d\.\d\b.*$/i, "").replace(/\s+[MODVPLI]{1,5}$/, "").trim();
+  // «Pza 2.6 Rc DO …» / «Piezas 3.7-3.6 Corona Cerec …»: la pieza ya va delante; queda el acto, hasta la primera barra.
+  const act = what.replace(/^\s*(?:pzas?|piezas?|dientes?)\.?\s*(?:[1-8]\.[1-8](?:\s*(?:-|,|y)\s*)?)+\s*[:\-/]?\s*/i, "").split(/\s*[/;|]\s*/)[0] || what;
+  const clean = act.replace(/\s+(?:en\s+(?:la\s+)?)?(?:pieza\s+)?\d\.\d\b.*$/i, "").replace(/\s+[MODVPLI]{1,5}$/, "").trim();
   return (clean.charAt(0).toUpperCase() + clean.slice(1)).slice(0, 48) || "Registro";
 }
 
@@ -304,7 +306,7 @@ export function budgetItemsFor(line: EvolutionLine, prices: Record<string, numbe
 export type PieceChip = { t: string; s: "ok" | "avance" | "plan" | "dx" };
 export function pieceChips(lines: EvolutionLine[]): PieceChip[] {
   return lines.slice(0, 32).map(line => ({
-    t: `${whereText({ ...line, surfaces: [] })} ${line.category === "perio" ? `PS ${line.perio?.maxDepth ?? ""}` : shortWhat(line.what)}`.slice(0, 60),
+    t: `${whereText({ ...line, surfaces: [] })} ${line.category === "perio" ? `PS ${line.perio?.maxDepth ?? ""}` : shortWhat(line.code && line.prestacion && /^\s*(?:pzas?|piezas?)\b/i.test(line.what) ? line.prestacion : line.what)}`.slice(0, 60),
     s: line.kind === "realizado" ? (line.match?.to === "iniciada" ? "avance" : "ok") : line.kind === "plan" ? "plan" : "dx",
   }));
 }

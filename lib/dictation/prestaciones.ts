@@ -81,7 +81,7 @@ const KEYWORDS: Array<{ test: RegExp; code: (text: string, teeth?: number[], con
   // En el arancel hay dos «gingivectomía unitaria» (5006014 en endodoncia y 5009008 en periodoncia): se usa la de periodoncia.
   // Varias piezas o un sector (sextante, grupo, arcada) → por sextante. Con láser no se asigna (queda a elección).
   { test: /\bgingivectomia\b/, code: (t, teeth = []) => (/\blaser\b/.test(t) ? null : /\bsextante|\bgrupo\b|\bsector\b|\barcada\b|\banteriores?\b|\bposteriores?\b/.test(t) || teeth.length > 1 ? "5009023" : teeth.length === 1 ? "5009008" : null) },
-  { test: /\bexodoncia\b|\bextraccion\b|\bse\s+extrae\b/, code: (t) => (/\bresto\s+radicular\b/.test(t) ? "5001041" : /\bterce(?:r|ros)\s+molar|\bmuela\s+del\s+juicio\b|\bcordal/.test(t) ? "5003045" : "5003001") },
+  { test: /\bexodoncia\b|\bextraccion\b|\bse\s+extrae\b/, code: (t) => (/\b(?:post\s*-?\s*(?:exodoncia|extraccion)|donde\s+se\s+realizo\s+la\s+(?:exodoncia|extraccion)|zona\s+de\s+(?:la\s+)?(?:exodoncia|extraccion)|(?:deriva\w*|indica\w*)\s+(?:\w+\s+){0,4}para\s+(?:la\s+)?(?:exodoncia|extraccion))\b/.test(t) && !/\bse\s+(?:realiza|extrae|hace)\s+(?:la\s+)?(?:exodoncia|extraccion)\b|\bexodoncia\s+(?:simple|quirurgica)\b/.test(t) ? null : /\bresto\s+radicular\b/.test(t) ? "5001041" : /\bterce(?:r|ros)\s+molar|\bmuela\s+del\s+juicio\b|\bcordal/.test(t) ? "5003045" : "5003001") },
   { test: /\b(?:se\s+)?(?:instal|coloc)\w*\s+(?:un\s+|el\s+|los\s+|dos\s+)?implantes?\b|\binstalacion\s+de\s+(?:un\s+)?implante|\bimplantes?\s+(?:inmediato|unitario)\b/, code: (t) => (/corona|pilar\s+de\s+cicatrizacion|provisori|segunda\s+fase|control|\binstalar|\bcolocar|\bplan\b|\ben\s+\w+\s+meses|se\s+planifica|diferid/.test(t) ? null : "5011001") },
   { test: /\belevacion\s+(?:de\s+)?(?:del\s+)?seno|\bantrotomia\b|\bsinus\s+lift\b/, code: () => "5011005" },
   { test: /\bpreservacion\s+alveolar\b/, code: () => "5011020" },
@@ -231,6 +231,38 @@ export function suggestPrestaciones(odontogram: OdontogramChange[], procedureLin
       if (found && !partOfCementation) push(make(found.code, teeth.length === 1 ? teeth[0] : null, line, out.length + 1));
     }
   }
+  // Endodoncia terminada (obturación de conductos, gutapercha, TotalFill) en una sola pieza: es el tratamiento de conductos,
+  // nunca una trepanación de urgencia. Sin vitalidad dictada se propone la variante sin lesión apical, desmarcada, para elegir.
+  const endoTeeth = [...new Set(teethOf(`${procedureLines.join(" ")} ${dictated}`))];
+  const finishedEndo = ENDO_FINISHED.test(allPlain);
+  const endoInProgress = finishedEndo || ENDO_SESSION.test(allPlain);
+  if (finishedEndo && endoTeeth.length >= 1 && endoTeeth.length <= 4) {
+    // Cada pieza con SU tramo («Pza 2.1 … OBC … Pza 2.2 … OBC»): solo las que terminan la endodoncia en esta nota.
+    const whole = `${procedureLines.join(" ")} ${dictated}`;
+    for (const tooth of endoTeeth) {
+      const clause = endoTeeth.length === 1 ? allPlain : fold(toothSpan(whole, tooth));
+      if (!ENDO_FINISHED.test(clause) || /\b(?:retratamiento|desobtur\w*)\b/.test(clause)) continue;
+      if (out.some((item) => ENDO_CODES.has(item.code) && item.tooth === tooth)) continue;
+      // Sin vitalidad dictada no se adivina el código: queda la pregunta «¿estaba vital o con lesión apical?».
+      const known = endodonticCode(tooth, clause);
+      const item = known ? make(known, tooth, "obturación de conductos", out.length + 1) : null;
+      if (item) push(item);
+    }
+  }
+  // Cementación de una prótesis fija plural (PFP / puente): la inserción según el material dictado; el ajuste de oclusión es parte de ella.
+  const pfpCementation = /\b(?:cementa\w*|insercion|instala\w*)\b[^.;]{0,40}\b(?:protesis\s+fija\s+plural|pfp|puente)\b|\b(?:protesis\s+fija\s+plural|pfp|puente)\b[^.;]{0,40}\bcementad\w*/.test(allPlain);
+  if (pfpCementation) {
+    const code = /metal\s*ceramic/.test(allPlain) ? "5007002" : /nucleo\s+ceramico/.test(allPlain) ? "5007013" : /ceromero/.test(allPlain) ? "5007020" : /resina\s+hibrida/.test(allPlain) ? "5007047" : /zirconi|circoni|disilicato|e-?max|libre\s+de\s+metal|ceramica\s+pura/.test(allPlain) ? "5007041" : null;
+    if (code) push(make(code, null, "cementación de prótesis fija plural", out.length + 1));
+  }
+  const cementing = pfpCementation || /\b(?:cementa\w*|ketac|duolink|futurabond|relyx|u\s?200|choi[cs]e)\b/.test(allPlain);
+  for (let i = out.length - 1; i >= 0; i -= 1) {
+    const item = out[i];
+    // Trepanación de urgencia solo si es una apertura de urgencia; no con conductometría, preparación u obturación de conductos.
+    if (item.code === "5001019" && endoInProgress && !/\burgencia\b/.test(allPlain)) out.splice(i, 1);
+    // El ajuste de oclusión tras cementar es parte de la cementación, no un «ajuste de plano oclusal».
+    else if (item.code === "5013035" && cementing) out.splice(i, 1);
+  }
   // Si las inactivaciones ya quedaron cobradas por pieza desde los actos, la versión «sin pieza» sobra (sería un doble cobro).
   const actInactivated = new Set(acts.filter((act) => act.tooth && actIsInactivation(act)).map((act) => act.tooth));
   const final = actInactivated.size && out.some((item) => item.code === "5010029" && item.tooth !== null && actInactivated.has(item.tooth))
@@ -238,6 +270,22 @@ export function suggestPrestaciones(odontogram: OdontogramChange[], procedureLin
     : out;
   return final.map((item, index) => ({ ...withoutPerformedEvidence(item, dictated), id: `pr-${index + 1}` }));
 }
+
+/** Tramo del texto que corresponde a una pieza: desde que se nombra hasta que se nombra otra pieza distinta. */
+function toothSpan(text: string, tooth: number): string {
+  const marks = [...text.matchAll(/(?<![\p{L}\d.,])([1-8])\.([1-8])(?![\d])/gu)].map((m) => ({ at: m.index ?? 0, tooth: Number(m[1]) * 10 + Number(m[2]) }));
+  const parts: string[] = [];
+  marks.forEach((mark, index) => {
+    if (mark.tooth !== tooth) return;
+    const next = marks.slice(index + 1).find((other) => other.tooth !== tooth);
+    parts.push(text.slice(mark.at, next ? next.at : text.length));
+  });
+  return parts.join(" ");
+}
+
+const ENDO_FINISHED = /\b(?:obturacion\s+de\s+(?:los\s+)?conductos?|obc|gutapercha|guta|totalfill|total\s+fill|cono\s+unico)\b/;
+const ENDO_SESSION = /\b(?:conductometria|preparacion\s+quimico|conductos?\s+(?:mv\d?|mb\d?|dv|db|ml|dl|p|u|v|l)\s*-?\s*\d|instrumentacion|irrigacion|naocl|hipoclorito|reciproc|protaper|limas?)\b/;
+const ENDO_CODES = new Set(["5006001", "5006002", "5006003", "5006007", "5006008", "5006009", "5006015", "5006016", "5006005"]);
 
 /** Verbos o marcas de que el acto se hizo en esta sesión (no un hallazgo existente). */
 const PERFORMED_TODAY = /(?<![a-z])(?:se\s+(?:le\s+)?(?:realiza|realizan|realizo|obtura|obturan|obturo|restaura|restauran|restauro|coloca|colocan|coloco|aplica|aplican|aplico|sella|sellan|sello|hace|hizo|efectua|efectuo|trata|trato|instala|instalan|instalo)|realizad[oa]s?|colocad[oa]s?|aplicad[oa]s?|hoy|en\s+esta\s+sesion)(?![a-z])/;
@@ -289,9 +337,12 @@ export function endodonticQuestions(procedureLines: string[], prestaciones: Pick
   const out: string[] = [];
   for (const line of procedureLines.flatMap((item) => item.split(/(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑ])/u))) {
     const plain = fold(line);
-    if (!/\btratamiento\s+(?:de\s+)?(?:conductos?|endodontic\w*)|\bendodoncia\b|\bpulpectomia\b|\bbiopulpectomia\b|\bnecropulpectomia\b/.test(plain)) continue;
+    if (!/\btratamiento\s+(?:de\s+)?(?:conductos?|endodontic\w*)|\bendodoncia\b|\bpulpectomia\b|\bbiopulpectomia\b|\bnecropulpectomia\b|\bobturacion\s+de\s+(?:los\s+)?conductos?\b/.test(plain)) continue;
     if (/retratamiento|desobtur|apertura\s+(?:cameral\s+)?y\s+medicacion|medicacion\s+intraconducto|\bno\s+se\s+realiz/.test(plain)) continue;
-    const teeth = [...new Set(teethOf(line))];
+    // «Pieza 1.7 Trepanación… / OBC gutapercha»: la obturación de conductos suele ir en su propia frase, sin la pieza.
+    const own = [...new Set(teethOf(line))];
+    const all = [...new Set(teethOf(procedureLines.join(" ")))];
+    const teeth = own.length ? own : all;
     if (teeth.length !== 1) continue;
     const tooth = teeth[0];
     if (prestaciones.some((item) => item.tooth === tooth && /^50060(?:01|02|03|07|08|09|15|16)$/.test(item.code))) continue;
