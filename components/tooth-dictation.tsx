@@ -741,7 +741,7 @@ export function ToothDictation({ tooth, chart, disabled = false, onApply }: {
   const liveActivityTitle = analysisError
     ? "La respuesta necesita revisión"
     : speechError
-      ? "Revisa el micrófono"
+      ? /l[ií]mite diario de IA/i.test(speechError) ? "Llegaste al límite diario de IA" : "Revisa el micrófono"
       : proposalReady && proposalReviewIssue
       ? "La propuesta necesita una corrección"
       : applying

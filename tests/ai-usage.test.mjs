@@ -114,3 +114,9 @@ test("limitsFor: el cupo de desarrollo se puede cambiar y nunca baja del tope no
   assert.equal(limitsFor(env, "dev@ejemplo.cl").calls, 2000);
   assert.equal(limitsFor({ ...env, AI_DAILY_CALLS: "400" }, "dev@ejemplo.cl").calls, 1500);
 });
+
+test("la pantalla de evaluación por pieza titula el límite de IA como tal y no como un problema del micrófono", () => {
+  const source = readFileSync(new URL("../components/tooth-dictation.tsx", import.meta.url), "utf8");
+  assert.match(source, /l\[ií\]mite diario de IA\/i\.test\(speechError\)/);
+  assert.match(source, /"Llegaste al límite diario de IA" : "Revisa el micrófono"/);
+});
