@@ -38,6 +38,23 @@ export function limitsFrom(env: Record<string, unknown> | undefined): AiLimits {
   };
 }
 
+/**
+ * Topes de una persona concreta: los correos de AI_DEVELOPER_EMAILS (separados por coma) tienen más cupo para probar y
+ * correr lotes (AI_DEVELOPER_DAILY_CALLS, por defecto 1000; AI_DEVELOPER_DAILY_TOKENS, por defecto 15 millones).
+ * Los demás usan los topes de siempre; el tope no baja nunca por debajo del normal.
+ */
+export function limitsFor(env: Record<string, unknown> | undefined, email: string | null | undefined): AiLimits {
+  const base = limitsFrom(env);
+  const wanted = (email ?? "").trim().toLowerCase();
+  const list = typeof env?.AI_DEVELOPER_EMAILS === "string" ? env.AI_DEVELOPER_EMAILS : "";
+  if (!wanted || !list.split(",").map((item) => item.trim().toLowerCase()).filter(Boolean).includes(wanted)) return base;
+  return {
+    ...base,
+    calls: Math.max(base.calls, positive(env?.AI_DEVELOPER_DAILY_CALLS, 1000)),
+    tokens: Math.max(base.tokens, positive(env?.AI_DEVELOPER_DAILY_TOKENS, 15_000_000)),
+  };
+}
+
 export type UsageRow = { calls: number; input_tokens: number; output_tokens: number; audio_seconds: number };
 
 export function overLimit(row: UsageRow | null, limits: AiLimits, kind: "text" | "audio" = "text"): boolean {
