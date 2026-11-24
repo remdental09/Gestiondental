@@ -479,6 +479,34 @@ function sentences(text: string): string[] {
 }
 
 /** Solo las partes de la frase que no hablan de fractura, cúspide u otro hallazgo fuera de la leyenda. */
+/**
+ * «Obturé la 1.6 oclusal y la 2.5 mesial con resina, y en la 1.3 y la 2.3 lesiones cervicales»: el tramo de la frase que habla de
+ * `tooth`. Un tramo que solo nombra la pieza («la 1.3») comparte lo que dice el siguiente («y la 2.3 lesiones…»). Devuelve null si la
+ * frase no se puede separar por piezas (una sola pieza, o una lista con una sola descripción).
+ */
+export function toothClause(sentence: string, tooth: number): string | null {
+  const raw = sentence.split(/\s*(?:,\s*)?(?:\by\s+)?(?=(?:en\s+)?(?:la|el|las|los)\s+(?:(?:pieza|piezas|diente|dientes)\s+)?(?:fdi\s+)?\d{1,2}(?:\.\d)?(?![\d.]?\d))/iu).filter((part) => part.trim());
+  const parts: string[] = [];
+  let carry = "";
+  for (const part of raw) {
+    if (!toothMentions(part).some((m) => m.ok)) { carry = `${carry} ${part}`.trim(); continue; }
+    parts.push(`${carry} ${part}`.trim());
+    carry = "";
+  }
+  if (carry && parts.length) parts[parts.length - 1] = `${parts[parts.length - 1]} ${carry}`.trim();
+  if (parts.length < 2) return null;
+  const hasDetail = (part: string) => collectRawSurfaces(part).length > 0 || FINDING_CUE.test(part) || /\b(?:lesion\p{L}*|cervical\p{L}*|ion[oó]mero|resina|amalgama|sellante)\b/iu.test(part);
+  const own: string[] = [];
+  parts.forEach((part, index) => {
+    if (!toothMentions(part).some((m) => m.ok && m.tooth === tooth)) return;
+    let text = part;
+    // Un tramo sin descripción propia continúa con el siguiente («la 1.3 y la 2.3 lesiones cervicales»).
+    for (let next = index + 1; !hasDetail(text) && next < parts.length; next += 1) text = `${text} ${parts[next]}`;
+    own.push(text);
+  });
+  return own.length ? own.join(" ") : null;
+}
+
 function surfaceScope(sentence: string): string {
   // «fosas y fisuras» es la anatomía del sellante o de la caries oclusal, no una fisura dentaria.
   // En un sellante, las fosas y fisuras son la cara oclusal.
@@ -572,7 +600,17 @@ function spokenDigit(word: string): number {
   return { un: 1, uno: 1, una: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8 }[word] ?? 0;
 }
 
-function toothMentions(sentence: string): Mention[] {
+/**
+ * El número de una lima endodóntica («instrumentación con limas rotatorias hasta la 25», «lima número 30») no es una pieza.
+ * Solo se enmascara dentro de frases que hablan de limas o instrumentación.
+ */
+export function maskInstrumentSizes(sentence: string): string {
+  if (!/(?<!\p{L})(?:limas?|instrument\p{L}*|conformaci[oó]n|ensanchad\p{L}*|rotatori\p{L}*|reciproc\p{L}*|conductometr\p{L}*)(?!\p{L})/iu.test(sentence)) return sentence;
+  return sentence.replace(/(?<!\p{L})((?:hasta|lima|limas|instrumentad\p{L}*\s+(?:a|con|hasta))\s+(?:(?:la|el)\s+)?(?:(?:lima|limas)\s+)?(?:n[uú]mero\s+|n[º°.]\s*|#\s*)?)(\d{2,3})(?![\d.,]?\d)(?!\s*(?:a[nñ]os?|horas?|de\s+(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)))/giu, (whole, lead: string, digits: string) => `${lead}${" ".repeat(digits.length)}`);
+}
+
+export function toothMentions(rawSentence: string): Mention[] {
+  const sentence = maskInstrumentSizes(rawSentence);
   const mentions: Mention[] = [];
   const numbered = /\b(?:pieza|diente)\s+(?:(fdi|iso|chilena|nacional|universal|estadounidense|ee\.?\s*uu\.?|ada)\s+)?(\d{1,2}(?:\.\d)?)\b|\b(fdi|iso|chilena|nacional|universal|estadounidense|ee\.?\s*uu\.?|ada)\s+(\d{1,2}(?:\.\d)?)\b/gi;
   for (const match of sentence.matchAll(numbered)) {
@@ -1882,6 +1920,13 @@ export function structureTranscript(transcript: string, options: { today?: strin
         const own = neighbourScoped(sentence, mention.tooth);
         if (own !== sentence && (onImplant ? !crownOnImplantSentence(own) : status ? statusFrom(own) !== status : false)) continue;
       }
+      // «Plan: obturar 1.6 y 2.5, endodoncia en la 3.6 y después corona»: un estado explícito (corona…) de otro tramo
+      // no se cuelga de las demás piezas de la frase. Sin estado propio en el tramo, vale el de la frase.
+      if (status && !onImplant && mentions.filter((m) => m.ok).length > 1) {
+        const own = toothClause(sentence, mention.tooth);
+        const ownStatus = own ? statusFrom(own) : null;
+        if (ownStatus && ownStatus !== status) continue;
+      }
       if (onImplant || status) {
         const base = {
           tooth: mention.tooth,
@@ -1919,10 +1964,22 @@ export function structureTranscript(transcript: string, options: { today?: strin
         if (!(status && isLesionStatus(status) && surfaceResult)) continue;
       }
       if (!surfaceResult) continue;
-      if ("error" in surfaceResult) {
-        clarifications.push(surfaceResult.error);
-        if (surfaceResult.partial) {
-          for (const surface of resolveDictatedSurfaces(scope, mention.tooth).surfaces) {
+      // «Obturé la 1.6 oclusal y la 2.5 mesial con resina…»: cada pieza usa solo SU tramo de la frase (antes todas recibían todas las caras).
+      const clause = mentions.filter((m) => m.ok).length > 1 ? toothClause(sentence, mention.tooth) : null;
+      const ownScope = clause ? surfaceScope(clause) : scope;
+      let ownResult: FindingResult = surfaceResult;
+      if (clause) {
+        const alone = findingFrom(ownScope);
+        if (alone && !("error" in alone) && !("error" in surfaceResult) && alone.finding.condition === "restored" && !alone.finding.restorationMaterial && surfaceResult.finding.condition === "restored" && surfaceResult.finding.restorationMaterial) {
+          ownResult = { ...alone, finding: { ...alone.finding, restorationMaterial: surfaceResult.finding.restorationMaterial } };
+        } else if (alone) ownResult = alone;
+        // El tramo no trae su propio hallazgo («Obturé la 1.6 oclusal»): vale el de la frase, con las caras del tramo.
+      }
+      if (!ownResult) continue;
+      if ("error" in ownResult) {
+        clarifications.push(ownResult.error);
+        if (ownResult.partial) {
+          for (const surface of resolveDictatedSurfaces(ownScope, mention.tooth).surfaces) {
             incomplete.push({
               id: nextId("inc"),
               tooth: mention.tooth,
@@ -1933,15 +1990,15 @@ export function structureTranscript(transcript: string, options: { today?: strin
               origin: "reglas",
               kind: "surface",
               surface,
-              finding: surfaceResult.partial,
+              finding: ownResult.partial,
             });
           }
         }
         continue;
       }
-      let resolved = resolveDictatedSurfaces(scope, mention.tooth);
+      let resolved = resolveDictatedSurfaces(ownScope, mention.tooth);
       // «Caries profunda en oclusal de la 3.7. Se restaura con resina compuesta.»: la restauración sin cara va en la cara recién dictada.
-      if (!resolved.surfaces.length && !resolved.notes.length && surfaceResult.finding.condition === "restored") {
+      if (!resolved.surfaces.length && !resolved.notes.length && ownResult.finding.condition === "restored") {
         for (const other of allSentences.slice(Math.max(0, sentenceIndex - 2), sentenceIndex).reverse()) {
           if (!toothMentions(other).some((found) => found.ok && found.tooth === mention.tooth)) continue;
           const inherited = resolveDictatedSurfaces(surfaceScope(other), mention.tooth).surfaces;
@@ -1951,20 +2008,20 @@ export function structureTranscript(transcript: string, options: { today?: strin
       for (const note of resolved.notes) clarifications.push(note);
       if (!resolved.surfaces.length) {
         // «pieza 1.6 sin caries» sin cara: queda en la nota, no cambia el odontograma ni pregunta la cara.
-        if (surfaceResult.finding.condition === "sound" && /\b(?:sin|no)\s+(?:se\s+observa\s+)?caries\b/i.test(sentence)) continue;
+        if (ownResult.finding.condition === "sound" && /\b(?:sin|no)\s+(?:se\s+observa\s+)?caries\b/i.test(sentence)) continue;
         // «Se procede a eliminación de caries y trepanación»: es un procedimiento realizado, no un hallazgo; no pregunta la cara.
         if (/\b(?:eliminaci[oó]n|remoci[oó]n|retiro|elimina|elimin[oó]|remueve|retira)\s+(?:de\s+(?:la\s+|las\s+)?)?caries\b|\btrepanaci[oó]n\b/i.test(sentence)) continue;
         if (!resolved.notes.length) clarifications.push(`Falta la superficie del hallazgo: «${clip(sentence)}».`);
         continue;
       }
-      if (surfaceResult.depthNote !== undefined && !/^aclaraci[oó]n:/iu.test(sentence)) clarifications.push(depthQuestion(`FDI ${formatFdi(mention.tooth)}`, surfaceResult.depthNote || undefined, sentence));
+      if (ownResult.depthNote !== undefined && !/^aclaraci[oó]n:/iu.test(sentence)) clarifications.push(depthQuestion(`FDI ${formatFdi(mention.tooth)}`, ownResult.depthNote || undefined, sentence));
       for (const surface of resolved.surfaces) {
         // Una «Aclaración:» con la profundidad completa la caries ya propuesta en vez de duplicarla.
-        const earlier = surfaceResult.finding.condition === "caries"
+        const earlier = ownResult.finding.condition === "caries"
           ? odontogram.find((done) => done.kind === "surface" && done.tooth === mention.tooth && done.surface === surface && done.finding?.condition === "caries")
           : undefined;
         if (earlier?.finding) {
-          const next = surfaceResult.finding;
+          const next = ownResult.finding;
           earlier.finding = { ...earlier.finding, depth: next.depth ?? earlier.finding.depth ?? null, activity: next.activity ?? earlier.finding.activity ?? null, icdas: next.icdas ?? earlier.finding.icdas ?? null };
           continue;
         }
@@ -1978,7 +2035,7 @@ export function structureTranscript(transcript: string, options: { today?: strin
           origin: "reglas",
           kind: "surface",
           surface,
-          finding: surfaceResult.finding,
+          finding: ownResult.finding,
         };
         const key = dedupeKey(item);
         if (!seen.has(key)) {
