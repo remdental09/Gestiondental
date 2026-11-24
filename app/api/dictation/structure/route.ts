@@ -35,7 +35,7 @@ export async function POST(request: Request) {
   const transcript = typeof record.transcript === "string" ? record.transcript : "";
   // El uso de IA cuenta contra la cuenta (espacio) en que se trabaja: en una clínica, la del titular.
   const account = user.userId;
-  const limited = await aiLimitResponse(account);
+  const limited = await aiLimitResponse(account, "text", user.email);
   if (limited) return limited;
   const usage = usageCollector();
   try {

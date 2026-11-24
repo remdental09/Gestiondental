@@ -17,6 +17,10 @@ declare namespace Cloudflare {
     OPENAI_STRUCTURE_MODEL?: string;
     /** Correos (separados por coma) que usan el agente de dictado con herramientas; vacío = nadie. */
     DICTATION_AGENT_EMAILS?: string;
+    /** Correos (separados por coma) con tope diario de IA más alto (desarrollo y lotes); vacío = nadie. */
+    AI_DEVELOPER_EMAILS?: string;
+    AI_DEVELOPER_DAILY_CALLS?: string;
+    AI_DEVELOPER_DAILY_TOKENS?: string;
     ACCESS_TEAM_DOMAIN?: string;
     ACCESS_POLICY_AUD?: string;
     ACCESS_ALLOWED_EMAIL?: string;

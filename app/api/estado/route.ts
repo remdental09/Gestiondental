@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { getChatGPTUser, personalIdOf } from "@/app/chatgpt-auth";
-import { chileDay, limitsFrom, type UsageRow } from "@/lib/ai-usage";
+import { chileDay, limitsFor, type UsageRow } from "@/lib/ai-usage";
 import { failingJobs, JOB_LABELS, type HealthRow } from "@/lib/cron-health";
 
 export const runtime = "edge";
@@ -21,7 +21,7 @@ export async function GET() {
   const isOwner = Boolean(owner) && account === owner && user.userId === owner;
   const rows = await db.prepare("SELECT job, last_run_at, last_ok_at, last_error_at, last_error, runs, failures, partial, duration_ms FROM cron_health ORDER BY job").bind().all<HealthRow>().then((r) => r.results).catch(() => [] as HealthRow[]);
   const usage = await db.prepare("SELECT calls, input_tokens, output_tokens, audio_seconds FROM ai_usage WHERE owner_id = ? AND day = ?").bind(user.userId, chileDay()).first<UsageRow>().catch(() => null);
-  const limits = limitsFrom(config);
+  const limits = limitsFor(config, user.email);
   const lastRun = rows.reduce<string | null>((latest, row) => (!latest || row.last_run_at > latest ? row.last_run_at : latest), null);
   return json({
     tareas: {

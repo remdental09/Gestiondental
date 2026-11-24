@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { aiAllowed, chileDay, limitsFrom, overLimit, recordAiUsage, usageCollector, approxAudioSeconds, DEFAULT_AI_LIMITS, AI_LIMIT_MESSAGE } from "../lib/ai-usage.ts";
+import { aiAllowed, chileDay, limitsFrom, limitsFor, overLimit, recordAiUsage, usageCollector, approxAudioSeconds, DEFAULT_AI_LIMITS, AI_LIMIT_MESSAGE } from "../lib/ai-usage.ts";
 
 function fakeDb() {
   const rows = new Map();
@@ -97,4 +97,20 @@ test("la corrección deja el prefijo fijo primero y el contexto variable al fina
   const content = src.slice(src.indexOf('role: "system"'));
   assert.ok(content.indexOf("${dentalDictionaryHints()}") < content.indexOf("${specialtyContext"));
   assert.ok(content.indexOf("${TOOTH_NUMBERING_PROMPT}") < content.indexOf("${specialtyContext"));
+});
+
+test("limitsFor: solo los correos de AI_DEVELOPER_EMAILS tienen más cupo; el resto queda con el tope de siempre", () => {
+  const env = { AI_DEVELOPER_EMAILS: " Dev@Ejemplo.cl, otro@ejemplo.cl " };
+  const dev = limitsFor(env, "dev@ejemplo.cl");
+  assert.equal(dev.calls, 1000);
+  assert.equal(dev.tokens, 15_000_000);
+  assert.deepEqual(limitsFor(env, "alguien@ejemplo.cl"), limitsFrom(env));
+  assert.deepEqual(limitsFor(env, null), limitsFrom(env));
+  assert.deepEqual(limitsFor({}, "dev@ejemplo.cl"), limitsFrom({}));
+});
+
+test("limitsFor: el cupo de desarrollo se puede cambiar y nunca baja del tope normal", () => {
+  const env = { AI_DEVELOPER_EMAILS: "dev@ejemplo.cl", AI_DEVELOPER_DAILY_CALLS: "1500", AI_DAILY_CALLS: "2000" };
+  assert.equal(limitsFor(env, "dev@ejemplo.cl").calls, 2000);
+  assert.equal(limitsFor({ ...env, AI_DAILY_CALLS: "400" }, "dev@ejemplo.cl").calls, 1500);
 });
