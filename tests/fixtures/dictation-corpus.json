@@ -901,7 +901,7 @@
       "id": "c60-corona-planificada",
       "text": "Pieza 4.6 con endodoncia previa. Se planifica corona de zirconio en la 4.6.",
       "expect": {
-        "odontogram": [],
+        "odontogram": ["46 Endodoncia terminada"],
         "itemsInclude": [
           "46 plan corona"
         ],

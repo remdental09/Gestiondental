@@ -488,3 +488,4 @@ Actualizar este archivo cuando cambie el funcionamiento o un pendiente duradero.
 
 ## 2026-11-23 — Agendar cita: se respeta la duración elegida
 - Al agendar una cita de un paciente, la duración (p. ej. 90 min) no se enviaba al servidor y la cita quedaba de 30 min. Ahora se guarda en la cita y se manda a Google Calendar. Las citas ya creadas de 30 min no cambian solas.
+- Odontograma general: estados «Endodoncia en proceso» (pieza abierta, trepanación, medicación entre sesiones) y «Endodoncia terminada» (conductos obturados o endodoncia previa). Se acumulan sobre corona/lesión, se reemplazan entre sí (el anterior queda en el historial) y los limpia ausente/implante/exodoncia. El dictado los propone con `endoStatusFrom` (plan, negación y relato no cuentan; «terminada» gana si se dicta todo en una frase). Sin recordatorios ni alertas por endodoncias abiertas: decisión del usuario. Sin códigos CIE-11 propios.
