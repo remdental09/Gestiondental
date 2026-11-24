@@ -104,3 +104,8 @@ test("«en la próxima hora/cita» con un plan, y «en la próxima sesión» sue
   assert.equal(isAppointmentText("Próxima cita el lunes 30."), true);
   assert.equal(isAppointmentText("Se agenda control en 3 semanas."), true);
 });
+
+test("«19 coma 5» dictado como medida no se marca como cifra inventada", async () => {
+  const p = await run("Endodoncia pieza 3.1 conducto único a 19 coma 5, referencia borde incisal, obturación con guta.");
+  assert.ok(!(p.clarifications ?? []).some((q) => /19\.5/.test(q)), JSON.stringify(p.clarifications));
+});

@@ -774,7 +774,7 @@ export function polishNote(body: string, patient: PatientContext | undefined): {
  */
 const FALLBACK_CIE11: Partial<Record<ItemCategory, string>> = {
   exodoncia: "DA0A.Z", implante: "DA0A.1", pilar: "DA0A.1", ausente: "DA0A.1",
-  corona: "DA08.Z", puente: "DA0A.1", protesis: "DA08.Z", escaneo: "DA08.Z", obturacion: "DA08.Z",
+  corona: "DA08.Z", protesis: "DA08.Z", escaneo: "DA08.Z", obturacion: "DA08.Z",
   endodoncia: "DA09.Z", destartraje: "DA08.4",
 };
 /** Sin pieza, estas categorías no dicen nada de un diente enfermo (una prótesis removible, un escaneo, una prueba de maqueta): no llevan diagnóstico de respaldo. */
