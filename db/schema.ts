@@ -44,7 +44,7 @@ export const evolutions = sqliteTable("evolutions", {
 /**
  * Etiquetas de diagnóstico de una evolución, confirmadas por el profesional. `code` es CIE-11 del catálogo
  * verificado (lib/icd11-catalog.ts) o "" para conceptos sin código; la pieza (FDI, p. ej. 24) y los hallazgos
- * van aparte del código. `suggestedFrom`: «AAE», «caries-pulpar» o «aproximado» si fue una equivalencia sugerida y confirmada.
+ * van aparte del código. `suggestedFrom`: «AAE», «caries-pulpar», «aproximado» o «nota» (propuesto por la app según lo descrito) si no fue dictado tal cual.
  */
 export const evolutionDiagnoses = sqliteTable("evolution_diagnoses", {
   id: integer("id").primaryKey({ autoIncrement: true }),
