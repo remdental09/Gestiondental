@@ -76,7 +76,7 @@ const CATEGORY_RULES: Array<[ItemCategory, RegExp]> = [
   ["puente", /(?<![a-z])(?:puentes?|protesis\s+fija\s+plural)(?![a-z])/],
   ["protesis", /(?<![a-z])(?:protesis|rehabilita\w*)(?![a-z])/],
   ["obturacion", /(?<![a-z])(?:obtura\w*(?!\s+de\s+(?:los\s+)?conductos?)|restaura(?:cion|ciones|r|do|da)|resina|composite|amalgama|ionomero|onlays?|inlays?|overlays?|incrustacion(?:es)?)(?![a-z])/],
-  ["endodoncia", /(?<![a-z])(?:endodoncia|tratamiento\s+de\s+conductos?|pulpectomia|pulpotomia|biopulpectomia|necropulpectomia|obturacion\s+de\s+(?:los\s+)?conductos?|preparacion\s+quimico|gutapercha|conductos?\s+(?:mv\d?|mb\d?|dv|db|ml|dl|unico|u|p|v|l)(?=[\s\-\d]))(?![a-z])/],
+  ["endodoncia", /(?<![a-z])(?:endodoncia|tratamiento\s+de\s+conductos?|pulpectomia|pulpotomia|biopulpectomia|necropulpectomia|obturacion\s+de\s+(?:los\s+)?conductos?|trepanacion\s+endodontica|medicacion\s+intraconducto|preparacion\s+quimico|gutapercha|conductos?\s+(?:mv\d?|mb\d?|dv|db|ml|dl|unico|u|p|v|l)(?=[\s\-\d]))(?![a-z])/],
   ["destartraje", /(?<![a-z])(?:destartraje|detartraje|pulido\s+radicular|raspado|raspaje|alisado(?:\s+radicular)?|profilaxis)(?![a-z])/],
   ["escaneo", /(?<![a-z])(?:escane\w*|scan\s*body|scanbody|escaner\s+intraoral)(?![a-z])/],
   ["sellante", /(?<![a-z])sellantes?(?![a-z])/],
@@ -169,6 +169,8 @@ function categoriesOf(plain: string): ItemCategory[] {
   if (found.includes("puente") && found.includes("protesis")) found.splice(found.indexOf("protesis"), 1);
   // En una sesión de endodoncia, el vidrio ionómero / IRM / provisorio es el sellado de la cámara, no una obturación aparte.
   if (found.includes("endodoncia") && found.includes("obturacion") && !/(?<![a-z])(?:resina\s+compuesta|composite|restauracion\s+de\s+resina|amalgama)(?![a-z])/.test(plain)) found.splice(found.indexOf("obturacion"), 1);
+  // Blanqueamiento intracoronario y tope cervical: el vidrio ionómero es el sellado de ese acto, no una restauración ni una caries.
+  if (found.includes("obturacion") && /(?<![a-z])(?:blanqueamiento\s+intracoronari\w*|tope\s+cervical)(?![a-z])/.test(plain) && !/(?<![a-z])(?:resina\s+compuesta|composite|restauracion\s+de\s+resina|amalgama)(?![a-z])/.test(plain)) found.splice(found.indexOf("obturacion"), 1);
   // «Escaneo intraoral de implantes»: se escanean implantes que ya están; no es instalar uno.
   if (found.includes("escaneo") && found.includes("implante") && !/(?:instala|coloca|inserta)\w*\s+(?:\w+\s+){0,2}implantes?|instalacion\s+de\s+implante/.test(plain)) found.splice(found.indexOf("implante"), 1);
   return found;
@@ -773,8 +775,10 @@ export function polishNote(body: string, patient: PatientContext | undefined): {
 const FALLBACK_CIE11: Partial<Record<ItemCategory, string>> = {
   exodoncia: "DA0A.Z", implante: "DA0A.1", pilar: "DA0A.1", ausente: "DA0A.1",
   corona: "DA08.Z", puente: "DA0A.1", protesis: "DA08.Z", escaneo: "DA08.Z", obturacion: "DA08.Z",
-  endodoncia: "DA09.Z", destartraje: "DA08.4", otro: "DA0A.Z",
+  endodoncia: "DA09.Z", destartraje: "DA08.4",
 };
+/** Sin pieza, estas categorías no dicen nada de un diente enfermo (una prótesis removible, un escaneo, una prueba de maqueta): no llevan diagnóstico de respaldo. */
+const NO_GENERAL_FALLBACK: ReadonlySet<string> = new Set(["protesis", "escaneo", "puente"]);
 /**
  * Restauración o corona sin diagnóstico dictado: la propuesta sigue lo que dice la nota. Si habla de caries, fractura, abrasión
  * o erosión se propone eso; si no dice la causa NO se inventa una (una resina hecha no es caries): queda el residual
@@ -824,7 +828,7 @@ export function fallbackDiagnoses(items: ClinicalItem[], odontogram: OdontogramC
   }
   // Procedimiento sin pieza (p. ej. «instalo implante» sin decir cuál) y la nota no tiene ningún diagnóstico: uno general.
   if (![...diagnoses, ...out].length) {
-    const general = items.find((item) => !item.tooth && item.kind === "realizado" && FALLBACK_CIE11[item.category] && item.category !== "otro")
+    const general = items.find((item) => !item.tooth && item.kind === "realizado" && FALLBACK_CIE11[item.category] && !NO_GENERAL_FALLBACK.has(item.category))
     if (general) make(undefined, FALLBACK_CIE11[general.category] as string, general.evidence, general.what);
   }
   // Destartraje sin pieza: aunque la nota ya traiga otro diagnóstico (p. ej. de una restauración), la higiene propone el suyo

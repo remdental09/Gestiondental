@@ -269,6 +269,14 @@ export function resolveSpokenDate(text: string, today: string): SpokenDate | nul
     const last = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate(); d.setUTCDate(Math.min(day, last));
     return { date: half ? addDays(fromUtc(d), 15) : fromUtc(d), said: said(single), note: "Fecha aproximada a un mes calendario; ajústala si corresponde." };
   }
+  // «Control en un año», «al año»: meses calendario (12 por año); la fecha exacta la confirma el profesional.
+  const years = n.match(/\b(?:en|dentro\s+de)\s+(un|una|uno|1|dos|2|tres|3)\s+anos?\b/) ?? n.match(/\b(al)\s+ano\b/);
+  if (years) {
+    const count = years[1] === "dos" || years[1] === "2" ? 2 : years[1] === "tres" || years[1] === "3" ? 3 : 1;
+    const d = toUtc(today); const day = d.getUTCDate(); d.setUTCDate(1); d.setUTCFullYear(d.getUTCFullYear() + count);
+    const last = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate(); d.setUTCDate(Math.min(day, last));
+    return { date: fromUtc(d), said: said(years), note: "Fecha aproximada a un año calendario; ajústala si corresponde." };
+  }
   m = n.match(/\b(?:(proximo|este|siguiente)\s+)?(lunes|martes|miercoles|jueves|viernes|sabado|domingo)(?:\s+(\d{1,2}))?(?:\s+(proximo|siguiente|que\s+viene|de\s+la\s+(?:proxima\s+semana|semana\s+que\s+viene)))?\b/);
   if (m) {
     const target = WEEKDAYS.indexOf(m[2]);
@@ -337,7 +345,7 @@ export function resolveSpokenTime(text: string): SpokenTime | null {
   return { time: `${pad(hour)}:${pad(minute)}`, said };
 }
 
-const APPOINTMENT_CUE_FOLDED = /\b(?:proxim[ao]\s+(?:cita|control|sesion|atencion|hora)|(?:se\s+)?(?:cita|agenda|reagenda|cito|agendo)\s+(?:para|el|la|al|en|control)|control\s+(?:el|en|para)|vuelve\s+(?:el|en|a\s+control)|nos\s+vemos\s+(?:el|en|la|para|al|dentro)|(?:volver|regresar|regresa)\s+en|nueva\s+(?:cita|hora)|citar\s+(?:el|en|para)|se\s+controla(?:ra)?\s+(?:en|el|para|dentro))\b/;
+const APPOINTMENT_CUE_FOLDED = /\b(?:proxim[ao]\s+(?:cita|control|sesion|atencion|hora)|(?:se\s+)?(?:cita|agenda|reagenda|cito|agendo)\s+(?:para|el|la|al|en|control)|control\s+(?:el\s+(?:\d|lunes|martes|miercoles|jueves|viernes|sabado|domingo|proxim[ao]|dia|mes|hoy|manana|pasado)|en|para)|vuelve\s+(?:el|en|a\s+control)|nos\s+vemos\s+(?:el|en|la|para|al|dentro)|(?:volver|regresar|regresa)\s+en|nueva\s+(?:cita|hora)|citar\s+(?:el|en|para)|se\s+controla(?:ra)?\s+(?:en|para|dentro|el\s+(?:\d|lunes|martes|miercoles|jueves|viernes|sabado|domingo|proxim[ao]|dia|mes|hoy|manana|pasado)))\b/;
 export const isAppointmentText = (text: string) => APPOINTMENT_CUE_FOLDED.test(fold(text));
 
 // ---------- Corrección del texto mal oído ----------
@@ -426,6 +434,9 @@ const FRAME_OPEN = /^\s*(?:(?:hola|buenas?(?:\s+(?:tardes|d[ií]as|noches))?|ok|
 const NAME_STOP = /^(?:la|el|los|las)\s+paciente\b|^paciente\b|^(?:viene|vino|acude|asiste|consulta|controla\p{L}*|control|se|hoy|motivo|refiere|presenta|tiene|est[aá]|con|pieza|diente)\b/iu;
 const FRAME_CLOSE = /[\s,.;:]*\b(?:y\s+)?eso\s+(?:es|ser[ií]a)\s+todo(?:\s+lo\s+que\s+(?:quiero|quer[ií]a|voy\s+a)\s+(?:evolucionar|dictar|decir|registrar|anotar)(?:\s+(?:por\s+)?(?:ahora|hoy))?)?(?:\s+(?:por\s+)?(?:ahora|hoy))?(?:\s*,?\s*gracias)?[\s,.;:]*/giu;
 
+/** Línea que es solo el nombre de una sección de la nota (con o sin «:»). */
+const SECTION_HEADING_LINE = /^[ \t]*(?:Motivo de consulta|Anamnesis y antecedentes|Alergias|Medicamentos|Examen(?: \(odontograma\))?|Diagn[óo]sticos?(?: \(CIE-11\))?|Procedimientos realizados|Plan de tratamiento|Indicaciones|Presupuesto|Pr[óo]xima cita|Condici[óo]n al egreso)[ \t]*:?[ \t]*$\n?/gim;
+
 export function stripDictationFrame(text: string): { text: string; corrections: TranscriptCorrection[]; spokenName: string; nameEnd: number } {
   let out = text;
   const corrections: TranscriptCorrection[] = [];
@@ -457,6 +468,8 @@ export function stripDictationFrame(text: string): { text: string; corrections: 
     const tail = whole.slice(offset + match.length).trim();
     return tail ? ". " : "";
   });
+  // Un encabezado de la nota («Procedimientos realizados») solo en su línea no es algo dicho: dejarlo entra como frase y dispara avisos falsos.
+  out = out.replace(SECTION_HEADING_LINE, "").replace(/^\s*\n+/, "").replace(/\n{3,}/g, "\n\n");
   out = out.replace(/\.\s*([a-záéíóúñ])/g, (_, c: string) => `. ${c.toUpperCase()}`).trim();
   return { text: out || text, corrections: out ? corrections : [], spokenName: out ? spokenName : "", nameEnd: out ? nameEnd : 0 };
 }
