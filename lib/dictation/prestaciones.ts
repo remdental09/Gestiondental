@@ -261,7 +261,7 @@ export function suggestPrestaciones(odontogram: OdontogramChange[], procedureLin
       const fdi = `${Math.floor(tooth / 10)}.${tooth % 10}`;
       const clause = crownTeeth.length === 1 ? allPlain : fold(crownWhole.split(/(?<=[.;])\s+|\n+/).filter((sentence) => sentence.includes(fdi)).join(" ")) || fold(toothSpan(crownWhole, tooth));
       const placed = /\b(?:instalacion|cementacion|insercion)\s+de\s+(?:la\s+)?corona|\bcoronas?\b(?:[^.;]|\.(?=\d)){0,80}\b(?:cementad\w*|instalad\w*|duolink|u\s?200|relyx|choi[cs]e|ketac)|\b(?:se\s+)?(?:cementa|instala|cemento|instalo)\w*\s+(?:la\s+|una\s+)?corona/.test(clause);
-      if (!placed || /\b(?:recem\w*|coronas?\s+provisori\w*|retiro\s+de\s+coronas?|para\s+(?:la\s+)?coronas?|se\s+repite)\b/.test(clause)) continue;
+      if (!placed || /\b(?:recem\w*|coronas?\s+provisi?o\w*|provisional\w*|provisori\w*\s+de\s+coronas?|retiro\s+de\s+coronas?|para\s+(?:la\s+)?coronas?|se\s+repite|control\s+de\s+(?:la\s+)?(?:instalacion|corona)\w*)\b/.test(clause)) continue;
       if (out.some((item) => item.tooth === tooth && /^(?:5007|5011045|5011046|5103|5015)/.test(item.code))) continue;
       const onImplant = /\b(?:implantes?|tibase|chimenea|atornillad\w*|pilar)\b/.test(clause) || odontogram.some((item) => item.tooth === tooth && (item.status === "Implante" || item.status === "Implante con pilar" || item.foundation === "implant"));
       if (onImplant) {

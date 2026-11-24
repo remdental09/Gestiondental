@@ -71,7 +71,7 @@ const fold = (value: string) => value.normalize("NFD").replace(/\p{M}/gu, "").to
 const CATEGORY_RULES: Array<[ItemCategory, RegExp]> = [
   ["exodoncia", /(?<![a-z])(?:exodoncia|extraccion|se\s+extra(?:e|jo|jeron|en)|extraid[oa]s?|avulsion)(?![a-z])/],
   ["pilar", /(?<![a-z])(?:conexion\s+(?:de(?:l)?\s+)?implantes?|se\s+conecta|conecto|conectamos|minipilar|multi\s*unit|pilar(?:es)?(?!\s+de\s+cicatrizacion)|conectad[oa])(?![a-z])/],
-  ["implante", /(?<![a-z])(?:implantes?)(?![a-z])/],
+  ["implante", /(?<![a-z])(?:implantes?|i,plantes?)(?![a-z])/],
   ["corona", /(?<![a-z])coronas?(?![a-z])/],
   ["puente", /(?<![a-z])(?:puentes?|protesis\s+fija\s+plural)(?![a-z])/],
   ["protesis", /(?<![a-z])(?:protesis|rehabilita\w*)(?![a-z])/],
@@ -136,7 +136,7 @@ const EXISTING = /(?<![a-z])(?:presenta\w*|tiene|antigu[oa]s?|existente|previa|d
  * sin plan, fuera del examen y sin describir algo que ya estaba), es lo realizado hoy, no un diagnóstico.
  */
 function ficheStyleDone(kind: ItemKind | null, plain: string, section: Section): ItemKind | null {
-  if (kind !== "diagnostico" || section === "examen" || FINDING.test(plain) || EXISTING.test(plain) || /(?<![a-z])(?:indica\w*|indico|sugier\w*|recomienda\w*|si\s+no)(?![a-z])/.test(plain)) return kind;
+  if (kind !== "diagnostico" || section === "examen" || FINDING.test(plain) || EXISTING.test(plain) || /(?<![a-z])(?:indica\w*|indico|sugier\w*|recomienda\w*|si\s+no|deriv\w*)(?![a-z])/.test(plain) || /^\s*(?:para|por|de|a)\s/.test(plain)) return kind;
   return PROCEDURE_NOUN.test(plain) ? "realizado" : kind;
 }
 
@@ -147,14 +147,21 @@ function gradeOf(plain: string): "I" | "II" | "III" | undefined {
   return ({ i: "I", "1": "I", uno: "I", ii: "II", "2": "II", dos: "II", iii: "III", "3": "III", tres: "III" } as const)[raw as "i"];
 }
 
+/** «Instalación de corona sobre implante», «corona sobre pilar TiBase»: se instala la corona; el implante ya estaba (hallazgo). */
+function crownOnExistingImplant(plain: string): boolean {
+  return /(?:instalacion|cementacion|prueba)\s+(?:y\s+cementacion\s+)?de\s+(?:la\s+|las\s+)?coronas?|(?:instala|cementa)\w*\s+(?:la\s+|una\s+|las\s+)?coronas?/.test(plain)
+    && !/(?:instala|coloca)\w*\s+(?:un\s+|el\s+|los\s+|dos\s+|tres\s+)?implantes?|instalacion\s+de\s+(?:un\s+)?implante/.test(plain);
+}
+
+/** «Corona sobre pilar TiBase»: el pilar ya estaba (o va con la corona); no es una conexión de implante. */
+function crownOnPilar(plain: string): boolean {
+  return /(?<![a-z])coronas?\b(?:[^.;]|\.(?=\d)){0,60}(?:sobre\s+(?:el\s+)?pilar|tibase)/.test(plain) && !/(?<![a-z])(?:conexion|se\s+conecta|conecto)(?![a-z])/.test(plain);
+}
+
 function categoriesOf(plain: string): ItemCategory[] {
   const found = CATEGORY_RULES.filter(([, re]) => re.test(plain)).map(([category]) => category);
   // «conexión de implante», «implante con minipilar»: es el pilar, no un implante nuevo.
   if (found.includes("pilar") && found.includes("implante") && !/(?:instala|coloca)\w*\s+(?:un\s+|el\s+|los\s+|dos\s+|tres\s+)?implantes?|implantes?\s+(?:instalad|colocad)/.test(plain)) found.splice(found.indexOf("implante"), 1);
-  // «Instalación de corona sobre implante», «corona sobre pilar TiBase»: se instala la corona; el implante ya estaba.
-  if (found.includes("corona") && found.includes("implante") && /(?:instalacion|cementacion|prueba)\s+(?:y\s+cementacion\s+)?de\s+(?:la\s+)?coronas?|(?:instala|cementa)\w*\s+(?:la\s+|una\s+)?coronas?/.test(plain) && !/(?:instala|coloca)\w*\s+(?:un\s+|el\s+|los\s+|dos\s+|tres\s+)?implantes?|instalacion\s+de\s+(?:un\s+)?implante/.test(plain)) found.splice(found.indexOf("implante"), 1);
-  // «Corona sobre pilar TiBase»: el pilar es parte de la corona, no una conexión de implante.
-  if (found.includes("corona") && found.includes("pilar") && /(?<![a-z])coronas?\b(?:[^.;]|\.(?=\d)){0,60}(?:sobre\s+(?:el\s+)?pilar|tibase)/.test(plain) && !/(?<![a-z])(?:conexion|se\s+conecta|conecto)(?![a-z])/.test(plain)) found.splice(found.indexOf("pilar"), 1);
   // Lo que se extrae no está «ausente» como hallazgo aparte; una prótesis sobre un puente es el puente.
   if (found.includes("exodoncia") && found.includes("ausente")) found.splice(found.indexOf("ausente"), 1);
   // «Control post exodoncia», «zona donde se realizó la exodoncia», «se deriva para exodoncia»: no es una extracción de hoy.
@@ -257,7 +264,7 @@ export function ruleItems(text: string, tools: ItemTools): ClinicalItem[] {
       if (teeth.length) sibling = teeth;
       if (!kind) continue;
       const categories = categoriesOf(plain);
-      if (!teeth.length && categories.some((c) => ["caries", "obturacion", "endodoncia", "corona", "sellante"].includes(c)) && lastTeeth.length === 1 && !/\b(?:dos|tres|cuatro|cinco|seis|varios|todos|ambos)\b/.test(plain)) teeth = lastTeeth;
+      if (!teeth.length && categories.some((c) => ["caries", "obturacion", "endodoncia", "corona", "sellante", "implante", "pilar"].includes(c)) && lastTeeth.length === 1 && !/\b(?:dos|tres|cuatro|cinco|seis|varios|todos|ambos)\b/.test(plain)) teeth = lastTeeth;
       if (tools.teethIn(part).length) lastTeeth = teeth;
       if (!categories.length) {
         // Pieza nombrada sin acto reconocible: se registra igual para que la nota y la lista se puedan comparar,
@@ -276,7 +283,7 @@ export function ruleItems(text: string, tools: ItemTools): ClinicalItem[] {
         // Leído como acto de ficha: la prótesis o el implante solo cuentan como hechos si el acto es instalarlos, cementarlos o conectarlos
         // («impresión para coronas sobre implantes» no instala ningún implante).
         const ownKind: ItemKind | null = fiche && ["implante", "pilar", "corona", "puente", "protesis"].includes(category) && !/(?<![a-z])(?:instalacion|cementacion|conexion|prueba\s+de)(?![a-z])/.test(plain) ? "diagnostico" : kind;
-        const itemKind: ItemKind = purpose ? "plan" : FINDING_CATEGORIES.has(category) && ownKind !== "diagnostico" && categories.some((c) => !FINDING_CATEGORIES.has(c)) ? "diagnostico" : ownKind as ItemKind;
+        const itemKind: ItemKind = purpose ? "plan" : (category === "implante" && ownKind === "realizado" && crownOnExistingImplant(plain)) || (category === "pilar" && ownKind === "realizado" && crownOnPilar(plain)) ? "diagnostico" : FINDING_CATEGORIES.has(category) && ownKind !== "diagnostico" && categories.some((c) => !FINDING_CATEGORIES.has(c)) ? "diagnostico" : ownKind as ItemKind;
         const grade = category === "movilidad" ? gradeOf(plain) : undefined;
         const targets: Array<number | null> = paired ? paired.filter((pair) => pair.category === category).map((pair) => pair.tooth) : teeth.length ? teeth : [null];
         for (const tooth of targets) { const own = tooth !== null && !paired ? ownClause(part, tooth, teeth, tools) : part; items.push(makeItem({ tooth, surfaces: [], kind: itemKind, category, what: own, evidence: own, origin: "reglas", ...(grade ? { grade } : {}) })); }
@@ -466,7 +473,10 @@ export function applyClinicalItems(proposal: DictationProposal, ctx: ItemsContex
     warnings.push(`${fdi(tools, tooth)}: se agregó «${status.toLowerCase()}» (dictado como realizado${uncertain ? ", por confirmar" : ""}).`);
   };
   for (const item of items) {
-    if (item.kind !== "realizado" || !item.tooth) continue;
+    // Corona instalada sobre un implante/pilar que ya estaba: el implante figura (sin cobrarse otra vez).
+    const crownBase = item.kind === "diagnostico" && item.tooth !== null && (item.category === "implante" || item.category === "pilar")
+      && items.some((other) => other.kind === "realizado" && other.tooth === item.tooth && other.category === "corona");
+    if ((item.kind !== "realizado" && !crownBase) || !item.tooth) continue;
     if (item.category === "exodoncia" && !implantAnywhere(item.tooth) && !has(item.tooth, ["Ausente", "Implante", "Implante con pilar"])) add(item, "Ausente");
     if ((item.category === "implante" || item.category === "pilar") && !has(item.tooth, ["Implante", "Implante con pilar"])) {
       const before = chartStatus.get(item.tooth);

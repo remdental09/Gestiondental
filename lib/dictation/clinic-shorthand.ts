@@ -167,6 +167,8 @@ export function expandClinicShorthand(input: string): { text: string; correction
     [/\bATB\b/g, "antibiótico", "ATB = antibiótico."],
     [/(?<=antibi[oó]tico\s+y\s+)AN\b/g, "analgésico", "AN = analgésico."],
     [/\bAMOXI\b/gi, "amoxicilina", "Amoxi = amoxicilina."],
+    // Error de tipeo frecuente en ficha («I,PLANTE»: la coma está junto a la m en el teclado).
+    [/\b[iI],([pP][lL][aA][nN][tT][eE][sS]?)\b/g, (_m: string, rest: string) => `${/[A-Z]/.test(rest) ? "IM" : "im"}${rest}`, "«i,plante» = implante (error de tipeo)."],
     [/\b[Bb]lqto\b\.?/g, "blanqueamiento", "Blqto = blanqueamiento."],
     [/\bH\s+de\s+Ca\b/g, "hidróxido de calcio", "H de Ca = hidróxido de calcio."],
   ];
