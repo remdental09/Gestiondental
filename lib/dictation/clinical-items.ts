@@ -90,7 +90,7 @@ const CATEGORY_RULES: Array<[ItemCategory, RegExp]> = [
 /** Verbos de algo hecho HOY (incluye el sustantivo de procedimiento al inicio de la frase, típico de la sección «Procedimientos»). */
 const DONE = /(?<![a-z])(?<!no\s)(?<!no\sse\s)(?:se\s+(?:le\s+)?(?:realiza|realizo|realizan|hace|hizo|efectua|efectuo|instala|instalo|instalan|coloca|coloco|colocan|conecta|conecto|conectan|cementa|cemento|cementan|obtura|obturo|obturan|restaura|restauro|restauran|extrae|extrajo|extraen|retira|retiran|entrega|toma|escanea|escaneo|escanean|sella|sellan|aplica|aplican|atornilla)|realizad[oa]s?|instalad[oa]s?|efectuad[oa]s?|extraid[oa]s?|cementad[oa]s?|hoy|(?:procede|procedemos|se\s+procede)\s+a\s+(?:instalar|colocar|extraer|realizar|obturar|cementar|conectar))(?![a-z])/;
 const DONE_NOUN_START = /^(?:procedimientos?(?:\s+realizados?)?\s*:\s*)?(?:conexion|escaneo|destartraje|detartraje|obturacion|instalacion|cementacion|endodoncia|profilaxis|pulido|raspado|toma\s+de)(?![a-z])/;
-const PLAN = /(?<![a-z])(?:se\s+planifica\w*|planifica\w*|se\s+plantea|se\s+propone|se\s+sugiere|se\s+indica|se\s+programa|se\s+evaluara|se\s+considerara|plan(?:\s+de\s+tratamiento)?\s*:|proxim[ao]s?|siguiente\s+sesion|pendiente|a\s+futuro|presupuest\w*|costo|valor|precio|\d[\d.]*\s+pesos|se\s+realizara|se\s+hara|se\s+instalara|queda\s+por|por\s+realizar|requiere|necesita|debe\s+(?:realizarse|hacerse))(?![a-z])/;
+const PLAN = /(?<![a-z])(?:se\s+planifica\w*|planific\w*|se\s+plantea|planteo|propongo|proponemos|se\s+propone|se\s+sugiere|se\s+indica|se\s+programa|se\s+evaluara|se\s+considerara|plan(?:\s+de\s+tratamiento)?\s*:|proxim[ao]s?|siguiente\s+sesion|pendiente|a\s+futuro|presupuest\w*|costo|valor|precio|\d[\d.]*\s+pesos|se\s+realizara|se\s+hara|se\s+instalara|queda\s+por|por\s+realizar|requiere|necesita|debe\s+(?:realizarse|hacerse))(?![a-z])/;
 /** Infinitivo de acción al inicio de una frase del plan («rehabilitar…», «cortar y unir…»). */
 const PLAN_INFINITIVE_START = /^(?:plan\s*:\s*)?(?:rehabilitar|realizar|instalar|colocar|extraer|obturar|cementar|confeccionar|evaluar|controlar|cortar|unir|tomar|hacer)(?![a-z])/;
 const FINDING = /(?<![a-z])(?:se\s+observa\w*|presenta\w*|se\s+evidencia|se\s+detecta|se\s+aprecia|examen|al\s+examen|movilidad|ausente|caries|fractur\w*|dolor|sensibilidad)(?![a-z])/;
@@ -106,13 +106,14 @@ function sectionOf(header: string): Section {
 }
 
 /** «No se realiza la exodoncia…», «finalmente no se instaló»: lo que no se hizo queda pendiente (plan), nunca realizado. */
-const NOT_DONE = /(?<![a-z])(?:no|nunca)\s+(?:se\s+)?(?:le\s+)?(?:realiz|hace|hizo|efectu|instal|coloc|conect|cement|obtur|restaur|extra|extrajo|sell|aplic)\w*/;
+const NOT_DONE = /(?<![a-z])(?:no|nunca)\s+(?:se\s+)?(?:le\s+)?(?:realiz|hace|hizo|hice|hicimos|hago|hacemos|efectu|instal|coloc|conect|cement|obtur|restaur|extra|extrajo|sell|aplic)\w*/;
 
 export function kindOf(sentence: string, section: Section, isPlan: (s: string) => boolean): ItemKind | null {
   const plain = fold(sentence).trim();
   if (NOT_DONE.test(plain)) return "plan";
-  const done = DONE.test(plain) || DONE_NOUN_START.test(plain);
   const plan = PLAN.test(plain) || PLAN_INFINITIVE_START.test(plain) || isPlan(sentence);
+  // «Hoy no hice nada, solo planifico…»: «hoy» solo ubica la frase en el tiempo, no prueba que se haya hecho algo.
+  const done = (plan ? DONE.test(plain.replace(/(?<![a-z])hoy(?![a-z])/g, " ")) : DONE.test(plain)) || DONE_NOUN_START.test(plain);
   if (plan && !done) return "plan";
   // «Se obtura la 14 y se planifica…» se separa antes; si una frase trae ambos, manda lo hecho solo si el plan no la abre.
   if (plan && done) return /^(?:plan\s*:\s*)?(?:se\s+planifica|se\s+plantea|proxim|se\s+indica)/.test(plain) || PLAN_INFINITIVE_START.test(plain) ? "plan" : "realizado";
