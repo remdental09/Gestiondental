@@ -43,3 +43,38 @@ test("blanqueamiento intracoronario con tope cervical de vidrio ionómero no es 
   assert.deepEqual(p.diagnoses ?? [], [], JSON.stringify(p.diagnoses));
   assert.ok(!p.clarifications.some((c) => /Falta la superficie|\(restauración\)/.test(c)), JSON.stringify(p.clarifications));
 });
+
+test("«Z250» tras «resina Filtek» no duplica la marca, y un tramo repetido queda una vez", async () => {
+  const p = await run("Se realiza restauración con resina Filtek resina Filtek Z250 color A3 en oclusal de la 4.6.");
+  assert.ok(!/Filtek resina Filtek/i.test(p.corrected.text), p.corrected.text);
+  const q = await run("Se restaura con resina Filtek Z250 color A3 en oclusal de la 4.6.");
+  assert.equal((q.corrected.text.match(/Filtek/gi) ?? []).length, 1, q.corrected.text);
+});
+
+test("cierre de chimenea, alargamiento o muñón no son hallazgos de superficie: no preguntan la cara", async () => {
+  for (const text of [
+    "En la pieza 4.6 se efectúa cierre de la chimenea con composite Filtek P60.",
+    "Se realiza algodón e ionómero de vidrio en la pieza 1.7.",
+  ]) {
+    const p = await run(text);
+    assert.ok(!p.clarifications.some((c) => /Falta la (?:superficie|cara)/.test(c)), `${text} -> ${JSON.stringify(p.clarifications)}`);
+  }
+});
+
+test("«para la próxima sesión se planifican…» es plan, no una cita ni un diagnóstico olvidado", async () => {
+  const p = await run("Para la próxima sesión se planifican fotografías, destartraje y escaneo intraoral.");
+  assert.ok(!p.clarifications.some((c) => /próxima cita|olvidado el diagnóstico/.test(c)), JSON.stringify(p.clarifications));
+  assert.ok(/Plan de tratamiento/.test(p.evolution.body), p.evolution.body);
+});
+
+test("«control en 1 semana» (con cifra) se resuelve a fecha igual que «en una semana»", () => {
+  assert.equal(resolveSpokenDate("Se cita a control en 1 semana.", "2026-11-24")?.date, "2026-12-01");
+  assert.equal(resolveSpokenDate("Control en 1 mes.", "2026-11-24")?.date, "2026-12-24");
+});
+
+test("negaciones y sectores no piden una pieza: «el sellante no se realiza», «destartraje en el grupo V»", async () => {
+  for (const text of ["El sellante no se realiza durante esta atención.", "Se realiza destartraje en el grupo V."]) {
+    const p = await run(text);
+    assert.ok(!p.clarifications.some((c) => /Falta una pieza identificable/.test(c)), `${text} -> ${JSON.stringify(p.clarifications)}`);
+  }
+});

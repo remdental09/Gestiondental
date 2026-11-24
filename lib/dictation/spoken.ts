@@ -260,7 +260,7 @@ export function resolveSpokenDate(text: string, today: string): SpokenDate | nul
   }
   // Singular con «un/una» («en una semana», «en un mes»), después del plural para no ganarle a «en tres semanas».
   // «y medio/a» suma la mitad; el mes se ajusta al último día si el mes siguiente es más corto.
-  const single = n.match(/\ben\s+(una?)\s+(dia|semana|mes)(\s+y\s+medi[oa])?\b/);
+  const single = n.match(/\ben\s+(una?|1)\s+(dia|semana|mes)(\s+y\s+medi[oa])?\b/);
   if (single) {
     const half = Boolean(single[3]);
     if (single[2] === "dia") return { date: addDays(today, 1), said: said(single) };
@@ -346,7 +346,14 @@ export function resolveSpokenTime(text: string): SpokenTime | null {
 }
 
 const APPOINTMENT_CUE_FOLDED = /\b(?:proxim[ao]\s+(?:cita|control|sesion|atencion|hora)|(?:se\s+)?(?:cita|agenda|reagenda|cito|agendo)\s+(?:para|el|la|al|en|control)|control\s+(?:el\s+(?:\d|lunes|martes|miercoles|jueves|viernes|sabado|domingo|proxim[ao]|dia|mes|hoy|manana|pasado)|en|para)|vuelve\s+(?:el|en|a\s+control)|nos\s+vemos\s+(?:el|en|la|para|al|dentro)|(?:volver|regresar|regresa)\s+en|nueva\s+(?:cita|hora)|citar\s+(?:el|en|para)|se\s+controla(?:ra)?\s+(?:en|para|dentro|el\s+(?:\d|lunes|martes|miercoles|jueves|viernes|sabado|domingo|proxim[ao]|dia|mes|hoy|manana|pasado)))\b/;
-export const isAppointmentText = (text: string) => APPOINTMENT_CUE_FOLDED.test(fold(text));
+/** «Para la próxima sesión se planifican fotografías y escaneo»: es plan de tratamiento, no una cita que agendar (sin «cita», «control», «hora» ni «agenda»). */
+const SESSION_PLAN_FOLDED = /\b(?:proxima|siguiente)\s+sesion\b/;
+const PLAN_VERB_FOLDED = /\b(?:se\s+(?:evaluar|planific|realizar|tomar|har|indic|coloc|instalar|cement)\w*|evaluar|planific\w*)/;
+export const isAppointmentText = (text: string) => {
+  const folded = fold(text);
+  if (SESSION_PLAN_FOLDED.test(folded) && PLAN_VERB_FOLDED.test(folded) && !/\b(?:cita|citar|control|hora|agend\w*)\b/.test(folded)) return false;
+  return APPOINTMENT_CUE_FOLDED.test(folded);
+};
 
 // ---------- Corrección del texto mal oído ----------
 
@@ -645,6 +652,19 @@ const SELF_FIX_FACE = new RegExp(`(?<!\\p{L})${FACE}[,\\s]+${FIX_CUE}[,:\\s]+(${
  * Aplica las autocorrecciones dichas en voz alta: deja solo lo corregido y registra el cambio
  * para mostrarlo en «Texto corregido». Corre antes de las reglas y de la IA.
  */
+/**
+ * «resina Filtek resina Filtek Z250»: el reconocimiento de voz (o el dictado a trompicones) repite un tramo de hasta tres palabras
+ * pegado a sí mismo. Se deja una sola vez y queda visible en «Texto corregido». Solo palabras de 3 o más letras (no toca «tubo, tubo» con coma ni cifras).
+ */
+export function collapseRepeatedPhrases(text: string): { text: string; corrections: TranscriptCorrection[] } {
+  const corrections: TranscriptCorrection[] = [];
+  const out = text.replace(/(?<!\p{L})(\p{L}{3,}(?:[ \t]+\p{L}{3,}){0,2})[ \t]+\1(?!\p{L})/giu, (match, phrase: string) => {
+    corrections.push({ original: match, corrected: phrase, origin: "diccionario", applied: true, reason: "Tramo repetido en el dictado: se dejó una sola vez." });
+    return phrase;
+  });
+  return { text: out, corrections };
+}
+
 export function applySelfCorrections(text: string): { text: string; corrections: TranscriptCorrection[] } {
   const corrections: TranscriptCorrection[] = [];
   const note = (original: string, corrected: string) => corrections.push({ original, corrected, origin: "diccionario", applied: true, reason: "Autocorrección dictada" });

@@ -32,6 +32,7 @@ import {
   describeDate,
   fold,
   isAppointmentText,
+  collapseRepeatedPhrases,
   lexiconDoubts,
   isNumberWord,
   numberSignature,
@@ -726,10 +727,10 @@ function isPerformed(sentence: string): boolean {
 }
 
 function isPlanStrict(sentence: string): boolean {
-  return /\b(?:se\s+planifica|planific(?:o|amos|ar[eé]|ar)|planteo|propongo|no\s+(?:hice|hicimos|hago)\s+nada|planificad[oa]|se\s+indica|a\s+futuro|presupuesto|cotizaci[oó]n|por\s+cotizar|implantes?\s+diferid[oa]s?)\b/i.test(sentence);
+  return /\b(?:se\s+planifican?|planific(?:o|amos|ar[eé]|ar)|planteo|propongo|no\s+(?:hice|hicimos|hago)\s+nada|planificad[oa]|se\s+indica|a\s+futuro|presupuesto|cotizaci[oó]n|por\s+cotizar|implantes?\s+diferid[oa]s?)\b/i.test(sentence);
 }
 
-const PLAN_CUE = /(?:^|\P{L})(?:plan\s+(?:de\s+tratamiento|opci[oó]n|alternativ\p{L}*)|(?:fase|etapa)\s+(?:\d+|uno|dos|tres|cuatro|cinco)|opci[oó]n\s+(?:[abc]|be|ce|\d|uno|dos|tres)|alternativa|a\s+decidir|se\s+eval[uú]a(?:r[aá])?|se\s+(?:propone|sugiere|recomienda|planea)|(?:viene|llega|queda)\s+(?:para\s+)?en\s+(?:\d+|\p{L}+)\s+(?:semanas?|d[ií]as?|meses)|por\s+definir|(?:se\s+)?(?:toma|tom[oó])\s+(?:la\s+)?impresi[oó]n\s+(?:para|de)|(?:se\s+)?(?:env[ií]a|envi[oó])\s+(?:a\s+)?laboratorio)(?!\p{L})/iu;
+const PLAN_CUE = /(?:^|\P{L})(?:(?:para|en)\s+la\s+(?:pr[oó]xima|siguiente)\s+sesi[oó]n|plan\s+(?:de\s+tratamiento|opci[oó]n|alternativ\p{L}*)|(?:fase|etapa)\s+(?:\d+|uno|dos|tres|cuatro|cinco)|opci[oó]n\s+(?:[abc]|be|ce|\d|uno|dos|tres)|alternativa|a\s+decidir|se\s+eval[uú]a(?:r[aá])?|se\s+(?:propone|sugiere|recomienda|planea)|(?:viene|llega|queda)\s+(?:para\s+)?en\s+(?:\d+|\p{L}+)\s+(?:semanas?|d[ií]as?|meses)|por\s+definir|(?:se\s+)?(?:toma|tom[oó])\s+(?:la\s+)?impresi[oó]n\s+(?:para|de)|(?:se\s+)?(?:env[ií]a|envi[oó])\s+(?:a\s+)?laboratorio)(?!\p{L})/iu;
 const PLAN_HEADER = /(?:^|\P{L})plan\s+(?:de\s+tratamiento|opci[oó]n)(?!\p{L})/iu;
 
 /** Lo que se planifica o se presupuesta no es lo que se hizo: «Plan de tratamiento», «Fase dos», «Opción B», «a decidir». */
@@ -1954,6 +1955,8 @@ export function structureTranscript(transcript: string, options: { today?: strin
       const distinct = new Map(near.filter((m) => m.ok).map((m) => [m.tooth, m]));
       if (distinct.size === 1 && near.every((m) => m.ok)) mentions = [...distinct.values()];
     }
+    // «El sellante no se realiza», «destartraje en el grupo V»: una negación o un sector no es una pieza que falte.
+    if (!mentions.length && (status || surfaceResult) && (/(?<!\p{L})no\s+se\s+(?:realiz|efect[uú]|colo|inst)\p{L}*|(?<!\p{L})(?:grupo|sextante|sector)\s+(?:[IV]{1,3}|[1-6])(?!\p{L})/iu.test(sentence))) continue;
     if (!mentions.length && (status || surfaceResult)) {
       clarifications.push(`Falta una pieza identificable en: «${clip(sentence)}».`);
       continue;
@@ -2059,7 +2062,7 @@ export function structureTranscript(transcript: string, options: { today?: strin
         if (ownResult.finding.condition === "sound" && /\b(?:sin|no)\s+(?:se\s+observa\s+)?caries\b/i.test(sentence)) continue;
         // «Se procede a eliminación de caries y trepanación»: es un procedimiento realizado, no un hallazgo; no pregunta la cara.
         if (/\b(?:eliminaci[oó]n|remoci[oó]n|retiro|elimina|elimin[oó]|remueve|retira)\s+(?:de\s+(?:la\s+|las\s+)?)?caries\b|\btrepanaci[oó]n\b|\bintraconducto\b|\bblanqueamiento\s+intracoronari\w*|\btope\s+cervical\b/i.test(sentence)) continue;
-        if (!resolved.notes.length) clarifications.push(`Falta la superficie del hallazgo: «${clip(sentence)}».`);
+        if (!resolved.notes.length && !NOT_A_SURFACE_ACT.test(sentence)) clarifications.push(`Falta la superficie del hallazgo: «${clip(sentence)}».`);
         continue;
       }
       if (ownResult.depthNote !== undefined && !/^aclaraci[oó]n:/iu.test(sentence)) clarifications.push(depthQuestion(`FDI ${formatFdi(mention.tooth)}`, ownResult.depthNote || undefined, sentence));
@@ -3309,7 +3312,7 @@ export function validateAiExtraction(input: unknown, transcript: string, options
         const onImplant = crownOnImplantSentence(segment);
         const material = materialFrom(segment);
         const aiMaterial = str(item.material, 40);
-        if (aiMaterial && !material) clarifications.push(`${heading}: la IA indicó material «${aiMaterial}», pero no se dictó. Se dejó sin material.`);
+        if (aiMaterial && !material && !wordsCovered(aiMaterial, transcript)) clarifications.push(`${heading}: la IA indicó material «${aiMaterial}», pero no se dictó. Se dejó sin material.`);
         if (onImplant) odontogram.push({ ...base, id: nextId("odo"), kind: "status", status: "Implante" });
         odontogram.push({ ...base, id: nextId("odo"), kind: "crown", status: "Corona", foundation: onImplant ? "implant" : "tooth", material, shade: shadeFrom(segment) });
         continue;
@@ -3338,6 +3341,7 @@ export function validateAiExtraction(input: unknown, transcript: string, options
     if (dropped.length) clarifications.push(`${heading}: la IA marcó la cara ${dropped.join(", ")}, que no está en la cita. No se marcó.`);
     // Carillas, coronas, puentes e incrustaciones no son una cara del odontograma: no se pregunta la cara, el procedimiento va en la nota.
     if (!faces.length && /(?<!\p{L})(?:carillas?|coronas?|puentes?|incrustaci\p{L}*|inlay|onlay|n[uú]cleos?|mu[ñn]ones?)(?!\p{L})/iu.test(segment)) continue;
+    if (!faces.length && NOT_A_SURFACE_ACT.test(segment)) continue;
     if (!faces.length) { reject(`Falta la cara del hallazgo en ${heading}: «${clip(segment)}».`); continue; }
     let finding: SurfaceFinding = { condition, depth: null, icdas: null, activity: null };
     if (condition === "caries") {
@@ -3695,6 +3699,17 @@ function completeProcedureSection(noteBody: string, aiProcedures: ProcedureItem[
     clarifications.push(`Revisa que la evolución incluya este procedimiento y sus detalles: «${line}». No se añadió automáticamente para evitar duplicaciones.`);
   }
   return insertProcedureLines(noteBody, additions);
+}
+
+/** Actos que no son un hallazgo de superficie (cierre de chimenea, muñón, alargamiento, sellado provisorio, algodón…): no se pregunta la cara. */
+const NOT_A_SURFACE_ACT = /(?<!\p{L})(?:chimenea|mu[ñn][oó]n\p{L}*|alargamiento|provisori\p{L}*|sellado|IRM|algod[oó]n|blanqueamiento\s+(?:intracameral|intracoronari\p{L}*)|pulido\s+de\s+la\s+restauraci[oó]n)(?!\p{L})/iu;
+
+/** Todas las palabras de 3 o más letras de `phrase` están en el dictado: la IA solo juntó lo que se dijo. */
+function wordsCovered(phrase: string, transcript: string): boolean {
+  const words = (value: string) => value.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().match(/[a-z0-9]{3,}/g) ?? [];
+  const said = new Set(words(transcript));
+  const wanted = words(phrase);
+  return wanted.length > 0 && wanted.every((word) => said.has(word));
 }
 
 function vagueSurfaceClarifications(transcript: string): string[] {
@@ -4443,7 +4458,8 @@ export async function proposeFromTranscript(
   const shorthand = expandClinicShorthand(frame.text);
   const dictionary = applyLexicon(normalizeShades(shorthand.text));
   const selfFix = applySelfCorrections(dictionary.text);
-  const lexicon = { text: selfFix.text, corrections: [...frame.corrections, ...shorthand.corrections, ...dictionary.corrections, ...selfFix.corrections] };
+  const stutter = collapseRepeatedPhrases(selfFix.text);
+  const lexicon = { text: stutter.text, corrections: [...frame.corrections, ...shorthand.corrections, ...dictionary.corrections, ...selfFix.corrections, ...stutter.corrections] };
   const fixed = lexicon.text;
   const localOnly = structureTranscript(fixed, { today });
   // Lista clínica (diagnóstico · plan · realizado): reconcilia odontograma, arancel y CIE-11, y pule la nota.
