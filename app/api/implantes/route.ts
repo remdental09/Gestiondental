@@ -2,10 +2,16 @@ import { and, asc, desc, eq, ne } from "drizzle-orm";
 import { getChatGPTUser, personalIdOf } from "@/app/chatgpt-auth";
 import { loadProfile } from "@/app/clinician-profile-db";
 import { displayName } from "@/lib/clinician-profile";
+import { authorStatement } from "@/app/evolution-author";
 import { getDb } from "@/db";
-import { biomedicalProducts, clinicalImages, implants, patients } from "@/db/schema";
+import { biomedicalProducts, clinicalImages, evolutions, implants, patients } from "@/db/schema";
 import { PRODUCT_IMAGE_KIND, santiagoToday } from "@/lib/biomedical-products";
-import { MAX_IMPLANTS_PER_PATIENT, MAX_IMPLANT_IMAGES, cleanImplantFields, cleanImplantImage, mergeImplantEdit, parseHistory, parseImplantImages, parseStageNotes, recordPhase, setStage, setStageNote, type ImplantImage } from "@/lib/implants";
+import { stagePieces } from "@/lib/implant-pieces";
+import {
+  MAX_IMPLANTS_PER_PATIENT, MAX_IMPLANT_IMAGES, addedStageNote, cleanImplantFields, cleanImplantImage, cleanStageNote,
+  mergeImplantEdit, parseHistory, parseImplantImages, parseStageNotes, recordPhase, setStage, setStageNote, stageEvolutionEntry, stageMarks,
+  type ImplantConnection, type ImplantImage, type RecordedPhase,
+} from "@/lib/implants";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -98,6 +104,8 @@ export async function POST(request: Request) {
 /**
  * Cinco usos: corregir los datos, marcar una etapa con su fecha o quitar la marca (`markStage`),
  * escribir la nota de una fase (`stageNote`), añadir una imagen (`addImage`) o desvincularla (`removeImageId`).
+ * Lo nuevo de `stageNote` (marca/medidas, conexión, piezas y lo agregado a la nota) se compila y se suma,
+ * además, a la evolución general del paciente: así otro profesional ve en evolución que se trabajó en implantología.
  */
 export async function PATCH(request: Request) {
   const checked = await guard(request, true);
@@ -117,6 +125,9 @@ export async function PATCH(request: Request) {
       const kinds = new Map(alive.map(image => [image.id, image.kind]));
       const available = new Set(kinds.keys());
       let change: Partial<Row>;
+      // Si se dicta o escribe en la nota de una fase, lo nuevo se compila y se agrega a la evolución general (más abajo).
+      let pendingEvolution: { title: string; body: string } | null = null;
+      let pendingEvolutionPhase: RecordedPhase | null = null;
       if (body.addImage !== undefined || body.removeImageId !== undefined) {
         let list: ImplantImage[] = parseImplantImages(current.images).filter(i => available.has(i.imageId));
         if (body.addImage !== undefined) {
@@ -132,6 +143,17 @@ export async function PATCH(request: Request) {
         const edited = setStageNote(current.stageNotes, body.stageNote);
         if ("error" in edited) return fail(edited.error, edited.stale ? 409 : 400);
         change = { stageNotes: JSON.stringify(edited.notes) };
+        const { phase, was } = body.stageNote as { phase: RecordedPhase; was?: unknown };
+        const addedNote = addedStageNote(cleanStageNote(was), edited.notes[phase] ?? "");
+        if (addedNote) {
+          const products = await db.select({ id: biomedicalProducts.id, implantId: biomedicalProducts.implantId, stage: biomedicalProducts.stage, kind: biomedicalProducts.kind, category: biomedicalProducts.category, tooth: biomedicalProducts.tooth })
+            .from(biomedicalProducts).where(and(eq(biomedicalProducts.ownerId, ownerId), eq(biomedicalProducts.patientId, current.patientId)));
+          pendingEvolution = stageEvolutionEntry({
+            tooth: current.tooth, phaseId: phase, implant: current, connection: current.connection as ImplantConnection,
+            pieces: stagePieces(products, current, phase), addedNote,
+          });
+          if (pendingEvolution) pendingEvolutionPhase = phase;
+        }
       } else if (body.markStage !== undefined) {
         const edited = setStage(parseHistory(current.history), current, body.markStage, santiagoToday());
         if ("error" in edited) return fail(edited.error, edited.stale ? 409 : 400);
@@ -149,6 +171,15 @@ export async function PATCH(request: Request) {
         .where(and(mine, eq(implants.images, current.images), eq(implants.history, current.history), eq(implants.phase, current.phase), eq(implants.stageNotes, current.stageNotes), eq(implants.updatedAt, current.updatedAt))).returning();
       // Al corregir la pieza del implante, lo anotado en sus fases pasa a la pieza correcta (si falló antes, se completa ahora).
       if (row) await db.update(biomedicalProducts).set({ tooth: row.tooth }).where(and(eq(biomedicalProducts.ownerId, ownerId), eq(biomedicalProducts.implantId, row.id), ne(biomedicalProducts.tooth, row.tooth))).catch(() => undefined);
+      // Se agrega a evolución general solo si la nota se guardó; el autor va en el mismo batch (si no se puede
+      // registrar, tampoco se guarda la evolución). La nota de la fase ya quedó guardada igual: esto no la bloquea.
+      if (row && pendingEvolution && pendingEvolutionPhase) {
+        const clinicalDate = stageMarks(parseHistory(row.history), row.phase, row.placedOn)[pendingEvolutionPhase] || santiagoToday();
+        await db.batch([
+          db.insert(evolutions).values({ ownerId, patientId: row.patientId, clinicalDate, recordedAt: row.updatedAt, title: pendingEvolution.title, body: pendingEvolution.body, backupStatus: "not_configured" }).returning(),
+          (await authorStatement(db, ownerId)).statement,
+        ]).catch(() => undefined);
+      }
       if (row) return ok({ implant: view(row, available) });
     }
     return fail("El implante cambió mientras se guardaba. Intenta otra vez.", 409);

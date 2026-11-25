@@ -4,6 +4,7 @@
  * Un dato no informado queda vacío; no se deducen medidas, marcas, conexiones ni estados clínicos.
  */
 import { cleanTooth, isDay } from "./biomedical-products.ts";
+import { pieceSummary, type Piece } from "./implant-pieces.ts";
 
 /** Todas las etapas en su orden. `retired`: ya no se ofrece, pero lo que se marcó se conserva (no se convierte en otra etapa). */
 const ALL_PHASES = [
@@ -318,4 +319,37 @@ export function implantSuggestions(input: {
     out.push({ tooth, source: "odontograma", draft: { tooth } });
   }
   return out;
+}
+
+/**
+ * Lo agregado al escribir o dictar en la nota de una fase: lo que sigue a lo que ya tenía, para compilarlo en la
+ * evolución general sin repetir lo ya agregado antes. Si la nota no creció a partir de la anterior (se corrigió
+ * o se acortó en vez de sumarse), se compila completa: no hay forma segura de saber qué parte es nueva.
+ */
+export function addedStageNote(previous: string, next: string): string {
+  const before = previous.trim(), after = next.trim();
+  if (!after) return "";
+  if (!before) return after;
+  return after.startsWith(before) ? after.slice(before.length).trim() : after;
+}
+
+/**
+ * Lo trabajado en una fase (marca/medidas, conexión, piezas y lo nuevo de la nota), compilado para sumarlo a la
+ * evolución general del paciente: así, trabajando en implantología, queda igual a la vista en evolución, y un
+ * colega de otra especialidad ve que el implantólogo trabajó. `null` si no hay nada nuevo que agregar.
+ */
+export function stageEvolutionEntry(input: {
+  tooth: string; phaseId: string;
+  implant: Pick<ImplantFields, "brand" | "system" | "diameter" | "length">;
+  connection: ImplantConnection;
+  pieces: readonly Pick<Piece, "kind" | "category">[];
+  addedNote: string;
+}): { title: string; body: string } | null {
+  const addedNote = input.addedNote.trim();
+  if (!addedNote) return null;
+  const summary = implantSummary(input.implant);
+  const connection = connectionText(input.connection);
+  const pieces = pieceSummary(input.pieces);
+  const body = [summary && `Implante: ${summary}`, connection, pieces && `Piezas: ${pieces}`, addedNote].filter(Boolean).join("\n");
+  return { title: `Implantología · ${input.tooth} · ${phaseLabel(input.phaseId)}`, body };
 }

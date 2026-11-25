@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
-import { backupImplant, cleanImplantFields, cleanImplantImage, imageKindForView, implantSuggestions, implantSummary, implantTooth, parseImplantImages } from "../lib/implants.ts";
+import { addedStageNote, backupImplant, cleanImplantFields, cleanImplantImage, imageKindForView, implantSuggestions, implantSummary, implantTooth, parseImplantImages, stageEvolutionEntry } from "../lib/implants.ts";
 import { fichaMarkdown } from "../lib/backup-markdown.ts";
 import { apiDenied, tabAllowed } from "../lib/role-policy.ts";
 
@@ -122,7 +122,6 @@ test("implantes: la etapa se puede dictar, con redacción ordenada y sin voz", (
   assert.match(sheet, /const insertDictation = \(text: string\) => \{/, "el dictado se agrega a la nota de la etapa, no la reemplaza sola");
   assert.match(sheet, /\[note, stamp\]\.filter\(Boolean\)\.join\("\\n\\n"\)/, "cada dictado se suma a lo ya escrito, con su fecha, como una evolución");
   assert.match(sheet, /dayLabel\(today\)/, "la fecha del dictado es la de hoy, no una guardada antes");
-  assert.match(sheet, /data-testid="stage-note-expand"/, "la nota se puede ampliar para leerla completa");
   const dictation = read("components/stage-dictation.tsx");
   assert.match(dictation, /createAudioTranscription/);
   assert.match(dictation, /useTextCorrection/);
@@ -133,6 +132,54 @@ test("implantes: la etapa se puede dictar, con redacción ordenada y sin voz", (
   assert.match(dictation, /border-2 border-red-600 bg-red-600/, "reutiliza el letrero rojo de rectificación ya usado en el dictado clínico");
   assert.match(dictation, /rectificando|rectificaci/i);
   assert.match(dictation, /data-testid="stage-dictation-mic"/);
+});
+
+test("implantes: la nota de la etapa queda comprimida y se abre a modo lienzo, como el resto de la pantalla", () => {
+  const sheet = read("components/implant-sheet.tsx");
+  assert.match(sheet, /const \[noteOpen, setNoteOpen\] = useState\(false\)/, "la nota arranca comprimida");
+  assert.doesNotMatch(sheet, /noteExpanded|stage-note-expand|Ampliar|Reducir/, "ya no es un botón de ampliar/reducir filas");
+  assert.match(sheet, /data-testid="stage-note-row"/, "fila comprimida, como una evolución");
+  assert.match(sheet, /data-testid="stage-note-preview"/, "la fila comprimida muestra un resumen de lo escrito");
+  assert.match(sheet, /setNoteOpen\(true\)/, "tocar la fila comprimida la abre");
+  assert.match(sheet, /className="gd-implant-canvas space-y-2" data-testid="stage-note-canvas"/, "se abre reutilizando la misma animación de lienzo ya usada en esta pantalla");
+  assert.match(sheet, /setNoteOpen\(false\)/, "se puede volver a comprimir");
+  assert.match(sheet, /setNoteOpen\(true\);/, "al dictar, la nota se abre sola para verse grande");
+});
+
+test("implantes: lo agregado a la nota de una fase se detecta sin repetir lo que ya estaba", () => {
+  assert.equal(addedStageNote("", "Primer registro"), "Primer registro");
+  assert.equal(addedStageNote("Primer registro", "Primer registro\n\n— 25-11-2026 —\nSe instaló el implante"), "— 25-11-2026 —\nSe instaló el implante", "solo lo nuevo, sin repetir lo ya guardado");
+  assert.equal(addedStageNote("Algo largo que escribí antes", "Nota corregida distinta"), "Nota corregida distinta", "si no creció a partir de lo anterior, se compila completa (se corrigió, no se sumó)");
+  assert.equal(addedStageNote("Lo mismo", "Lo mismo"), "", "sin nada nuevo no hay nada que compilar");
+  assert.equal(addedStageNote("Algo", ""), "", "una nota que quedó vacía no genera una evolución");
+});
+
+test("implantes: lo trabajado en una fase se compila para la evolución general del paciente", () => {
+  const entry = stageEvolutionEntry({
+    tooth: "1.1", phaseId: "cirugia",
+    implant: { brand: "Straumann", system: "BLT", diameter: 4.1, length: 10 },
+    connection: "conica",
+    pieces: [{ kind: "Implante", category: "implante" }, { kind: "", category: "pilar" }],
+    addedNote: "— 25-11-2026 —\nSe instaló sin incidentes",
+  });
+  assert.ok(entry);
+  assert.match(entry.title, /Implantología · 1\.1 · Cirugía/);
+  assert.match(entry.body, /Straumann BLT · 4,1 × 10 mm/, "las medidas del implante se compilan");
+  assert.match(entry.body, /Conexión cónica/, "la conexión se compila");
+  assert.match(entry.body, /Piezas: Implante · Pilar/, "las piezas usadas en la fase se compilan");
+  assert.match(entry.body, /Se instaló sin incidentes/, "lo nuevo de la nota se compila, no lo ya agregado antes");
+  assert.equal(stageEvolutionEntry({ tooth: "1.1", phaseId: "cirugia", implant: {}, connection: "", pieces: [], addedNote: "" }), null, "sin nada nuevo que agregar, no hay evolución que compilar");
+});
+
+test("implantes: la nota de una fase se compila y se suma a la evolución general del paciente", () => {
+  const route = read("app/api/implantes/route.ts");
+  assert.match(route, /import \{ authorStatement \} from "@\/app\/evolution-author"/, "reutiliza el registro de autor ya usado en evolución clínica, no lo duplica");
+  assert.match(route, /addedStageNote\(cleanStageNote\(was\), edited\.notes\[phase\] \?\? ""\)/, "solo se compila lo nuevo de la nota");
+  assert.match(route, /stagePieces\(products, current, phase\)/, "las piezas de esa fase se incluyen en lo compilado");
+  assert.match(route, /stageEvolutionEntry\(\{/);
+  assert.match(route, /db\.insert\(evolutions\)\.values\(\{ ownerId, patientId: row\.patientId,.*title: pendingEvolution\.title, body: pendingEvolution\.body/, "se agrega como una evolución nueva, no se reemplaza ninguna");
+  assert.match(route, /\(await authorStatement\(db, ownerId\)\)\.statement/, "el autor se registra en el mismo batch: si no se puede registrar, tampoco se guarda la evolución");
+  assert.match(route, /if \(row && pendingEvolution && pendingEvolutionPhase\)/, "solo se compila si la nota del implante quedó guardada");
 });
 
 test("implantes: la herramienta Producto está en la ventana del implante y no mezcla piezas", () => {

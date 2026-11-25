@@ -9,7 +9,7 @@
  */
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type ReactNode, type TouchEvent } from "react";
 import { createPortal } from "react-dom";
-import { Camera, ChevronLeft, ChevronRight, Circle, CircleCheck, CircleDot, ImagePlus, Trash2, X } from "lucide-react";
+import { Camera, ChevronDown, ChevronLeft, ChevronRight, Circle, CircleCheck, CircleDot, ImagePlus, Trash2, X } from "lucide-react";
 import type { ClinicalImage } from "@/app/clinical-data";
 import { thumbUrl } from "@/lib/image-compress";
 import { pieceSummary, stagePieces, type Piece } from "@/lib/implant-pieces";
@@ -132,12 +132,17 @@ export function StagePage({ item, edit, today, busy, images, onEdit, onBack, onC
   const radiograph = useRef<HTMLInputElement | null>(null);
   const clinical = useRef<HTMLInputElement | null>(null);
   const noteBox = useRef<HTMLTextAreaElement | null>(null);
-  const [noteExpanded, setNoteExpanded] = useState(false);
+  /** La nota queda comprimida como una evolución; se abre a modo lienzo (misma animación que el resto de la pantalla) para leerla o escribirla grande. */
+  const [noteOpen, setNoteOpen] = useState(false);
+  const notePreview = (() => {
+    const line = note.split("\n").map(part => part.trim()).filter(Boolean).at(-1) ?? "";
+    return line.length > 72 ? `${line.slice(0, 72)}…` : line;
+  })();
   /** Cada dictado queda fechado, como una evolución: se agrega, nunca reemplaza lo ya escrito. */
   const insertDictation = (text: string) => {
     const stamp = `— ${dayLabel(today)} —\n${text}`;
     onEdit({ note: [note, stamp].filter(Boolean).join("\n\n"), ...(edit.note === null ? { noteFrom: saved } : {}) });
-    setNoteExpanded(true);
+    setNoteOpen(true);
     requestAnimationFrame(() => { if (noteBox.current) noteBox.current.scrollTop = noteBox.current.scrollHeight; });
   };
   const save = async (change: StageChange) => { if (await onChange(change)) onEdit({ date: null }); };
@@ -202,17 +207,28 @@ export function StagePage({ item, edit, today, busy, images, onEdit, onBack, onC
 
     <div className="space-y-2">
       <StageDictation disabled={busy} onInsert={insertDictation} />
-      <div className="flex items-center justify-between gap-2">
-        <label htmlFor="stage-note-field" className="text-sm font-semibold">Nota de esta etapa (opcional)</label>
-        <button type="button" onClick={() => setNoteExpanded(v => !v)} className="min-h-8 shrink-0 text-xs font-semibold text-[#473a6d] underline" data-testid="stage-note-expand">{noteExpanded ? "Reducir" : "Ampliar"}</button>
-      </div>
-      <textarea id="stage-note-field" ref={noteBox} rows={noteExpanded ? 16 : 3} value={note} maxLength={MAX_STAGE_NOTE} onChange={e => onEdit({ note: e.target.value, ...(edit.note === null ? { noteFrom: saved } : {}) })} className="block w-full rounded-lg border border-[#d8d5e4] bg-white px-3 py-2 text-base font-normal" data-testid="stage-note"/>
-      {noteConflict ? <div className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950" role="alert" data-testid="stage-note-conflict">
-        <p>Mientras escribías se guardó otra nota{saved ? ":" : " vacía (se borró)."}</p>
-        {saved && <p className="whitespace-pre-wrap break-words rounded bg-white p-2">{saved}</p>}
-        <button type="button" disabled={busy} className={`${action} w-full`} onClick={() => onNote(saved)}>Reemplazar con la mía</button>
-        <button type="button" disabled={busy} className={`${action} w-full`} onClick={() => onEdit({ note: null })}>Dejar la guardada</button>
-      </div> : noteChanged && <button type="button" disabled={busy} onClick={() => onNote()} className="min-h-11 w-full rounded-xl bg-[#473a6d] px-4 text-sm font-semibold text-white hover:bg-[#3a2f5a] disabled:opacity-50" data-testid="stage-note-save">Guardar nota</button>}
+      {!noteOpen
+        ? <button type="button" onClick={() => setNoteOpen(true)} aria-expanded={false}
+            className="flex min-h-11 w-full items-center gap-2 rounded-lg px-1 py-1 text-left hover:bg-[#f3f1f7] focus-visible:outline-2 focus-visible:outline-[#473a6d]" data-testid="stage-note-row">
+            <ChevronRight className="size-4 shrink-0 text-[#473a6d]" aria-hidden="true"/>
+            <span className="shrink-0 text-sm font-semibold">Nota de esta etapa</span>
+            <span className="min-w-0 flex-1 truncate text-sm text-[#615f73]" data-testid="stage-note-preview">{notePreview || "Sin nota registrada"}</span>
+          </button>
+        : <div className="gd-implant-canvas space-y-2" data-testid="stage-note-canvas">
+            <button type="button" onClick={() => setNoteOpen(false)} aria-expanded={true}
+                className="flex min-h-11 w-full items-center gap-2 rounded-lg px-1 py-1 text-left hover:bg-[#f3f1f7] focus-visible:outline-2 focus-visible:outline-[#473a6d]" data-testid="stage-note-row">
+              <ChevronDown className="size-4 shrink-0 text-[#473a6d]" aria-hidden="true"/>
+              <span className="text-sm font-semibold">Nota de esta etapa</span>
+            </button>
+            <label htmlFor="stage-note-field" className="sr-only">Nota de esta etapa (opcional)</label>
+            <textarea id="stage-note-field" ref={noteBox} rows={14} value={note} maxLength={MAX_STAGE_NOTE} onChange={e => onEdit({ note: e.target.value, ...(edit.note === null ? { noteFrom: saved } : {}) })} className="block w-full rounded-lg border border-[#d8d5e4] bg-white px-3 py-2 text-base font-normal" data-testid="stage-note"/>
+            {noteConflict ? <div className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950" role="alert" data-testid="stage-note-conflict">
+              <p>Mientras escribías se guardó otra nota{saved ? ":" : " vacía (se borró)."}</p>
+              {saved && <p className="whitespace-pre-wrap break-words rounded bg-white p-2">{saved}</p>}
+              <button type="button" disabled={busy} className={`${action} w-full`} onClick={() => onNote(saved)}>Reemplazar con la mía</button>
+              <button type="button" disabled={busy} className={`${action} w-full`} onClick={() => onEdit({ note: null })}>Dejar la guardada</button>
+            </div> : noteChanged && <button type="button" disabled={busy} onClick={() => onNote()} className="min-h-11 w-full rounded-xl bg-[#473a6d] px-4 text-sm font-semibold text-white hover:bg-[#3a2f5a] disabled:opacity-50" data-testid="stage-note-save">Guardar nota</button>}
+          </div>}
     </div>
     {marked && <button type="button" disabled={busy} onClick={remove} data-testid="implant-stage-remove" className="min-h-11 w-full text-sm font-semibold text-rose-800">Quitar marca de la etapa</button>}
     </div>
