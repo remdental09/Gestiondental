@@ -12,6 +12,7 @@ import { buildMinsalClinicalContext } from "./minsal-knowledge.ts";
 import { isPriorEndoSentence, priorEndoYear } from "./prior-endo.ts";
 import { buildEndoPerioContext } from "./endoperio-knowledge.ts";
 import { identityNormalizationPrompt, normalizeIdentityNumbers } from "./identity-numbers.ts";
+import { keepToothObservations } from "./tooth-observation.ts";
 import { CLINICAL_WRITING_PROMPT, TOOTH_NUMBERING_PROMPT, procedureCovered, deduplicateProcedureSentences } from "./clinical-writing.ts";
 /**
  * Propuesta estructurada de un dictado clínico.
@@ -807,8 +808,14 @@ const LETTER_GROUPS: Record<string, Array<[OdontogramSurface, SurfaceVia]>> = {
   ov: [["O", "oclusal"], ["V", "vestibular"]],
 };
 
+/**
+ * «Oclusal hacia palatino» u «oclusal hacia vestibular» ubica una parte DENTRO de la cara oclusal: no marca la otra cara.
+ * «Ocluso-palatino», «cara palatina» o «desde oclusal hacia vestibular» (se extiende) siguen marcando ambas.
+ */
+const WITHIN_FACE = /(?<!\bdesde\s(?:la\s)?(?:cara\s)?)\b(oclusal|oclual|incisal)(?:\s+(?:y\s+)?hacia\s+(?:(?:el|la)\s+)?(?:(?:lado|zona|parte|sector)\s+)?(?:palatin[oa]|lingual|vestibular|bucal|mesial|distal))+\b/g;
+
 function collectRawSurfaces(sentence: string): RawSurface[] {
-  const text = speechText(sentence);
+  const text = speechText(sentence).replace(WITHIN_FACE, "$1");
   const found: RawSurface[] = [];
   const add = (code: OdontogramSurface, via: SurfaceVia) => {
     if (!found.some((item) => item.code === code && item.via === via)) found.push({ code, via });
@@ -3269,6 +3276,8 @@ export function validateAiExtraction(input: unknown, transcript: string, options
     nota.examen = [typeof nota.examen === "string" ? nota.examen.trim() : "", ensurePeriod(capitalize(diagnosisText))].filter(Boolean).join(" ");
     nota.diagnostico = "";
   }
+  // Lo que el profesional describe de una pieza queda entero en «Examen», sin atribuírselo al paciente.
+  clarifications.push(...keepToothObservations(nota, transcript));
   const noteLines: string[] = [];
   for (const [key, label] of NOTE_SECTIONS) {
     const body = typeof nota[key] === "string" ? (nota[key] as string).trim().slice(0, 4000) : "";
@@ -3643,6 +3652,12 @@ function noteSectionLines(body: string, heading: string): string[] {
 
 const procedureTextMatches = procedureCovered;
 
+/**
+ * Líneas y oraciones de la sección. Un párrafo se compara oración por oración: si no, un «No se administra anestesia» al final
+ * haría parecer distinta (por la negación) a la oración que ya está escrita, y se pegaría otra vez.
+ */
+const withSentences = (lines: string[]) => [...new Set(lines.flatMap((line) => [line, ...line.split(/(?<=[.!?])\s+(?=\p{Lu})/u)]))];
+
 function professionalizeProcedureText(value: string): string {
   let text = normalizeCompositeTerm(value.replace(/\s+/g, " ").trim());
   text = text
@@ -3664,7 +3679,7 @@ function insertProcedureLines(body: string, additions: string[]): string {
     let end = start + 1;
     while (end < lines.length && lines[end].trim() && !NOTE_SECTION_HEADINGS.has(lines[end].trim())) end += 1;
     const current = lines.slice(start + 1, end).map((line) => line.trim()).filter(Boolean);
-    const missing = unique.filter((line) => !current.some((existing) => procedureTextMatches(line, existing)));
+    const missing = unique.filter((line) => !withSentences(current).some((existing) => procedureTextMatches(line, existing)));
     if (!missing.length) return body;
     lines.splice(end, 0, ...missing);
   } else {
@@ -3694,7 +3709,7 @@ function mostlyCovered(line: string, text: string): boolean {
 function completeProcedureSection(noteBody: string, aiProcedures: ProcedureItem[], localBody: string, clarifications: string[]): string {
   const localProcedures = noteSectionLines(localBody, PROCEDURE_SECTION);
   if (!localProcedures.length) return noteBody;
-  const existingNote = noteSectionLines(noteBody, PROCEDURE_SECTION);
+  const existingNote = withSentences(noteSectionLines(noteBody, PROCEDURE_SECTION));
   const verifiedProcedures = aiProcedures.filter((item) =>
     item.verified && item.text.trim() && item.evidence.trim()
     && localProcedures.some((line) => procedureTextMatches(item.evidence, line)),
