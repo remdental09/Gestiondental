@@ -52,7 +52,7 @@ export async function POST(request: Request) {
         model,
         messages: [
           { role: "system", content: LABEL_PROMPT },
-          { role: "user", content: [{ type: "text", text: code ? `Transcribe la etiqueta de esta foto. El código de la etiqueta contiene este texto (puedes usar lo que esté escrito literalmente en él, como marca, medidas o descripción; lote, serie y fechas los toma la app del código): ${code}` : "Transcribe la etiqueta de esta foto." }, { type: "image_url", image_url: { url: `data:${image.contentType};base64,${toBase64(bytes)}`, detail: "high" } }] },
+          { role: "user", content: [{ type: "text", text: code ? `Transcribe la etiqueta de esta foto. El código de la etiqueta contiene este texto (puedes usar lo que esté escrito literalmente en él, como marca, medidas o descripción; transcribe igualmente todo lo impreso, incluidos lote, serie y fechas): ${code}` : "Transcribe la etiqueta de esta foto." }, { type: "image_url", image_url: { url: `data:${image.contentType};base64,${toBase64(bytes)}`, detail: "high" } }] },
         ],
         response_format: { type: "json_schema", json_schema: { name: "etiqueta_producto", strict: true, schema: LABEL_SCHEMA } },
         ...(isReasoning(model) ? { max_completion_tokens: 4000, reasoning_effort: "low" } : { temperature: 0, max_tokens: 1800 }),

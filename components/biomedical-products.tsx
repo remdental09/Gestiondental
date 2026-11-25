@@ -9,8 +9,8 @@ import { Camera, FileText, ImagePlus, LoaderCircle, Pencil, Plus, ScanLine, Spar
 import type { ClinicalImage } from "@/app/clinical-data";
 import { CodeScanner } from "@/components/code-scanner";
 import { readCodes } from "@/lib/code-reader";
-import { parseProductCodes } from "@/lib/product-code";
-import { applyCode, applyLabel, clearSuggested } from "@/lib/product-draft";
+import { parseProductCodes, type CodeRead, type ProductCode } from "@/lib/product-code";
+import { applyPhoto, applyScan } from "@/lib/product-draft";
 import { MAX_DETAILS, PRODUCT_CATEGORIES, PRODUCT_IMAGE_KIND, categoryLabel, cleanTooth, expiryLabel, measureText, missingTrace, type LabelReading, type ProductCategory, type ProductDetail } from "@/lib/biomedical-products";
 
 export type ProductView = {
@@ -24,11 +24,11 @@ type Draft = {
   brand: string; reference: string; lot: string; serial: string; expiry: string; manufacturer: string; tooth: string; note: string; placedOn: string;
   model: string; diameter: string; length: string; registration: string; manufactured: string; gtin: string; details: ProductDetail[]; code: string;
   /** Campos que la IA propuso y el profesional aún no tocó: se marcan para que los compare con la foto. */
-  suggested: Set<string>; fromCode: Set<string>; aiRead: boolean;
+  suggested: Set<string>; fromCode: Set<string>; aiRead: boolean; categoryBy: "" | "read" | "user"; scan: ProductCode | null;
 };
 
 const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Santiago", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
-const blank = (tooth = ""): Draft => ({ id: null, imageId: null, imageUrl: "", category: "implante", brand: "", reference: "", lot: "", serial: "", expiry: "", manufacturer: "", tooth, note: "", placedOn: today(), model: "", diameter: "", length: "", registration: "", manufactured: "", gtin: "", details: [], code: "", suggested: new Set(), fromCode: new Set(), aiRead: false });
+const blank = (tooth = ""): Draft => ({ id: null, imageId: null, imageUrl: "", category: "implante", brand: "", reference: "", lot: "", serial: "", expiry: "", manufacturer: "", tooth, note: "", placedOn: today(), model: "", diameter: "", length: "", registration: "", manufactured: "", gtin: "", details: [], code: "", suggested: new Set(), fromCode: new Set(), aiRead: false, categoryBy: "", scan: null });
 const dayLabel = (iso: string) => { const d = new Date(`${iso}T12:00:00-03:00`); return Number.isNaN(d.getTime()) ? iso : new Intl.DateTimeFormat("es-CL", { dateStyle: "medium", timeZone: "America/Santiago" }).format(d); };
 
 const inputBase = "mt-1 block min-h-11 w-full rounded-lg border px-3 text-base";
@@ -57,7 +57,8 @@ export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, e
   embedded?: boolean;
   /** Permite que la pestaña que la contiene abra la cámara desde su propio botón. */
   tool?: RefObject<ProductTool | null>;
-  onSaved?: (product: ProductView, created: boolean) => void;
+  /** `implantKnown`: se sabe que el tipo es correcto (elegido, leído o con medidas); sin eso no se une solo a un implante. */
+  onSaved?: (product: ProductView, created: boolean, implantKnown: boolean) => void;
   onUploadImage: (file: File, kind: typeof PRODUCT_IMAGE_KIND, note: string) => Promise<ClinicalImage>;
   onRemoveImage: (id: number) => Promise<void>;
   onImageGone: (id: number) => void;
@@ -93,27 +94,26 @@ export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, e
       const found = readCodes(file).catch(() => [] as string[]);
       image = await onUploadImage(file, PRODUCT_IMAGE_KIND, "");
       setBusy("reading");
-      let base = draft && draft.id === null ? draft : blank(cleanTooth(startTooth));
-      // Si ya había una foto sin guardar en el borrador, se descarta (cada producto tiene su foto) junto con lo que se leyó de ella.
-      if (base.imageId && base.imageId !== image.id) { void onRemoveImage(base.imageId).catch(() => undefined); base = clearSuggested(base); }
-      let next: Draft = { ...base, imageId: image.id, imageUrl: image.url };
+      const base = draft ?? blank(cleanTooth(startTooth));
+      // Si ya había una foto sin guardar en el borrador, se descarta: cada producto tiene su foto.
+      if (base.imageId && base.imageId !== image.id) void onRemoveImage(base.imageId).catch(() => undefined);
       // 1) Código de la etiqueta (lectura exacta, en el equipo). 2) Texto impreso, leído por la IA. 3) La foto queda como respaldo.
       const codes = await found;
-      const code = codes.length ? parseProductCodes(codes) : null;
-      let aiProblem = "", mismatch = false;
+      const parsed = codes.length ? parseProductCodes(codes) : null;
+      const code = parsed && !parsed.mixed ? parsed : null;
+      let aiProblem = "";
       let read: { fields: LabelReading | null; aiError?: string } = { fields: null };
-      try { read = await call("/api/productos/leer", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ imageId: image.id, code: code?.raw ?? next.code }) }); }
+      try { read = await call("/api/productos/leer", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ imageId: image.id, code: code?.raw ?? "" }) }); }
       catch { aiProblem = "No se pudo leer el texto de la etiqueta."; }
-      if (read.fields) { const applied = applyLabel(next, read.fields); next = applied.draft; mismatch = applied.mismatch; }
-      else aiProblem ||= read.aiError || "No se pudo leer el texto de la etiqueta.";
+      if (!read.fields) aiProblem ||= read.aiError || "No se pudo leer el texto de la etiqueta.";
+      const result = applyPhoto(base, code, read.fields);
+      const next: Draft = { ...result.draft, imageId: image.id, imageUrl: image.url, aiRead: result.draft.suggested.size > 0 };
       const parts: string[] = [];
-      if (code) {
-        // El código manda sobre el texto leído: es exacto. Lo que difiere se avisa para que se revise la foto.
-        const applied = applyCode(next, code); next = applied.draft; mismatch ||= applied.mismatch;
-        parts.push(applied.filled.length ? `Se leyó el código de la etiqueta (${applied.filled.join(", ")}).` : "Se encontró un código, pero no trae lote ni serie reconocibles.");
-      }
-      next = { ...next, aiRead: next.suggested.size > 0 };
-      if (mismatch) parts.push("El código y el texto impreso no coinciden en algún dato: compáralos con la foto.");
+      if (parsed?.mixed) parts.push("En la foto hay códigos de productos distintos y no se usó ninguno: fotografía una sola etiqueta.");
+      if (code) parts.push(result.filled.length ? `Se leyó el código de la etiqueta (${result.filled.join(", ")}).` : "Se encontró un código, pero no trae lote ni serie reconocibles.");
+      if (result.droppedScan) parts.push("El código escaneado antes no coincide con esta foto y se quitó; si es el mismo producto, escanéalo otra vez.");
+      if (result.kept.length) parts.push(`Se mantuvo lo que escribiste en ${result.kept.join(", ")}; el código dice otra cosa.`);
+      if (result.mismatch) parts.push("El código y el texto impreso no coinciden en algún dato: compáralos con la foto.");
       if (aiProblem) parts.push(`${aiProblem} Completa lo que falte mirando la foto, que queda guardada como respaldo.`);
       setNotice(parts.join(" "));
       setDraft(next);
@@ -121,51 +121,67 @@ export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, e
     finally { setBusy(""); }
   };
 
-  const scanned = (codes: string[]) => {
-    setScanning(false); setError("");
+  const scanned = (codes: CodeRead[]) => {
+    setScanning(false); setError(""); setNotice("");
     const code = parseProductCodes(codes);
-    const applied = applyCode(draft && draft.id === null ? draft : blank(cleanTooth(startTooth)), code);
-    setDraft(applied.draft);
-    const missing = !applied.draft.imageId ? " Toma además la foto de la etiqueta: ahí están las medidas y el resto de los datos." : "";
-    setNotice(`${applied.filled.length ? `Código leído: ${applied.filled.join(", ")}.` : "Código leído; no trae lote ni vencimiento reconocibles (queda guardado en el registro)."}${applied.mismatch ? " Algún dato no coincidía con lo que había: revisa la etiqueta." : ""}${missing}`);
+    if (code.mixed) { setError("Se ven códigos de productos distintos: escanea uno solo."); return; }
+    const base = draft ?? blank(cleanTooth(startTooth));
+    const result = applyScan(base, code, !!base.imageId);
+    if (result.rejected) { setError("Ese código es de otro producto, distinto al de la foto. Guarda o descarta este antes de escanear otro."); return; }
+    setDraft(result.draft);
+    const parts = [result.filled.length ? `Código leído: ${result.filled.join(", ")}.` : "Código leído; no trae lote ni vencimiento reconocibles (queda guardado en el registro)."];
+    if (result.kept.length) parts.push(`Se mantuvo lo que escribiste en ${result.kept.join(", ")}; el código dice otra cosa.`);
+    if (result.mismatch) parts.push("Algún dato no coincidía con lo leído de la foto: revisa la etiqueta.");
+    if (!result.draft.imageId) parts.push("Toma además la foto de la etiqueta: ahí están las medidas y el resto de los datos.");
+    setNotice(parts.join(" "));
   };
 
-  /** Un registro a medias de otra pieza no se reutiliza: la foto o el código quedarían con la pieza equivocada. */
-  const otherToothOpen = () => {
+  /**
+   * Una foto o un código nuevo no se mezcla con un producto guardado que se está editando ni, dentro de Implantología,
+   * con un registro a medias de otra pieza.
+   */
+  const blocked = () => {
+    if (busy) return true;
+    if (!draft) return false;
     const wanted = cleanTooth(startTooth);
-    if (!draft || draft.id !== null || !wanted || cleanTooth(draft.tooth) === wanted) return false;
-    setNotice(""); setError(`Primero guarda o descarta el producto ${draft.tooth ? `de la ${draft.tooth}` : "sin pieza"} que está abierto.`);
+    const reason = draft.id !== null ? "Estás editando un producto guardado: guarda o cancela antes de registrar otro."
+      : embedded && wanted && cleanTooth(draft.tooth) !== wanted ? `Primero guarda o descarta el producto ${draft.tooth ? `de la ${draft.tooth}` : "sin pieza"} que está abierto.` : "";
+    if (!reason) return false;
+    setNotice(""); setError(reason);
     formRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
     return true;
   };
-  const openScanner = () => { if (busy || (embedded && otherToothOpen())) return; setError(""); setNotice(""); setScanning(true); };
+  const openScanner = () => { if (blocked()) return; setError(""); setNotice(""); setScanning(true); };
+  const openPicker = (input: RefObject<HTMLInputElement | null>) => { if (!blocked()) input.current?.click(); };
 
   useEffect(() => {
     if (!tool) return;
-    tool.current = { photograph: () => { if (!busy && !otherToothOpen()) cameraRef.current?.click(); }, scan: openScanner };
+    tool.current = { photograph: () => openPicker(cameraRef), scan: openScanner };
     return () => { tool.current = null; };
   });
 
   const set = (key: keyof Draft, value: string) => setDraft(previous => {
     if (!previous) return previous;
     const suggested = new Set(previous.suggested), fromCode = new Set(previous.fromCode); suggested.delete(key); fromCode.delete(key);
-    return { ...previous, [key]: value, suggested, fromCode };
+    return { ...previous, [key]: value, suggested, fromCode, ...(key === "category" ? { categoryBy: "user" as const } : {}) };
   });
 
   const save = async () => {
     if (!draft || busy) return;
     setBusy("saving"); setError("");
     try {
-      const { id: _id, imageUrl: _url, suggested: _suggested, fromCode: _fromCode, ...data } = draft;
+      const { id: _id, imageUrl: _url, suggested: _suggested, fromCode: _fromCode, categoryBy, scan, ...data } = draft;
       const body = { ...data, patientId: patient.id };
+      // Sin tipo elegido ni leído y sin medidas, una foto o un código podrían ser de un injerto o membrana.
+      const implantKnown = categoryBy !== "" || (!scan && !data.imageId) || !!(data.diameter && data.length);
       if (draft.id === null) {
         const saved = await call<{ product: ProductView }>("/api/productos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
         setProducts(previous => [saved.product, ...(previous ?? [])].sort((a, b) => b.placedOn.localeCompare(a.placedOn) || b.id - a.id));
-        setDraft(null); setNotice("Producto registrado en la ficha."); onChanged(); onSaved?.(saved.product, true);
+        setDraft(null); setNotice("Producto registrado en la ficha."); onChanged(); onSaved?.(saved.product, true, implantKnown);
       } else {
         const saved = await call<{ product: ProductView }>("/api/productos", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, id: draft.id }) });
         setProducts(previous => (previous ?? []).map(item => item.id === saved.product.id ? saved.product : item));
-        setDraft(null); setNotice("Producto registrado en la ficha."); onChanged(); onSaved?.(saved.product, false);
+        setDraft(null); setNotice("Producto registrado en la ficha."); onChanged(); onSaved?.(saved.product, false, implantKnown);
       }
     } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo guardar el producto."); }
     finally { setBusy(""); }
@@ -179,7 +195,7 @@ export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, e
     setDraft(null); setError(""); setNotice("");
   };
 
-  const edit = (product: ProductView) => { setDraft({ ...blank(), id: product.id, imageId: product.imageId, imageUrl: product.imageUrl, category: product.category, brand: product.brand, reference: product.reference, lot: product.lot, serial: product.serial, expiry: product.expiry, manufacturer: product.manufacturer, model: product.model, diameter: product.diameter, length: product.length, registration: product.registration, manufactured: product.manufactured, gtin: product.gtin, details: product.details, code: product.code, tooth: product.tooth, note: product.note, placedOn: product.placedOn, aiRead: product.aiRead }); setNotice(""); setError(""); };
+  const edit = (product: ProductView) => { setDraft({ ...blank(), id: product.id, imageId: product.imageId, imageUrl: product.imageUrl, category: product.category, brand: product.brand, reference: product.reference, lot: product.lot, serial: product.serial, expiry: product.expiry, manufacturer: product.manufacturer, model: product.model, diameter: product.diameter, length: product.length, registration: product.registration, manufactured: product.manufactured, gtin: product.gtin, details: product.details, code: product.code, tooth: product.tooth, note: product.note, placedOn: product.placedOn, aiRead: product.aiRead, categoryBy: "user" }); setNotice(""); setError(""); };
 
   const remove = async (product: ProductView) => {
     if (!window.confirm(`¿Desea eliminar este producto del registro? Se borrará también la foto de la etiqueta${product.lot || product.serial ? ` (${[product.lot && `lote ${product.lot}`, product.serial && `serie ${product.serial}`].filter(Boolean).join(", ")})` : ""}. No se puede deshacer.`)) return;
@@ -199,7 +215,7 @@ export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, e
     return { ...previous, details, suggested };
   });
   /** Fecha completa o solo mes, según lo que traiga la etiqueta. */
-  const dateType = (value: string) => value.length === 10 ? "date" : "month";
+  const dateType = (value: string) => value.length === 7 ? "month" : "date";
 
   const working = busy === "photo" || busy === "reading";
   const flagged = (key: string) => draft?.fromCode.has(key) ? "border-emerald-500 bg-emerald-50" : draft?.suggested.has(key) ? "border-amber-400 bg-amber-50" : "border-[#d8d5e4] bg-white";
@@ -207,16 +223,16 @@ export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, e
   return <section className="space-y-4" data-testid="biomedical-products">
     <div className="surface">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div><h3 className="font-semibold">{embedded ? `Producto${startTooth ? ` · pieza ${startTooth}` : ""}` : "Productos biomédicos y trazabilidad"}</h3><p className="mt-1 max-w-2xl text-sm text-[#615f73]">Escanea el código y fotografía la etiqueta de un implante, injerto, membrana o pilar: la app lee las medidas, el lote y los demás datos, tú confirmas, y queda en la ficha con la pieza y la fecha.</p></div>
+        <div><h3 className="font-semibold">{embedded ? `Producto${(draft ? draft.tooth : startTooth) ? ` · pieza ${draft ? draft.tooth : startTooth}` : ""}` : "Productos biomédicos y trazabilidad"}</h3><p className="mt-1 max-w-2xl text-sm text-[#615f73]">Escanea el código y fotografía la etiqueta de un implante, injerto, membrana o pilar: la app lee las medidas, el lote y los demás datos, tú confirmas, y queda en la ficha con la pieza y la fecha.</p></div>
         {!!products?.length && <a href={`/api/productos/pdf?patientId=${patient.id}`} target="_blank" rel="noopener noreferrer" className={secondary} data-testid="products-pdf"><FileText className="size-4" aria-hidden="true"/>Imprimir registro (PDF)</a>}
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
         <button type="button" className={primary} disabled={working} onClick={openScanner} data-testid="products-scan"><ScanLine className="size-5" aria-hidden="true"/>Escanear código</button>
-        <button type="button" className={primary} disabled={working} onClick={() => cameraRef.current?.click()} data-testid="products-camera">{working ? <LoaderCircle className="size-5 animate-spin" aria-hidden="true"/> : <Camera className="size-5" aria-hidden="true"/>}{busy === "photo" ? "Guardando foto…" : busy === "reading" ? "Leyendo la etiqueta…" : "Tomar foto del producto"}</button>
-        <button type="button" className={secondary} disabled={working} onClick={() => galleryRef.current?.click()}><ImagePlus className="size-4" aria-hidden="true"/>Elegir de la galería</button>
+        <button type="button" className={primary} disabled={working} onClick={() => openPicker(cameraRef)} data-testid="products-camera">{working ? <LoaderCircle className="size-5 animate-spin" aria-hidden="true"/> : <Camera className="size-5" aria-hidden="true"/>}{busy === "photo" ? "Guardando foto…" : busy === "reading" ? "Leyendo la etiqueta…" : "Tomar foto del producto"}</button>
+        <button type="button" className={secondary} disabled={working} onClick={() => openPicker(galleryRef)}><ImagePlus className="size-4" aria-hidden="true"/>Elegir de la galería</button>
         <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={event => { void pick(event.target.files?.[0]); event.target.value = ""; }} data-testid="products-camera-input"/>
         <input ref={galleryRef} type="file" accept="image/*" className="hidden" onChange={event => { void pick(event.target.files?.[0]); event.target.value = ""; }}/>
-        {!draft && <button type="button" className={secondary} onClick={() => { setDraft(blank(cleanTooth(startTooth))); setNotice(""); setError(""); }} data-testid="products-manual">Registrar sin foto</button>}
+        {!draft && <button type="button" className={secondary} disabled={busy !== ""} onClick={() => { setDraft(blank(cleanTooth(startTooth))); setNotice(""); setError(""); }} data-testid="products-manual">Registrar sin foto</button>}
       </div>
       {error && <p role="alert" className="mt-3 rounded-lg bg-rose-50 p-3 text-sm text-rose-800">{error}</p>}
       {notice && !error && <p role="status" className="mt-3 rounded-lg bg-[#f3f1f7] p-3 text-sm text-[#473a6d]">{notice}</p>}
@@ -224,8 +240,10 @@ export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, e
 
     {draft && <div ref={formRef} className="surface space-y-3" data-testid="product-form">
       <h3 className="font-semibold">{draft.id === null ? "Nuevo producto" : "Editar producto"} · {patient.name}</h3>
+      {/* Mientras se lee la etiqueta no se escribe: la lectura reemplazaría lo escrito. */}
+      <fieldset disabled={working} className="m-0 min-w-0 border-0 p-0">
       <div className="grid gap-3 md:grid-cols-[minmax(0,260px)_minmax(0,1fr)]">
-        <div>{draft.imageUrl ? <a href={draft.imageUrl} target="_blank" rel="noopener noreferrer" aria-label="Abrir la foto de la etiqueta en grande"><img src={draft.imageUrl} alt="Foto de la etiqueta del producto" className="max-h-80 w-full rounded-xl border border-[#e6e4ee] bg-white object-contain"/></a> : <p className="rounded-xl border border-dashed border-[#c9c4da] p-4 text-sm text-[#615f73]">Sin foto: puedes agregarla con «Tomar foto del producto».</p>}</div>
+        <div>{draft.imageUrl ? <a href={draft.imageUrl} target="_blank" rel="noopener noreferrer" aria-label="Abrir la foto de la etiqueta en grande"><img src={draft.imageUrl} alt="Foto de la etiqueta del producto" className="max-h-80 w-full rounded-xl border border-[#e6e4ee] bg-white object-contain"/></a> : <p className="rounded-xl border border-dashed border-[#c9c4da] p-4 text-sm text-[#615f73]">{draft.id === null ? "Sin foto: puedes agregarla con «Tomar foto del producto»." : "Sin foto."}</p>}</div>
         <div className="space-y-3">
           {draft.fromCode.size > 0 && <p className="flex items-start gap-2 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-950" data-testid="product-qr-note"><Sparkles className="mt-0.5 size-4 shrink-0" aria-hidden="true"/><span>Los campos en verde vienen del <strong>código de la etiqueta</strong> (lectura exacta).</span></p>}
           {draft.suggested.size > 0 && <p className="flex items-start gap-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-950" data-testid="product-ai-note"><Sparkles className="mt-0.5 size-4 shrink-0" aria-hidden="true"/><span>La IA leyó los campos marcados en amarillo. <strong>Compáralos con la foto</strong>, sobre todo lote y serie, y corrige lo que haga falta antes de guardar.</span></p>}
@@ -268,6 +286,7 @@ export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, e
           </div>
         </div>
       </div>
+      </fieldset>
     </div>}
 
     {(!embedded || !!products?.length) && <ProductList embedded={embedded} count={products?.length ?? 0}>
@@ -287,7 +306,7 @@ export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, e
             {product.note && <p className="mt-1 text-[#615f73]">{product.note}</p>}
           </div>
           <div className="flex gap-2 sm:flex-col">
-            <button type="button" className={secondary} onClick={() => edit(product)} aria-label="Editar producto"><Pencil className="size-4" aria-hidden="true"/>Editar</button>
+            <button type="button" className={secondary} disabled={busy !== ""} onClick={() => edit(product)} aria-label="Editar producto"><Pencil className="size-4" aria-hidden="true"/>Editar</button>
             <button type="button" className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-rose-300 bg-white px-4 text-sm font-semibold text-rose-800 hover:bg-rose-50" onClick={() => void remove(product)} aria-label="Eliminar producto"><Trash2 className="size-4" aria-hidden="true"/>Quitar</button>
           </div>
         </li>)}</ul>}

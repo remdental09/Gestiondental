@@ -5,18 +5,22 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { Camera, LoaderCircle, X } from "lucide-react";
-import { readCodes, warmCodeReader } from "@/lib/code-reader";
+import { isSquareCode, readCodes, warmCodeReader } from "@/lib/code-reader";
+import type { CodeRead } from "@/lib/product-code";
 
-export function CodeScanner({ onRead, onClose }: { onRead: (codes: string[]) => void; onClose: () => void }) {
+export function CodeScanner({ onRead, onClose }: { onRead: (codes: CodeRead[]) => void; onClose: () => void }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const done = useRef({ onRead, onClose, finished: false });
+  /** Cerrado el lector, una lectura que termina tarde se ignora. */
+  const open = useRef(true);
+  useEffect(() => { open.current = true; return () => { open.current = false; }; }, []);
   useEffect(() => { done.current.onRead = onRead; done.current.onClose = onClose; });
   const [state, setState] = useState<"starting" | "scanning" | "blocked" | "photo">("starting");
   const [message, setMessage] = useState("");
 
   useEffect(() => {
-    let stopped = false, timer = 0, stream: MediaStream | null = null;
+    let stopped = false, timer = 0, barsSince = 0, stream: MediaStream | null = null;
     done.current.finished = false;
     const canvas = document.createElement("canvas");
     const tick = async () => {
@@ -30,7 +34,9 @@ export function CodeScanner({ onRead, onClose }: { onRead: (codes: string[]) => 
         if (context) {
           context.drawImage(video, (video.videoWidth - side) / 2, (video.videoHeight - side) / 2, side, side, 0, 0, side, side);
           const codes = await readCodes(context.getImageData(0, 0, side, side)).catch(() => []);
-          if (!stopped && codes.length && !done.current.finished) { done.current.finished = true; navigator.vibrate?.(60); done.current.onRead(codes); return; }
+          // Si primero aparece solo el código de barras, se espera un momento al cuadrado (trae lote y vencimiento).
+          if (codes.length && !barsSince) barsSince = Date.now();
+          if (!stopped && codes.length && !done.current.finished && (codes.some(code => isSquareCode(code.format)) || Date.now() - barsSince > 2000)) { done.current.finished = true; navigator.vibrate?.(60); done.current.onRead(codes); return; }
         }
       }
       timer = window.setTimeout(() => void tick(), 200);
@@ -57,7 +63,10 @@ export function CodeScanner({ onRead, onClose }: { onRead: (codes: string[]) => 
     if (!file) return;
     const before = state; setState("photo"); setMessage("");
     const codes = await readCodes(file).catch(() => []);
+    if (!open.current || done.current.finished) return;
     if (codes.length) { done.current.finished = true; done.current.onRead(codes); return; }
+    // En iPhone el video queda detenido al volver de la cámara de fotos.
+    void videoRef.current?.play().catch(() => undefined);
     setState(before === "photo" ? "blocked" : before); setMessage("No se encontró un código en esa foto. Acércate, con buena luz y sin reflejos.");
   };
 

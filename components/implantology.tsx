@@ -237,10 +237,40 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
   useEffect(() => { screen.current = { draft, dirty }; });
   const productTool = useRef<ProductTool | null>(null);
 
+  /**
+   * Al corregir la pieza o el tipo de una etiqueta ya unida, se ofrece quitarla del implante donde quedó mal.
+   * Devuelve true si se quitó de alguno (entonces se puede unir al de la pieza correcta).
+   */
+  const releaseWrong = async (product: ProductView, list: Implant[]) => {
+    const wrong = (item: { tooth: string; productId: number | string | null }) => String(item.productId) === String(product.id) && (item.tooth !== product.tooth || product.category !== "implante");
+    // Lo que vino de la etiqueta (marca y medidas tal como eran antes de corregirla) se quita junto con ella.
+    const old = labels.find(item => item.id === product.id), measures = labelMeasures(old);
+    let released = false;
+    const shown = screen.current.draft;
+    if (shown && shown.id === null && wrong(shown)) {
+      setDraft(previous => previous && previous.id === null && wrong(previous) ? { ...previous, productId: "",
+        brand: previous.brand === old?.brand ? "" : previous.brand, diameter: previous.diameter === mm(measures.diameter) ? "" : previous.diameter, length: previous.length === mm(measures.length) ? "" : previous.length } : previous);
+      released = true;
+    }
+    for (const item of list.filter(wrong)) {
+      if (!window.confirm(`Esta etiqueta sigue unida al implante ${item.tooth}. ¿Desea quitarla de ese implante? También se quitan la marca y las medidas que vinieron de ella.`)) continue;
+      try {
+        const { implant } = await send<{ implant: Implant }>("PATCH", { ...toDraft(item), id: item.id, productId: "", brand: item.brand === old?.brand ? "" : item.brand,
+          diameter: item.diameter === measures.diameter ? "" : mm(item.diameter), length: item.length === measures.length ? "" : mm(item.length) });
+        setImplants(previous => (previous ?? []).map(other => other.id === implant.id ? implant : other));
+        if (screen.current.draft?.id === implant.id) { const next = toDraft(implant); setDraft(next); setBaseline(JSON.stringify(next)); }
+        setNotice(`Etiqueta quitada del implante ${implant.tooth}.`); onChanged(); released = true;
+      } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo quitar la etiqueta del implante."); }
+    }
+    return released;
+  };
+
   /** Una etiqueta de implante recién guardada se une sola al implante de su pieza que aún no tiene etiqueta. */
-  const productSaved = async (product: ProductView, created: boolean) => {
+  const productSaved = async (product: ProductView, created: boolean, implantKnown: boolean) => {
     const data = await load();
-    if (!data || !created || product.category !== "implante" || !product.tooth) return;
+    if (!data || (!created && !await releaseWrong(product, data.implants))) return;
+    if (product.category !== "implante" || !product.tooth) return;
+    if (!implantKnown) { setNotice(`Producto guardado. Si es el implante de la ${product.tooth}, elige su etiqueta en la ficha del implante.`); return; }
     const { draft: shown, dirty: pending } = screen.current;
     const measures = labelMeasures(product);
     const here = shown && shown.tooth === product.tooth ? shown : null;
@@ -290,7 +320,7 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
       {notice && !error && <p role="status" className="rounded-lg bg-[#f3f1f7] p-3 text-sm text-[#473a6d]">{notice}</p>}
     </div>
 
-    <BiomedicalProducts embedded tool={productTool} patient={patient} startTooth={draft?.tooth ?? ""} onSaved={(product, created) => void productSaved(product, created)}
+    <BiomedicalProducts embedded tool={productTool} patient={patient} startTooth={draft?.tooth ?? ""} onSaved={(product, created, implantKnown) => void productSaved(product, created, implantKnown)}
       onUploadImage={onUploadImage} onRemoveImage={onRemoveImage} onImageGone={onImageGone} onChanged={() => { void load(); onChanged(); }}/>
 
     {draft && <div ref={formRef} className="surface space-y-4" data-testid="implant-form">

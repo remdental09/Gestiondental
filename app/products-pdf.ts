@@ -16,7 +16,7 @@ import { thumbKey } from "@/lib/image-keys";
 
 const toBase64 = (bytes: Uint8Array) => { let bin = ""; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return btoa(bin); };
 const dateLong = (iso: string) => { const d = new Date(iso.length === 10 ? `${iso}T12:00:00-03:00` : iso); return Number.isNaN(d.getTime()) ? iso : new Intl.DateTimeFormat("es-CL", { dateStyle: "long", timeZone: "America/Santiago" }).format(d); };
-const MAX_MAIN_BYTES = 1_200_000;
+const MAX_MAIN_BYTES = 2_500_000;
 
 /** Foto para el PDF: el original si es JPG/PNG y no es muy pesado (para que se lean lotes y series); si no, la miniatura. */
 async function photoDataUrl(objectKey: string, contentType: string, size: number): Promise<string | undefined> {

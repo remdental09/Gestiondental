@@ -59,6 +59,12 @@ export default defineConfig(async () => {
       ...(isCodexSeatbeltSandbox ? { watch: { useFsEvents: false, usePolling: true } } : {}),
     },
     plugins: [
+      // El lector de códigos solo corre en el navegador: su .wasm no debe ir dentro del Worker.
+      {
+        name: "wasm-solo-navegador", enforce: "pre" as const,
+        resolveId(this: { environment: { name: string } }, id: string) { return id.endsWith("zxing_reader.wasm?url") && this.environment.name !== "client" ? "\0wasm-solo-navegador" : null; },
+        load(id: string) { return id === "\0wasm-solo-navegador" ? 'export default ""' : null; },
+      },
       vinext(),
       ...(!externalCloudflareDeploy ? [sites({ mockAuth: !managedLinux })] : []),
       cloudflare({

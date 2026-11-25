@@ -6,6 +6,15 @@
 import { cleanCode, cleanExpiry } from "./biomedical-products.ts";
 
 export type ProductCode = { lot: string; serial: string; expiry: string; manufactured: string; reference: string; gtin: string; raw: string };
+/** Código tal como lo entrega el lector: `gs1` cuando el símbolo se declara GS1 (UDI); `format`, el tipo de símbolo. */
+export type CodeRead = { text: string; gs1?: boolean; format?: string };
+
+/** Dígito verificador GS1 (EAN-8, UPC-A, EAN-13, GTIN-14). */
+export function validGtin(value: string): boolean {
+  if (!/^(?:\d{8}|\d{12,14})$/.test(value)) return false;
+  const sum = [...value.slice(0, -1)].reverse().reduce((total, digit, index) => total + Number(digit) * (index % 2 === 0 ? 3 : 1), 0);
+  return (10 - sum % 10) % 10 === Number(value.at(-1));
+}
 
 const FIXED: Record<string, number> = { "00": 18, "01": 14, "02": 14, "11": 6, "12": 6, "13": 6, "15": 6, "16": 6, "17": 6, "20": 2 };
 const VARIABLE = new Set(["10", "21", "22", "240", "241", "30", "37", "90", "91", "92", "93", "94", "95", "96", "97", "98", "99"]);
@@ -76,12 +85,20 @@ function parseLabelled(text: string): Partial<ProductCode> | null {
   return lot || serial || reference || exp ? { lot, serial, reference, expiry: exp.replace(/\//g, "-") } : null;
 }
 
+/**
+ * Un número o texto cualquiera no se interpreta como trazabilidad: solo un código GS1 declarado, el texto con identificadores
+ * explícitos, un enlace o cadena GS1 con un GTIN válido, o un código de barras de producto (EAN/UPC/ITF-14).
+ */
 export function parseProductCode(payload: unknown): ProductCode {
-  const raw = typeof payload === "string" ? payload.replace(/[\u0000-\u001C\u007F]/g, " ").trim().slice(0, 1500) : "";
-  const source = typeof payload === "string" ? payload.trim().slice(0, 1500) : "";
-  // Código de barras simple (EAN/UPC/ITF-14): el número es el GTIN.
-  const barcode = /^(?:\d{8}|\d{12,14})$/.test(source) ? { gtin: source.replace(/^0+(?=\d{8})/, "") } as Partial<ProductCode> : null;
-  const found = (source && (barcode ?? parseParenthesised(source) ?? parseDigitalLink(source) ?? parseRawGs1(source) ?? parseLabelled(source))) || {};
+  const read: CodeRead = typeof payload === "string" ? { text: payload } : payload && typeof (payload as CodeRead).text === "string" ? payload as CodeRead : { text: "" };
+  const raw = read.text.replace(/\x1d/g, "|").replace(/[\u0000-\u001F\u007F]/g, " ").trim().slice(0, 1500);
+  const source = read.text.trim().slice(0, 1500);
+  // Código de barras de producto: el número es el GTIN. Un Code128 interno de solo números no lo es.
+  const retail = !read.format || /EAN|UPC/i.test(read.format) || (/ITF/i.test(read.format) && source.length === 14);
+  const barcode = retail && validGtin(source) ? { gtin: source.replace(/^0+(?=\d{8})/, "") } as Partial<ProductCode> : null;
+  const link = parseDigitalLink(source);
+  const element = read.gs1 || (/^(?:\]d2|\]C1|\]Q3)?01\d{14}/.test(source) && validGtin(source.replace(/^\](?:d2|C1|Q3)/, "").slice(2, 16)));
+  const found = (source && (barcode ?? parseParenthesised(source) ?? (link?.gtin && validGtin(link.gtin) ? link : null) ?? (element ? parseRawGs1(source) : null) ?? parseLabelled(source))) || {};
   const gtin = found.gtin ?? "";
   return {
     lot: cleanCode(found.lot ?? ""), serial: cleanCode(found.serial ?? ""), expiry: cleanExpiry(found.expiry ?? ""),
@@ -92,12 +109,33 @@ export function parseProductCode(payload: unknown): ProductCode {
 /** ¿El código aportó algún dato de trazabilidad que pueda completar el formulario? */
 export const codeHasFields = (code: ProductCode) => !!(code.lot || code.serial || code.expiry || code.manufactured || code.reference || code.gtin);
 
-/** Une varios códigos de una misma etiqueta (p. ej. Data Matrix y código de barras): vale el primer dato de cada tipo. */
-export function parseProductCodes(payloads: string[]): ProductCode {
-  const all = [...new Set(payloads)].map(parseProductCode);
+/** ¿Dicen lo mismo? «2028-11» y «2028-11-25» no se contradicen: una etiqueta puede imprimir solo el mes. */
+export function sameValue(key: string, a: string, b: string): boolean {
+  const x = a.trim().toLowerCase(), y = b.trim().toLowerCase();
+  return x === y || ((key === "expiry" || key === "manufactured") && (x.startsWith(y) || y.startsWith(x)));
+}
+
+/** Datos que identifican un envase concreto. */
+const IDENTIFIERS = ["gtin", "lot", "serial", "expiry", "manufactured"] as const;
+type Identified = Partial<Record<typeof IDENTIFIERS[number], string>>;
+
+/**
+ * ¿Son dos productos distintos? Entre lecturas exactas (códigos) basta un dato distinto. Frente al texto leído por la IA,
+ * un solo lote o fecha distinto puede ser un error de lectura: se exige GTIN o serie distintos, o dos datos distintos.
+ */
+export function otherProduct(a: Identified, b: Identified, exact: boolean): boolean {
+  const different = IDENTIFIERS.filter(key => a[key] && b[key] && !sameValue(key, a[key]!, b[key]!));
+  return exact ? different.length > 0 : different.includes("gtin") || different.includes("serial") || different.length > 1;
+}
+
+/** Une varios códigos de una misma etiqueta (p. ej. Data Matrix y código de barras). Si son de productos distintos, no se usa ninguno. */
+export function parseProductCodes(payloads: Array<string | CodeRead>): ProductCode & { mixed: boolean } {
+  const all = payloads.map(parseProductCode);
+  if (all.some((code, index) => all.slice(index + 1).some(next => otherProduct(code, next, true))))
+    return { lot: "", serial: "", expiry: "", manufactured: "", reference: "", gtin: "", raw: "", mixed: true };
   const first = (key: keyof ProductCode) => all.find(code => code[key])?.[key] ?? "";
   return {
     lot: first("lot"), serial: first("serial"), expiry: first("expiry"), manufactured: first("manufactured"), reference: first("reference"), gtin: first("gtin"),
-    raw: all.map(code => code.raw.replace(/\x1d/g, "|")).filter(Boolean).join(" | ").slice(0, 1500),
+    raw: [...new Set(all.map(code => code.raw).filter(Boolean))].join(" | ").slice(0, 1500), mixed: false,
   };
 }
