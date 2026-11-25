@@ -5,6 +5,7 @@ import { env } from "cloudflare:workers";
 import { getChatGPTUser, personalIdOf, spaceRoleOf, type ChatGPTUser } from "@/app/chatgpt-auth";
 import { authorOf, authorsOf, budgetAuthorOf, budgetAuthors, budgetAuthorsOf, evolutionAuthors, type TeamDb } from "@/app/clinic-team-db";
 import { authorStatement, currentAuthor } from "@/app/evolution-author";
+import { annulView, displayDate } from "@/app/evolution-view";
 import { canChangeBudget, canChangeEvolution, canManageTeam, evolutionAuthor, isSupportRole } from "@/lib/clinic-team";
 import { clinicalActionDenied, filterClinicalLoad } from "@/lib/role-policy";
 import { CLINICAL_AUDIT, recordEvent } from "@/app/account-events";
@@ -49,11 +50,6 @@ const validRut = (value: string) => {
   return (d === 11 ? "0" : d === 10 ? "K" : String(d)) === digit;
 };
 const dateInChile = (value = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Santiago", year: "numeric", month: "2-digit", day: "2-digit" }).format(value);
-const displayDate = (value: string) => {
-  if (!value) return "Fecha de atención no consignada";
-  const [y, m, d] = value.split("-").map(Number);
-  return new Intl.DateTimeFormat("es-CL", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(Date.UTC(y, m - 1, d)));
-};
 const diagnosisView = (d: typeof evolutionDiagnoses.$inferSelect) => ({ id: d.id, evolutionId: d.evolutionId, code: d.code, title: d.title, tooth: d.tooth, findings: d.findings, evidence: d.evidence, origin: d.origin, suggestedFrom: d.suggestedFrom });
 type ChartHistoryMetadata = { source: "manual" | "evolution"; sourceEvolutionId?: number; sourceActionId?: string; clinicalDate?: string; title: string; detail?: string };
 const error = (message: string, status = 400) => Response.json({ error: message }, { status });
@@ -201,16 +197,6 @@ function budgetView(b: typeof budgets.$inferSelect) {
     parentBudgetId: data.parentBudgetId,
   };
 }
-
-/** Datos de anulación de una evolución (solo si está anulada o reemplaza a otra). */
-function annulView(n: typeof evolutions.$inferSelect) {
-  return {
-    status: n.status === "anulada" ? "anulada" as const : "vigente" as const,
-    ...(n.status === "anulada" ? { annulledAt: n.annulledAt, annulledBy: n.annulledBy, annulReason: n.annulReason } : {}),
-    ...(n.replacesId ? { replacesId: n.replacesId } : {}),
-  };
-}
-
 
 /** Al borrar o anular una evolución, sus cambios en el odontograma se deshacen y las piezas se recalculan con lo que queda. */
 async function revertChartOf(db: ReturnType<typeof getDb>, ownerId: string, patientId: number, evolutionId: number): Promise<number[]> {

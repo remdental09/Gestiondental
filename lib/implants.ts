@@ -351,5 +351,6 @@ export function stageEvolutionEntry(input: {
   const connection = connectionText(input.connection);
   const pieces = pieceSummary(input.pieces);
   const body = [summary && `Implante: ${summary}`, connection, pieces && `Piezas: ${pieces}`, addedNote].filter(Boolean).join("\n");
-  return { title: `Implantología · ${input.tooth} · ${phaseLabel(input.phaseId)}`, body };
+  // «pieza <FDI>» (no solo el número) para que el riel de evolución reconozca la pieza, igual que una evolución dictada.
+  return { title: `Implantología · pieza ${input.tooth} · ${phaseLabel(input.phaseId)}`, body };
 }

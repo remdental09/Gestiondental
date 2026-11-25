@@ -92,6 +92,32 @@ test("implantes: la migración 0027 solo agrega la tabla, la 0029 solo columnas,
   assert.ok(journal.entries.some(entry => entry.tag === "0029_implant_connection_history" && entry.idx === 29));
 });
 
+test("implantes: la migración 0031 solo agrega columnas a evolutions y coincide con el esquema", () => {
+  const sql = read("drizzle/0031_evolution_implant_stage.sql");
+  assert.doesNotMatch(sql, /\b(DROP|DELETE|UPDATE)\s+(TABLE|FROM|`)/i);
+  const db = new DatabaseSync(":memory:");
+  db.exec("CREATE TABLE patients (id integer PRIMARY KEY)");
+  db.exec("CREATE TABLE implants (id integer PRIMARY KEY)");
+  db.exec(`CREATE TABLE evolutions (id integer PRIMARY KEY AUTOINCREMENT NOT NULL, owner_id text NOT NULL, patient_id integer NOT NULL,
+    clinical_date text NOT NULL, recorded_at text NOT NULL, title text NOT NULL, body text NOT NULL, source_document_id text,
+    backup_status text DEFAULT 'not_configured' NOT NULL, request_id text, status text DEFAULT 'vigente' NOT NULL,
+    annulled_at text, annulled_by text, annul_reason text, replaces_id integer)`);
+  db.exec("INSERT INTO patients (id) VALUES (1)");
+  db.exec("INSERT INTO implants (id) VALUES (1)");
+  db.exec("INSERT INTO evolutions (owner_id, patient_id, clinical_date, recorded_at, title, body) VALUES ('a', 1, '2026-11-25', 'x', 't', 'b')");
+  for (const statement of sql.split("--> statement-breakpoint")) db.exec(statement);
+  // Una evolución que ya existía (de la ficha general) queda sin implante ni fase: no es de implantología.
+  assert.deepEqual({ ...db.prepare("SELECT implant_id, stage_phase FROM evolutions").get() }, { implant_id: null, stage_phase: null });
+  db.exec("UPDATE evolutions SET implant_id = 1, stage_phase = 'cirugia' WHERE id = 1");
+  assert.deepEqual({ ...db.prepare("SELECT implant_id, stage_phase FROM evolutions").get() }, { implant_id: 1, stage_phase: "cirugia" });
+  const columns = db.prepare("PRAGMA table_info(evolutions)").all().map(column => column.name);
+  const schema = read("db/schema.ts").split('sqliteTable("evolutions"')[1].split("evolutions_patient_date_idx")[0];
+  const declared = [...schema.matchAll(/(?:text|integer|real)\("([a-z_]+)"/g)].map(match => match[1]);
+  assert.deepEqual([...columns].sort(), declared.sort());
+  const journal = JSON.parse(read("drizzle/meta/_journal.json"));
+  assert.ok(journal.entries.some(entry => entry.tag === "0031_evolution_implant_stage" && entry.idx === 31));
+});
+
 test("implantes: permisos, pestaña, respaldo, descarga y capturadora conectados", () => {
   for (const role of ["recepcion", "asistente"]) {
     assert.equal(tabAllowed(role, "implantologia"), false);
@@ -119,9 +145,8 @@ test("implantes: la etapa se puede dictar, con redacción ordenada y sin voz", (
   const sheet = read("components/implant-sheet.tsx");
   assert.match(sheet, /import \{ StageDictation \} from "@\/components\/stage-dictation"/);
   assert.match(sheet, /<StageDictation disabled=\{busy\} onInsert=\{insertDictation\}/);
-  assert.match(sheet, /const insertDictation = \(text: string\) => \{/, "el dictado se agrega a la nota de la etapa, no la reemplaza sola");
-  assert.match(sheet, /\[note, stamp\]\.filter\(Boolean\)\.join\("\\n\\n"\)/, "cada dictado se suma a lo ya escrito, con su fecha, como una evolución");
-  assert.match(sheet, /dayLabel\(today\)/, "la fecha del dictado es la de hoy, no una guardada antes");
+  assert.match(sheet, /const insertDictation = \(text: string\) => \{/, "el dictado se agrega a lo que se está por agregar, no lo reemplaza");
+  assert.match(sheet, /\[draftAddition, text\]\.filter\(Boolean\)\.join\("\\n\\n"\)/, "cada dictado se suma a lo que ya se había escrito o dictado en esta sesión, sin perderlo");
   const dictation = read("components/stage-dictation.tsx");
   assert.match(dictation, /createAudioTranscription/);
   assert.match(dictation, /useTextCorrection/);
@@ -134,16 +159,24 @@ test("implantes: la etapa se puede dictar, con redacción ordenada y sin voz", (
   assert.match(dictation, /data-testid="stage-dictation-mic"/);
 });
 
-test("implantes: la nota de la etapa queda comprimida y se abre a modo lienzo, como el resto de la pantalla", () => {
+test("implantes: la nota de la etapa es su propia evolución fechada, con la misma barra de accesos directos que la evolución general", () => {
   const sheet = read("components/implant-sheet.tsx");
-  assert.match(sheet, /const \[noteOpen, setNoteOpen\] = useState\(false\)/, "la nota arranca comprimida");
-  assert.doesNotMatch(sheet, /noteExpanded|stage-note-expand|Ampliar|Reducir/, "ya no es un botón de ampliar/reducir filas");
-  assert.match(sheet, /data-testid="stage-note-row"/, "fila comprimida, como una evolución");
-  assert.match(sheet, /data-testid="stage-note-preview"/, "la fila comprimida muestra un resumen de lo escrito");
-  assert.match(sheet, /setNoteOpen\(true\)/, "tocar la fila comprimida la abre");
-  assert.match(sheet, /className="gd-implant-canvas space-y-2" data-testid="stage-note-canvas"/, "se abre reutilizando la misma animación de lienzo ya usada en esta pantalla");
-  assert.match(sheet, /setNoteOpen\(false\)/, "se puede volver a comprimir");
-  assert.match(sheet, /setNoteOpen\(true\);/, "al dictar, la nota se abre sola para verse grande");
+  assert.doesNotMatch(sheet, /noteOpen|stage-note-row|stage-note-preview|stage-note-canvas/, "ya no es una nota comprimida que se abre a lienzo: es una evolución más, no una nota aparte");
+  assert.match(sheet, /import \{ EvolutionHistory, type EvolutionHistoryNote \} from "@\/components\/evolution-history"/, "reutiliza el mismo historial que la evolución general, no uno propio");
+  assert.match(sheet, /const draftAddition = edit\.note \?\? ""/, "lo escrito es solo lo nuevo por agregar, no la nota acumulada");
+  assert.match(sheet, /data-testid="stage-note-compose"/, "una caja breve para agregar, no un campo que muestra todo lo acumulado");
+  assert.match(sheet, /data-testid="stage-note-save">Agregar a la evolución</, "cada guardado agrega una evolución más, nunca la reemplaza");
+  assert.match(sheet, /<EvolutionHistory notes=\{evolutions\} allNotes=\{allEvolutions\} odontogram=\{odontogram\} onSyncOdontogram=\{onSyncOdontogram\} onAnnul=\{onAnnulEvolution\} onEdit=\{onEditEvolution\} rail=\{evolutionRail\}\/>/, "misma vista y misma barra que la evolución general, dentro del propio módulo");
+  assert.match(sheet, /onNote: \(\) => void/, "guardar ya no reemplaza una nota: solo agrega, sin «was» para reemplazar");
+  assert.doesNotMatch(sheet, /Reemplazar con la mía/, "ya no se puede reemplazar lo que escribió otro: solo agregar después o descartar lo propio");
+});
+
+test("implantes: la pantalla de implantología pasa la barra de accesos directos y el odontograma, con valores por defecto para seguir funcionando sola", () => {
+  const panel = read("components/implantology.tsx");
+  assert.match(panel, /evolutionRail, odontogram = emptyOdontogram\(\), onSyncOdontogram = async \(\) => \{\}, onEditEvolution, onAnnulEvolution = \(\) => \{\}/, "props opcionales con valores por defecto que no hacen nada (p. ej. para el arnés de pruebas)");
+  assert.match(panel, /evolutions=\{evolutions\.filter\(n => n\.implantId === current\.id && n\.stagePhase === stage\.phase\)\}/, "cada etapa muestra solo sus propias evoluciones");
+  assert.match(panel, /onNote=\{\(\) => void saveNote\(\)\}/, "ya no se pasa un «was» a reemplazar");
+  assert.match(read("app/page.tsx"), /evolutionRail=\{\(note,latest\)=>buildRail\(patient,note,latest\)\}\n\s*odontogram=\{toothStatuses\[selectedId\] \?\? emptyOdontogram\(\)\}\n\s*onSyncOdontogram=\{syncEvolutionOdontogram\}\n\s*onEditEvolution=\{editEvolution\}\n\s*onAnnulEvolution=\{note=>setAnnulTarget\(note\)\}/, "la ficha conecta implantología con la misma barra, el mismo odontograma y el mismo anular/editar que usa la evolución general");
 });
 
 test("implantes: lo agregado a la nota de una fase se detecta sin repetir lo que ya estaba", () => {
@@ -163,7 +196,7 @@ test("implantes: lo trabajado en una fase se compila para la evolución general 
     addedNote: "— 25-11-2026 —\nSe instaló sin incidentes",
   });
   assert.ok(entry);
-  assert.match(entry.title, /Implantología · 1\.1 · Cirugía/);
+  assert.match(entry.title, /Implantología · pieza 1\.1 · Cirugía/);
   assert.match(entry.body, /Straumann BLT · 4,1 × 10 mm/, "las medidas del implante se compilan");
   assert.match(entry.body, /Conexión cónica/, "la conexión se compila");
   assert.match(entry.body, /Piezas: Implante · Pilar/, "las piezas usadas en la fase se compilan");
@@ -177,9 +210,25 @@ test("implantes: la nota de una fase se compila y se suma a la evolución genera
   assert.match(route, /addedStageNote\(cleanStageNote\(was\), edited\.notes\[phase\] \?\? ""\)/, "solo se compila lo nuevo de la nota");
   assert.match(route, /stagePieces\(products, current, phase\)/, "las piezas de esa fase se incluyen en lo compilado");
   assert.match(route, /stageEvolutionEntry\(\{/);
-  assert.match(route, /db\.insert\(evolutions\)\.values\(\{ ownerId, patientId: row\.patientId,.*title: pendingEvolution\.title, body: pendingEvolution\.body/, "se agrega como una evolución nueva, no se reemplaza ninguna");
+  assert.match(route, /db\.insert\(evolutions\)\.values\(\{ ownerId, patientId: row\.patientId,.*title: pendingEvolution\.title, body: pendingEvolution\.body.*implantId: row\.id, stagePhase: pendingEvolutionPhase/, "se agrega como una evolución nueva, vinculada a su implante y fase (no se reemplaza ninguna)");
   assert.match(route, /\(await authorStatement\(db, ownerId\)\)\.statement/, "el autor se registra en el mismo batch: si no se puede registrar, tampoco se guarda la evolución");
   assert.match(route, /if \(row && pendingEvolution && pendingEvolutionPhase\)/, "solo se compila si la nota del implante quedó guardada");
+});
+
+test("implantes: la ficha devuelve las evoluciones que compiló cada implante, con la misma forma que la evolución general", () => {
+  const route = read("app/api/implantes/route.ts");
+  assert.match(route, /import \{ annulView, displayDate \} from "@\/app\/evolution-view"/, "reutiliza el mismo formato de fecha y de anulación que usa la evolución general");
+  assert.match(route, /import \{ authorsOf, type TeamDb \} from "@\/app\/clinic-team-db"/);
+  assert.match(route, /import \{ evolutionAuthor \} from "@\/lib\/clinic-team"/);
+  assert.match(route, /async function stageEvolutionsOf\(/, "arma el historial de evoluciones del implante aparte, reutilizable en el GET");
+  assert.match(route, /isNotNull\(evolutions\.implantId\)/, "solo las evoluciones que vienen de un implante de este paciente");
+  assert.match(route, /id: n\.id, patientId: n\.patientId, date: displayDate\(n\.clinicalDate\), clinicalDate: n\.clinicalDate, recordedAt: n\.recordedAt/, "misma forma que una nota de evolución general (EvolutionHistoryNote)");
+  assert.match(route, /authorName: authorRow\?\.author_name \|\| "", authorEmail: authorRow\?\.author_email \|\| "", mine: authorId === personalId/, "autoría igual que en evolución general, para que la barra sepa si es propia");
+  assert.match(route, /\.\.\.annulView\(n\)/, "estado de vigente\/anulada igual que en evolución general");
+  assert.match(route, /evolutions: stageEvolutions/, "el GET expone el arreglo ya armado");
+  const clinicalRoute = read("app/api/clinical/route.ts");
+  assert.match(clinicalRoute, /import \{ annulView, displayDate \} from "@\/app\/evolution-view"/, "la evolución general usa el mismo módulo compartido, no una copia propia");
+  assert.doesNotMatch(clinicalRoute, /^const displayDate = |^function annulView\(/m, "ya no define su propia copia de estas funciones");
 });
 
 test("implantes: la herramienta Producto está en la ventana del implante y no mezcla piezas", () => {

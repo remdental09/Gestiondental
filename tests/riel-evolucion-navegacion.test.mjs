@@ -37,7 +37,11 @@ test("Documentación tiene URL propia (Atrás de Safari vuelve a la ficha)", () 
 
 test("cada botón del riel abre su sección real con el paciente elegido", () => {
   const page = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
-  const rail = page.slice(page.indexOf("rail={(note,latest)=>"), page.indexOf("below={note=>"));
+  // El riel se arma en buildRail (no inline en la pestaña de evoluciones): así también se puede mostrar
+  // junto a las evoluciones compiladas dentro de implantología, con el mismo código, sin duplicarlo.
+  const rail = page.slice(page.indexOf("const buildRail=(patient:Patient,note:Note,latest?:boolean)=>"), page.indexOf("/** Sincroniza el odontograma"));
+  assert.match(page, /rail=\{\(note,latest\)=>buildRail\(patient,note,latest\)\}/, "la pestaña de evoluciones usa el mismo buildRail");
+  assert.match(page, /evolutionRail=\{\(note,latest\)=>buildRail\(patient,note,latest\)\}/, "implantología usa el mismo buildRail, no uno aparte");
   assert.match(rail, /onDocument:\(kind\)=>.*setDocStart\(\{patientId:patient\.id,kind,.*navigateTo\("Documentación"/);
   assert.match(rail, /onBudget:.*navigateTo\("Ficha clínica",patient\.id,"presupuestos"\).*startNewBudgetWith\(draftItemFor/);
   assert.match(rail, /onCharge:.*navigateTo\("Ficha clínica",patient\.id,"presupuestos"\).*openManualPayment\(target/);

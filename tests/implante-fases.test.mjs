@@ -141,12 +141,13 @@ test("un producto que apunta a un implante eliminado vuelve a ofrecerse en su pi
 test("revisión: lo guardado en otro lado no se pisa sin que el profesional lo vea y lo decida", () => {
   const panel = read("components/implantology.tsx"), sheet = read("components/implant-sheet.tsx");
   // La nota se envía con lo que había al empezar a escribir, no con lo último que se leyó.
-  assert.match(panel, /const was = replacing \?\? stage\.noteFrom \?\?/);
+  assert.match(panel, /const was = stage\.noteFrom \?\? current\.stageNotes\[phase\] \?\? ""/);
   assert.match(sheet, /stage-note-conflict/);
   assert.match(sheet, /stage-date-conflict/);
-  // La fecha de instalación ya registrada no se reemplaza al anotar algo, y corregir una nota no vuelve a marcar.
+  // La fecha de instalación ya registrada no se reemplaza al anotar algo. Agregar a la evolución siempre puede marcar
+  // la etapa (ensureMarked no hace nada si ya estaba marcada, así que no hace falta una condición aparte aquí).
   assert.match(panel, /phase === "cirugia" && target\.placedOn \? target\.placedOn : date/);
-  assert.match(panel, /if \(!was && implant\.stageNotes\[phase\]\) await ensureMarked/);
+  assert.match(panel, /await ensureMarked\(id, phase, date\);/);
   assert.match(panel, /ensureMarked\(id, phase, product\.placedOn\)/);
   // Lo pegado dentro de una etapa queda en ella.
   assert.match(sheet, /stage-pasted/);

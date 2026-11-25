@@ -39,7 +39,13 @@ export const evolutions = sqliteTable("evolutions", {
   annulReason: text("annul_reason"),
   /** Si esta evolución reemplaza a otra (anular + nueva), el id de la anulada. */
   replacesId: integer("replaces_id"),
-}, table => [index("evolutions_patient_date_idx").on(table.patientId, table.clinicalDate), index("evolutions_owner_date_idx").on(table.ownerId, table.clinicalDate, table.recordedAt), uniqueIndex("evolutions_owner_request_unique").on(table.ownerId, table.requestId)]);
+  /**
+   * Si esta evolución la compiló un implante (una etapa de implantología), su ficha y su fase: así se ve,
+   * dentro del propio módulo, como la evolución de esa etapa (no es una nota aparte, es la misma tabla).
+   */
+  implantId: integer("implant_id").references(() => implants.id),
+  stagePhase: text("stage_phase"),
+}, table => [index("evolutions_patient_date_idx").on(table.patientId, table.clinicalDate), index("evolutions_owner_date_idx").on(table.ownerId, table.clinicalDate, table.recordedAt), uniqueIndex("evolutions_owner_request_unique").on(table.ownerId, table.requestId), index("evolutions_implant_phase_idx").on(table.implantId, table.stagePhase)]);
 
 /**
  * Etiquetas de diagnóstico de una evolución, confirmadas por el profesional. `code` es CIE-11 del catálogo
