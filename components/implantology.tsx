@@ -345,6 +345,8 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
   const closeSheet = useCallback(() => setShown(null), []);
   const ordered = archOrder(implants ?? []);
   const sheetItem = shown === null ? undefined : ordered.find(item => item.id === shown);
+  /** La ventana muestra un implante distinto del de la ficha abierta: la capturadora no debe recibir. */
+  const lookingElsewhere = Boolean(sheetItem && draft?.id && sheetItem.id !== draft.id);
 
   const suggestions = implants ? implantSuggestions({ implants, labels, teeth, crowns }) : [];
   const label = current?.productId ? labels.find(item => item.id === current.productId) : undefined;
@@ -417,7 +419,7 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
         onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); void addFiles([...e.dataTransfer.files]); }}>
         <div><h4 className="font-semibold">Imágenes del implante {current.tooth}</h4><p className="text-sm text-[#615f73]">Elige el tipo de corte y pega con Ctrl+V, o arrastra el archivo aquí.</p></div>
         <div className="flex flex-wrap gap-2" role="group" aria-label="Tipo de imagen">{IMPLANT_VIEWS.map(item => <button key={item} type="button" aria-pressed={view === item} className={chip(view === item)} onClick={() => setView(item)}>{item}</button>)}</div>
-        {showCapturer && windows && <CaptureLink key={current.id} target={`implante ${current.tooth}`} patientName={patient.name} view={view} busy={busy === "image"}
+        {showCapturer && windows && <CaptureLink key={current.id} target={`implante ${current.tooth}`} patientName={patient.name} view={view} busy={busy === "image"} paused={lookingElsewhere}
           onCapture={(file, as) => addFiles([file], as)} onProblem={message => { setNotice(""); setError(message); }}/>}
         <div className="flex flex-wrap gap-2">
           <button type="button" className={primary} disabled={busy !== ""} onClick={() => void pasteButton()} data-testid="implant-paste">{busy === "image" ? <LoaderCircle className="size-4 animate-spin" aria-hidden="true"/> : <ClipboardPaste className="size-4" aria-hidden="true"/>}{busy === "image" ? "Guardando…" : "Pegar imagen"}</button>
@@ -449,6 +451,7 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
     </div>}
 
     {sheetItem && <ImplantSheet implants={ordered} shownId={sheetItem.id} label={labels.find(item => item.id === sheetItem.productId)} images={images} patientName={patient.name} today={today()} covered={open !== null}
+      warning={lookingElsewhere && showCapturer && windows ? `Capturadora en pausa: la ficha abierta abajo es del implante ${draft!.tooth}.` : ""}
       onShow={setShown} onClose={closeSheet} onAdvance={item => saveStage({ id: item.id, advanceFrom: item.phase })} onEditStage={(item, change) => saveStage({ id: item.id, editStage: change })}
       onOpenForm={openForm} onOpenImage={setOpen}/>}
 

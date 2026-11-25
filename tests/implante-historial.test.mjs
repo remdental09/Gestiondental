@@ -128,3 +128,12 @@ test("ficha abierta desde antes: lo que no se tocó no pisa lo guardado y un cho
   const { connection, ...old } = base;
   assert.deepEqual([mergeImplantEdit(current, old).input.connection, mergeImplantEdit(current, old).input.phase], ["conica", "cirugia"], "pantalla antigua");
 });
+
+test("capturadora: mientras la ventana muestra otro implante, la ficha abierta deja de recibir", () => {
+  const panel = read("components/implantology.tsx");
+  assert.match(panel, /lookingElsewhere = Boolean\(sheetItem && draft\?\.id && sheetItem\.id !== draft\.id\)/);
+  assert.match(panel, /paused=\{lookingElsewhere\}/);
+  const link = read("components/capture-link.tsx");
+  assert.match(link, /if \(paused\) \{ setState\(\{ kind: "idle" \}\); return; \}/);
+  assert.match(link, /\}, \[restored, paused\]\);/);
+});

@@ -24,7 +24,7 @@ export function ImplantIdBox({ item, extra = "" }: { item: Implant; extra?: stri
 
 export type StageChange = { index: number; phase: PhaseEntry["phase"]; date: string } & ({ to: string } | { remove: true });
 
-export function ImplantSheet({ implants, shownId, label, images, patientName, today, covered, onShow, onClose, onAdvance, onEditStage, onOpenForm, onOpenImage }: {
+export function ImplantSheet({ implants, shownId, label, images, patientName, today, covered, warning = "", onShow, onClose, onAdvance, onEditStage, onOpenForm, onOpenImage }: {
   /** En el orden del implantograma. */
   implants: Implant[];
   shownId: number;
@@ -34,6 +34,7 @@ export function ImplantSheet({ implants, shownId, label, images, patientName, to
   today: string;
   /** Hay una imagen abierta encima: las teclas son para ella. */
   covered: boolean;
+  warning?: string;
   onShow: (id: number) => void;
   onClose: () => void;
   /** Devuelven el implante guardado; si falla, lanzan el motivo. */
@@ -217,6 +218,7 @@ export function ImplantSheet({ implants, shownId, label, images, patientName, to
           </div>
 
           <div className="space-y-2 border-t border-[#ebe9f2] px-4 pb-[max(.75rem,env(safe-area-inset-bottom))] pt-3">
+            {warning && <p className="rounded-lg bg-amber-50 p-2 text-sm text-amber-900" data-testid="implant-sheet-warning">{warning}</p>}
             {error && <p role="alert" className="rounded-lg bg-rose-50 p-2 text-sm text-rose-800">{error}</p>}
             {notice && !error && <p role="status" className="rounded-lg bg-[#f3f1f7] p-2 text-sm text-[#473a6d]">{notice}</p>}
             {next && <button type="button" disabled={busy} onClick={advance} data-testid="implant-advance" className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#473a6d] px-4 text-base font-semibold text-white hover:bg-[#3a2f5a] disabled:opacity-50">{busy && <LoaderCircle className="size-4 animate-spin" aria-hidden="true"/>}Pasar a {phaseLabel(next).toLocaleLowerCase("es")}</button>}
