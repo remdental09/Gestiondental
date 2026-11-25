@@ -146,7 +146,7 @@ export function CaptureLink({ target, patientName, view, busy, onCapture, onProb
     {state.kind === "receiving" && <>
       <p role="status" className={`text-sm font-semibold ${viewer ? "text-emerald-800" : "text-[#7a5a12]"}`}>{viewer ? `● Capturadora conectada · ${viewer}` : "○ Capturadora conectada · no ve un visor abierto"}</p>
       {check === "distinto" && <p className="break-words rounded-lg border border-amber-300 bg-amber-50 p-2 text-sm font-semibold text-amber-900" data-testid="capture-mismatch">El visor muestra «{shown}» y esta ficha es de «{patientName}». Lo que captures no se guardará sin tu confirmación.</p>}
-      {blueSky && <div className="flex flex-wrap gap-2" role="group" aria-label="Qué capturar">
+      {(blueSky || !!marked?.length) && <div className="flex flex-wrap gap-2" role="group" aria-label="Qué capturar">
         <button type="button" aria-pressed={!wholeWindow} className={frameChip(!wholeWindow)} onClick={() => setWholeWindow(false)}>Solo el corte</button>
         <button type="button" aria-pressed={wholeWindow} className={frameChip(wholeWindow)} onClick={() => setWholeWindow(true)}>Ventana completa</button>
       </div>}

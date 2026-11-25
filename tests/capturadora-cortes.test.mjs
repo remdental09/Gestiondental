@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { findViews } from "../lib/capture-detect.ts";
 import { needsCut } from "../lib/capture-bridge.ts";
@@ -67,6 +68,11 @@ test("cortes: solo recorta una ventana completa de Blue Sky Plan", () => {
   assert.equal(needsCut({ ...base, view: "Radiografía" }), false);
   assert.equal(needsCut({ ...base, viewer: "Otro visor" }), false);
   assert.equal(needsCut({ ...base, viewer: null }), false);
+});
+
+test("cortes: con vistas marcadas en cualquier visor se puede pedir la ventana completa", () => {
+  const panel = readFileSync(new URL("../components/capture-link.tsx", import.meta.url), "utf8");
+  assert.match(panel, /\(blueSky \|\| !!marked\?\.length\) && <div [^>]*aria-label="Qué capturar"/);
 });
 
 test("cortes: el rótulo lleva el nombre que mostraba el visor, la vista y la fecha de Chile", () => {
