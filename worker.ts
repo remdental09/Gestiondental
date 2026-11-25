@@ -7,7 +7,7 @@ import {
   SESSION_COOKIE, STATE_COOKIE, SESSION_DAYS, LOGIN_PATH, CALLBACK_PATH, LOGOUT_PATH, LOGOUT_ALL_PATH, SHARED_COOKIE, SHARED_SESSION_MS, browserSessionCookie, EMAIL_LOGIN_PATH, VIA_COOKIE,
   signSession, verifySession, readCookie, cookie, randomToken, googleAuthUrl, acceptedGoogleProfile,
 } from "./lib/google-login";
-import { allowLogin, confirmWithoutCode, createSession, crossSiteWrite, isStoredToken, newLoginCode, readSession, revokeAllSessions, revokeSession, sameSiteNavigation, setLoginCode, verifyLoginCode, SESSION_TTL_MS, type SessionDb } from "./lib/session-store";
+import { allowLogin, confirmWithoutCode, createSession, crossSiteWrite, isStoredToken, newLoginCode, ownIdleMs, readSession, revokeAllSessions, revokeSession, sameSiteNavigation, setLoginCode, verifyLoginCode, SESSION_TTL_MS, type SessionDb } from "./lib/session-store";
 import { CODE_PATH, CODE_RESEND_PATH, loginCodePage } from "./lib/login-code";
 import { sendLoginCode } from "./app/login-code-mail";
 import { normalizeEmail, EMAIL_LIMIT_SHORT, EMAIL_LIMIT_DAY } from "./lib/email-login";
@@ -195,6 +195,8 @@ function googleLoginConfig(env: OAuthEnv) {
 const sessionDb = (env: OAuthEnv) => (env as unknown as { DB?: SessionDb }).DB ?? null;
 const clientIp = (request: Request) => request.headers.get("CF-Connecting-IP") || "";
 const sessionCookie = (token: string) => cookie(SESSION_COOKIE, token, SESSION_TTL_MS / 1000);
+/** La sesión de esta solicitud, con el tope sin actividad que corresponde a su equipo (celular o computador). */
+const requestSession = (db: SessionDb, token: string, request: Request) => readSession(db, token, Date.now(), ownIdleMs(request.headers.get("User-Agent"))).catch(() => null);
 
 function portadaResponse(errorCode: string | null, method = "GET", status = 200) {
   const headers = securePageHeaders();
@@ -366,7 +368,7 @@ async function loginCodeRoute(request: Request, env: OAuthEnv, resend: boolean):
   const db = sessionDb(env);
   const token = readCookie(request.headers.get("Cookie"), SESSION_COOKIE);
   if (!db || !isStoredToken(token)) return redirect("/");
-  const found = await readSession(db, token).catch(() => null);
+  const found = await requestSession(db, token, request);
   if (!found) return redirect("/?error=codigo", [cookie(SESSION_COOKIE, "", 0)]);
   if (!found.pending) return redirect("/");
   const email = found.session.email;
@@ -389,7 +391,7 @@ async function loginCodeRoute(request: Request, env: OAuthEnv, resend: boolean):
     return redirect("/", support ? [entryCookie("clinica", found.shared)] : []);
   }
   if (check === "wrong") return codePageResponse(email, "incorrecto", "POST", 400, found.shared);
-  if (check === "expired" && (await readSession(db, token).catch(() => null))?.pending) return codePageResponse(email, "vencido", "POST", 400, found.shared);
+  if (check === "expired" && (await requestSession(db, token, request))?.pending) return codePageResponse(email, "vencido", "POST", 400, found.shared);
   return redirect("/?error=codigo", [cookie(SESSION_COOKIE, "", 0)]);
 }
 
@@ -422,7 +424,7 @@ async function logoutEverywhere(request: Request, env: OAuthEnv): Promise<Respon
   const token = readCookie(request.headers.get("Cookie"), SESSION_COOKIE);
   const db = sessionDb(env);
   if (db && isStoredToken(token)) {
-    const found = await readSession(db, token).catch(() => null);
+    const found = await requestSession(db, token, request);
     if (found) await revokeAllSessions(db, found.session.email).catch(() => undefined);
   }
   const viaEmail = readCookie(request.headers.get("Cookie"), VIA_COOKIE) === "correo";
@@ -443,7 +445,7 @@ async function sessionOwner(request: Request, env: OAuthEnv, allowRegistration: 
   const setCookies: string[] = [];
   if (isStoredToken(token)) {
     if (!db) return null;
-    const found = await readSession(db, token).catch(() => null);
+    const found = await requestSession(db, token, request);
     if (!found) return null;
     if (found.pending) return "pending";
     ({ email, name } = found.session);
