@@ -45,17 +45,20 @@ async function call<T>(url: string, init?: RequestInit): Promise<T> {
   return data;
 }
 
-export type ProductTool = { photograph: () => void; scan: () => void };
+/** Lo que la ventana que la contiene necesita saber antes de cerrarse o pasar a otra ficha. */
+export type ProductTool = { pending: () => boolean; discard: () => void };
 
-export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, embedded = false, tool, onSaved, onUploadImage, onRemoveImage, onImageGone, onChanged }: {
+export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, embedded = false, compact = false, tool, onSaved, onUploadImage, onRemoveImage, onImageGone, onChanged }: {
   patient: { id: number; name: string };
   /** Pieza de la evolución desde la que se abrió (FDI con punto o compacta); queda como valor inicial editable. */
   startTooth?: string;
   /** Cambia cada vez que se abre desde el menú Documento → Producto. */
   startNonce?: number;
-  /** Dentro de otra pestaña (Implantología): tarjeta compacta con la lista plegada. */
+  /** Dentro de otra pestaña (Implantología): la lista va plegada y no se mezclan piezas. */
   embedded?: boolean;
-  /** Permite que la pestaña que la contiene abra la cámara desde su propio botón. */
+  /** Dentro de la ventana de un implante: solo los botones, el registro en curso y la lista plegada. */
+  compact?: boolean;
+  /** Permite que quien la contiene sepa si hay un registro a medias y lo descarte. */
   tool?: RefObject<ProductTool | null>;
   /** `implantKnown`: se sabe que el tipo es correcto (elegido, leído o con medidas); sin eso no se une solo a un implante. */
   onSaved?: (product: ProductView, created: boolean, implantKnown: boolean) => void;
@@ -74,6 +77,9 @@ export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, e
   const galleryRef = useRef<HTMLInputElement | null>(null);
   const formRef = useRef<HTMLDivElement | null>(null);
   const hasDraft = draft !== null;
+  /** Cambia al descartar o al desmontarse: una lectura que termina tarde no reaparece y su foto se borra. */
+  const generation = useRef(0);
+  useEffect(() => () => { generation.current++; }, []);
   useEffect(() => { if (embedded && hasDraft) formRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }); }, [embedded, hasDraft]);
 
   const load = useCallback(async () => {
@@ -89,10 +95,12 @@ export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, e
     if (!/^image\/(jpeg|png|webp|heic|heif)$/i.test(file.type) || file.size > 25 * 1024 * 1024) { setError("Usa una foto JPG, PNG o WebP."); return; }
     setError(""); setNotice(""); setBusy("photo");
     let image: ClinicalImage | null = null;
+    const started = generation.current;
     try {
       // El código se busca en la foto original, a resolución completa.
       const found = readCodes(file).catch(() => [] as string[]);
       image = await onUploadImage(file, PRODUCT_IMAGE_KIND, "");
+      if (generation.current !== started) { await onRemoveImage(image.id).catch(() => undefined); return; }
       setBusy("reading");
       const base = draft ?? blank(cleanTooth(startTooth));
       // Si ya había una foto sin guardar en el borrador, se descarta: cada producto tiene su foto.
@@ -105,6 +113,7 @@ export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, e
       let read: { fields: LabelReading | null; aiError?: string } = { fields: null };
       try { read = await call("/api/productos/leer", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ imageId: image.id, code: code?.raw ?? "" }) }); }
       catch { aiProblem = "No se pudo leer el texto de la etiqueta."; }
+      if (generation.current !== started) { await onRemoveImage(image.id).catch(() => undefined); return; }
       if (!read.fields) aiProblem ||= read.aiError || "No se pudo leer el texto de la etiqueta.";
       const result = applyPhoto(base, code, read.fields);
       const next: Draft = { ...result.draft, imageId: image.id, imageUrl: image.url, aiRead: result.draft.suggested.size > 0 };
@@ -156,7 +165,16 @@ export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, e
 
   useEffect(() => {
     if (!tool) return;
-    tool.current = { photograph: () => openPicker(cameraRef), scan: openScanner };
+    tool.current = {
+      // Lo que ya se está guardando termina solo: no se descarta ni se borra su foto.
+      pending: () => busy !== "saving" && (draft !== null || busy !== ""),
+      discard: () => {
+        if (busy === "saving") return;
+        generation.current++;
+        if (draft && draft.id === null && draft.imageId) void onRemoveImage(draft.imageId).catch(() => undefined);
+        setDraft(null); setBusy(""); setScanning(false); setError(""); setNotice("");
+      },
+    };
     return () => { tool.current = null; };
   });
 
@@ -220,29 +238,31 @@ export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, e
   const working = busy === "photo" || busy === "reading";
   const flagged = (key: string) => draft?.fromCode.has(key) ? "border-emerald-500 bg-emerald-50" : draft?.suggested.has(key) ? "border-amber-400 bg-amber-50" : "border-[#d8d5e4] bg-white";
 
-  return <section className="space-y-4" data-testid="biomedical-products">
-    <div className="surface">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+  const pdf = !!products?.length && <a href={`/api/productos/pdf?patientId=${patient.id}`} target="_blank" rel="noopener noreferrer" className={secondary} data-testid="products-pdf"><FileText className="size-4" aria-hidden="true"/>Imprimir registro (PDF)</a>;
+
+  return <section className={compact ? "space-y-3" : "space-y-4"} data-testid="biomedical-products">
+    <div className={compact ? "" : "surface"}>
+      {!compact && <div className="flex flex-wrap items-start justify-between gap-3">
         <div><h3 className="font-semibold">{embedded ? `Producto${(draft ? draft.tooth : startTooth) ? ` · pieza ${draft ? draft.tooth : startTooth}` : ""}` : "Productos biomédicos y trazabilidad"}</h3><p className="mt-1 max-w-2xl text-sm text-[#615f73]">Escanea el código y fotografía la etiqueta de un implante, injerto, membrana o pilar: la app lee las medidas, el lote y los demás datos, tú confirmas, y queda en la ficha con la pieza y la fecha.</p></div>
-        {!!products?.length && <a href={`/api/productos/pdf?patientId=${patient.id}`} target="_blank" rel="noopener noreferrer" className={secondary} data-testid="products-pdf"><FileText className="size-4" aria-hidden="true"/>Imprimir registro (PDF)</a>}
-      </div>
-      <div className="mt-3 flex flex-wrap gap-2">
-        <button type="button" className={primary} disabled={working} onClick={openScanner} data-testid="products-scan"><ScanLine className="size-5" aria-hidden="true"/>Escanear código</button>
-        <button type="button" className={primary} disabled={working} onClick={() => openPicker(cameraRef)} data-testid="products-camera">{working ? <LoaderCircle className="size-5 animate-spin" aria-hidden="true"/> : <Camera className="size-5" aria-hidden="true"/>}{busy === "photo" ? "Guardando foto…" : busy === "reading" ? "Leyendo la etiqueta…" : "Tomar foto del producto"}</button>
-        <button type="button" className={secondary} disabled={working} onClick={() => openPicker(galleryRef)}><ImagePlus className="size-4" aria-hidden="true"/>Elegir de la galería</button>
+        {pdf}
+      </div>}
+      <div className={compact ? "grid grid-cols-2 gap-2" : "mt-3 flex flex-wrap gap-2"}>
+        <button type="button" className={`${primary} ${compact ? "col-span-2" : ""}`} disabled={working} onClick={openScanner} data-testid="products-scan"><ScanLine className="size-5" aria-hidden="true"/>{compact ? "Escanear etiqueta" : "Escanear código"}</button>
+        <button type="button" className={compact ? `${secondary} col-span-2` : primary} disabled={working} onClick={() => openPicker(cameraRef)} data-testid="products-camera">{working ? <LoaderCircle className="size-5 animate-spin" aria-hidden="true"/> : <Camera className="size-5" aria-hidden="true"/>}{busy === "photo" ? "Guardando foto…" : busy === "reading" ? "Leyendo la etiqueta…" : compact ? "Foto de la etiqueta" : "Tomar foto del producto"}</button>
+        <button type="button" className={secondary} disabled={working} onClick={() => openPicker(galleryRef)}><ImagePlus className="size-4" aria-hidden="true"/>{compact ? "Galería" : "Elegir de la galería"}</button>
         <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={event => { void pick(event.target.files?.[0]); event.target.value = ""; }} data-testid="products-camera-input"/>
         <input ref={galleryRef} type="file" accept="image/*" className="hidden" onChange={event => { void pick(event.target.files?.[0]); event.target.value = ""; }}/>
-        {!draft && <button type="button" className={secondary} disabled={busy !== ""} onClick={() => { setDraft(blank(cleanTooth(startTooth))); setNotice(""); setError(""); }} data-testid="products-manual">Registrar sin foto</button>}
+        {!draft && <button type="button" className={secondary} disabled={busy !== ""} onClick={() => { setDraft(blank(cleanTooth(startTooth))); setNotice(""); setError(""); }} data-testid="products-manual">{compact ? "Sin foto" : "Registrar sin foto"}</button>}
       </div>
       {error && <p role="alert" className="mt-3 rounded-lg bg-rose-50 p-3 text-sm text-rose-800">{error}</p>}
       {notice && !error && <p role="status" className="mt-3 rounded-lg bg-[#f3f1f7] p-3 text-sm text-[#473a6d]">{notice}</p>}
     </div>
 
-    {draft && <div ref={formRef} className="surface space-y-3" data-testid="product-form">
+    {draft && <div ref={formRef} className={`space-y-3 ${compact ? "rounded-xl border border-[#c9c4da] p-3" : "surface"}`} data-testid="product-form">
       <h3 className="font-semibold">{draft.id === null ? "Nuevo producto" : "Editar producto"} · {patient.name}</h3>
       {/* Mientras se lee la etiqueta no se escribe: la lectura reemplazaría lo escrito. */}
       <fieldset disabled={working} className="m-0 min-w-0 border-0 p-0">
-      <div className="grid gap-3 md:grid-cols-[minmax(0,260px)_minmax(0,1fr)]">
+      <div className={`grid gap-3 ${compact ? "" : "md:grid-cols-[minmax(0,260px)_minmax(0,1fr)]"}`}>
         <div>{draft.imageUrl ? <a href={draft.imageUrl} target="_blank" rel="noopener noreferrer" aria-label="Abrir la foto de la etiqueta en grande"><img src={draft.imageUrl} alt="Foto de la etiqueta del producto" className="max-h-80 w-full rounded-xl border border-[#e6e4ee] bg-white object-contain"/></a> : <p className="rounded-xl border border-dashed border-[#c9c4da] p-4 text-sm text-[#615f73]">{draft.id === null ? "Sin foto: puedes agregarla con «Tomar foto del producto»." : "Sin foto."}</p>}</div>
         <div className="space-y-3">
           {draft.fromCode.size > 0 && <p className="flex items-start gap-2 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-950" data-testid="product-qr-note"><Sparkles className="mt-0.5 size-4 shrink-0" aria-hidden="true"/><span>Los campos en verde vienen del <strong>código de la etiqueta</strong> (lectura exacta).</span></p>}
@@ -289,9 +309,10 @@ export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, e
       </fieldset>
     </div>}
 
-    {(!embedded || !!products?.length) && <ProductList embedded={embedded} count={products?.length ?? 0}>
+    {(!embedded || !!products?.length) && <ProductList embedded={embedded} compact={compact} count={products?.length ?? 0}>
+      {compact && <div className="mt-2">{pdf}</div>}
       {products === null ? <p className="mt-2 text-sm text-[#615f73]" role="status">Cargando…</p> : !products.length ? <p className="mt-2 text-sm text-[#615f73]">Este paciente aún no tiene productos registrados.</p> :
-        <ul className="mt-3 space-y-3">{products.map(product => <li key={product.id} className="grid gap-3 rounded-xl border border-[#e6e4ee] bg-white p-3 sm:grid-cols-[96px_minmax(0,1fr)_auto]" data-testid="product-item">
+        <ul className="mt-3 space-y-3">{products.map(product => <li key={product.id} className={`grid gap-3 rounded-xl border border-[#e6e4ee] bg-white p-3 ${compact ? "" : "sm:grid-cols-[96px_minmax(0,1fr)_auto]"}`} data-testid="product-item">
           {product.thumbUrl ? <a href={product.imageUrl} target="_blank" rel="noopener noreferrer" aria-label="Abrir la foto de la etiqueta"><img src={product.thumbUrl} alt={`Etiqueta: ${categoryLabel(product.category)} ${product.brand}`.trim()} className="h-24 w-24 rounded-lg border border-[#e6e4ee] object-cover" loading="lazy"/></a> : <span className="flex h-24 w-24 items-center justify-center rounded-lg bg-[#f3f1f7] text-xs text-[#615f73]">Sin foto</span>}
           <div className="min-w-0 text-sm">
             <p className="font-semibold">{categoryLabel(product.category)}{product.brand ? ` · ${product.brand}` : ""}{product.tooth ? ` · pieza ${product.tooth}` : ""}</p>
@@ -305,7 +326,7 @@ export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, e
             ].filter(Boolean).map((line, index) => <li key={index}>{line}</li>)}</ul></details>}
             {product.note && <p className="mt-1 text-[#615f73]">{product.note}</p>}
           </div>
-          <div className="flex gap-2 sm:flex-col">
+          <div className={`flex gap-2 ${compact ? "" : "sm:flex-col"}`}>
             <button type="button" className={secondary} disabled={busy !== ""} onClick={() => edit(product)} aria-label="Editar producto"><Pencil className="size-4" aria-hidden="true"/>Editar</button>
             <button type="button" className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-rose-300 bg-white px-4 text-sm font-semibold text-rose-800 hover:bg-rose-50" onClick={() => void remove(product)} aria-label="Eliminar producto"><Trash2 className="size-4" aria-hidden="true"/>Quitar</button>
           </div>
@@ -315,7 +336,7 @@ export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, e
   </section>;
 }
 
-function ProductList({ embedded, count, children }: { embedded: boolean; count: number; children: ReactNode }) {
-  if (embedded) return <details className="surface" data-testid="product-list"><summary className="cursor-pointer py-2 font-semibold">Productos registrados ({count})</summary>{children}</details>;
+function ProductList({ embedded, compact, count, children }: { embedded: boolean; compact: boolean; count: number; children: ReactNode }) {
+  if (embedded) return <details className={compact ? "rounded-xl border border-[#e6e4ee] px-3" : "surface"} data-testid="product-list"><summary className="cursor-pointer py-2 font-semibold">Productos registrados ({count})</summary>{children}</details>;
   return <div className="surface" data-testid="product-list"><h3 className="font-semibold">Productos registrados</h3>{children}</div>;
 }

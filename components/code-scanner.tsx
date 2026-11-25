@@ -4,6 +4,7 @@
  * La imagen de la cámara no se guarda ni se envía: se analiza en el equipo.
  */
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Camera, LoaderCircle, X } from "lucide-react";
 import { isSquareCode, readCodes, warmCodeReader } from "@/lib/code-reader";
 import type { CodeRead } from "@/lib/product-code";
@@ -54,7 +55,7 @@ export function CodeScanner({ onRead, onClose }: { onRead: (codes: CodeRead[]) =
         setState("scanning"); void tick();
       } catch { if (!stopped) { setState("blocked"); setMessage("No se pudo abrir la cámara. Permite su uso, o toma una foto del código."); } }
     })();
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") done.current.onClose(); };
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") { event.stopPropagation(); done.current.onClose(); } };
     document.addEventListener("keydown", onKey);
     return () => { stopped = true; window.clearTimeout(timer); stream?.getTracks().forEach(track => track.stop()); document.removeEventListener("keydown", onKey); };
   }, []);
@@ -70,7 +71,8 @@ export function CodeScanner({ onRead, onClose }: { onRead: (codes: CodeRead[]) =
     setState(before === "photo" ? "blocked" : before); setMessage("No se encontró un código en esa foto. Acércate, con buena luz y sin reflejos.");
   };
 
-  return <div role="dialog" aria-modal="true" aria-label="Lector de códigos" className="fixed inset-0 z-[80] flex flex-col bg-black text-white" data-testid="code-scanner">
+  // Va al <body>: también se abre desde la ventana de un implante y tiene que quedar por encima.
+  return createPortal(<div role="dialog" aria-modal="true" aria-label="Lector de códigos" className="fixed inset-0 z-[95] flex flex-col bg-black text-white" data-testid="code-scanner">
     <div className="flex items-center justify-between gap-3 p-4"><strong>Escanear el código del producto</strong><button type="button" onClick={onClose} aria-label="Cerrar el lector" className="rounded-lg p-3 hover:bg-white/10"><X className="size-6"/></button></div>
     <div className="relative min-h-0 flex-1">
       <video ref={videoRef} playsInline muted autoPlay className="h-full w-full object-cover"/>
@@ -82,5 +84,5 @@ export function CodeScanner({ onRead, onClose }: { onRead: (codes: CodeRead[]) =
       <button type="button" onClick={() => fileRef.current?.click()} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border border-white px-4 font-semibold"><Camera className="size-5" aria-hidden="true"/>Tomar una foto del código</button>
       <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={event => { void photo(event.target.files?.[0]); event.target.value = ""; }}/>
     </div>
-  </div>;
+  </div>, document.body);
 }

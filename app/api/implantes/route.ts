@@ -5,7 +5,7 @@ import { displayName } from "@/lib/clinician-profile";
 import { getDb } from "@/db";
 import { biomedicalProducts, clinicalImages, implants, patients } from "@/db/schema";
 import { PRODUCT_IMAGE_KIND, santiagoToday } from "@/lib/biomedical-products";
-import { MAX_IMPLANTS_PER_PATIENT, MAX_IMPLANT_IMAGES, cleanImplantFields, cleanImplantImage, editHistory, mergeImplantEdit, nextPhase, parseHistory, parseImplantImages, recordPhase, type ImplantImage } from "@/lib/implants";
+import { MAX_IMPLANTS_PER_PATIENT, MAX_IMPLANT_IMAGES, cleanImplantFields, cleanImplantImage, mergeImplantEdit, parseHistory, parseImplantImages, recordPhase, setStage, type ImplantImage } from "@/lib/implants";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -90,7 +90,7 @@ export async function POST(request: Request) {
 }
 
 /**
- * Cinco usos: corregir los datos, pasar a la etapa siguiente (`advanceFrom`), corregir o eliminar una entrada del historial (`editStage`),
+ * Cuatro usos: corregir los datos, marcar una etapa con su fecha o quitar la marca (`markStage`),
  * añadir una imagen (`addImage`) o desvincularla (`removeImageId`).
  */
 export async function PATCH(request: Request) {
@@ -122,16 +122,10 @@ export async function PATCH(request: Request) {
           if (list.length > MAX_IMPLANT_IMAGES) return fail(`Máximo ${MAX_IMPLANT_IMAGES} imágenes por implante.`);
         } else list = list.filter(i => i.imageId !== positive(body.removeImageId));
         change = { images: JSON.stringify(list) };
-      } else if (body.advanceFrom !== undefined) {
-        // La etapa de partida evita que un doble toque, u otro equipo, avance dos veces.
-        if (body.advanceFrom !== current.phase) return fail("La etapa de este implante ya cambió. Revísala antes de avanzar.", 409);
-        const phase = nextPhase(current.phase);
-        if (!phase) return fail("No hay una etapa siguiente.");
-        change = { phase, history: JSON.stringify(recordPhase(parseHistory(current.history), current, { phase, placedOn: current.placedOn }, santiagoToday())) };
-      } else if (body.editStage !== undefined) {
-        const edited = editHistory(parseHistory(current.history), current.phase, body.editStage, santiagoToday());
+      } else if (body.markStage !== undefined) {
+        const edited = setStage(parseHistory(current.history), current, body.markStage, santiagoToday());
         if ("error" in edited) return fail(edited.error, edited.stale ? 409 : 400);
-        change = { phase: edited.phase, history: JSON.stringify(edited.history) };
+        change = { phase: edited.phase, history: JSON.stringify(edited.history), placedOn: edited.placedOn };
       } else {
         // Una ficha abierta desde antes no puede devolver la etapa ni borrar lo confirmado en otro lado.
         const merged = mergeImplantEdit(current, body);

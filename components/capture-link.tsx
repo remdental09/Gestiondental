@@ -21,9 +21,9 @@ type Held = { id: string; file: File; url: string; view: CaptureView; shown: str
  * Capturadora de Windows conectada a la ficha de implante abierta. Se monta con una `key` por implante:
  * cada uno tiene su propia sesión, así una captura no puede terminar en otra ficha.
  */
-export function CaptureLink({ target, patientName, view, busy, paused = false, onCapture, onProblem }: {
-  /** Mientras se mira otro implante: suelta el turno (nada entra a esta ficha) y conserva lo retenido. */
-  paused?: boolean;
+export function CaptureLink({ target, patientName, view, busy, onCapture, onProblem, onHeld }: {
+  /** Cuántas capturas quedan sin decidir: quien la contiene avisa antes de cerrarse. */
+  onHeld?: (count: number) => void;
   target: string;
   patientName: string;
   view: CaptureView;
@@ -49,7 +49,6 @@ export function CaptureLink({ target, patientName, view, busy, paused = false, o
   useEffect(() => { closed.current = false; const urls = previews.current; return () => { closed.current = true; urls.forEach(url => URL.revokeObjectURL(url)); urls.clear(); }; }, []);
 
   useEffect(() => {
-    if (paused) { setState({ kind: "idle" }); return; }
     const created = createCaptureLink({
       save: async (file, capture) => {
         const now = handlers.current, as = capture.view ?? now.view, all = splitNext.current;
@@ -101,9 +100,13 @@ export function CaptureLink({ target, patientName, view, busy, paused = false, o
     window.addEventListener("pagehide", leave);
     window.addEventListener("pageshow", back);
     return () => { window.removeEventListener("pagehide", leave); window.removeEventListener("pageshow", back); created.stop(); link.current = null; };
-  }, [restored, paused]);
+  }, [restored]);
 
   useEffect(() => { void link.current?.choose({ view, wholeWindow }); }, [view, wholeWindow]);
+  const reportHeld = useRef(onHeld);
+  useEffect(() => { reportHeld.current = onHeld; });
+  useEffect(() => { reportHeld.current?.(held.length); }, [held.length]);
+  useEffect(() => () => reportHeld.current?.(0), []);
 
   // Si la capturadora estaba cerrada, se vuelve a buscar; al volver a esta pestaña, retoma el turno.
   useEffect(() => {

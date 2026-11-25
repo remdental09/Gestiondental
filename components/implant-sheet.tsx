@@ -1,15 +1,13 @@
 "use client";
-/* eslint-disable @next/next/no-img-element -- Las imágenes clínicas son rutas autenticadas que se cargan con la sesión del navegador. */
 /**
- * Ventana de un implante (hoja que sube desde abajo en el teléfono): recuadro de identificación, etapa, historial e imágenes.
- * Se pasa de un implante a otro deslizando o con las flechas. Nada cambia sin un toque del profesional y eliminar pide confirmación.
+ * Ventana de un implante (hoja que sube desde abajo en el teléfono): todo lo de ese implante está aquí, en tres secciones
+ * (etapas, datos e imágenes). Se pasa de un implante a otro deslizando o con las flechas.
+ * Nada cambia sin un toque del profesional; quitar una marca y descartar lo escrito piden confirmación.
  */
-import { useCallback, useEffect, useRef, useState, type TouchEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode, type TouchEvent } from "react";
 import { createPortal } from "react-dom";
-import { ChevronLeft, ChevronRight, LoaderCircle, X } from "lucide-react";
-import type { ClinicalImage } from "@/app/clinical-data";
-import { thumbUrl } from "@/lib/image-compress";
-import { IMPLANT_PHASES, connectionText, implantSize, nextPhase, phaseLabel, type Implant, type ImplantLabel, type PhaseEntry } from "@/lib/implants";
+import { ChevronLeft, ChevronRight, Circle, CircleCheck, CircleDot, X } from "lucide-react";
+import { IMPLANT_PHASES, connectionText, implantSize, phaseLabel, stageMarks, type Implant, type RecordedPhase, type StageChange } from "@/lib/implants";
 
 const dayLabel = (iso: string) => iso ? iso.split("-").reverse().join("-") : "sin fecha";
 
@@ -22,39 +20,87 @@ export function ImplantIdBox({ item, extra = "" }: { item: Implant; extra?: stri
   </span>;
 }
 
-export type StageChange = { index: number; phase: PhaseEntry["phase"]; date: string } & ({ to: string } | { remove: true });
+/**
+ * Las seis etapas del implante, cada una con su fecha. Tocar una abre su fecha para marcarla o corregirla, en cualquier orden;
+ * la actual es la más avanzada marcada. Se monta con una `key` por implante.
+ */
+export function StageList({ item, today, busy, onChange }: {
+  item: Implant; today: string; busy: boolean;
+  /** Devuelve true si quedó guardado. */
+  onChange: (change: StageChange) => Promise<boolean>;
+}) {
+  const marks = stageMarks(item.history, item.phase, item.placedOn);
+  const [open, setOpen] = useState<{ phase: RecordedPhase; date: string } | null>(null);
+  const save = async (change: StageChange) => { if (await onChange(change)) setOpen(null); };
+  const toggle = (phase: RecordedPhase) => setOpen(previous => previous?.phase === phase ? null
+    // Para una marca nueva se propone hoy (la cirugía, la fecha de instalación si ya está); una marcada muestra lo guardado.
+    : { phase, date: marks[phase] ?? (phase === "cirugia" && item.placedOn ? item.placedOn : today) });
+  const remove = (phase: RecordedPhase) => {
+    const rest = IMPLANT_PHASES.filter(other => other.id !== phase && marks[other.id] !== undefined).at(-1);
+    const after = phase !== item.phase ? "" : rest ? ` La etapa actual quedará en «${rest.label}».` : " El implante quedará sin etapa registrada.";
+    const placed = phase === "cirugia" && item.placedOn ? ` También se borra la fecha de instalación (${dayLabel(item.placedOn)}).` : "";
+    if (window.confirm(`¿Desea eliminar la marca de «${phaseLabel(phase)}»?${after}${placed}`)) void save({ phase, was: marks[phase] ?? null, remove: true });
+  };
 
-export function ImplantSheet({ implants, shownId, label, images, patientName, today, covered, warning = "", onShow, onClose, onAdvance, onEditStage, onOpenForm, onOpenImage }: {
-  /** En el orden del implantograma. */
-  implants: Implant[];
-  shownId: number;
-  label: ImplantLabel | undefined;
-  images: ClinicalImage[];
+  return <div data-testid="implant-stages">
+    <p className="text-sm text-[#615f73]">Toca una etapa para marcarla o cambiar su fecha.</p>
+    <ol className="mt-1 divide-y divide-[#ebe9f2]">{IMPLANT_PHASES.map(phase => {
+      const day = marks[phase.id], marked = day !== undefined, current = item.phase === phase.id, editing = open?.phase === phase.id ? open : null;
+      const installed = phase.id === "cirugia" ? item.placedOn : "";
+      const Icon = current ? CircleDot : marked ? CircleCheck : Circle;
+      return <li key={phase.id}>
+        <button type="button" aria-expanded={!!editing} onClick={() => toggle(phase.id)} data-testid={`implant-stage-${phase.id}`} data-state={current ? "actual" : marked ? "marcada" : "sin-marcar"}
+          className={`flex min-h-12 w-full items-center gap-3 rounded-lg px-1 text-left text-base ${current ? "font-semibold text-[#473a6d]" : "text-[#2b2540]"}`}>
+          <Icon className={`size-5 shrink-0 ${marked ? "text-[#473a6d]" : "text-[#b4b0c4]"}`} aria-hidden="true"/>
+          <span className="flex-1">{phase.label}{current && " (actual)"}</span>
+          <span className={`text-right text-sm font-normal ${marked ? "text-[#615f73]" : "text-[#8a879b]"}`}>{marked ? dayLabel(day) : installed ? `instalado ${dayLabel(installed)}` : "marcar"}</span>
+        </button>
+        {editing && <div className="mb-2 space-y-2 rounded-xl bg-[#f3f1f7] p-3" data-testid="implant-stage-editor">
+          <label className="block text-sm font-semibold text-[#473a6d]">{phase.id === "cirugia" ? "Fecha de cirugía (instalación)" : `Fecha de ${phase.label.toLocaleLowerCase("es")}`}
+            <input type="date" max={today} value={editing.date} onChange={e => setOpen({ phase: phase.id, date: e.target.value })} className="mt-1 block min-h-11 w-full min-w-0 max-w-full appearance-none rounded-lg border border-[#d8d5e4] bg-white px-3 text-base font-normal text-[#2b2540]" data-testid="implant-stage-date"/></label>
+          {!editing.date && <p className="text-xs text-[#615f73]">Sin fecha: la etapa queda marcada sin día.</p>}
+          {installed && marked && installed !== day && <button type="button" disabled={busy} onClick={() => void save({ phase: phase.id, was: day, date: installed })} className="block min-h-11 text-left text-sm font-semibold text-[#473a6d] underline">La instalación dice {dayLabel(installed)}: usar esa fecha</button>}
+          <button type="button" disabled={busy || (marked && editing.date === day)} onClick={() => void save({ phase: phase.id, was: day ?? null, date: editing.date })} data-testid="implant-stage-save"
+            className="min-h-11 w-full rounded-xl bg-[#473a6d] px-4 text-sm font-semibold text-white hover:bg-[#3a2f5a] disabled:opacity-50">{marked ? "Guardar fecha" : "Marcar etapa"}</button>
+          {marked && <button type="button" disabled={busy} onClick={() => remove(phase.id)} data-testid="implant-stage-remove" className="min-h-11 w-full text-sm font-semibold text-rose-800">Quitar marca</button>}
+        </div>}
+      </li>;
+    })}</ol>
+  </div>;
+}
+
+export type SheetTab = "etapas" | "datos" | "imagenes";
+
+export function ImplantSheet({ title, patientName, position, summary, tabs, tab, onTab, scrollKey, covered, locked, onStep, canClose, onClosed, footer, children }: {
+  title: string;
   patientName: string;
-  today: string;
+  /** Lugar de este implante entre los del paciente; null en una ficha nueva. */
+  position: { at: number; total: number } | null;
+  /** Recuadro de identificación: se ve en las tres secciones. */
+  summary?: ReactNode;
+  /** null en una ficha nueva: solo se muestran sus datos. */
+  tabs: { id: SheetTab; label: string }[] | null;
+  tab: SheetTab;
+  onTab: (tab: SheetTab) => void;
+  /** Al cambiar, el contenido vuelve arriba. */
+  scrollKey: string;
   /** Hay una imagen abierta encima: las teclas son para ella. */
   covered: boolean;
-  warning?: string;
-  onShow: (id: number) => void;
-  onClose: () => void;
-  /** Devuelven el implante guardado; si falla, lanzan el motivo. */
-  onAdvance: (item: Implant) => Promise<Implant>;
-  onEditStage: (item: Implant, change: StageChange) => Promise<Implant>;
-  onOpenForm: (item: Implant) => void;
-  onOpenImage: (image: ClinicalImage) => void;
+  /** Mientras se guarda no se cambia de implante. */
+  locked: boolean;
+  /** Pide pasar al implante anterior o siguiente; false si el profesional prefirió quedarse. */
+  onStep: (step: 1 | -1) => boolean;
+  /** Se pregunta antes de cerrar (puede haber algo sin guardar). */
+  canClose: () => boolean;
+  onClosed: () => void;
+  footer?: ReactNode;
+  children: ReactNode;
 }) {
-  const at = Math.max(0, implants.findIndex(item => item.id === shownId));
-  const item = implants[at]!;
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
-  const [editing, setEditing] = useState<{ index: number; date: string } | null>(null);
   const [direction, setDirection] = useState<"" | "next" | "previous">("");
   const [closing, setClosing] = useState(false);
   const panel = useRef<HTMLDivElement | null>(null);
   const body = useRef<HTMLDivElement | null>(null);
   const touch = useRef<{ x: number; y: number; handle: boolean } | null>(null);
-  const working = useRef(false);
   const timer = useRef(0);
 
   // El fondo no se desplaza mientras la ventana está abierta y al cerrar vuelve el foco a donde estaba.
@@ -64,32 +110,36 @@ export function ImplantSheet({ implants, shownId, label, images, patientName, to
     panel.current?.focus({ preventScroll: true });
     return () => { window.clearTimeout(timer.current); document.body.style.overflow = overflow; before?.focus?.({ preventScroll: true }); };
   }, []);
-  // Al cambiar de implante no se arrastra nada del anterior.
-  useEffect(() => { setEditing(null); setError(""); setNotice(""); body.current?.scrollTo(0, 0); }, [item.id]);
+  useEffect(() => { body.current?.scrollTo(0, 0); }, [scrollKey]);
 
-  const close = useCallback(() => { setClosing(true); timer.current = window.setTimeout(onClose, 200); }, [onClose]);
+  const leaving = useRef(false);
+  const close = useCallback(() => {
+    if (leaving.current || !canClose()) return;
+    leaving.current = true; setClosing(true); timer.current = window.setTimeout(onClosed, 200);
+  }, [canClose, onClosed]);
   const go = useCallback((step: 1 | -1) => {
-    const next = implants[at + step];
-    if (!next || working.current) return;
-    setDirection(step > 0 ? "next" : "previous"); onShow(next.id);
-  }, [implants, at, onShow]);
+    if (!position || locked || position.at + step < 0 || position.at + step >= position.total) return;
+    if (onStep(step)) setDirection(step > 0 ? "next" : "previous");
+  }, [position, locked, onStep]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (covered) return;
-      if (event.key === "Escape") { if (editing) setEditing(null); else close(); return; }
+      // Con una imagen o el lector de códigos encima, las teclas son para ellos.
+      if (covered || document.querySelector('[data-testid="code-scanner"]')) return;
+      if (event.key === "Escape") { close(); return; }
       if (event.target instanceof Element && event.target.closest("input, textarea, select")) return;
       if (event.key === "ArrowRight") go(1);
       if (event.key === "ArrowLeft") go(-1);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [covered, editing, close, go]);
+  }, [covered, close, go]);
 
   /** Deslizar a los lados cambia de implante; hacia abajo desde la cabecera, cierra. */
   const onTouchStart = (event: TouchEvent) => {
     const start = event.touches.length === 1 ? event.touches[0]! : null, target = event.target as Element;
-    touch.current = start && !target.closest("input") ? { x: start.clientX, y: start.clientY, handle: !!target.closest("[data-sheet-handle]") } : null;
+    // Lo que se abre por encima (el lector de códigos) no está dentro de la hoja: sus gestos no cuentan.
+    touch.current = start && panel.current?.contains(target) && !target.closest("input, textarea, select") ? { x: start.clientX, y: start.clientY, handle: !!target.closest("[data-sheet-handle]") } : null;
   };
   const onTouchEnd = (event: TouchEvent) => {
     const start = touch.current, end = event.changedTouches[0];
@@ -100,33 +150,6 @@ export function ImplantSheet({ implants, shownId, label, images, patientName, to
     else if (start.handle && dy > 80 && dy > 1.5 * Math.abs(dx)) close();
   };
 
-  const run = async (work: () => Promise<Implant>, done: (saved: Implant) => string) => {
-    if (working.current) return;
-    working.current = true; setBusy(true); setError(""); setNotice("");
-    try { const saved = await work(); setEditing(null); setNotice(done(saved)); }
-    catch (reason) { setEditing(null); setError(reason instanceof Error ? reason.message : "No se pudo guardar el cambio."); }
-    finally { working.current = false; setBusy(false); }
-  };
-
-  const advance = () => void run(() => onAdvance(item), saved => {
-    const entry = saved.history.at(-1);
-    return entry ? `Anotado: ${phaseLabel(entry.phase)}, ${entry.date === today ? "hoy" : dayLabel(entry.date)}. Puedes corregir la fecha en el historial.` : "Etapa actualizada.";
-  });
-  const saveDate = (index: number, entry: PhaseEntry, to: string) => void run(() => onEditStage(item, { index, phase: entry.phase, date: entry.date, to }), () => "Fecha corregida.");
-  const removeEntry = (index: number, entry: PhaseEntry) => {
-    const current = index === item.history.length - 1 && entry.phase === item.phase;
-    const back = item.history[index - 1];
-    const after = !current ? "" : back ? ` El implante volverá a «${phaseLabel(back.phase)}».` : " La etapa quedará sin registrar.";
-    if (!window.confirm(`¿Desea eliminar «${phaseLabel(entry.phase)} · ${dayLabel(entry.date)}» del historial?${after}`)) return;
-    void run(() => onEditStage(item, { index, phase: entry.phase, date: entry.date, remove: true }), () => "Entrada eliminada del historial.");
-  };
-
-  const step = IMPLANT_PHASES.findIndex(phase => phase.id === item.phase);
-  const next = nextPhase(item.phase);
-  const trace = [label?.lot && `Lote ${label.lot}`, label?.serial && `Serie ${label.serial}`, label?.reference && `Ref. ${label.reference}`, item.torque !== null && `Torque ${item.torque} Ncm`, item.isq !== null && `ISQ ${item.isq}`].filter(Boolean).join(" · ");
-  // La instalación se muestra mientras ninguna entrada de cirugía diga la misma fecha; si difieren, se ofrece igualarlas.
-  const installed = item.placedOn && !item.history.some(entry => entry.phase === "cirugia" && entry.date === item.placedOn) ? item.placedOn : "";
-  const surgery = item.history.reduce((found, entry, index) => entry.phase === "cirugia" ? index : found, -1);
   const arrow = "inline-flex size-11 items-center justify-center rounded-full text-[#473a6d] hover:bg-[#f3f1f7] disabled:opacity-30";
 
   if (typeof document === "undefined") return null;
@@ -149,81 +172,34 @@ export function ImplantSheet({ implants, shownId, label, images, patientName, to
       `}</style>
       <div className={`contents ${closing ? "gd-implant-closing" : ""}`}>
         <button type="button" tabIndex={-1} aria-label="Cerrar ventana del implante" onClick={close} className="gd-implant-backdrop absolute inset-0 cursor-default bg-black/35 backdrop-blur-sm"/>
-        <div ref={panel} tabIndex={-1} role="dialog" aria-modal="true" aria-label={`Implante ${item.tooth} de ${patientName}`} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}
-          className="gd-implant relative flex max-h-[92dvh] w-full touch-pan-y flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl outline-none sm:max-w-lg sm:rounded-3xl">
+        <div ref={panel} tabIndex={-1} role="dialog" aria-modal="true" aria-label={`${title} de ${patientName}`} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}
+          className="gd-implant relative flex h-[92dvh] w-full touch-pan-y flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl outline-none sm:h-[min(92dvh,52rem)] sm:max-w-xl sm:rounded-3xl">
           <div data-sheet-handle className="touch-none select-none border-b border-[#ebe9f2] px-4 pb-2">
             <div className="mx-auto mt-2 h-1.5 w-10 rounded-full bg-[#d8d3e3] sm:hidden" aria-hidden="true"/>
             <div className="flex items-center gap-1 pt-1">
               <div className="min-w-0 flex-1">
-                <h2 className="text-xl font-bold text-[#2b2540]" data-testid="implant-sheet-title">Implante {item.tooth}</h2>
+                <h2 className="text-xl font-bold text-[#2b2540]" data-testid="implant-sheet-title">{title}</h2>
                 <p className="truncate text-xs text-[#6b6a7c]">{patientName}</p>
               </div>
-              {implants.length > 1 && <div className="flex items-center" role="group" aria-label="Cambiar de implante">
-                <button type="button" className={arrow} disabled={at === 0 || busy} onClick={() => go(-1)} aria-label="Implante anterior"><ChevronLeft className="size-5" aria-hidden="true"/></button>
-                <span className="whitespace-nowrap text-sm text-[#615f73]" aria-live="polite">{at + 1} de {implants.length}</span>
-                <button type="button" className={arrow} disabled={at === implants.length - 1 || busy} onClick={() => go(1)} aria-label="Implante siguiente"><ChevronRight className="size-5" aria-hidden="true"/></button>
+              {position && position.total > 1 && <div className="flex items-center" role="group" aria-label="Cambiar de implante">
+                <button type="button" className={arrow} disabled={position.at === 0 || locked} onClick={() => go(-1)} aria-label="Implante anterior"><ChevronLeft className="size-5" aria-hidden="true"/></button>
+                <span className="whitespace-nowrap text-sm text-[#615f73]" aria-live="polite">{position.at + 1} de {position.total}</span>
+                <button type="button" className={arrow} disabled={position.at === position.total - 1 || locked} onClick={() => go(1)} aria-label="Implante siguiente"><ChevronRight className="size-5" aria-hidden="true"/></button>
               </div>}
               <button type="button" className={arrow} onClick={close} aria-label="Cerrar"><X className="size-5" aria-hidden="true"/></button>
             </div>
           </div>
 
-          <div ref={body} className="flex-1 touch-pan-y overflow-y-auto overscroll-contain px-4 py-3">
-            <div key={item.id} className={`space-y-4 ${direction ? `gd-implant-${direction}` : ""}`}>
-              <ImplantIdBox item={item} extra={trace}/>
+          {summary && <div className="px-4 pt-3">{summary}</div>}
+          {tabs && <div className="px-4 pt-3"><div className="flex gap-1 rounded-xl bg-[#f3f1f7] p-1" role="tablist" aria-label="Secciones del implante">{tabs.map(item => <button key={item.id} type="button" role="tab" aria-selected={tab === item.id} onClick={() => onTab(item.id)} data-testid={`implant-tab-${item.id}`}
+            className={`min-h-11 flex-1 rounded-lg px-1 text-sm font-semibold ${tab === item.id ? "bg-white text-[#2b2540] shadow-sm" : "text-[#615f73]"}`}>{item.label}</button>)}</div></div>}
 
-              <div>
-                <div className="flex gap-1" aria-hidden="true">{IMPLANT_PHASES.map((phase, i) => <span key={phase.id} className={`h-2 flex-1 rounded-full ${i <= step ? "bg-[#473a6d]" : "bg-[#e6e4ee]"}`}/>)}</div>
-                <p className="mt-2 text-sm font-semibold text-[#2b2540]" data-testid="implant-sheet-stage">{step < 0 ? "Etapa sin registrar" : `Etapa actual: ${phaseLabel(item.phase)} · ${step + 1} de ${IMPLANT_PHASES.length}`}</p>
-              </div>
-
-              <section aria-label="Historial">
-                <h3 className="text-sm font-semibold text-[#2b2540]">Historial</h3>
-                <ol className="mt-1 divide-y divide-[#ebe9f2] rounded-xl border border-[#e6e4ee]" data-testid="implant-history">
-                  {installed && <li className="flex items-center gap-2 px-3 py-1 text-sm"><span className="flex-1 py-2">Instalación</span><span className="text-[#615f73]">{dayLabel(installed)}</span>
-                    {surgery >= 0 && <button type="button" disabled={busy} onClick={() => saveDate(surgery, item.history[surgery]!, installed)} className="min-h-11 rounded-lg px-2 text-sm font-semibold text-[#473a6d] hover:bg-[#f3f1f7]">Usar en cirugía</button>}</li>}
-                  {!item.history.length && item.phase && <li className="flex items-center justify-between gap-2 px-3 py-3 text-sm"><span>{phaseLabel(item.phase)}</span><span className="text-[#615f73]">sin fecha</span></li>}
-                  {!item.history.length && !item.phase && !installed && <li className="px-3 py-3 text-sm text-[#6b6a7c]">Aún no hay etapas anotadas.</li>}
-                  {item.history.map((entry, index) => <li key={index} className="px-3 py-1 text-sm">
-                    {editing?.index === index ? <div className="space-y-2 py-2">
-                      <label className="block font-semibold">Fecha de {phaseLabel(entry.phase).toLocaleLowerCase("es")}
-                        <input type="date" max={today} value={editing.date} onChange={e => setEditing({ index, date: e.target.value })} className="mt-1 block min-h-11 w-full min-w-0 appearance-none rounded-lg border border-[#d8d5e4] bg-white px-3 text-base" data-testid="implant-stage-date"/></label>
-                      <div className="flex flex-wrap gap-2">
-                        <button type="button" disabled={busy} onClick={() => saveDate(index, entry, editing.date)} className="min-h-11 rounded-xl bg-[#473a6d] px-4 text-sm font-semibold text-white disabled:opacity-50">Guardar fecha</button>
-                        <button type="button" disabled={busy} onClick={() => removeEntry(index, entry)} className="min-h-11 rounded-xl border border-rose-300 px-4 text-sm font-semibold text-rose-800 disabled:opacity-50">Eliminar</button>
-                        <button type="button" disabled={busy} onClick={() => setEditing(null)} className="min-h-11 rounded-xl px-3 text-sm font-semibold text-[#473a6d]">Cancelar</button>
-                      </div>
-                    </div> : <div className="flex items-center gap-2">
-                      <span className="flex-1">{phaseLabel(entry.phase)}</span><span className="text-[#615f73]">{dayLabel(entry.date)}</span>
-                      <button type="button" disabled={busy} onClick={() => setEditing({ index, date: entry.date })} className="min-h-11 rounded-lg px-2 text-sm font-semibold text-[#473a6d] hover:bg-[#f3f1f7]" aria-label={`Corregir ${phaseLabel(entry.phase)} ${dayLabel(entry.date)}`}>{entry.date ? "Corregir" : "Poner fecha"}</button>
-                    </div>}
-                  </li>)}
-                </ol>
-              </section>
-
-              {item.note && <p className="whitespace-pre-wrap break-words text-sm text-[#57566a]">{item.note}</p>}
-
-              <section aria-label="Imágenes">
-                <h3 className="text-sm font-semibold text-[#2b2540]">Imágenes</h3>
-                {item.images.length ? <ul className="mt-1 grid grid-cols-2 gap-2">{item.images.map(link => {
-                  const image = images.find(found => found.id === link.imageId);
-                  return <li key={link.imageId} className="overflow-hidden rounded-xl border border-[#e6e4ee]">
-                    {image ? <button type="button" onClick={() => onOpenImage(image)} className="block w-full text-left" aria-label={`Abrir ${link.view}`}>
-                      <img src={thumbUrl(image.url)} loading="lazy" alt={`${link.view}, implante ${item.tooth}`} className="h-28 w-full bg-[#1f1b30] object-contain"/>
-                      <span className="block px-2 py-1 text-xs font-medium">{link.view}</span></button>
-                      : <p className="flex h-28 items-center justify-center text-xs text-[#615f73]">Cargando…</p>}
-                  </li>;
-                })}</ul> : <p className="mt-1 text-sm text-[#6b6a7c]">Sin imágenes todavía. Se agregan en la ficha completa.</p>}
-              </section>
-            </div>
+          <div ref={body} className="flex-1 touch-pan-y overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-3">
+            {/* Sin `key`: lo que está a medias dentro (producto, capturadora) no se vuelve a montar al cambiar de sección. */}
+            <div className={direction ? `gd-implant-${direction}` : ""} onAnimationEnd={event => { if (event.target === event.currentTarget) setDirection(""); }}>{children}</div>
           </div>
 
-          <div className="space-y-2 border-t border-[#ebe9f2] px-4 pb-[max(.75rem,env(safe-area-inset-bottom))] pt-3">
-            {warning && <p className="rounded-lg bg-amber-50 p-2 text-sm text-amber-900" data-testid="implant-sheet-warning">{warning}</p>}
-            {error && <p role="alert" className="rounded-lg bg-rose-50 p-2 text-sm text-rose-800">{error}</p>}
-            {notice && !error && <p role="status" className="rounded-lg bg-[#f3f1f7] p-2 text-sm text-[#473a6d]">{notice}</p>}
-            {next && <button type="button" disabled={busy} onClick={advance} data-testid="implant-advance" className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#473a6d] px-4 text-base font-semibold text-white hover:bg-[#3a2f5a] disabled:opacity-50">{busy && <LoaderCircle className="size-4 animate-spin" aria-hidden="true"/>}Pasar a {phaseLabel(next).toLocaleLowerCase("es")}</button>}
-            <button type="button" disabled={busy} onClick={() => onOpenForm(item)} data-testid="implant-open-form" className="inline-flex min-h-11 w-full items-center justify-center rounded-xl border border-[#473a6d] bg-white px-4 text-sm font-semibold text-[#473a6d] hover:bg-[#f3f1f7] disabled:opacity-50">Abrir ficha completa</button>
-          </div>
+          {footer && <div className="space-y-2 border-t border-[#ebe9f2] px-4 pb-[max(.75rem,env(safe-area-inset-bottom))] pt-3">{footer}</div>}
         </div>
       </div>
     </div>, document.body);
