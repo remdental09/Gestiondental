@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { findViews } from "../lib/capture-detect.ts";
 import { needsCut } from "../lib/capture-bridge.ts";
-import { cutLabel } from "../lib/capture-crop.ts";
+import { cutLabel, partOfWindow } from "../lib/capture-crop.ts";
 
 /** Ventana inventada con la disposición de Blue Sky Plan: barra clara, recuadros negros, divisiones grises y reglas de color. */
 function windowImage(panels, { width = 1100, height = 700, lines = [] } = {}) {
@@ -79,4 +79,45 @@ test("cortes: el rótulo lleva el nombre que mostraba el visor, la vista y la fe
   const night = new Date("2026-11-25T02:00:00Z");
   assert.equal(cutLabel("PRUEBA FICTICIA", "Transversal", night), "PRUEBA FICTICIA · Transversal · 24-11-2026");
   assert.equal(cutLabel(null, "Axial", night), "Axial · 24-11-2026");
+});
+
+/** Recorta de la ventana inventada el rectángulo dado, como quien sube un corte que ya venía recortado. */
+function piece(image, { x, y, width, height }) {
+  const data = new Uint8Array(width * height * 4);
+  for (let row = 0; row < height; row++) data.set(image.data.subarray(((y + row) * image.width + x) * 4, ((y + row) * image.width + x + width) * 4), row * width * 4);
+  return { width, height, data };
+}
+
+test("subidas: se ofrece recortar una ventana completa y no un corte que ya venía recortado", () => {
+  for (const window of [windowImage(layout, { lines }), windowImage([{ x: 0, y: 80, w: 900, h: 600, rulers: [LILAC, YELLOW, PINK] }])]) {
+    const found = Object.values(findViews(window));
+    assert.ok(found.length);
+    for (const rect of found) {
+      assert.equal(partOfWindow(rect, window.width, window.height), true);
+      const cut = piece(window, rect);
+      for (const again of Object.values(findViews(cut))) assert.equal(partOfWindow(again, cut.width, cut.height), false, "un corte ya recortado entra como está");
+    }
+  }
+});
+
+test("subidas: el rótulo no inventa nombre ni fecha", () => {
+  assert.equal(cutLabel(null, "Transversal", null), "Transversal");
+});
+
+test("subidas: pegar, arrastrar y subir pasan por la propuesta; nada se guarda sin elegir", () => {
+  const read = path => readFileSync(new URL(path, import.meta.url), "utf8");
+  const panel = read("../components/implantology.tsx"), card = read("../components/cut-offer.tsx");
+  assert.match(panel, /cutViews\(original, "all", null, \{ date: null, partsOnly: true \}\)/);
+  assert.match(panel, /onDrop=\{[^}]*receive\(/);
+  assert.match(panel, /onChange=\{[^}]*receive\(/);
+  assert.equal(panel.match(/receive\(files\)/g)?.length, 2, "Ctrl+V y botón Pegar");
+  assert.match(panel, /view === "Radiografía"[^\n]*addFiles\(files\)/);
+  assert.match(panel, /onCapture=\{\(file, as\) => addFiles\(\[file\], as\)\}/, "la capturadora ya recorta sola");
+  assert.match(panel, /offers\.length > 0 && "las imágenes aún sin guardar"/, "cerrar o cambiar de implante pregunta");
+  assert.match(panel, /if \(cutting\.current\) \{[^}]*return false; \}/);
+  assert.equal(panel.match(/offer\.target !== current\?\.id\) return;/g)?.length, 2, "nunca a otro implante");
+  assert.match(card, /Comprueba que sea de \{patientName\}/);
+  assert.match(card, /Guardar completa/);
+  assert.match(card, /No guardar/);
+  assert.match(card, /behavior: still \? "auto" : "smooth"/, "respeta «reducir movimiento»");
 });

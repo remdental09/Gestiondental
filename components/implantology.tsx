@@ -11,7 +11,10 @@ import { ClipboardPaste, Download, ImagePlus, LoaderCircle, Trash2, X } from "lu
 import type { ClinicalImage } from "@/app/clinical-data";
 import { BiomedicalProducts, type ProductTool, type ProductView } from "@/components/biomedical-products";
 import { CaptureLink } from "@/components/capture-link";
+import { CutOffer, type Offer } from "@/components/cut-offer";
 import { ImplantIdBox, ImplantSheet, StageList, type SheetTab } from "@/components/implant-sheet";
+import { cutViews } from "@/lib/capture-crop";
+import type { DetectedView } from "@/lib/capture-detect";
 import { thumbUrl } from "@/lib/image-compress";
 import { IMPLANT_BRANDS } from "@/lib/dictation/implant-brands";
 import {
@@ -45,6 +48,9 @@ const input = "mt-1 block min-h-11 w-full rounded-lg border border-[#d8d5e4] bg-
 const primary = "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#473a6d] px-4 text-sm font-semibold text-white hover:bg-[#3a2f5a] disabled:opacity-50";
 const secondary = "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#473a6d] bg-white px-4 text-sm font-semibold text-[#473a6d] hover:bg-[#f3f1f7] disabled:opacity-50";
 const chip = (on: boolean) => `min-h-11 rounded-full border px-3 text-sm font-medium ${on ? "border-[#473a6d] bg-[#473a6d] text-white" : "border-[#d8d5e4] bg-white text-[#473a6d]"}`;
+
+const usable = (file: File) => /^image\/(jpeg|png|webp)$/.test(file.type) && file.size <= 12 * 1024 * 1024;
+const UNUSABLE = "Usa imágenes JPG, PNG o WebP de hasta 12 MB. Los archivos DICOM no se cargan: captura el corte.";
 
 async function call<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
@@ -101,6 +107,19 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
   /** Capturas retenidas por nombre distinto, aún sin decidir. */
   const held = useRef(0);
   const productTool = useRef<ProductTool | null>(null);
+  /** Imágenes subidas que son una ventana de Blue Sky y esperan que se elija qué guardar. */
+  const [offers, setOffers] = useState<Offer[]>([]);
+  /** Se está revisando una imagen o guardando los cortes elegidos: no se cambia de implante. */
+  const cutting = useRef(false);
+  const offered = useRef(0);
+  /** Vistas previas en memoria: se liberan al decidir, al cambiar de implante o al salir de la pestaña. */
+  const previews = useRef(new Set<string>());
+  const preview = (file: File) => { const url = URL.createObjectURL(file); previews.current.add(url); return url; };
+  const release = (urls: string[]) => urls.forEach(url => { URL.revokeObjectURL(url); previews.current.delete(url); });
+  useEffect(() => { const urls = previews.current; return () => { urls.forEach(url => URL.revokeObjectURL(url)); urls.clear(); }; }, []);
+  const dropOffers = useCallback(() => {
+    previews.current.forEach(url => URL.revokeObjectURL(url)); previews.current.clear(); setOffers([]);
+  }, []);
 
   useEffect(() => { setWindows(/Windows/i.test(navigator.userAgent)); }, []);
   const load = useCallback(async () => {
@@ -140,25 +159,27 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
     if (serialized === baseline) return;
     setDraft(rebase(draft, JSON.parse(baseline) as Draft, next)); setBaseline(serialized);
   }, [implants, draft, baseline]);
-  const dismiss = () => { session.current++; setDraft(null); setBaseline(""); setError(""); setNotice(""); };
+  const dismiss = () => { session.current++; dropOffers(); setDraft(null); setBaseline(""); setError(""); setNotice(""); };
   useEffect(() => {
     if (!draft?.id || !implants || implants.some(item => item.id === draft.id)) return;
-    productTool.current?.discard(); session.current++;
+    productTool.current?.discard(); session.current++; dropOffers();
     setDraft(null); setBaseline(""); setNotice(""); setError("Ese implante ya no está: su ficha se eliminó desde otro equipo.");
-  }, [implants, draft]);
+  }, [implants, draft, dropOffers]);
 
   /** Abre la ventana (o cambia su contenido) con otra ficha. */
   const show = (next: Draft, section: SheetTab) => {
-    session.current++; setVisit(value => value + 1);
+    session.current++; setVisit(value => value + 1); dropOffers();
     setDraft(next); setBaseline(JSON.stringify(next)); setTab(section); setError(""); setNotice("");
   };
   /** Antes de cerrar o cambiar de implante: si queda algo sin guardar, se pregunta. */
   const leave = (): boolean => {
     // Con un guardado en curso se espera: un error no puede perderse junto con lo escrito.
     if (busy === "saving" || productTool.current?.saving()) { setNotice("Se está guardando. Espera un momento."); return false; }
+    if (cutting.current) { setNotice("Se está revisando o guardando una imagen. Espera un momento."); return false; }
     const pending = [
       dirty && "los cambios sin guardar de este implante",
       productTool.current?.pending() && "el producto a medio registrar, con su foto",
+      offers.length > 0 && "las imágenes aún sin guardar",
       held.current > 0 && "las capturas retenidas por nombre distinto (siguen en la carpeta Imágenes\\SpeakDent del computador)",
     ].filter(Boolean);
     if (pending.length && !window.confirm(`¿Descartar ${pending.join("; ")}?`)) return false;
@@ -230,7 +251,7 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
     if (working.current) return "busy";
     if (!files.length) return "failed";
     if (!target) { setNotice(""); setError("Guarda el implante y luego pega o sube la imagen."); return "failed"; }
-    if (files.some(file => !/^image\/(jpeg|png|webp)$/.test(file.type) || file.size > 12 * 1024 * 1024)) { setError("Usa imágenes JPG, PNG o WebP de hasta 12 MB. Los archivos DICOM no se cargan: captura el corte."); return "failed"; }
+    if (!files.every(usable)) { setError(UNUSABLE); return "failed"; }
     working.current = true; setBusy("image"); setError(""); setNotice("");
     let added = 0;
     try {
@@ -251,6 +272,60 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
     finally { working.current = false; setBusy(""); }
   }, [current, view, apply, onUploadImage, onRemoveImage, onChanged, patient.name]);
 
+  /**
+   * Lo que se sube, pega o arrastra. Si es la ventana completa de Blue Sky Plan, se ofrecen sus cortes antes de guardar;
+   * lo demás se guarda como siempre. La capturadora no pasa por aquí: ya recorta sola.
+   */
+  const receive = useCallback(async (files: File[]) => {
+    const target = current;
+    if (working.current || cutting.current) return;
+    // Una radiografía no se recorta; sin implante o con un archivo no admitido, el aviso lo da el guardado.
+    if (!target || !files.length || view === "Radiografía" || !files.every(usable)) { await addFiles(files); return; }
+    const opened = session.current;
+    cutting.current = true; working.current = true; setBusy("image"); setError(""); setNotice("");
+    const plain: File[] = [], found: Offer[] = [];
+    try {
+      for (const original of files) {
+        // Sin fecha ni nombre en el rótulo: de una imagen subida no se sabe cuándo se tomó ni se puede leer el visor.
+        const cuts = await cutViews(original, "all", null, { date: null, partsOnly: true });
+        if (session.current !== opened) return;
+        if (!cuts.length) { plain.push(original); continue; }
+        found.push({ id: ++offered.current, target: target.id, original, url: preview(original), cuts: cuts.map(cut => ({ ...cut, url: preview(cut.file) })),
+          chosen: [cuts.find(cut => cut.view === view)?.view ?? cuts[0].view] });
+      }
+    } finally { cutting.current = false; working.current = false; setBusy(""); }
+    if (found.length) { setOffers(list => [...list, ...found]); setTab("imagenes"); }
+    if (plain.length) await addFiles(plain);
+  }, [current, view, addFiles]);
+
+  const closeOffer = (offer: Offer) => {
+    release([offer.url, ...offer.cuts.map(cut => cut.url)]);
+    setOffers(list => list.filter(item => item.id !== offer.id));
+  };
+  const toggleCut = (offer: Offer, cut: DetectedView) => setOffers(list => list.map(item => item.id !== offer.id ? item
+    : { ...item, chosen: item.chosen.includes(cut) ? item.chosen.filter(other => other !== cut) : [...item.chosen, cut] }));
+  const saveCuts = async (offer: Offer) => {
+    if (cutting.current || working.current || offer.target !== current?.id) return;
+    cutting.current = true;
+    try {
+      const wanted = offer.cuts.filter(cut => offer.chosen.includes(cut.view));
+      for (const cut of wanted) {
+        if (await addFiles([cut.file], cut.view) !== "saved") return;
+        // Lo ya guardado sale de la propuesta: reintentar no lo duplica.
+        setOffers(list => list.map(item => item.id !== offer.id ? item
+          : { ...item, cuts: item.cuts.filter(other => other.view !== cut.view), chosen: item.chosen.filter(other => other !== cut.view) }));
+      }
+      if (wanted.length > 1) setNotice(`${wanted.length} cortes guardados en el implante ${current.tooth} de ${patient.name}.`);
+      closeOffer(offer);
+    } finally { cutting.current = false; }
+  };
+  const saveWhole = async (offer: Offer) => {
+    if (cutting.current || working.current || offer.target !== current?.id) return;
+    cutting.current = true;
+    try { if (await addFiles([offer.original]) === "saved") closeOffer(offer); } finally { cutting.current = false; }
+  };
+  const offer = offers.find(item => item.target === current?.id);
+
   // Ctrl+V con la ventana de un implante abierta. El texto pegado en los campos no se intercepta.
   useEffect(() => {
     if (!draft) return;
@@ -260,11 +335,11 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
       // Texto copiado de Word o Excel suele traer además una imagen: en un campo de texto se pega como texto.
       if (event.target instanceof Element && event.target.closest("input, textarea") && event.clipboardData?.getData("text/plain")) return;
       event.preventDefault();
-      void addFiles(files);
+      void receive(files);
     };
     document.addEventListener("paste", onPaste);
     return () => document.removeEventListener("paste", onPaste);
-  }, [draft, addFiles]);
+  }, [draft, receive]);
 
   const pasteButton = async () => {
     setError("");
@@ -276,7 +351,7 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
         if (type) files.push(new File([await item.getType(type)], "captura", { type }));
       }
       if (!files.length) { setError("No hay una imagen copiada. Captura el corte y vuelve a intentarlo."); return; }
-      await addFiles(files);
+      await receive(files);
     } catch { setError("El navegador no permitió leer lo copiado. Presiona Ctrl+V (en Mac, ⌘V)."); }
   };
 
@@ -456,15 +531,17 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
       </div>
 
       {current && <div hidden={tab !== "imagenes"} className="space-y-3" data-testid="implant-images"
-        onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); void addFiles([...e.dataTransfer.files]); }}>
+        onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); void receive([...e.dataTransfer.files]); }}>
         <div className="flex flex-wrap gap-2" role="group" aria-label="Tipo de imagen">{IMPLANT_VIEWS.map(item => <button key={item} type="button" aria-pressed={view === item} className={chip(view === item)} onClick={() => setView(item)}>{item}</button>)}</div>
         {showCapturer && windows && <CaptureLink key={current.id} target={`implante ${current.tooth}`} patientName={patient.name} view={view} busy={busy === "image"} onHeld={count => { held.current = count; }}
           onCapture={(file, as) => addFiles([file], as)} onProblem={message => { setNotice(""); setError(message); }}/>}
         <div className="grid grid-cols-2 gap-2">
           <button type="button" className={primary} disabled={busy !== ""} onClick={() => fileRef.current?.click()}>{busy === "image" ? <LoaderCircle className="size-4 animate-spin" aria-hidden="true"/> : <ImagePlus className="size-4" aria-hidden="true"/>}{busy === "image" ? "Guardando…" : "Subir imagen"}</button>
           <button type="button" className={secondary} disabled={busy !== ""} onClick={() => void pasteButton()} data-testid="implant-paste"><ClipboardPaste className="size-4" aria-hidden="true"/>Pegar</button>
-          <input ref={fileRef} type="file" multiple accept="image/jpeg,image/png,image/webp" className="hidden" onChange={e => { void addFiles([...(e.target.files ?? [])]); e.target.value = ""; }} data-testid="implant-file"/>
+          <input ref={fileRef} type="file" multiple accept="image/jpeg,image/png,image/webp" className="hidden" onChange={e => { void receive([...(e.target.files ?? [])]); e.target.value = ""; }} data-testid="implant-file"/>
         </div>
+        {offer && <CutOffer key={offer.id} offer={offer} waiting={offers.length - 1} patientName={patient.name} view={view} busy={busy !== ""}
+          onToggle={cut => toggleCut(offer, cut)} onSaveCuts={() => void saveCuts(offer)} onSaveWhole={() => void saveWhole(offer)} onDiscard={() => closeOffer(offer)}/>}
         {current.images.length ? <ul className="grid grid-cols-2 gap-3">{current.images.map(item => {
           const image = images.find(found => found.id === item.imageId);
           return <li key={item.imageId} className="overflow-hidden rounded-xl border border-[#e6e4ee] bg-white">
