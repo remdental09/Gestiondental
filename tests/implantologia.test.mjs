@@ -115,6 +115,21 @@ test("implantes: permisos, pestaña, respaldo, descarga y capturadora conectados
   assert.ok(existsSync(new URL("../public/descargas/capturadora-speakdent-prueba.zip", import.meta.url)));
 });
 
+test("implantes: la etapa se puede dictar, con rectificación cognitiva y sin voz", () => {
+  const sheet = read("components/implant-sheet.tsx");
+  assert.match(sheet, /import \{ StageDictation \} from "@\/components\/stage-dictation"/);
+  assert.match(sheet, /<StageDictation disabled=\{busy\} onInsert=\{text => onEdit\(/, "el dictado se agrega a la nota de la etapa, no la reemplaza sola");
+  const dictation = read("components/stage-dictation.tsx");
+  assert.match(dictation, /createAudioTranscription/);
+  assert.match(dictation, /useTextCorrection/);
+  assert.match(dictation, /correction\.result\?\.text/, "se usa la rectificación cognitiva (ligera), no la nota redactada");
+  assert.doesNotMatch(dictation, /redraftedNote/, "no se usa la redacción clínica pesada, solo la rectificación");
+  assert.doesNotMatch(dictation, /speakAlerts|🔊|SpeechSynthesis/i, "sin voz correctiva: sin alertas habladas");
+  assert.match(dictation, /border-2 border-red-600 bg-red-600/, "reutiliza el letrero rojo de rectificación ya usado en el dictado clínico");
+  assert.match(dictation, /rectificando|rectificaci/i);
+  assert.match(dictation, /data-testid="stage-dictation-mic"/);
+});
+
 test("implantes: la herramienta Producto está en la ventana del implante y no mezcla piezas", () => {
   const panel = read("components/implantology.tsx");
   assert.match(panel, /<BiomedicalProducts key=\{visit\} embedded compact/);
