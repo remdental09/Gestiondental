@@ -1,4 +1,4 @@
-# Capturadora SpeakDent (Windows, prueba 0.2)
+# Capturadora SpeakDent (Windows, prueba 0.3)
 
 Programa de escritorio (C# WinForms, .NET Framework 4) que reconoce un visor DICOM abierto, guarda la imagen de su
 ventana en `Imágenes\SpeakDent` y la entrega a la ficha de SpeakDent abierta en el mismo computador (F8, botón propio o
@@ -8,7 +8,9 @@ botón «Capturar de Blue Sky» de la ficha). Queda junto al reloj y puede inici
 
 Servidor HTTP mínimo en `127.0.0.1:47821`. Solo acepta las direcciones de SpeakDent (`Origin`) y su propio `Host`.
 Cada ficha de implante genera una sesión; una captura queda marcada para la sesión que escuchaba en ese momento,
-solo esa sesión puede leerla y se descarta a los 5 minutos. El navegador pide una vez permiso para conectarse
+solo esa sesión puede leerla y se descarta a los 5 minutos. Las vistas (Transversal, Axial, Panorámica, Vista 3D) se marcan una vez
+y cada captura viaja con su vista y el título de la ventana del visor; la ficha lo compara con el nombre del paciente y
+retiene lo que no coincide. El título puede traer datos del paciente: no se guarda ni se registra. El navegador pide una vez permiso para conectarse
 con este computador. Si cambian las direcciones del sitio, actualizar `Puente.Origenes` y publicar de nuevo el programa.
 
 ## Compilar y probar (Linux con `mono-devel`)

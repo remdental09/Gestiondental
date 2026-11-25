@@ -20,8 +20,8 @@ using Microsoft.Win32;
 [assembly: AssemblyTitle("Capturadora SpeakDent")]
 [assembly: AssemblyProduct("SpeakDent")]
 [assembly: AssemblyDescription("Captura imágenes del visor DICOM a pedido del usuario. Versión de prueba.")]
-[assembly: AssemblyVersion("0.2.0.0")]
-[assembly: AssemblyFileVersion("0.2.0.0")]
+[assembly: AssemblyVersion("0.3.0.0")]
+[assembly: AssemblyFileVersion("0.3.0.0")]
 
 namespace SpeakDent
 {
@@ -99,11 +99,16 @@ namespace SpeakDent
             return null;
         }
 
-        // Un programa reconocido pesa más que una ventana que solo menciona el visor en su título.
+        public const string Preferred = "Blue Sky Plan";
+
+        // Un programa reconocido pesa más que una ventana que solo menciona el visor en su título;
+        // entre programas, Blue Sky Plan va primero.
         public static bool Better(WindowInfo a, WindowInfo b)
         {
             if (b == null) return true;
             if (a.ByProcess != b.ByProcess) return a.ByProcess;
+            bool pa = a.Viewer == Preferred, pb = b.Viewer == Preferred;
+            if (pa != pb) return pa;
             return a.Area > b.Area;
         }
 
@@ -159,7 +164,8 @@ namespace SpeakDent
             foreach (var w in all)
             {
                 if (w.Viewer == null) continue;
-                if (w.Handle == front) return w;
+                // El visor que está delante gana; una página que solo lo menciona en su título no.
+                if (w.Handle == front && w.ByProcess) return w;
                 if (Better(w, best)) best = w;
             }
             return best;
@@ -198,21 +204,43 @@ namespace SpeakDent
             }
             catch (Exception) { }
         }
-        // El recorte se guarda como fracciones de la ventana, así sirve aunque cambie su tamaño.
-        public RectangleF? GetCrop(string process)
+        // Los recuadros se guardan como fracciones de la ventana, junto con el tamaño que tenía al marcarlos.
+        static string Key(string process, string view) { return "vista." + process + "." + view; }
+        public RectangleF? GetRegion(string process, string view)
         {
-            string[] p = Get("recorte." + process).Split(';');
+            string[] p = Get(Key(process, view)).Split(new[] { ';' });
             if (p.Length != 4) return null;
             var n = new float[4];
             for (int i = 0; i < 4; i++)
                 if (!float.TryParse(p[i], NumberStyles.Float, CultureInfo.InvariantCulture, out n[i])) return null;
-            if (n[2] <= 0 || n[3] <= 0) return null;
+            if (!(n[0] >= 0 && n[1] >= 0 && n[2] > 0 && n[3] > 0 && n[0] < 1 && n[1] < 1)) return null;
             return new RectangleF(n[0], n[1], n[2], n[3]);
         }
-        public void SetCrop(string process, RectangleF? c)
+        public void SetRegion(string process, string view, RectangleF? c)
         {
-            Set("recorte." + process, c == null ? "" : string.Format(CultureInfo.InvariantCulture, "{0};{1};{2};{3}",
+            Set(Key(process, view), c == null ? "" : string.Format(CultureInfo.InvariantCulture, "{0};{1};{2};{3}",
                 c.Value.X, c.Value.Y, c.Value.Width, c.Value.Height));
+        }
+        public string[] Marked(string process)
+        {
+            var list = new List<string>();
+            foreach (string id in Vistas.Ids) if (GetRegion(process, id) != null) list.Add(id);
+            return list.ToArray();
+        }
+        public void SetMarkedSize(string process, Size size) { Set("tamano." + process, size.Width + "x" + size.Height); }
+        // Si la ventana cambió de tamaño o de forma, los recuadros pueden haberse corrido.
+        public bool SizeChanged(string process, Size now)
+        {
+            string[] p = Get("tamano." + process).Split(new[] { 'x' });
+            int w, h;
+            if (p.Length != 2 || !int.TryParse(p[0], out w) || !int.TryParse(p[1], out h)) return false;
+            return Math.Abs(w - now.Width) > w * 0.02 || Math.Abs(h - now.Height) > h * 0.02;
+        }
+        public static Rectangle Pixels(RectangleF c, Size size)
+        {
+            return Rectangle.Intersect(new Rectangle(Point.Empty, size), new Rectangle(
+                (int)Math.Round(c.X * size.Width), (int)Math.Round(c.Y * size.Height),
+                (int)Math.Round(c.Width * size.Width), (int)Math.Round(c.Height * size.Height)));
         }
     }
 
@@ -242,15 +270,20 @@ namespace SpeakDent
         }
     }
 
+    // Se arrastra una vez sobre cada vista del visor. Espacio deja una como estaba; Esc termina.
     class CropForm : Form
     {
         readonly Bitmap image;
+        readonly RectangleF?[] regions;
         Point start; Rectangle selection; bool dragging;
-        public RectangleF? Result;
+        int step;
+        public bool Changed;
+        public RectangleF?[] Regions { get { return regions; } }
 
-        public CropForm(Bitmap bmp)
+        public CropForm(Bitmap bmp, RectangleF?[] current)
         {
             image = bmp;
+            regions = (RectangleF?[])current.Clone();
             FormBorderStyle = FormBorderStyle.None;
             WindowState = FormWindowState.Maximized;
             TopMost = true; DoubleBuffered = true; KeyPreview = true;
@@ -264,19 +297,37 @@ namespace SpeakDent
         }
         protected override void OnPaint(PaintEventArgs e)
         {
+            Rectangle area = ImageArea();
             e.Graphics.InterpolationMode = InterpolationMode.HighQualityBilinear;
-            e.Graphics.DrawImage(image, ImageArea());
-            if (selection.Width > 0)
-                using (var pen = new Pen(Color.Yellow, 3)) e.Graphics.DrawRectangle(pen, selection);
-            using (var f = new Font("Segoe UI", 13))
+            e.Graphics.DrawImage(image, area);
+            using (var f = new Font("Segoe UI", 13, FontStyle.Bold))
             {
-                const string msg = "Arrastra sobre la zona que quieres guardar siempre.  Esc cancela.";
+                for (int i = 0; i < regions.Length; i++)
+                {
+                    if (regions[i] == null) continue;
+                    Rectangle r = Settings.Pixels(regions[i].Value, area.Size);
+                    r.Offset(area.Location);
+                    using (var pen = new Pen(i == step ? Color.Orange : Color.LimeGreen, 2)) e.Graphics.DrawRectangle(pen, r);
+                    e.Graphics.DrawString(Vistas.Nombres[i], f, Brushes.LimeGreen, r.X + 4, r.Y + 4);
+                }
+                if (selection.Width > 0)
+                    using (var pen = new Pen(Color.Yellow, 3)) e.Graphics.DrawRectangle(pen, selection);
+                string msg = string.Format("{0} de {1}: arrastra sobre la vista {2}.   Espacio: saltar.   Esc: terminar.",
+                    step + 1, Vistas.Ids.Length, Vistas.Nombres[step].ToUpperInvariant());
                 var size = e.Graphics.MeasureString(msg, f);
-                e.Graphics.FillRectangle(Brushes.Black, 10, 10, size.Width + 12, size.Height + 8);
-                e.Graphics.DrawString(msg, f, Brushes.Yellow, 16, 14);
+                float x = (ClientSize.Width - size.Width) / 2, y = ClientSize.Height - size.Height - 30;
+                e.Graphics.FillRectangle(Brushes.Black, x - 8, y - 6, size.Width + 16, size.Height + 12);
+                e.Graphics.DrawString(msg, f, Brushes.Yellow, x, y);
             }
         }
-        protected override void OnMouseDown(MouseEventArgs e) { start = e.Location; dragging = true; selection = Rectangle.Empty; Invalidate(); }
+        void Next()
+        {
+            selection = Rectangle.Empty;
+            if (step == Vistas.Ids.Length - 1) { Close(); return; }
+            step++;
+            Invalidate();
+        }
+        protected override void OnMouseDown(MouseEventArgs e) { if (e.Button != MouseButtons.Left) return; start = e.Location; dragging = true; selection = Rectangle.Empty; Invalidate(); }
         protected override void OnMouseMove(MouseEventArgs e)
         {
             if (!dragging) return;
@@ -290,12 +341,16 @@ namespace SpeakDent
             Rectangle area = ImageArea();
             Rectangle s = Rectangle.Intersect(selection, area);
             if (s.Width < 20 || s.Height < 20) { selection = Rectangle.Empty; Invalidate(); return; }
-            Result = new RectangleF((s.X - area.X) / (float)area.Width, (s.Y - area.Y) / (float)area.Height,
+            regions[step] = new RectangleF((s.X - area.X) / (float)area.Width, (s.Y - area.Y) / (float)area.Height,
                 s.Width / (float)area.Width, s.Height / (float)area.Height);
-            DialogResult = DialogResult.OK;
-            Close();
+            Changed = true;
+            Next();
         }
-        protected override void OnKeyDown(KeyEventArgs e) { if (e.KeyCode == Keys.Escape) Close(); }
+        protected override void OnKeyDown(KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Escape) Close();
+            else if (e.KeyCode == Keys.Space) { dragging = false; Next(); }
+        }
     }
 
     class MainForm : Form, IAnfitrion
@@ -311,6 +366,8 @@ namespace SpeakDent
         bool startHidden, leaving, changingAutoStart;
         volatile string viewerName;
         volatile string hotkeyShared;
+        volatile string titleShared;
+        volatile string[] markedShared = new string[0];
         byte[] lastSent;
         string lastError;
         readonly ComboBox choice;
@@ -359,16 +416,18 @@ namespace SpeakDent
             };
 
             captureButton = Place(new Button { Font = new Font("Segoe UI", 12, FontStyle.Bold), BackColor = Color.FromArgb(94, 78, 160), ForeColor = Color.White, FlatStyle = FlatStyle.Flat }, 12, 68, 296, 46);
-            captureButton.Click += delegate { TakeShot(puente == null ? null : puente.SesionActiva()); };
-            cropButton = Place(new Button { Text = "Marcar recorte" }, 12, 120, 145, 28);
+            captureButton.Click += delegate { TakeShot(puente == null ? null : puente.SesionActiva(), false); };
+            cropButton = Place(new Button { Text = "Marcar vistas" }, 12, 120, 145, 28);
             cropButton.Click += delegate { DefineCrop(); };
-            clearCropButton = Place(new Button { Text = "Ventana completa" }, 163, 120, 145, 28);
+            clearCropButton = Place(new Button { Text = "Borrar marcas" }, 163, 120, 145, 28);
             clearCropButton.Click += delegate
             {
                 var w = Windows.Target(chosenProcess);
                 if (w == null) { Say("No encuentro un visor abierto."); return; }
-                settings.SetCrop(w.Process, null);
-                Say("Se guardará la ventana completa.");
+                if (settings.Marked(w.Process).Length == 0) { Say("No hay vistas marcadas en este visor."); return; }
+                if (MessageBox.Show(this, "¿Desea borrar las vistas marcadas de " + (w.Viewer ?? w.Process) + "?", "Capturadora SpeakDent", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+                foreach (string id in Vistas.Ids) settings.SetRegion(w.Process, id, null);
+                Say("Marcas borradas: se guardará la ventana completa.");
                 RefreshStatus();
             };
             preview = Place(new PictureBox { SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.FromArgb(240, 239, 245) }, 12, 156, 296, 150);
@@ -489,15 +548,17 @@ namespace SpeakDent
         // --- Lo que la ficha puede pedir (llega desde otro hilo) ---
         string IAnfitrion.Visor() { return viewerName; }
         string IAnfitrion.Tecla() { return hotkeyShared; }
-        Resultado IAnfitrion.Capturar(string sesion)
+        string IAnfitrion.Titulo() { return titleShared; }
+        string[] IAnfitrion.Marcadas() { return markedShared; }
+        Resultado IAnfitrion.Capturar(string sesion, bool todas)
         {
-            try { return (Resultado)Invoke(new Func<Resultado>(delegate { return CaptureForRecord(sesion); })); }
+            try { return (Resultado)Invoke(new Func<Resultado>(delegate { return CaptureForRecord(sesion, todas); })); }
             catch (Exception ex) { return Resultado.Mal("La capturadora no pudo responder: " + ex.Message); }
         }
-        Resultado CaptureForRecord(string sesion)
+        Resultado CaptureForRecord(string sesion, bool todas)
         {
             IntPtr previous = Win32.GetForegroundWindow();
-            string error = TakeShot(sesion);
+            string error = TakeShot(sesion, todas);
             if (previous != IntPtr.Zero) Focus(previous); // vuelve al navegador, donde está la ficha
             return error == null ? Resultado.Bien() : Resultado.Mal(error);
         }
@@ -548,7 +609,7 @@ namespace SpeakDent
 
         protected override void WndProc(ref Message m)
         {
-            if (m.Msg == WM_HOTKEY && m.WParam.ToInt32() == HotkeyId) TakeShot(puente.SesionActiva());
+            if (m.Msg == WM_HOTKEY && m.WParam.ToInt32() == HotkeyId) TakeShot(puente.SesionActiva(), false);
             base.WndProc(ref m);
         }
 
@@ -565,11 +626,13 @@ namespace SpeakDent
         {
             var w = Windows.Target(chosenProcess);
             viewerName = w == null ? null : (w.Viewer ?? w.Process);
+            titleShared = w == null ? null : w.Title;
+            markedShared = w == null ? new string[0] : settings.Marked(w.Process);
             SetHotkey(w != null);
             captureButton.Text = hotkeyName == null ? "Capturar" : "Capturar  (" + hotkeyName + ")";
             linkLabel.Text = !puente.Abierto ? "○ Sin conexión con SpeakDent (reintentando)" : puente.SesionActiva() != null ? "● Conectada con una ficha de SpeakDent" : "○ Ninguna ficha de SpeakDent recibiendo";
             if (w == null) viewerLabel.Text = "○ No veo un visor abierto";
-            else viewerLabel.Text = "● " + (w.Viewer ?? w.Process) + (settings.GetCrop(w.Process) != null ? "  (con recorte)" : "");
+            else viewerLabel.Text = "● " + (w.Viewer ?? w.Process) + (markedShared.Length > 0 ? "  (" + markedShared.Length + (markedShared.Length == 1 ? " vista marcada)" : " vistas marcadas)") : "");
             viewerLabel.ForeColor = w == null ? Color.FromArgb(150, 90, 20) : Color.FromArgb(20, 120, 70);
         }
 
@@ -619,8 +682,9 @@ namespace SpeakDent
 
         void Fail(string text) { lastError = text; Say(text); }
 
-        // sesion: ficha que debe recibir la imagen (null = solo guardar). Devuelve null si salió bien.
-        string TakeShot(string sesion)
+        // sesion: ficha que debe recibir la imagen (null = solo guardar). todas: una imagen por cada vista marcada.
+        // Devuelve null si salió bien.
+        string TakeShot(string sesion, bool todas)
         {
             if (busy) return "La capturadora está ocupada. Intenta de nuevo.";
             busy = true;
@@ -629,22 +693,46 @@ namespace SpeakDent
             {
                 var w = Windows.Target(chosenProcess);
                 if (w == null) { Fail("No veo un visor abierto. Ábrelo o elige su ventana en la lista."); return lastError; }
+                string[] marked = settings.Marked(w.Process);
+                if (todas && marked.Length == 0) { Fail("Primero marca las vistas: en la capturadora, «Marcar vistas»."); return lastError; }
                 Opacity = 0; // la capturadora no debe salir en la imagen
                 Bitmap full = Grab(w);
                 if (full == null) return lastError ?? "No pude capturar.";
                 using (full)
                 {
-                    Bitmap result = full;
-                    RectangleF? c = settings.GetCrop(w.Process);
-                    if (c != null)
+                    string chosen; bool wholeWindow;
+                    puente.Preferencia(sesion, out chosen, out wholeWindow);
+                    string title = w.Title; // el de la ventana que se está capturando
+                    var views = todas ? marked : new[] { chosen };
+                    int sent = 0, cropped = 0;
+                    bool copied = false;
+                    foreach (string view in views)
                     {
-                        var rect = Rectangle.Intersect(new Rectangle(0, 0, full.Width, full.Height), new Rectangle(
-                            (int)Math.Round(c.Value.X * full.Width), (int)Math.Round(c.Value.Y * full.Height),
-                            (int)Math.Round(c.Value.Width * full.Width), (int)Math.Round(c.Value.Height * full.Height)));
-                        if (rect.Width > 0 && rect.Height > 0) result = full.Clone(rect, full.PixelFormat);
+                        RectangleF? c = view == null || (wholeWindow && !todas) ? null : settings.GetRegion(w.Process, view);
+                        Bitmap result = full;
+                        if (c != null)
+                        {
+                            Rectangle rect = Settings.Pixels(c.Value, full.Size);
+                            if (rect.Width > 0 && rect.Height > 0) { result = full.Clone(rect, full.PixelFormat); cropped++; }
+                        }
+                        string warning = result != full && settings.SizeChanged(w.Process, full.Size)
+                            ? "El visor cambió de tamaño desde que marcaste las vistas: revisa el recorte o vuelve a marcarlas." : null;
+                        try
+                        {
+                            copied = Save(result);
+                            if (sesion != null)
+                                using (var png = new MemoryStream())
+                                {
+                                    result.Save(png, ImageFormat.Png);
+                                    byte[] data = png.ToArray();
+                                    if (puente.Entregar(sesion, data, w.Viewer ?? w.Process, view, title, warning)) { lastSent = data; sent++; }
+                                }
+                        }
+                        finally { if (result != full) result.Dispose(); }
                     }
-                    try { Save(result, w, sesion); }
-                    finally { if (result != full) result.Dispose(); }
+                    System.Media.SystemSounds.Asterisk.Play();
+                    string what = todas ? views.Length + (views.Length == 1 ? " vista" : " vistas") : cropped > 0 ? "vista " + Vistas.Nombre(views[0]) : "ventana completa";
+                    Say("Guardada (" + what + ") desde " + (w.Viewer ?? w.Process) + (sent > 0 ? " para la ficha abierta." : copied ? " y copiada para pegar." : "."));
                 }
                 return null;
             }
@@ -652,25 +740,19 @@ namespace SpeakDent
             finally { Opacity = 1; busy = false; }
         }
 
-        void Save(Bitmap bmp, WindowInfo w, string sesion)
+        // Guarda en la carpeta y copia al portapapeles. Devuelve true si quedó copiada.
+        bool Save(Bitmap bmp)
         {
             Directory.CreateDirectory(folder);
             string file = Path.Combine(folder, "SpeakDent_" + DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss-fff", CultureInfo.InvariantCulture) + ".png");
+            for (int n = 2; File.Exists(file); n++) file = Path.Combine(folder, Path.GetFileNameWithoutExtension(file) + "_" + n + ".png");
             bmp.Save(file, ImageFormat.Png);
             captures.Add(file);
+            lastSent = null;
             bool copied = true;
             try { Clipboard.SetImage(bmp); } catch (Exception) { copied = false; }
             ShowPreview(file);
-            System.Media.SystemSounds.Asterisk.Play();
-            lastSent = null;
-            if (sesion != null)
-                using (var png = new MemoryStream())
-                {
-                    bmp.Save(png, ImageFormat.Png);
-                    byte[] data = png.ToArray();
-                    if (puente.Entregar(sesion, data, w.Viewer ?? w.Process)) lastSent = data;
-                }
-            Say("Guardada desde " + (w.Viewer ?? w.Process) + (lastSent != null ? " para la ficha abierta." : copied ? " y copiada para pegar." : "."));
+            return copied;
         }
 
         void ShowPreview(string file)
@@ -712,19 +794,24 @@ namespace SpeakDent
                 Opacity = 0;
                 Bitmap full = Grab(w);
                 if (full == null) return;
+                var current = new RectangleF?[Vistas.Ids.Length];
+                bool moved = settings.SizeChanged(w.Process, full.Size);
+                for (int i = 0; i < current.Length; i++) current[i] = moved ? null : settings.GetRegion(w.Process, Vistas.Ids[i]);
                 using (full)
-                using (var crop = new CropForm(full))
+                using (var crop = new CropForm(full, current))
                 {
                     crop.Shown += delegate { crop.Activate(); Win32.SetForegroundWindow(crop.Handle); };
-                    if (crop.ShowDialog() == DialogResult.OK)
+                    crop.ShowDialog();
+                    if (crop.Changed)
                     {
-                        settings.SetCrop(w.Process, crop.Result);
-                        Say("Recorte recordado para " + (w.Viewer ?? w.Process) + ".");
+                        for (int i = 0; i < current.Length; i++) settings.SetRegion(w.Process, Vistas.Ids[i], crop.Regions[i]);
+                        settings.SetMarkedSize(w.Process, full.Size);
+                        Say("Vistas recordadas para " + (w.Viewer ?? w.Process) + ".");
                     }
-                    else Say("Recorte sin cambios.");
+                    else Say("Marcas sin cambios.");
                 }
             }
-            catch (Exception ex) { Say("No pude marcar el recorte: " + ex.Message); }
+            catch (Exception ex) { Say("No pude marcar las vistas: " + ex.Message); }
             finally { Opacity = 1; busy = false; RefreshStatus(); }
         }
     }

@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
-import { CAPTURE_URL, createCaptureLink, newCaptureSession, readStatus } from "../lib/capture-bridge.ts";
+import { CAPTURE_URL, CAPTURE_VIEWS, createCaptureLink, newCaptureSession, patientCheck, readStatus, viewerPatient } from "../lib/capture-bridge.ts";
+import { IMPLANT_VIEWS } from "../lib/implants.ts";
 
 const read = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 const ID = "0123456789abcdef0123456789abcdef", ID2 = "fedcba9876543210fedcba9876543210";
@@ -40,7 +41,62 @@ test("capturadora: solo habla con este computador y usa una sesión distinta por
   assert.notEqual(newCaptureSession(), newCaptureSession());
   assert.equal(readStatus({ app: "otra-cosa" }), null);
   assert.equal(readStatus(null), null);
-  assert.deepEqual(readStatus({ ...info, activa: true, capturas: [{ id: ID, visor: "Blue Sky Plan" }, { id: "../x" }, null] }).captures, [{ id: ID, viewer: "Blue Sky Plan" }]);
+  assert.deepEqual(readStatus({ ...info, activa: true, capturas: [{ id: ID, visor: "Blue Sky Plan" }, { id: "../x" }, null] }).captures, [{ id: ID, viewer: "Blue Sky Plan", view: null, title: null, warning: null }]);
+  assert.equal(readStatus(info).marked, null, "una capturadora anterior no informa vistas");
+  const next = readStatus({ ...info, version: "0.3", marcadas: ["axial", "vista3d", "otra"], titulo: "t".repeat(400), capturas: [{ id: ID, vista: "panoramica", aviso: "cambió el tamaño" }] });
+  assert.deepEqual(next.marked, ["Axial", "Vista 3D"]);
+  assert.equal(next.title.length, 300);
+  assert.equal(next.captures[0].view, "Panorámica");
+  assert.equal(next.captures[0].warning, "cambió el tamaño");
+});
+
+test("capturadora: reconoce cuando el visor muestra a otro paciente (nombres ficticios)", () => {
+  const title = name => `Blue Sky Plan - ${name} - C:/Estudios/caso`;
+  assert.equal(viewerPatient(title("PRUEBA^FICTICIA^ANA")), "PRUEBA^FICTICIA^ANA");
+  assert.equal(viewerPatient("Blue Sky Plan"), null);
+  assert.equal(viewerPatient("Blue Sky Plan - C:/Estudios/caso"), null);
+  assert.equal(viewerPatient("Blue Sky Plan - caso.bsp"), null);
+  assert.equal(viewerPatient("Otro visor - Ana Prueba"), null);
+  assert.equal(patientCheck(title("ZAPALLAR MUESTRA ANA MARIA"), "Ana María Muestra Zapallar"), "coincide");
+  assert.equal(patientCheck(title("MUESTRA ANA"), "Ana María Muestra Zapallar"), "coincide", "el visor puede traer menos nombres");
+  assert.equal(patientCheck(title("Ana Maria Muestra Zapallar"), "Ana Muestra"), "coincide", "la ficha puede estar incompleta");
+  assert.equal(patientCheck(title("ANNA MUESTRA 11111111"), "Ana Muestra"), "coincide", "letra repetida");
+  assert.equal(patientCheck(title("PEDRO MUESTRA ZAPALLAR"), "Ana Muestra Zapallar"), "distinto", "mismos apellidos");
+  assert.equal(patientCheck(title("MARIO MUESTRA"), "María Muestra"), "distinto");
+  assert.equal(patientCheck(title("ROSA FICTICIA"), "Ana Muestra"), "distinto");
+  assert.equal(patientCheck(title("MUESTRA"), "Ana Muestra"), "distinto", "un solo apellido no basta");
+  assert.equal(patientCheck(null, "Ana Muestra"), "sin-dato");
+  assert.equal(patientCheck("Blue Sky Plan", "Ana Muestra"), "sin-dato");
+  assert.equal(patientCheck(title("ROSA FICTICIA"), ""), "sin-dato");
+  assert.equal(patientCheck("Ana Muestra - Otro visor", "Ana Muestra"), "coincide");
+  assert.equal(patientCheck("Estudio - Otro visor", "Ana Muestra"), "sin-dato");
+});
+
+test("capturadora: la ficha manda el tipo elegido, pide todas las vistas y confirma lo que retiene", async () => {
+  const server = fake([{ activa: true, capturas: [{ id: ID, vista: "axial" }] }]);
+  const urls = [], received = [];
+  const link = createCaptureLink({
+    onState: () => {}, onProblem: () => {}, save: async (_file, capture) => { received.push(capture.view); return "held"; },
+    // Como una capturadora anterior, que no conoce /ajustar.
+    fetcher: async (url, init) => { urls.push(url); return url.includes("/ajustar") ? new Response("{}", { status: 404 }) : server.fetcher(url, init); },
+  });
+  await link.choose({ view: "Vista 3D", wholeWindow: false });
+  assert.equal(urls.length, 0);
+  assert.equal(await link.connect(), true);
+  await link.choose({ view: "Panorámica", wholeWindow: true });
+  await link.capture(true); await settle();
+  assert.match(urls[0], /\/escuchar\?sesion=\w+&vista=vista3d&encuadre=marcado$/);
+  assert.ok(urls.some(url => /\/ajustar\?sesion=\w+&vista=panoramica&encuadre=completo$/.test(url)));
+  assert.ok(urls.some(url => /\/capturar\?sesion=\w+&todas=1$/.test(url)));
+  assert.deepEqual(received, ["Axial"]);
+  assert.ok(server.calls.includes(`POST /recibida ${ID}`));
+  link.stop();
+});
+
+test("capturadora: las vistas se llaman igual en el programa y en la ficha", () => {
+  assert.deepEqual(Object.keys(CAPTURE_VIEWS).sort(), [...IMPLANT_VIEWS].sort());
+  const bridge = read("tools/capturadora/Puente.cs");
+  for (const id of Object.values(CAPTURE_VIEWS)) assert.ok(bridge.includes(`"${id}"`), id);
 });
 
 test("capturadora: una captura se guarda una vez y se confirma después de guardarla", async () => {

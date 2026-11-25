@@ -1,29 +1,38 @@
-﻿CAPTURADORA SPEAKDENT - versión de prueba 0.2 (Windows 10 y 11)
+﻿CAPTURADORA SPEAKDENT - versión de prueba 0.3 (Windows 10 y 11)
 
 ABRIR
-1. Si tienes abierta la capturadora anterior, ciérrala primero.
+1. Si tienes abierta la capturadora anterior, ciérrala primero (ícono junto al reloj, "Salir").
 2. Descomprime esta carpeta en un lugar fijo (por ejemplo, Documentos) y haz doble clic en
    CapturadoraSpeakDent.exe. No se instala.
 3. Windows puede mostrar "Windows protegió su PC", porque el programa aún no está firmado.
    Pulsa "Más información" y luego "Ejecutar de todas formas".
 4. Responde "Sí" para que se abra sola al encender el computador. Quedará junto al reloj.
 
+MARCAR LAS VISTAS (una sola vez)
+1. Abre Blue Sky Plan como lo usas siempre (mismo tamaño de ventana y mismos paneles).
+2. En la capturadora pulsa "Marcar vistas".
+3. Arrastra sobre cada vista cuando te la pida: Transversal, Axial, Panorámica y Vista 3D.
+   Espacio salta una; Esc termina.
+Si cierras o abres paneles (por ejemplo "Lista de notas"), vuelve a marcarlas.
+
 USAR CON LA FICHA
 1. En SpeakDent (Chrome o Edge, en este computador) abre el paciente, Implantología y un implante guardado.
 2. En "Imágenes del implante" pulsa "Conectar capturadora". El navegador pedirá permiso una vez: acepta.
-3. Elige el tipo de corte, ubícalo en Blue Sky Plan y presiona F8 (o F9, si la ventana lo indica),
-   o pulsa "Capturar de Blue Sky" en la ficha.
-4. La imagen entra sola a ese implante. Para quitarla usa el basurero de la imagen.
-Antes de capturar, comprueba que el estudio abierto en el visor sea del mismo paciente.
+3. Ubica las líneas de corte en Blue Sky Plan.
+4. En la ficha elige el tipo y pulsa "Capturar" (o F8 en el visor; F9 si la ventana lo indica):
+   entra solo ese recuadro. "Capturar todo" trae las vistas marcadas de una vez.
+   Si agrandaste una vista en el visor, elige "Ventana completa" en la ficha.
+5. Para quitar una imagen usa su basurero.
+Si el nombre que muestra Blue Sky Plan no coincide con la ficha, SpeakDent retiene la imagen y pregunta.
+Igual comprueba que sea el mismo paciente: no siempre se puede leer el nombre.
 
 DÓNDE QUEDAN ADEMÁS
 En Imágenes\SpeakDent, y la última queda copiada en el portapapeles.
-Opcional: "Marcar recorte" una sola vez; se recuerda para ese programa.
 
 QUÉ ENVÍA
 La capturadora no usa internet. Solo entrega la imagen a la ficha de SpeakDent abierta en este mismo
-computador; es el navegador el que la guarda en la ficha. Si no hay ninguna ficha recibiendo, la imagen
-queda solo en la carpeta.
+computador, junto con el título de la ventana del visor para comparar el nombre; es el navegador el que
+la guarda en la ficha. Si no hay ninguna ficha recibiendo, la imagen queda solo en la carpeta.
 Las imágenes pueden mostrar datos del paciente: trátalas como ficha clínica.
 Ojo: si tienes Imágenes sincronizada con OneDrive, ahí también se copiarán.
 
@@ -33,6 +42,7 @@ La tecla F8 solo queda reservada mientras hay un visor abierto.
 
 QUÉ PROBAR
 [ ] ¿Reconoce Blue Sky Plan sola? (si no, elígelo en la lista)
+[ ] ¿Cada vista marcada sale bien recortada y con su nombre en la ficha?
 [ ] ¿La imagen sale bien, sin zonas negras donde está el 3D?
 [ ] ¿F8 dentro de Blue Sky deja la imagen en la ficha?
 [ ] ¿"Capturar de Blue Sky" en la ficha trae el visor al frente, captura y vuelve al navegador?
