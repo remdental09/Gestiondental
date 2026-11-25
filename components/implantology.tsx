@@ -389,7 +389,7 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
 
     {showCapturer && windows && <div className="surface space-y-2" data-testid="implant-capturer">
       <h3 className="font-semibold">Capturadora de imágenes (Windows, versión de prueba)</h3>
-      <p className="text-sm text-[#615f73]">Versión 0.3: marca una vez las vistas en la capturadora y, con un implante abierto, captura cada una o todas juntas. Si tenías la anterior, ciérrala antes de abrir esta. Aún no está firmada, por eso solo la ve la cuenta de desarrollo.</p>
+      <p className="text-sm text-[#615f73]">Versión 0.3: con un implante abierto, captura un corte o «Capturar todo»; SpeakDent ubica solo las vistas de Blue Sky Plan. Si tenías la anterior, ciérrala antes de abrir esta. Aún no está firmada, por eso solo la ve la cuenta de desarrollo.</p>
       <a href="/descargas/capturadora-speakdent-prueba.zip" download className={secondary}><Download className="size-4" aria-hidden="true"/>Descargar capturadora</a>
     </div>}
 

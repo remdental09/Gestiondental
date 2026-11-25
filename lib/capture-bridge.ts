@@ -21,6 +21,16 @@ export type CaptureStatus = {
   marked: CaptureView[] | null;
 };
 export type PendingCapture = { id: string; viewer: string | null; view: CaptureView | null; title: string | null; warning: string | null };
+/**
+ * ¿Hay que ubicar las vistas en el navegador? Sí, cuando llega la ventana completa de Blue Sky Plan y se quiere
+ * un corte: lo que ya viene recortado por una marca de la capturadora, o la ventana pedida entera, se deja igual.
+ */
+export function needsCut(options: { viewer: string | null; view: CaptureView; marked: CaptureView[] | null; wholeWindow: boolean; all: boolean }): boolean {
+  if (!/^blue ?sky ?plan/i.test(options.viewer ?? "")) return false;
+  if (options.all) return true;
+  return !options.wholeWindow && options.view !== "Radiografía" && !options.marked?.includes(options.view);
+}
+
 export type CaptureState =
   | { kind: "receiving"; status: CaptureStatus }
   /** Otra ficha (otra pestaña) tomó el turno. */
@@ -176,12 +186,13 @@ export function createCaptureLink(options: CaptureOptions) {
       await request("/ajustar", "POST", preferences()).catch(() => undefined);
     },
     /** Pide la captura ahora (o una de cada vista marcada); las imágenes llegan por la misma escucha. */
-    async capture(all = false): Promise<void> {
+    async capture(all = false): Promise<boolean> {
       try {
         if (choice) await request("/ajustar", "POST", preferences()).catch(() => undefined);
         const answer = await (await request("/capturar", "POST", all ? "&todas=1" : "", 25_000)).json() as { ok?: boolean; error?: unknown };
         if (!answer.ok && !stopped) options.onProblem(text(answer.error) ?? "No se pudo capturar.");
-      } catch { if (!stopped) options.onProblem("La capturadora no respondió. Comprueba que esté abierta."); }
+        return answer.ok === true;
+      } catch { if (!stopped) options.onProblem("La capturadora no respondió. Comprueba que esté abierta."); return false; }
     },
     stop(): void {
       if (stopped) return;

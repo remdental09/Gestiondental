@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { LoaderCircle, MonitorUp } from "lucide-react";
-import { CAPTURE_REMEMBER_KEY, createCaptureLink, patientCheck, viewerPatient, type CaptureState, type CaptureView } from "@/lib/capture-bridge";
+import { CAPTURE_REMEMBER_KEY, createCaptureLink, needsCut, patientCheck, viewerPatient, type CaptureState, type CaptureView } from "@/lib/capture-bridge";
+import { cutViews } from "@/lib/capture-crop";
 
 type ViewState = CaptureState | { kind: "idle" } | { kind: "connecting" };
 
@@ -39,27 +40,54 @@ export function CaptureLink({ target, patientName, view, busy, onCapture, onProb
   useEffect(() => { handlers.current = { onCapture, onProblem, patientName, view, wholeWindow }; });
   /** Vistas previas de lo retenido: se liberan al decidir o al cerrar la ficha. */
   const previews = useRef(new Set<string>());
-  useEffect(() => { const urls = previews.current; return () => { urls.forEach(url => URL.revokeObjectURL(url)); urls.clear(); }; }, []);
+  /** «Capturar todo» sin marcas: la próxima imagen se reparte en las vistas que se encuentren. */
+  const splitNext = useRef(false);
+  const markedNow = useRef<CaptureView[] | null>(null);
+  const closed = useRef(false);
+  useEffect(() => { closed.current = false; const urls = previews.current; return () => { closed.current = true; urls.forEach(url => URL.revokeObjectURL(url)); urls.clear(); }; }, []);
 
   useEffect(() => {
     const created = createCaptureLink({
       save: async (file, capture) => {
-        const as = capture.view ?? handlers.current.view;
-        // El aviso del programa es de una vista: se quita cuando esa misma vista llega sin problema.
-        const note = () => setWarning(previous => capture.warning ? `«${as}»: ${capture.warning}` : previous.startsWith(`«${as}»:`) ? "" : previous);
-        if (patientCheck(capture.title, handlers.current.patientName) === "distinto") {
-          const url = URL.createObjectURL(file);
-          previews.current.add(url);
-          setHeld(list => [...list, { id: capture.id, file, url, view: as, shown: viewerPatient(capture.title) ?? "otro paciente" }]);
+        const now = handlers.current, as = capture.view ?? now.view, all = splitNext.current;
+        const cut = needsCut({ viewer: capture.viewer, view: as, marked: markedNow.current, wholeWindow: now.wholeWindow, all });
+        const cuts = cut ? await cutViews(file, all ? "all" : [as], viewerPatient(capture.title)) : [];
+        const pieces: { view: CaptureView; file: File }[] = cuts.length ? cuts : [{ view: as, file }];
+        const missing = !cut || cuts.length === (all ? 4 : 1) ? ""
+          : !cuts.length ? `No encontré ${all ? "las vistas" : `«${as}»`} en Blue Sky: entró la ventana completa.`
+          : `En Blue Sky solo encontré: ${cuts.map(item => item.view).join(", ")}.`;
+        // El aviso es de una vista: se quita cuando esa misma vista llega sin problema.
+        const message = missing || (capture.warning ? `«${as}»: ${capture.warning}` : "");
+        const note = () => setWarning(previous => message || (previous.includes(`«${as}»`) || all ? "" : previous));
+        if (patientCheck(capture.title, now.patientName) === "distinto") {
+          const shown = viewerPatient(capture.title) ?? "otro paciente";
+          const waiting = pieces.map(piece => {
+            const url = URL.createObjectURL(piece.file);
+            previews.current.add(url);
+            return { id: `${capture.id}-${piece.view}`, file: piece.file, url, view: piece.view, shown };
+          });
+          setHeld(list => [...list, ...waiting]);
+          splitNext.current = false;
           note();
           return "held";
         }
-        const result = await handlers.current.onCapture(file, as);
-        if (result === "saved") note();
-        return result;
+        let failed = false;
+        for (const piece of pieces) {
+          let result = await handlers.current.onCapture(piece.file, piece.view);
+          // Con una sola imagen, la conexión reintenta; con varias se insiste aquí para no repetir las ya guardadas.
+          for (let attempt = 0; result === "busy" && pieces.length > 1 && attempt < 60 && !closed.current; attempt++) {
+            await new Promise(resolve => window.setTimeout(resolve, 500));
+            result = await handlers.current.onCapture(piece.file, piece.view);
+          }
+          if (result === "busy" && pieces.length === 1) return "busy";
+          if (result !== "saved") failed = true;
+        }
+        splitNext.current = false;
+        if (!failed) note();
+        return failed ? "failed" : "saved";
       },
       onProblem: message => handlers.current.onProblem(message),
-      onState: next => { if (next.kind === "receiving") remember(); setState(next); },
+      onState: next => { if (next.kind === "receiving") { remember(); markedNow.current = next.status.marked; } setState(next); },
     });
     link.current = created;
     void created.choose({ view: handlers.current.view, wholeWindow: handlers.current.wholeWindow });
@@ -91,7 +119,10 @@ export function CaptureLink({ target, patientName, view, busy, onCapture, onProb
   const capture = async (all = false) => {
     if (asking) return;
     setAsking(true); onProblem(""); setWarning("");
-    try { await link.current?.capture(all); } finally { setAsking(false); }
+    // Con vistas marcadas en la capturadora, ella manda una imagen por marca; sin marcas se reparte aquí.
+    const byMarks = all && !!markedNow.current?.length;
+    splitNext.current = all && !byMarks;
+    try { if (!await link.current?.capture(byMarks)) splitNext.current = false; } finally { setAsking(false); }
   };
   const forget = (item: Held) => {
     URL.revokeObjectURL(item.url); previews.current.delete(item.url);
@@ -105,6 +136,7 @@ export function CaptureLink({ target, patientName, view, busy, onCapture, onProb
   const marked = state.kind === "receiving" ? state.status.marked : null;
   const check = state.kind === "receiving" && viewer ? patientCheck(state.status.title, patientName) : "sin-dato";
   const shown = state.kind === "receiving" ? viewerPatient(state.status.title) : null;
+  const blueSky = /^blue ?sky ?plan/i.test(viewer ?? "");
   return <div className="space-y-2 rounded-xl border border-[#e6e4ee] bg-white p-3" data-testid="implant-capture-link" data-state={state.kind}>
     {state.kind === "idle" && <>
       <button type="button" className={secondary} onClick={connect} data-testid="capture-connect"><MonitorUp className="size-4" aria-hidden="true"/>Conectar capturadora</button>
@@ -114,17 +146,16 @@ export function CaptureLink({ target, patientName, view, busy, onCapture, onProb
     {state.kind === "receiving" && <>
       <p role="status" className={`text-sm font-semibold ${viewer ? "text-emerald-800" : "text-[#7a5a12]"}`}>{viewer ? `● Capturadora conectada · ${viewer}` : "○ Capturadora conectada · no ve un visor abierto"}</p>
       {check === "distinto" && <p className="break-words rounded-lg border border-amber-300 bg-amber-50 p-2 text-sm font-semibold text-amber-900" data-testid="capture-mismatch">El visor muestra «{shown}» y esta ficha es de «{patientName}». Lo que captures no se guardará sin tu confirmación.</p>}
-      {!!marked?.length && <div className="flex flex-wrap gap-2" role="group" aria-label="Qué capturar">
-        <button type="button" aria-pressed={!wholeWindow} className={frameChip(!wholeWindow)} onClick={() => setWholeWindow(false)}>Solo el recuadro marcado</button>
+      {blueSky && <div className="flex flex-wrap gap-2" role="group" aria-label="Qué capturar">
+        <button type="button" aria-pressed={!wholeWindow} className={frameChip(!wholeWindow)} onClick={() => setWholeWindow(false)}>Solo el corte</button>
         <button type="button" aria-pressed={wholeWindow} className={frameChip(wholeWindow)} onClick={() => setWholeWindow(true)}>Ventana completa</button>
       </div>}
       <div className="flex flex-wrap gap-2">
         <button type="button" className={primary} disabled={!viewer || asking || busy} onClick={() => void capture()} data-testid="capture-now">{asking || busy ? <LoaderCircle className="size-4 animate-spin" aria-hidden="true"/> : <MonitorUp className="size-4" aria-hidden="true"/>}Capturar «{view}»</button>
-        {!!marked?.length && <button type="button" className={secondary} disabled={!viewer || asking || busy} onClick={() => void capture(true)} data-testid="capture-all">Capturar todo ({marked.length})</button>}
+        {(blueSky || !!marked?.length) && <button type="button" className={secondary} disabled={!viewer || asking || busy} onClick={() => void capture(true)} data-testid="capture-all">Capturar todo</button>}
       </div>
-      {marked === null && <p className="text-xs text-[#7a5a12]">Para capturar cada vista por separado, descarga abajo la versión 0.3 de la capturadora.</p>}
-      {marked?.length === 0 && <p className="text-xs text-[#615f73]">Para recortar cada vista sola, márcalas una vez en la capturadora con «Marcar vistas».</p>}
-      {!!marked?.length && !wholeWindow && view !== "Radiografía" && !marked.includes(view) && <p className="text-xs text-[#7a5a12]">«{view}» no está marcada en la capturadora: entrará la ventana completa.</p>}
+      {blueSky && !wholeWindow && view !== "Radiografía" && !marked?.includes(view) && <p className="text-xs text-[#615f73]">SpeakDent busca «{view}» en Blue Sky y recorta solo ese corte{marked === null ? "" : ", con el nombre que muestra el visor"}.</p>}
+      {marked === null && <p className="text-xs text-[#7a5a12]">Para que cada corte lleve el nombre del paciente, descarga abajo la versión 0.3 de la capturadora.</p>}
       <p className="text-xs text-[#615f73]">También con {state.status.hotkey ?? "F8"} dentro del visor. Entra como «{view}» al {target}: {check === "coincide" ? "el nombre del visor coincide con la ficha." : `comprueba que el visor muestre a ${patientName}.`}</p>
     </>}
     {warning && <p role="status" className="text-sm text-[#7a5a12]">{warning}</p>}
