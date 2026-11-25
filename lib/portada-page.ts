@@ -69,9 +69,11 @@ h1 em{font-style:normal;background:linear-gradient(90deg,#5eead4,#38bdf8);-webki
 .alt{display:inline-flex;align-items:center;justify-content:center;gap:12px;min-height:48px;padding:0 22px;border-radius:12px;background:rgba(255,255,255,.06);color:#fff;font-weight:600;font-size:15px;text-decoration:none;border:1px solid rgba(255,255,255,.25)}
 .alt:hover{background:rgba(255,255,255,.12)}.alt:focus-visible{outline:3px solid #5eead4;outline-offset:3px}
 .note{margin:16px 0 0;font-size:13px;color:#8b9bb8;max-width:400px}
+.modules{display:flex;flex-wrap:wrap;gap:8px;margin:22px 0 0;max-width:420px}
+.modules span{padding:7px 11px;border:1px solid rgba(125,211,252,.25);border-radius:999px;background:rgba(15,23,42,.62);color:#dbeafe;font-size:13px;line-height:1.2;white-space:nowrap}
+.modules span:last-child{border-color:rgba(94,234,212,.35);color:#99f6e4}
+.signup-note{margin:10px 0 0;max-width:400px;color:#99f6e4;font-size:13px}
 .error{margin:0 0 18px;padding:10px 14px;border-radius:10px;border:1px solid rgba(251,146,60,.5);background:rgba(124,45,18,.35);color:#fed7aa;font-size:14px}
-ul{list-style:none;margin:34px 0 0;padding:0;display:grid;gap:10px;font-size:15px;color:#cbd5e1}
-li{display:flex;gap:10px;align-items:baseline}li::before{content:"";flex:none;width:7px;height:7px;border-radius:50%;background:#5eead4;box-shadow:0 0 10px #5eead4;transform:translateY(-2px)}
 footer{position:absolute;right:clamp(16px,4vw,40px);bottom:18px;font-size:12px;color:#94a3b8;z-index:1}
 footer a{color:#94a3b8}
 .city{position:absolute;left:clamp(20px,7vw,110px);bottom:18px;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#64748b;z-index:1}
@@ -82,7 +84,7 @@ footer a{color:#94a3b8}
  .panel{margin:0;padding:0 22px 76px}
  h1{margin-top:22px}.lead{font-size:16px;margin-bottom:22px}
  .google,.clinic,.alt{width:100%}
- ul{display:none}
+ .modules{margin-top:18px;gap:7px}.modules span{font-size:12px;padding:7px 9px}
  footer{left:22px;right:auto}.city{display:none}
 }
 @media (prefers-reduced-motion:no-preference){.panel{animation:in .6s ease-out both}@keyframes in{from{opacity:0;transform:translateY(8px)}}}
@@ -90,25 +92,26 @@ footer a{color:#94a3b8}
 <body><main class="hero">
 <section class="panel" aria-labelledby="titulo">
 <div class="brand">${MARK}<span class="word">Speak<span>Dent</span></span></div>
-<p class="tag">Ficha dental por voz</p>
-<h1 id="titulo">Dicta la atención. <em>La ficha se escribe sola.</em></h1>
-<p class="lead">Evolución, odontograma y presupuesto a partir de tu voz. Hecho para dentistas en Chile.</p>
+<p class="tag">Gestión clínica para dentistas</p>
+<h1 id="titulo">Más tiempo para tus pacientes. <em>Tu consulta, mejor organizada.</em></h1>
+<p class="lead">Registra la atención por voz y trabaja con herramientas clínicas para cada especialidad, en una plataforma pensada para dentistas en Chile.</p>
+<div class="modules" aria-label="Módulos clínicos"><span>Ortodoncia</span><span>Implantología</span><span>Endodoncia</span><span>Periodoncia</span><span>Odontograma general</span></div>
 ${error ? `<p class="error" role="alert">${escape(error)}</p>` : ""}
 <form class="mail" method="post" action="${EMAIL_LOGIN_PATH}" data-entrada-correo>
-<label class="f" for="correo">Tu correo electrónico</label>
+<label class="f" for="correo">Inscríbete o entra con tu correo</label>
 <input id="correo" name="correo" type="email" inputmode="email" autocomplete="email" autocapitalize="none" spellcheck="false" maxlength="254" placeholder="Tu dirección de correo electrónico" required>
 <button class="google" type="submit" name="entrada" value="personal" data-entrada="personal">Entrar a mi consulta</button>
 <button class="clinic" type="submit" name="entrada" value="clinica" data-entrada="clinica">${BUILDING}Entrar a una clínica</button>
 <label class="own"><input type="checkbox" name="equipo" value="compartido"><span>Es un computador que no es mío (cibercafé, aeropuerto). La sesión se cierra a los 15 minutos sin uso y a las 2 horas.</span></label>
 <p class="door-note">Te enviamos un código de 6 dígitos a ese correo y entras con él. No necesitas clave ni cuenta de Google. ¿Una clínica te invitó? Usa «Entrar a una clínica» con el mismo correo.</p>
 </form>
+<p class="signup-note">¿Primera vez? Al ingresar se crea tu espacio personal de consulta.</p>
 <p class="sep" aria-hidden="true">o</p>
 <div class="doors">
 <a class="alt" href="${LOGIN_PATH}?entrada=personal" data-entrada="personal">${GOOGLE_G}Continuar con Google</a>
 <p class="door-note">Con Google la sesión de Google queda abierta en ese navegador. Úsalo solo en tu propio equipo. <a href="${LOGIN_PATH}?entrada=clinica" data-entrada="clinica" style="color:#c9d6ee">Entrar a una clínica con Google</a></p>
 </div>
-<p class="note">Cada dentista ve solo sus propias fichas.</p>
-<ul><li>Dictado clínico que propone y tú confirmas</li><li>Odontograma con nomenclatura FDI y chilena</li><li>Respaldo en tu propio Google Drive</li></ul>
+<p class="note">Tu espacio es privado: cada dentista ve solo sus propias fichas.</p>
 </section>
 <p class="city">Hecho en <b>Santiago de Chile</b></p>
 <footer><a href="/acerca">Acerca</a> · <a href="/privacidad">Privacidad</a> · <a href="/terminos">Términos</a></footer>
