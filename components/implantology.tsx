@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Camera, ClipboardPaste, Download, ImagePlus, LoaderCircle, Plus, ScanLine, Trash2, X } from "lucide-react";
 import type { ClinicalImage } from "@/app/clinical-data";
 import { BiomedicalProducts, type ProductTool, type ProductView } from "@/components/biomedical-products";
+import { CaptureLink } from "@/components/capture-link";
 import { thumbUrl } from "@/lib/image-compress";
 import { IMPLANT_BRANDS } from "@/lib/dictation/implant-brands";
 import {
@@ -166,11 +167,12 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
     } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo quitar el implante."); }
   };
 
-  const addFiles = useCallback(async (files: File[]) => {
+  const addFiles = useCallback(async (files: File[]): Promise<"saved" | "busy" | "failed"> => {
     const target = current;
-    if (!files.length || working.current) return;
-    if (!target) { setNotice(""); setError("Guarda el implante y luego pega o sube la imagen."); return; }
-    if (files.some(file => !/^image\/(jpeg|png|webp)$/.test(file.type) || file.size > 12 * 1024 * 1024)) { setError("Usa imágenes JPG, PNG o WebP de hasta 12 MB. Los archivos DICOM no se cargan: captura el corte."); return; }
+    if (working.current) return "busy";
+    if (!files.length) return "failed";
+    if (!target) { setNotice(""); setError("Guarda el implante y luego pega o sube la imagen."); return "failed"; }
+    if (files.some(file => !/^image\/(jpeg|png|webp)$/.test(file.type) || file.size > 12 * 1024 * 1024)) { setError("Usa imágenes JPG, PNG o WebP de hasta 12 MB. Los archivos DICOM no se cargan: captura el corte."); return "failed"; }
     working.current = true; setBusy("image"); setError(""); setNotice("");
     let added = 0;
     try {
@@ -186,7 +188,8 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
       }
       setNotice(`${added === 1 ? "Imagen guardada" : `${added} imágenes guardadas`} en el implante ${target.tooth} de ${patient.name} · ${view}.`);
       onChanged();
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo guardar la imagen."); }
+      return "saved";
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo guardar la imagen."); return "failed"; }
     finally { working.current = false; setBusy(""); }
   }, [current, view, onUploadImage, onRemoveImage, onChanged, patient.name]);
 
@@ -359,6 +362,8 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
         onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); void addFiles([...e.dataTransfer.files]); }}>
         <div><h4 className="font-semibold">Imágenes del implante {current.tooth}</h4><p className="text-sm text-[#615f73]">Elige el tipo de corte y pega con Ctrl+V, o arrastra el archivo aquí.</p></div>
         <div className="flex flex-wrap gap-2" role="group" aria-label="Tipo de imagen">{IMPLANT_VIEWS.map(item => <button key={item} type="button" aria-pressed={view === item} className={chip(view === item)} onClick={() => setView(item)}>{item}</button>)}</div>
+        {showCapturer && windows && <CaptureLink key={current.id} target={`implante ${current.tooth} de ${patient.name}`} view={view} busy={busy === "image"}
+          onCapture={file => addFiles([file])} onProblem={message => { setNotice(""); setError(message); }}/>}
         <div className="flex flex-wrap gap-2">
           <button type="button" className={primary} disabled={busy !== ""} onClick={() => void pasteButton()} data-testid="implant-paste">{busy === "image" ? <LoaderCircle className="size-4 animate-spin" aria-hidden="true"/> : <ClipboardPaste className="size-4" aria-hidden="true"/>}{busy === "image" ? "Guardando…" : "Pegar imagen"}</button>
           <button type="button" className={secondary} disabled={busy !== ""} onClick={() => fileRef.current?.click()}><ImagePlus className="size-4" aria-hidden="true"/>Subir imagen</button>
@@ -384,7 +389,7 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
 
     {showCapturer && windows && <div className="surface space-y-2" data-testid="implant-capturer">
       <h3 className="font-semibold">Capturadora de imágenes (Windows, versión de prueba)</h3>
-      <p className="text-sm text-[#615f73]">Con tu visor abierto presiona F8; vuelve aquí y pega con Ctrl+V. Aún no envía sola la imagen a la ficha y no está firmada, por eso solo la ve la cuenta de desarrollo.</p>
+      <p className="text-sm text-[#615f73]">Versión 0.2: con la ficha de un implante abierta, lo que captures con F8 entra solo a sus imágenes. Si tenías la anterior, ciérrala antes de abrir esta. Aún no está firmada, por eso solo la ve la cuenta de desarrollo.</p>
       <a href="/descargas/capturadora-speakdent-prueba.zip" download className={secondary}><Download className="size-4" aria-hidden="true"/>Descargar capturadora</a>
     </div>}
 

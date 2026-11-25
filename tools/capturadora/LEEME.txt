@@ -1,28 +1,40 @@
-﻿CAPTURADORA SPEAKDENT - versión de prueba (Windows 10 y 11)
+﻿CAPTURADORA SPEAKDENT - versión de prueba 0.2 (Windows 10 y 11)
 
 ABRIR
-1. Descomprime esta carpeta y haz doble clic en CapturadoraSpeakDent.exe. No se instala.
-2. Windows puede mostrar "Windows protegió su PC", porque el programa aún no está firmado.
+1. Si tienes abierta la capturadora anterior, ciérrala primero.
+2. Descomprime esta carpeta en un lugar fijo (por ejemplo, Documentos) y haz doble clic en
+   CapturadoraSpeakDent.exe. No se instala.
+3. Windows puede mostrar "Windows protegió su PC", porque el programa aún no está firmado.
    Pulsa "Más información" y luego "Ejecutar de todas formas".
+4. Responde "Sí" para que se abra sola al encender el computador. Quedará junto al reloj.
 
-USAR
-1. Abre Blue Sky Plan y ubica el corte.
-2. Presiona F8 (o F9, si el botón lo indica) o el botón "Capturar".
-3. Verás la miniatura. "Deshacer última" borra esa captura.
+USAR CON LA FICHA
+1. En SpeakDent (Chrome o Edge, en este computador) abre el paciente, Implantología y un implante guardado.
+2. En "Imágenes del implante" pulsa "Conectar capturadora". El navegador pedirá permiso una vez: acepta.
+3. Elige el tipo de corte, ubícalo en Blue Sky Plan y presiona F8 (o F9, si la ventana lo indica),
+   o pulsa "Capturar de Blue Sky" en la ficha.
+4. La imagen entra sola a ese implante. Para quitarla usa el basurero de la imagen.
+Antes de capturar, comprueba que el estudio abierto en el visor sea del mismo paciente.
+
+DÓNDE QUEDAN ADEMÁS
+En Imágenes\SpeakDent, y la última queda copiada en el portapapeles.
 Opcional: "Marcar recorte" una sola vez; se recuerda para ese programa.
 
-DÓNDE QUEDAN
-En Imágenes\SpeakDent, y la última queda copiada en el portapapeles.
-Todavía no se envían a la ficha. El programa no usa internet.
+QUÉ ENVÍA
+La capturadora no usa internet. Solo entrega la imagen a la ficha de SpeakDent abierta en este mismo
+computador; es el navegador el que la guarda en la ficha. Si no hay ninguna ficha recibiendo, la imagen
+queda solo en la carpeta.
 Las imágenes pueden mostrar datos del paciente: trátalas como ficha clínica.
 Ojo: si tienes Imágenes sincronizada con OneDrive, ahí también se copiarán.
 
-MIENTRAS ESTÉ ABIERTA
-La tecla F8 queda reservada para la capturadora. Para cerrarla, usa la X.
+CERRAR
+La X la deja junto al reloj. Para cerrarla del todo: clic derecho en su ícono y "Salir".
+La tecla F8 solo queda reservada mientras hay un visor abierto.
 
 QUÉ PROBAR
 [ ] ¿Reconoce Blue Sky Plan sola? (si no, elígelo en la lista)
 [ ] ¿La imagen sale bien, sin zonas negras donde está el 3D?
-[ ] ¿Funciona la tecla mientras estás dentro de Blue Sky?
-[ ] ¿El recorte queda donde lo marcaste?
+[ ] ¿F8 dentro de Blue Sky deja la imagen en la ficha?
+[ ] ¿"Capturar de Blue Sky" en la ficha trae el visor al frente, captura y vuelve al navegador?
+[ ] ¿Se abre sola después de reiniciar?
 [ ] Con dos pantallas o zoom de Windows, ¿captura el área correcta?
