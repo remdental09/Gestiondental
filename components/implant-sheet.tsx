@@ -13,6 +13,7 @@ import { Camera, ChevronLeft, ChevronRight, Circle, CircleCheck, CircleDot, Imag
 import type { ClinicalImage } from "@/app/clinical-data";
 import { thumbUrl } from "@/lib/image-compress";
 import { pieceSummary, stagePieces, type Piece } from "@/lib/implant-pieces";
+import { StageDictation } from "@/components/stage-dictation";
 import { MAX_STAGE_NOTE, connectionText, implantSize, phaseLabel, stageMarks, stageOptions, type Implant, type RecordedPhase, type StageChange } from "@/lib/implants";
 
 const dayLabel = (iso: string) => iso ? iso.split("-").reverse().join("-") : "sin fecha";
@@ -191,6 +192,7 @@ export function StagePage({ item, edit, today, busy, images, onEdit, onBack, onC
     </section>
 
     <div className="space-y-2">
+      <StageDictation disabled={busy} onInsert={text => onEdit({ note: [note, text].filter(Boolean).join("\n"), ...(edit.note === null ? { noteFrom: saved } : {}) })} />
       <label className="block text-sm font-semibold">Nota de esta etapa (opcional)<textarea rows={3} value={note} maxLength={MAX_STAGE_NOTE} onChange={e => onEdit({ note: e.target.value, ...(edit.note === null ? { noteFrom: saved } : {}) })} className="mt-1 block w-full rounded-lg border border-[#d8d5e4] bg-white px-3 py-2 text-base font-normal" data-testid="stage-note"/></label>
       {noteConflict ? <div className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950" role="alert" data-testid="stage-note-conflict">
         <p>Mientras escribías se guardó otra nota{saved ? ":" : " vacía (se borró)."}</p>
@@ -309,10 +311,11 @@ export function ImplantSheet({ title, patientName, position, summary, tabs, tab,
         .gd-implant-closing .gd-implant-backdrop{opacity:0;transition:opacity .2s}
         .gd-implant-next{animation:gd-implant-next .28s ease-out}
         .gd-implant-previous{animation:gd-implant-previous .28s ease-out}
-        @keyframes gd-implant-canvas{from{transform:translateX(40px);opacity:0}to{transform:none;opacity:1}}
-        .gd-implant-canvas{animation:gd-implant-canvas .3s cubic-bezier(.2,.9,.2,1)}
-        .gd-implant{transition:max-width .32s cubic-bezier(.2,.9,.2,1)}
-        @media (min-width:768px){@keyframes gd-implant-canvas{from{clip-path:inset(0 100% 0 0);transform:translateX(-24px)}to{clip-path:inset(0);transform:none}}}
+        /* Lienzo: entra con una leve traslación, desenfoque y aumento de escala que se disipan, como un panel de macOS/iOS. */
+        @keyframes gd-implant-canvas{from{opacity:0;transform:translateX(24px) scale(.98);filter:blur(6px)}to{opacity:1;transform:none;filter:blur(0)}}
+        .gd-implant-canvas{animation:gd-implant-canvas .5s cubic-bezier(.16,1,.3,1)}
+        .gd-implant{transition:max-width .5s cubic-bezier(.16,1,.3,1)}
+        @media (min-width:768px){@keyframes gd-implant-canvas{from{opacity:0;clip-path:inset(0 100% 0 0);transform:translateX(-10px) scale(.99)}to{opacity:1;clip-path:inset(0);transform:none}}}
         @media (min-width:640px){@keyframes gd-implant-up{from{transform:translateY(32px) scale(.96);opacity:0}to{transform:none;opacity:1}}}
         @media (prefers-reduced-motion:reduce){.gd-implant,.gd-implant-closing .gd-implant,.gd-implant-backdrop,.gd-implant-next,.gd-implant-previous,.gd-implant-canvas{animation:none}.gd-implant{transition:none}}
       `}</style>
