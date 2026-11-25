@@ -4,7 +4,7 @@
  * pilar; la IA propone marca, referencia, lote, serie y vencimiento; él confirma o corrige y queda registrado con la pieza y la fecha.
  * Principios: escribir lo mínimo, la app propone y el profesional confirma, y todo lo agregado por error se puede quitar (con confirmación).
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { Camera, FileText, ImagePlus, LoaderCircle, Pencil, Sparkles, Trash2, TriangleAlert } from "lucide-react";
 import type { ClinicalImage } from "@/app/clinical-data";
 import { extractQrFromImage } from "@/components/certificate-qr";
@@ -40,12 +40,19 @@ async function call<T>(url: string, init?: RequestInit): Promise<T> {
   return data;
 }
 
-export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, onUploadImage, onRemoveImage, onImageGone, onChanged }: {
+export type ProductTool = { photograph: () => void };
+
+export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, embedded = false, tool, onSaved, onUploadImage, onRemoveImage, onImageGone, onChanged }: {
   patient: { id: number; name: string };
   /** Pieza de la evolución desde la que se abrió (FDI con punto o compacta); queda como valor inicial editable. */
   startTooth?: string;
   /** Cambia cada vez que se abre desde el menú Documento → Producto. */
   startNonce?: number;
+  /** Dentro de otra pestaña (Implantología): tarjeta compacta con la lista plegada. */
+  embedded?: boolean;
+  /** Permite que la pestaña que la contiene abra la cámara desde su propio botón. */
+  tool?: RefObject<ProductTool | null>;
+  onSaved?: (product: ProductView, created: boolean) => void;
   onUploadImage: (file: File, kind: typeof PRODUCT_IMAGE_KIND, note: string) => Promise<ClinicalImage>;
   onRemoveImage: (id: number) => Promise<void>;
   onImageGone: (id: number) => void;
@@ -58,6 +65,9 @@ export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, o
   const [notice, setNotice] = useState("");
   const cameraRef = useRef<HTMLInputElement | null>(null);
   const galleryRef = useRef<HTMLInputElement | null>(null);
+  const formRef = useRef<HTMLDivElement | null>(null);
+  const hasDraft = draft !== null;
+  useEffect(() => { if (embedded && hasDraft) formRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }); }, [embedded, hasDraft]);
 
   const load = useCallback(async () => {
     try { const data = await call<{ products: ProductView[] }>(`/api/productos?patientId=${patient.id}`, { cache: "no-store" }); setProducts(data.products); }
@@ -113,6 +123,22 @@ export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, o
     finally { setBusy(""); }
   };
 
+  useEffect(() => {
+    if (!tool) return;
+    tool.current = { photograph: () => {
+      if (busy) return;
+      // Un registro a medias de otra pieza no se reutiliza: la foto quedaría con la pieza equivocada.
+      const wanted = cleanTooth(startTooth);
+      if (draft && draft.id === null && wanted && cleanTooth(draft.tooth) !== wanted) {
+        setNotice(""); setError(`Primero guarda o descarta el producto ${draft.tooth ? `de la ${draft.tooth}` : "sin pieza"} que está abierto.`);
+        formRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        return;
+      }
+      cameraRef.current?.click();
+    } };
+    return () => { tool.current = null; };
+  });
+
   const set = (key: keyof Draft, value: string) => setDraft(previous => {
     if (!previous) return previous;
     const suggested = new Set(previous.suggested), fromCode = new Set(previous.fromCode); suggested.delete(key); fromCode.delete(key);
@@ -127,11 +153,12 @@ export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, o
       if (draft.id === null) {
         const saved = await call<{ product: ProductView }>("/api/productos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
         setProducts(previous => [saved.product, ...(previous ?? [])].sort((a, b) => b.placedOn.localeCompare(a.placedOn) || b.id - a.id));
+        setDraft(null); setNotice("Producto registrado en la ficha."); onChanged(); onSaved?.(saved.product, true);
       } else {
         const saved = await call<{ product: ProductView }>("/api/productos", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, id: draft.id }) });
         setProducts(previous => (previous ?? []).map(item => item.id === saved.product.id ? saved.product : item));
+        setDraft(null); setNotice("Producto registrado en la ficha."); onChanged(); onSaved?.(saved.product, false);
       }
-      setDraft(null); setNotice("Producto registrado en la ficha."); onChanged();
     } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo guardar el producto."); }
     finally { setBusy(""); }
   };
@@ -163,7 +190,7 @@ export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, o
   return <section className="space-y-4" data-testid="biomedical-products">
     <div className="surface">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div><h3 className="font-semibold">Productos biomédicos y trazabilidad</h3><p className="mt-1 max-w-2xl text-sm text-[#615f73]">Fotografía la etiqueta de un implante, injerto, membrana o pilar: la app lee la marca, el lote y la serie, tú confirmas, y queda en la ficha con la pieza y la fecha.</p></div>
+        <div><h3 className="font-semibold">{embedded ? `Producto${startTooth ? ` · pieza ${startTooth}` : ""}` : "Productos biomédicos y trazabilidad"}</h3><p className="mt-1 max-w-2xl text-sm text-[#615f73]">Fotografía la etiqueta de un implante, injerto, membrana o pilar: la app lee la marca, el lote y la serie, tú confirmas, y queda en la ficha con la pieza y la fecha.</p></div>
         {!!products?.length && <a href={`/api/productos/pdf?patientId=${patient.id}`} target="_blank" rel="noopener noreferrer" className={secondary} data-testid="products-pdf"><FileText className="size-4" aria-hidden="true"/>Imprimir registro (PDF)</a>}
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
@@ -177,7 +204,7 @@ export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, o
       {notice && !error && <p role="status" className="mt-3 rounded-lg bg-[#f3f1f7] p-3 text-sm text-[#473a6d]">{notice}</p>}
     </div>
 
-    {draft && <div className="surface space-y-3" data-testid="product-form">
+    {draft && <div ref={formRef} className="surface space-y-3" data-testid="product-form">
       <h3 className="font-semibold">{draft.id === null ? "Nuevo producto" : "Editar producto"} · {patient.name}</h3>
       <div className="grid gap-3 md:grid-cols-[minmax(0,260px)_minmax(0,1fr)]">
         <div>{draft.imageUrl ? <a href={draft.imageUrl} target="_blank" rel="noopener noreferrer" aria-label="Abrir la foto de la etiqueta en grande"><img src={draft.imageUrl} alt="Foto de la etiqueta del producto" className="max-h-80 w-full rounded-xl border border-[#e6e4ee] bg-white object-contain"/></a> : <p className="rounded-xl border border-dashed border-[#c9c4da] p-4 text-sm text-[#615f73]">Sin foto: puedes agregarla con «Tomar foto del producto».</p>}</div>
@@ -206,8 +233,7 @@ export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, o
       </div>
     </div>}
 
-    <div className="surface" data-testid="product-list">
-      <h3 className="font-semibold">Productos registrados</h3>
+    {(!embedded || !!products?.length) && <ProductList embedded={embedded} count={products?.length ?? 0}>
       {products === null ? <p className="mt-2 text-sm text-[#615f73]" role="status">Cargando…</p> : !products.length ? <p className="mt-2 text-sm text-[#615f73]">Este paciente aún no tiene productos registrados.</p> :
         <ul className="mt-3 space-y-3">{products.map(product => <li key={product.id} className="grid gap-3 rounded-xl border border-[#e6e4ee] bg-white p-3 sm:grid-cols-[96px_minmax(0,1fr)_auto]" data-testid="product-item">
           {product.thumbUrl ? <a href={product.imageUrl} target="_blank" rel="noopener noreferrer" aria-label="Abrir la foto de la etiqueta"><img src={product.thumbUrl} alt={`Etiqueta: ${categoryLabel(product.category)} ${product.brand}`.trim()} className="h-24 w-24 rounded-lg border border-[#e6e4ee] object-cover" loading="lazy"/></a> : <span className="flex h-24 w-24 items-center justify-center rounded-lg bg-[#f3f1f7] text-xs text-[#615f73]">Sin foto</span>}
@@ -222,6 +248,11 @@ export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, o
             <button type="button" className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-rose-300 bg-white px-4 text-sm font-semibold text-rose-800 hover:bg-rose-50" onClick={() => void remove(product)} aria-label="Eliminar producto"><Trash2 className="size-4" aria-hidden="true"/>Quitar</button>
           </div>
         </li>)}</ul>}
-    </div>
+    </ProductList>}
   </section>;
+}
+
+function ProductList({ embedded, count, children }: { embedded: boolean; count: number; children: ReactNode }) {
+  if (embedded) return <details className="surface" data-testid="product-list"><summary className="cursor-pointer py-2 font-semibold">Productos registrados ({count})</summary>{children}</details>;
+  return <div className="surface" data-testid="product-list"><h3 className="font-semibold">Productos registrados</h3>{children}</div>;
 }

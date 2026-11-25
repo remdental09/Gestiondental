@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Camera, ClipboardPaste, Download, ImagePlus, LoaderCircle, Plus, Trash2, X } from "lucide-react";
 import type { ClinicalImage } from "@/app/clinical-data";
+import { BiomedicalProducts, type ProductTool, type ProductView } from "@/components/biomedical-products";
 import { thumbUrl } from "@/lib/image-compress";
 import { IMPLANT_BRANDS } from "@/lib/dictation/implant-brands";
 import {
@@ -46,7 +47,7 @@ async function call<T>(url: string, init?: RequestInit): Promise<T> {
 }
 const send = <T,>(method: "POST" | "PATCH", body: unknown) => call<T>("/api/implantes", { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 
-export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer, onUploadImage, onRemoveImage, onPhotoLabel, onChanged }: {
+export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer, onUploadImage, onRemoveImage, onImageGone, onChanged }: {
   patient: { id: number; name: string };
   /** Estados del odontograma actual: de ahí salen las propuestas de fichas. */
   teeth: Record<number, string>;
@@ -54,10 +55,10 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
   images: ClinicalImage[];
   /** La capturadora de prueba (sin firmar) por ahora solo la ve el desarrollador. */
   showCapturer: boolean;
-  onUploadImage: (file: File, kind: "Radiografía" | "Captura CBCT", note: string) => Promise<ClinicalImage>;
+  onUploadImage: (file: File, kind: "Radiografía" | "Captura CBCT" | "Producto biomédico", note: string) => Promise<ClinicalImage>;
   onRemoveImage: (id: number) => Promise<void>;
-  /** Abre la pestaña Productos para fotografiar la etiqueta de esta pieza. */
-  onPhotoLabel: (tooth: string) => void;
+  /** La foto de una etiqueta se borró junto con su producto. */
+  onImageGone: (id: number) => void;
   onChanged: () => void;
 }) {
   const [implants, setImplants] = useState<Implant[] | null>(null);
@@ -81,7 +82,8 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
     try {
       const data = await call<{ implants: Implant[]; labels: ImplantLabel[] }>(`/api/implantes?patientId=${patient.id}`, { cache: "no-store" });
       setImplants(data.implants); setLabels(data.labels); setError("");
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudieron cargar los implantes."); }
+      return data;
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudieron cargar los implantes."); return null; }
   }, [patient.id]);
   useEffect(() => { void load(); }, [load]);
 
@@ -219,6 +221,34 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
     finally { working.current = false; setBusy(""); }
   };
 
+  /** Lo último en pantalla: la respuesta de guardar un producto puede llegar después de abrir otra ficha. */
+  const screen = useRef({ draft, dirty });
+  useEffect(() => { screen.current = { draft, dirty }; });
+  const productTool = useRef<ProductTool | null>(null);
+
+  /** Una etiqueta de implante recién guardada se une sola al implante de su pieza que aún no tiene etiqueta. */
+  const productSaved = async (product: ProductView, created: boolean) => {
+    const data = await load();
+    if (!data || !created || product.category !== "implante" || !product.tooth) return;
+    const { draft: shown, dirty: pending } = screen.current;
+    const here = shown && shown.tooth === product.tooth ? shown : null;
+    if (here && !here.productId && (here.id === null || pending)) {
+      setDraft(previous => previous && previous.tooth === product.tooth && !previous.productId
+        ? { ...previous, productId: String(product.id), brand: previous.brand || product.brand, placedOn: previous.placedOn || product.placedOn } : previous);
+      setNotice(`Etiqueta puesta en la ficha del implante ${product.tooth}. Guarda para confirmar.`);
+      return;
+    }
+    const same = data.implants.filter(item => item.tooth === product.tooth);
+    const target = same.find(item => item.id === here?.id && !item.productId) ?? (same.length === 1 && !same[0]!.productId ? same[0] : undefined);
+    if (!target) return;
+    try {
+      const { implant } = await send<{ implant: Implant }>("PATCH", { ...toDraft(target), id: target.id, productId: String(product.id), brand: target.brand || product.brand });
+      setImplants(previous => (previous ?? []).map(item => item.id === implant.id ? implant : item));
+      if (screen.current.draft?.id === implant.id && !screen.current.dirty) { const next = toDraft(implant); setDraft(next); setBaseline(JSON.stringify(next)); }
+      setNotice(`Etiqueta vinculada al implante ${implant.tooth}.`); onChanged();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "El producto se guardó, pero no se pudo vincular al implante."); }
+  };
+
   const suggestions = implants ? implantSuggestions({ implants, labels, teeth, crowns }) : [];
   const label = current?.productId ? labels.find(item => item.id === current.productId) : undefined;
   const sameTooth = draft && !draft.id ? (implants ?? []).filter(item => item.tooth === draft.tooth).length : 0;
@@ -247,6 +277,9 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
       {notice && !error && <p role="status" className="rounded-lg bg-[#f3f1f7] p-3 text-sm text-[#473a6d]">{notice}</p>}
     </div>
 
+    <BiomedicalProducts embedded tool={productTool} patient={patient} startTooth={draft?.tooth ?? ""} onSaved={(product, created) => void productSaved(product, created)}
+      onUploadImage={onUploadImage} onRemoveImage={onRemoveImage} onImageGone={onImageGone} onChanged={() => { void load(); onChanged(); }}/>
+
     {draft && <div ref={formRef} className="surface space-y-4" data-testid="implant-form">
       <div className="flex items-start justify-between gap-3">
         <div><h3 className="font-semibold">{draft.id ? "Implante" : "Nuevo implante"} {draft.tooth} · {patient.name}</h3>{current && implantSummary(current) && <p className="text-sm text-[#615f73]">{implantSummary(current)}</p>}</div>
@@ -269,7 +302,7 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
       <datalist id="implant-length-list">{COMMON_LENGTHS.map(value => <option key={value} value={mm(value)}/>)}</datalist>
       <div className="flex flex-wrap items-end gap-2">
         <label className="min-w-60 flex-1 text-sm font-semibold">Etiqueta (trazabilidad)<select value={draft.productId} onChange={e => chooseLabel(e.target.value)} className={input} data-testid="implant-label"><option value="">Sin etiqueta vinculada</option>{labels.map(item => <option key={item.id} value={item.id}>{[item.tooth || "sin pieza", item.brand, item.lot && `lote ${item.lot}`, item.serial && `serie ${item.serial}`, dayLabel(item.placedOn)].filter(Boolean).join(" · ")}</option>)}</select></label>
-        {current && !dirty && <button type="button" className={secondary} onClick={() => onPhotoLabel(current.tooth)}><Camera className="size-4" aria-hidden="true"/>Fotografiar etiqueta</button>}
+        <button type="button" className={secondary} onClick={() => productTool.current?.photograph()} data-testid="implant-photo-label"><Camera className="size-4" aria-hidden="true"/>Fotografiar etiqueta</button>
       </div>
       {label && !dirty && <p className="break-words text-sm text-[#473a6d]">{[label.reference && `Ref. ${label.reference}`, label.lot && `Lote ${label.lot}`, label.serial && `Serie ${label.serial}`].filter(Boolean).join(" · ") || "La etiqueta no tiene referencia, lote ni serie registrados."}</p>}
       <label className="block text-sm font-semibold">Nota (opcional)<textarea rows={2} value={draft.note} maxLength={600} onChange={e => set("note", e.target.value)} className={`${input} py-2`}/></label>
