@@ -15,9 +15,15 @@ export type SessionDb = {
 
 export type StoredSession = { email: string; name: string };
 export const SESSION_TTL_MS = 30 * 86_400_000;
-/** Equipo propio: a las 2 horas sin actividad la sesión se cierra y hay que volver a entrar (Google + código del correo). */
+/** Computador o tableta propios: a las 2 horas sin actividad la sesión se cierra y hay que volver a entrar (Google + código del correo). */
 export const OWN_IDLE_MS = 2 * 3_600_000;
-/** En equipo propio la actividad se anota como máximo cada 5 minutos (basta para un tope de 2 horas). */
+/** Celular propio (bloquea la pantalla y es de una sola persona): aguanta 3 horas sin actividad. */
+export const PHONE_IDLE_MS = 3 * 3_600_000;
+/** Tope sin actividad de una sesión propia según el navegador que la usa. En equipo compartido no aplica. */
+export function ownIdleMs(userAgent: string | null | undefined): number {
+  return /iPhone|iPod|Android.*Mobile|Mobile.*Android/.test(userAgent || "") ? PHONE_IDLE_MS : OWN_IDLE_MS;
+}
+/** En equipo propio la actividad se anota como máximo cada 5 minutos (basta para un tope de horas). */
 export const OWN_TOUCH_MS = 5 * 60_000;
 /** Equipo compartido (cibercafé, aeropuerto): se cierra a los 15 min sin actividad y, pase lo que pase, a las 2 horas. No se desliza. */
 export const SHARED_IDLE_MS = 15 * 60_000;
@@ -138,8 +144,9 @@ export async function confirmWithoutCode(db: SessionDb, token: string, now = Dat
  * Lee la sesión del token. `refresh` = true cuando se corrió el vencimiento: hay que reenviar la cookie
  * con 30 días nuevos. Devuelve null si no existe, venció o fue revocada.
  * Sesión de equipo compartido (`shared`): vence a los 15 min sin actividad y a las 2 horas de creada; nunca se desliza ni renueva la cookie.
+ * `ownIdle`: tope sin actividad de una sesión propia (ver `ownIdleMs`).
  */
-export async function readSession(db: SessionDb, token: string, now = Date.now()): Promise<{ session: StoredSession; refresh: boolean; shared: boolean; pending: boolean } | null> {
+export async function readSession(db: SessionDb, token: string, now = Date.now(), ownIdle = OWN_IDLE_MS): Promise<{ session: StoredSession; refresh: boolean; shared: boolean; pending: boolean } | null> {
   if (!isStoredToken(token)) return null;
   const id = await sha256Hex(token);
   const hit = cache.get(id);
@@ -158,7 +165,7 @@ export async function readSession(db: SessionDb, token: string, now = Date.now()
     }
     row = { email: found.email, name: found.name, expiresAt: Number(found.expires_at), lastSeenAt: Number(found.last_seen_at), shared: Number(found.shared) === 1 };
   }
-  if (row.expiresAt <= now || now - row.lastSeenAt > (row.shared ? SHARED_IDLE_MS : OWN_IDLE_MS)) { cache.delete(id); return null; }
+  if (row.expiresAt <= now || now - row.lastSeenAt > (row.shared ? SHARED_IDLE_MS : ownIdle)) { cache.delete(id); return null; }
   let refresh = false;
   if (row.shared) {
     if (now - row.lastSeenAt >= SHARED_TOUCH_MS) {

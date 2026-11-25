@@ -579,3 +579,17 @@ test('equipo compartido con correo: sesión del navegador, 2 horas, aviso de lee
   assert.doesNotMatch(byeHtml, /accounts\.google\.com/, 'quien entró con correo no tiene una sesión de Google que cerrar');
   assert.match(bye.headers.get('set-cookie'), /sd_via=; .*Max-Age=0/);
 });
+
+test('2 h 30 sin uso: desde el celular la sesión sigue abierta; desde un computador pide entrar de nuevo', async () => {
+  const DB = sqliteDb();
+  const instance = worker();
+  const agent = { iphone: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) Mobile/15E148', windows: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' };
+  const open = async userAgent => {
+    sessionStore.forgetCachedSessions();
+    const token = await sessionStore.createSession(DB, { email, name: '' }, Date.now() - 2.5 * 3_600_000);
+    return instance.fetch(new Request('https://example.test/api/clinical', { headers: { Cookie: 'sd_session=' + token, 'User-Agent': userAgent } }), openEnv(DB), {});
+  };
+  assert.equal((await open(agent.iphone)).status, 200);
+  assert.equal((await open(agent.windows)).status, 401);
+});
+

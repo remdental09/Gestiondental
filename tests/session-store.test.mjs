@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
-import { AUTH_SESSIONS_DDL, AUTH_RATE_DDL, createSession, readSession, revokeSession, allowLogin, crossSiteWrite, sameSiteNavigation, forgetCachedSessions, OWN_IDLE_MS, revokeAllSessions, setLoginCode, verifyLoginCode, newLoginCode, PENDING_MS, CODE_TTL_MS, SHARED_IDLE_MS, SHARED_MAX_MS, SESSION_TTL_MS, SLIDE_EVERY_MS, isStoredToken } from '../lib/session-store.ts';
+import { AUTH_SESSIONS_DDL, AUTH_RATE_DDL, createSession, readSession, revokeSession, allowLogin, crossSiteWrite, sameSiteNavigation, forgetCachedSessions, OWN_IDLE_MS, revokeAllSessions, setLoginCode, verifyLoginCode, newLoginCode, PENDING_MS, CODE_TTL_MS, SHARED_IDLE_MS, SHARED_MAX_MS, SESSION_TTL_MS, SLIDE_EVERY_MS, isStoredToken, PHONE_IDLE_MS, ownIdleMs } from '../lib/session-store.ts';
 
 const sqliteDb = () => {
   const raw = new DatabaseSync(':memory:');
@@ -146,4 +146,31 @@ test('sesión pendiente de código: no da acceso hasta el código correcto; venc
   forgetCachedSessions();
   assert.equal(await readSession(db, late, t0 + PENDING_MS + 1), null, 'la sesión pendiente muere a los 15 min');
   for (let i = 0; i < 50; i++) assert.match(newLoginCode(), /^\d{6}$/);
+});
+
+test('celular propio: aguanta 3 h sin uso; computador y tableta 2 h; el equipo compartido no cambia', async () => {
+  const iphone = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
+  const android = 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36';
+  for (const phone of [iphone, android, 'Mozilla/5.0 (Android 14; Mobile; rv:130.0) Gecko/130.0 Firefox/130.0']) assert.equal(ownIdleMs(phone), PHONE_IDLE_MS, phone);
+  const others = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15',
+    'Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
+    'Mozilla/5.0 (Linux; Android 14; SM-X700) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36',
+    '', null,
+  ];
+  for (const other of others) assert.equal(ownIdleMs(other), OWN_IDLE_MS, String(other));
+  assert.equal(PHONE_IDLE_MS, 3 * 3_600_000);
+
+  forgetCachedSessions();
+  const db = sqliteDb();
+  const t0 = Date.UTC(2026, 10, 25, 9);
+  const token = await createSession(db, { email: 'h@example.test', name: '' }, t0);
+  assert.ok(await readSession(db, token, t0 + PHONE_IDLE_MS, ownIdleMs(iphone)), 'a las 3 h exactas aún vale en el celular');
+  const idle = await createSession(db, { email: 'h@example.test', name: '' }, t0);
+  forgetCachedSessions();
+  assert.equal(await readSession(db, idle, t0 + PHONE_IDLE_MS + 1, ownIdleMs(iphone)), null, 'más de 3 h sin uso: hay que entrar de nuevo');
+  const shared = await createSession(db, { email: 'h@example.test', name: '' }, t0, true);
+  forgetCachedSessions();
+  assert.equal(await readSession(db, shared, t0 + SHARED_IDLE_MS + 1, ownIdleMs(iphone)), null, 'equipo compartido: 15 min también desde un celular');
 });

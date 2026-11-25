@@ -216,7 +216,7 @@ export default function Home(){
 
   const [selectedId,setSelectedId]=useState(0),[section,setSection]=useState("Inicio"),[modal,setModal]=useState<Modal>(null),[search,setSearch]=useState(""),[budgetSearch,setBudgetSearch]=useState(""),[mobileNav,setMobileNav]=useState(false);
   useEffect(()=>{setApptNote("")},[selectedId]);
-  // Sesión cerrada por inactividad (2 h) o desde otro equipo: la API responde 401 y se vuelve a la portada para entrar de nuevo (Google + código).
+  // Sesión cerrada por inactividad (celular 3 h, computador 2 h) o desde otro equipo: la API responde 401 y se vuelve a la portada para entrar de nuevo (Google + código).
   useEffect(()=>{const original=window.fetch;let leaving=false;window.fetch=async(...args)=>{const response=await original(...args);try{const url=new URL(response.url||"",window.location.href);if(response.status===401&&url.origin===window.location.origin&&url.pathname.startsWith("/api/")&&!leaving){leaving=true;window.location.assign("/")}}catch{/* sin URL: nada que hacer */}return response};return()=>{window.fetch=original}},[]);
   useEffect(()=>{if(!viewerEmail||needsRegistration)return;let live=true;fetch("/api/clinica",{cache:"no-store"}).then(r=>r.ok?r.json() as Promise<{clinic?:{logo?:string}}>:null).then(d=>{if(live&&d?.clinic?.logo)setClinicLogo(d.clinic.logo)}).catch(()=>undefined);return()=>{live=false}},[viewerEmail,needsRegistration]);
   const [navigationHistory,setNavigationHistory]=useState<Array<{section:string;patientId:number;tab:string}>>([]);
