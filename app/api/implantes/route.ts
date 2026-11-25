@@ -56,7 +56,7 @@ export async function GET(request: Request) {
     const available = new Set(images.map(image => image.id));
     return ok({
       implants: rows.map(row => view(row, available)),
-      labels: labels.map(p => ({ id: p.id, tooth: p.tooth, brand: p.brand, reference: p.reference, lot: p.lot, serial: p.serial, placedOn: p.placedOn })),
+      labels: labels.map(p => ({ id: p.id, tooth: p.tooth, brand: p.brand, reference: p.reference, lot: p.lot, serial: p.serial, placedOn: p.placedOn, model: p.model, diameter: p.diameter, length: p.length })),
     });
   } catch { return fail("No se pudieron cargar los implantes.", 500); }
 }

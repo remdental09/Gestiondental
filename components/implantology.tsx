@@ -5,14 +5,14 @@
  * La app propone fichas desde las etiquetas y el odontograma; nada se guarda sin que el profesional confirme.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Camera, ClipboardPaste, Download, ImagePlus, LoaderCircle, Plus, Trash2, X } from "lucide-react";
+import { Camera, ClipboardPaste, Download, ImagePlus, LoaderCircle, Plus, ScanLine, Trash2, X } from "lucide-react";
 import type { ClinicalImage } from "@/app/clinical-data";
 import { BiomedicalProducts, type ProductTool, type ProductView } from "@/components/biomedical-products";
 import { thumbUrl } from "@/lib/image-compress";
 import { IMPLANT_BRANDS } from "@/lib/dictation/implant-brands";
 import {
   COMMON_DIAMETERS, COMMON_LENGTHS, IMPLANT_PHASES, IMPLANT_VIEWS, LOWER_ARCH, UPPER_ARCH,
-  imageKindForView, implantSuggestions, implantSummary, mm, phaseLabel,
+  imageKindForView, implantSuggestions, implantSummary, labelMeasures, mm, phaseLabel,
   type Implant, type ImplantFields, type ImplantLabel, type ImplantView,
 } from "@/lib/implants";
 
@@ -46,6 +46,14 @@ async function call<T>(url: string, init?: RequestInit): Promise<T> {
   return data;
 }
 const send = <T,>(method: "POST" | "PATCH", body: unknown) => call<T>("/api/implantes", { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+
+/** Pone una etiqueta en la ficha: completa lo vacío o lo que venía de la etiqueta anterior; lo escrito por el profesional no se pisa. */
+function withLabel(draft: Draft, old: ImplantLabel | undefined, label: ImplantLabel): Draft {
+  const fill = (now: string, from: string | undefined, to: string) => !now || now === from ? to : now;
+  const before = old && labelMeasures(old), after = labelMeasures(label);
+  return { ...draft, productId: String(label.id), brand: fill(draft.brand, old?.brand, label.brand), placedOn: fill(draft.placedOn, old?.placedOn, label.placedOn),
+    diameter: fill(draft.diameter, before && mm(before.diameter), mm(after.diameter)), length: fill(draft.length, before && mm(before.length), mm(after.length)) };
+}
 
 export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer, onUploadImage, onRemoveImage, onImageGone, onChanged }: {
   patient: { id: number; name: string };
@@ -103,23 +111,26 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
     setDraft(next); setBaseline(next ? JSON.stringify(next) : ""); setError(""); setNotice("");
     if (next) requestAnimationFrame(() => formRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }));
   };
+  /** Etiqueta que puso la aplicación al abrir la ficha nueva (no elegida a mano): una recién registrada la reemplaza. */
+  const autoLabel = useRef("");
   /** Ficha nueva: si hay una etiqueta de esa pieza sin usar, viene prellenada. */
   const startNew = (tooth: string, extra: Partial<ImplantFields> = {}) => {
     const used = new Set((implants ?? []).map(item => item.productId));
     const label = labels.find(item => item.tooth === tooth && !used.has(item.id));
-    show(toDraft({ tooth, ...(label ? { brand: label.brand, placedOn: label.placedOn, productId: label.id, phase: "cirugia" } : {}), ...extra }));
+    const next = toDraft({ tooth, ...(label ? { brand: label.brand, placedOn: label.placedOn, productId: label.id, phase: "cirugia", ...labelMeasures(label) } : {}), ...extra });
+    autoLabel.current = next.productId;
+    show(next);
   };
 
   const set = (key: keyof Draft, value: string) => setDraft(previous => previous ? { ...previous, [key]: value } : previous);
-  const chooseLabel = (value: string) => setDraft(previous => {
-    if (!previous) return previous;
-    const label = labels.find(item => String(item.id) === value);
-    // Completa lo vacío o lo que venía de la etiqueta anterior; lo escrito por el profesional no se pisa.
-    if (!label) return { ...previous, productId: value };
-    const old = labels.find(item => String(item.id) === previous.productId);
-    const fill = (now: string, from: string | undefined, to: string) => !now || now === from ? to : now;
-    return { ...previous, productId: value, brand: fill(previous.brand, old?.brand, label.brand), placedOn: fill(previous.placedOn, old?.placedOn, label.placedOn) };
-  });
+  const chooseLabel = (value: string) => {
+    autoLabel.current = "";
+    setDraft(previous => {
+      if (!previous) return previous;
+      const label = labels.find(item => String(item.id) === value);
+      return label ? withLabel(previous, labels.find(item => String(item.id) === previous.productId), label) : { ...previous, productId: value };
+    });
+  };
 
   const save = async () => {
     if (!draft || busy) return;
@@ -231,10 +242,12 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
     const data = await load();
     if (!data || !created || product.category !== "implante" || !product.tooth) return;
     const { draft: shown, dirty: pending } = screen.current;
+    const measures = labelMeasures(product);
     const here = shown && shown.tooth === product.tooth ? shown : null;
-    if (here && !here.productId && (here.id === null || pending)) {
-      setDraft(previous => previous && previous.tooth === product.tooth && !previous.productId
-        ? { ...previous, productId: String(product.id), brand: previous.brand || product.brand, placedOn: previous.placedOn || product.placedOn } : previous);
+    const replaceable = (item: Draft) => !item.productId || (item.id === null && item.productId === autoLabel.current);
+    if (here && replaceable(here) && (here.id === null || pending)) {
+      setDraft(previous => previous && previous.tooth === product.tooth && replaceable(previous)
+        ? withLabel(previous, data.labels.find(item => String(item.id) === previous.productId), product) : previous);
       setNotice(`Etiqueta puesta en la ficha del implante ${product.tooth}. Guarda para confirmar.`);
       return;
     }
@@ -242,7 +255,7 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
     const target = same.find(item => item.id === here?.id && !item.productId) ?? (same.length === 1 && !same[0]!.productId ? same[0] : undefined);
     if (!target) return;
     try {
-      const { implant } = await send<{ implant: Implant }>("PATCH", { ...toDraft(target), id: target.id, productId: String(product.id), brand: target.brand || product.brand });
+      const { implant } = await send<{ implant: Implant }>("PATCH", { ...toDraft(target), id: target.id, productId: String(product.id), brand: target.brand || product.brand, diameter: mm(target.diameter ?? measures.diameter), length: mm(target.length ?? measures.length) });
       setImplants(previous => (previous ?? []).map(item => item.id === implant.id ? implant : item));
       if (screen.current.draft?.id === implant.id && !screen.current.dirty) { const next = toDraft(implant); setDraft(next); setBaseline(JSON.stringify(next)); }
       setNotice(`Etiqueta vinculada al implante ${implant.tooth}.`); onChanged();
@@ -291,7 +304,7 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
         <label className="text-sm font-semibold">Pieza (FDI)<select value={draft.tooth} onChange={e => set("tooth", e.target.value)} className={input}>{[...UPPER_ARCH, ...LOWER_ARCH].map(code => <option key={code} value={fdi(code)}>{fdi(code)}</option>)}</select></label>
         <label className="text-sm font-semibold">Marca<input list="implant-brand-list" value={draft.brand} maxLength={80} onChange={e => set("brand", e.target.value)} className={input} data-testid="implant-brand"/></label>
         <label className="text-sm font-semibold">Sistema o modelo<input value={draft.system} maxLength={80} onChange={e => set("system", e.target.value)} className={input}/></label>
-        <label className="text-sm font-semibold">Fecha de instalación<input type="date" max={today()} value={draft.placedOn} onChange={e => set("placedOn", e.target.value)} className={input}/></label>
+        <label className="min-w-0 text-sm font-semibold">Fecha de instalación<input type="date" max={today()} value={draft.placedOn} onChange={e => set("placedOn", e.target.value)} className={`${input} min-w-0 max-w-full appearance-none`}/></label>
         <label className="text-sm font-semibold">Diámetro (mm)<input list="implant-diameter-list" inputMode="decimal" value={draft.diameter} maxLength={6} onChange={e => set("diameter", e.target.value)} className={input} data-testid="implant-diameter"/></label>
         <label className="text-sm font-semibold">Largo (mm)<input list="implant-length-list" inputMode="decimal" value={draft.length} maxLength={6} onChange={e => set("length", e.target.value)} className={input} data-testid="implant-length"/></label>
         <label className="text-sm font-semibold">Torque (Ncm)<input inputMode="numeric" value={draft.torque} maxLength={3} onChange={e => set("torque", e.target.value)} className={input}/></label>
@@ -302,6 +315,7 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
       <datalist id="implant-length-list">{COMMON_LENGTHS.map(value => <option key={value} value={mm(value)}/>)}</datalist>
       <div className="flex flex-wrap items-end gap-2">
         <label className="min-w-60 flex-1 text-sm font-semibold">Etiqueta (trazabilidad)<select value={draft.productId} onChange={e => chooseLabel(e.target.value)} className={input} data-testid="implant-label"><option value="">Sin etiqueta vinculada</option>{labels.map(item => <option key={item.id} value={item.id}>{[item.tooth || "sin pieza", item.brand, item.lot && `lote ${item.lot}`, item.serial && `serie ${item.serial}`, dayLabel(item.placedOn)].filter(Boolean).join(" · ")}</option>)}</select></label>
+        <button type="button" className={secondary} onClick={() => productTool.current?.scan()} data-testid="implant-scan"><ScanLine className="size-4" aria-hidden="true"/>Escanear código</button>
         <button type="button" className={secondary} onClick={() => productTool.current?.photograph()} data-testid="implant-photo-label"><Camera className="size-4" aria-hidden="true"/>Fotografiar etiqueta</button>
       </div>
       {label && !dirty && <p className="break-words text-sm text-[#473a6d]">{[label.reference && `Ref. ${label.reference}`, label.lot && `Lote ${label.lot}`, label.serial && `Serie ${label.serial}`].filter(Boolean).join(" · ") || "La etiqueta no tiene referencia, lote ni serie registrados."}</p>}

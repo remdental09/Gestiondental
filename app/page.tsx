@@ -619,7 +619,8 @@ export default function Home(){
   const uploadOrthoImage=async(original:File,kind:"Foto ortodoncia"|"RX ortodoncia"|"RX endodoncia"|"Producto biomédico"|"Radiografía"|"Captura CBCT",note:string)=>{
     const patientId=selectedId;
     const {prepareImageUpload}=await import("@/lib/image-compress");
-    const {file,thumb}=await prepareImageUpload(original);
+    // La letra de una etiqueta es pequeña: su foto conserva más resolución para poder leerla.
+    const {file,thumb}=await prepareImageUpload(original,kind==="Producto biomédico"?2400:undefined);
     const data=new FormData();data.set("file",file);data.set("name",file.name);data.set("patientId",String(patientId));data.set("kind",kind);data.set("note",note);if(thumb)data.set("thumb",thumb,"miniatura.jpg");
     const response=await fetch("/api/images",{method:"POST",body:data});
     const result=await response.json() as {error?:string;image:ClinicalImage};

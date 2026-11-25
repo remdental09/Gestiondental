@@ -5,7 +5,7 @@
  */
 import { cleanCode, cleanExpiry } from "./biomedical-products.ts";
 
-export type ProductCode = { lot: string; serial: string; expiry: string; reference: string; gtin: string; raw: string };
+export type ProductCode = { lot: string; serial: string; expiry: string; manufactured: string; reference: string; gtin: string; raw: string };
 
 const FIXED: Record<string, number> = { "00": 18, "01": 14, "02": 14, "11": 6, "12": 6, "13": 6, "15": 6, "16": 6, "17": 6, "20": 2 };
 const VARIABLE = new Set(["10", "21", "22", "240", "241", "30", "37", "90", "91", "92", "93", "94", "95", "96", "97", "98", "99"]);
@@ -25,6 +25,7 @@ function fromElements(pairs: Array<[string, string]>): Partial<ProductCode> {
     if (ai === "10") out.lot = value;
     else if (ai === "21") out.serial = value;
     else if (ai === "17") out.expiry = gs1Date(value);
+    else if (ai === "11") out.manufactured = gs1Date(value);
     else if (ai === "01" || ai === "02") out.gtin = value.replace(/^0+(?=\d{8})/, "");
   }
   return out;
@@ -78,13 +79,25 @@ function parseLabelled(text: string): Partial<ProductCode> | null {
 export function parseProductCode(payload: unknown): ProductCode {
   const raw = typeof payload === "string" ? payload.replace(/[\u0000-\u001C\u007F]/g, " ").trim().slice(0, 1500) : "";
   const source = typeof payload === "string" ? payload.trim().slice(0, 1500) : "";
-  const found = (source && (parseParenthesised(source) ?? parseDigitalLink(source) ?? parseRawGs1(source) ?? parseLabelled(source))) || {};
+  // Código de barras simple (EAN/UPC/ITF-14): el número es el GTIN.
+  const barcode = /^(?:\d{8}|\d{12,14})$/.test(source) ? { gtin: source.replace(/^0+(?=\d{8})/, "") } as Partial<ProductCode> : null;
+  const found = (source && (barcode ?? parseParenthesised(source) ?? parseDigitalLink(source) ?? parseRawGs1(source) ?? parseLabelled(source))) || {};
   const gtin = found.gtin ?? "";
   return {
     lot: cleanCode(found.lot ?? ""), serial: cleanCode(found.serial ?? ""), expiry: cleanExpiry(found.expiry ?? ""),
-    reference: cleanCode(found.reference ?? ""), gtin: /^\d{8,14}$/.test(gtin) ? gtin : "", raw,
+    manufactured: cleanExpiry(found.manufactured ?? ""), reference: cleanCode(found.reference ?? ""), gtin: /^\d{8,14}$/.test(gtin) ? gtin : "", raw,
   };
 }
 
 /** ¿El código aportó algún dato de trazabilidad que pueda completar el formulario? */
-export const codeHasFields = (code: ProductCode) => !!(code.lot || code.serial || code.expiry || code.reference || code.gtin);
+export const codeHasFields = (code: ProductCode) => !!(code.lot || code.serial || code.expiry || code.manufactured || code.reference || code.gtin);
+
+/** Une varios códigos de una misma etiqueta (p. ej. Data Matrix y código de barras): vale el primer dato de cada tipo. */
+export function parseProductCodes(payloads: string[]): ProductCode {
+  const all = [...new Set(payloads)].map(parseProductCode);
+  const first = (key: keyof ProductCode) => all.find(code => code[key])?.[key] ?? "";
+  return {
+    lot: first("lot"), serial: first("serial"), expiry: first("expiry"), manufactured: first("manufactured"), reference: first("reference"), gtin: first("gtin"),
+    raw: all.map(code => code.raw.replace(/\x1d/g, "|")).filter(Boolean).join(" | ").slice(0, 1500),
+  };
+}

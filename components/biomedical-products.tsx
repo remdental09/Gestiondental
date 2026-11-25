@@ -5,31 +5,36 @@
  * Principios: escribir lo mínimo, la app propone y el profesional confirma, y todo lo agregado por error se puede quitar (con confirmación).
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
-import { Camera, FileText, ImagePlus, LoaderCircle, Pencil, Sparkles, Trash2, TriangleAlert } from "lucide-react";
+import { Camera, FileText, ImagePlus, LoaderCircle, Pencil, Plus, ScanLine, Sparkles, Trash2, TriangleAlert, X } from "lucide-react";
 import type { ClinicalImage } from "@/app/clinical-data";
-import { extractQrFromImage } from "@/components/certificate-qr";
-import { codeHasFields, parseProductCode } from "@/lib/product-code";
-import { PRODUCT_CATEGORIES, PRODUCT_IMAGE_KIND, categoryLabel, cleanTooth, missingTrace, type ProductCategory } from "@/lib/biomedical-products";
+import { CodeScanner } from "@/components/code-scanner";
+import { readCodes } from "@/lib/code-reader";
+import { parseProductCodes } from "@/lib/product-code";
+import { applyCode, applyLabel, clearSuggested } from "@/lib/product-draft";
+import { MAX_DETAILS, PRODUCT_CATEGORIES, PRODUCT_IMAGE_KIND, categoryLabel, cleanTooth, expiryLabel, measureText, missingTrace, type LabelReading, type ProductCategory, type ProductDetail } from "@/lib/biomedical-products";
 
 export type ProductView = {
   id: number; patientId: number; imageId: number | null; category: ProductCategory; brand: string; reference: string; lot: string; serial: string;
   expiry: string; manufacturer: string; tooth: string; note: string; placedOn: string; aiRead: boolean; createdByName: string; createdAt: string; imageUrl: string; thumbUrl: string;
+  model: string; diameter: string; length: string; registration: string; manufactured: string; gtin: string; details: ProductDetail[]; code: string;
 };
 
 type Draft = {
   id: number | null; imageId: number | null; imageUrl: string; category: ProductCategory;
   brand: string; reference: string; lot: string; serial: string; expiry: string; manufacturer: string; tooth: string; note: string; placedOn: string;
+  model: string; diameter: string; length: string; registration: string; manufactured: string; gtin: string; details: ProductDetail[]; code: string;
   /** Campos que la IA propuso y el profesional aún no tocó: se marcan para que los compare con la foto. */
   suggested: Set<string>; fromCode: Set<string>; aiRead: boolean;
 };
 
 const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Santiago", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
-const blank = (tooth = ""): Draft => ({ id: null, imageId: null, imageUrl: "", category: "implante", brand: "", reference: "", lot: "", serial: "", expiry: "", manufacturer: "", tooth, note: "", placedOn: today(), suggested: new Set(), fromCode: new Set(), aiRead: false });
+const blank = (tooth = ""): Draft => ({ id: null, imageId: null, imageUrl: "", category: "implante", brand: "", reference: "", lot: "", serial: "", expiry: "", manufacturer: "", tooth, note: "", placedOn: today(), model: "", diameter: "", length: "", registration: "", manufactured: "", gtin: "", details: [], code: "", suggested: new Set(), fromCode: new Set(), aiRead: false });
 const dayLabel = (iso: string) => { const d = new Date(`${iso}T12:00:00-03:00`); return Number.isNaN(d.getTime()) ? iso : new Intl.DateTimeFormat("es-CL", { dateStyle: "medium", timeZone: "America/Santiago" }).format(d); };
-const expiryLabel = (value: string) => value.length === 7 ? `${value.slice(5)}/${value.slice(0, 4)}` : value.split("-").reverse().join("/");
 
 const inputBase = "mt-1 block min-h-11 w-full rounded-lg border px-3 text-base";
 const input = `${inputBase} border-[#d8d5e4] bg-white`;
+/** En iPhone los campos de fecha se salen de la tarjeta si no se les quita el estilo nativo. */
+const dateBox = "min-w-0 max-w-full appearance-none";
 const primary = "inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-[#473a6d] px-4 text-base font-semibold text-white hover:bg-[#3a2f5a] disabled:opacity-50";
 const secondary = "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#473a6d] bg-white px-4 text-sm font-semibold text-[#473a6d] hover:bg-[#f3f1f7] disabled:opacity-50";
 
@@ -40,7 +45,7 @@ async function call<T>(url: string, init?: RequestInit): Promise<T> {
   return data;
 }
 
-export type ProductTool = { photograph: () => void };
+export type ProductTool = { photograph: () => void; scan: () => void };
 
 export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, embedded = false, tool, onSaved, onUploadImage, onRemoveImage, onImageGone, onChanged }: {
   patient: { id: number; name: string };
@@ -63,6 +68,7 @@ export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, e
   const [busy, setBusy] = useState<"" | "photo" | "reading" | "saving">("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [scanning, setScanning] = useState(false);
   const cameraRef = useRef<HTMLInputElement | null>(null);
   const galleryRef = useRef<HTMLInputElement | null>(null);
   const formRef = useRef<HTMLDivElement | null>(null);
@@ -83,59 +89,60 @@ export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, e
     setError(""); setNotice(""); setBusy("photo");
     let image: ClinicalImage | null = null;
     try {
+      // El código se busca en la foto original, a resolución completa.
+      const found = readCodes(file).catch(() => [] as string[]);
       image = await onUploadImage(file, PRODUCT_IMAGE_KIND, "");
       setBusy("reading");
-      const base = draft && draft.id === null ? draft : blank(cleanTooth(startTooth));
-      // Si ya había una foto sin guardar en el borrador, se descarta (cada producto tiene su foto).
-      if (base.imageId && base.imageId !== image.id) void onRemoveImage(base.imageId).catch(() => undefined);
-      let next: Draft = { ...base, imageId: image.id, imageUrl: image.url, suggested: new Set(), fromCode: new Set(), aiRead: false };
-      // 1) QR de la etiqueta (lectura exacta, en el teléfono). 2) Texto impreso, leído por la IA. 3) La foto queda guardada como respaldo.
-      const qr = await extractQrFromImage(file).catch(() => null);
-      const code = qr ? parseProductCode(qr.payload) : null;
-      let aiProblem = "";
-      let read: { fields: Partial<Record<string, string>> | null; aiError?: string } = { fields: null };
-      try { read = await call("/api/productos/leer", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ imageId: image.id, code: code?.raw ?? "" }) }); }
+      let base = draft && draft.id === null ? draft : blank(cleanTooth(startTooth));
+      // Si ya había una foto sin guardar en el borrador, se descarta (cada producto tiene su foto) junto con lo que se leyó de ella.
+      if (base.imageId && base.imageId !== image.id) { void onRemoveImage(base.imageId).catch(() => undefined); base = clearSuggested(base); }
+      let next: Draft = { ...base, imageId: image.id, imageUrl: image.url };
+      // 1) Código de la etiqueta (lectura exacta, en el equipo). 2) Texto impreso, leído por la IA. 3) La foto queda como respaldo.
+      const codes = await found;
+      const code = codes.length ? parseProductCodes(codes) : null;
+      let aiProblem = "", mismatch = false;
+      let read: { fields: LabelReading | null; aiError?: string } = { fields: null };
+      try { read = await call("/api/productos/leer", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ imageId: image.id, code: code?.raw ?? next.code }) }); }
       catch { aiProblem = "No se pudo leer el texto de la etiqueta."; }
-      const suggested = new Set<string>(), fromCode = new Set<string>();
-      if (read.fields) {
-        const f = read.fields;
-        for (const key of ["brand", "reference", "lot", "serial", "manufacturer"] as const) if (f[key]) { next = { ...next, [key]: f[key]! }; suggested.add(key); }
-        if (f.expiry) { next = { ...next, expiry: f.expiry.slice(0, 7) }; suggested.add("expiry"); }
-        if (f.category && PRODUCT_CATEGORIES.some(item => item.id === f.category)) next = { ...next, category: f.category as ProductCategory };
-      } else aiProblem ||= read.aiError || "No se pudo leer el texto de la etiqueta.";
-      // El QR manda sobre el texto leído: es exacto. Lo que difiere de la IA se avisa para que se revise la foto.
-      let mismatch = false;
-      if (code && codeHasFields(code)) {
-        const apply = (key: "lot" | "serial" | "reference", value: string) => { if (!value) return; if (next[key] && next[key].toLowerCase() !== value.toLowerCase()) mismatch = true; next = { ...next, [key]: value }; suggested.delete(key); fromCode.add(key); };
-        apply("lot", code.lot); apply("serial", code.serial);
-        apply("reference", code.reference || (next.reference ? "" : code.gtin));
-        if (code.expiry) { next = { ...next, expiry: code.expiry.slice(0, 7) }; suggested.delete("expiry"); fromCode.add("expiry"); }
-      } else if (code?.raw && !next.note) next = { ...next, note: `QR de la etiqueta: ${code.raw.slice(0, 300)}` };
-      next = { ...next, suggested, fromCode, aiRead: suggested.size > 0 };
+      if (read.fields) { const applied = applyLabel(next, read.fields); next = applied.draft; mismatch = applied.mismatch; }
+      else aiProblem ||= read.aiError || "No se pudo leer el texto de la etiqueta.";
       const parts: string[] = [];
-      if (fromCode.size) parts.push(`Se leyó el QR de la etiqueta (${[...fromCode].map(k => ({ lot: "lote", serial: "serie", expiry: "vencimiento", reference: "referencia" } as Record<string, string>)[k]).join(", ")}).`);
-      else if (qr) parts.push("Se encontró un QR, pero no trae lote ni serie reconocibles.");
-      if (mismatch) parts.push("El QR y el texto impreso no coinciden en algún dato: compáralos con la foto.");
-      if (!fromCode.size && !suggested.size) parts.push(`${aiProblem || "No se alcanzó a leer nada de la etiqueta."} Completa los datos mirando la foto, que queda guardada como respaldo.`);
+      if (code) {
+        // El código manda sobre el texto leído: es exacto. Lo que difiere se avisa para que se revise la foto.
+        const applied = applyCode(next, code); next = applied.draft; mismatch ||= applied.mismatch;
+        parts.push(applied.filled.length ? `Se leyó el código de la etiqueta (${applied.filled.join(", ")}).` : "Se encontró un código, pero no trae lote ni serie reconocibles.");
+      }
+      next = { ...next, aiRead: next.suggested.size > 0 };
+      if (mismatch) parts.push("El código y el texto impreso no coinciden en algún dato: compáralos con la foto.");
+      if (aiProblem) parts.push(`${aiProblem} Completa lo que falte mirando la foto, que queda guardada como respaldo.`);
       setNotice(parts.join(" "));
       setDraft(next);
     } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo guardar la foto."); }
     finally { setBusy(""); }
   };
 
+  const scanned = (codes: string[]) => {
+    setScanning(false); setError("");
+    const code = parseProductCodes(codes);
+    const applied = applyCode(draft && draft.id === null ? draft : blank(cleanTooth(startTooth)), code);
+    setDraft(applied.draft);
+    const missing = !applied.draft.imageId ? " Toma además la foto de la etiqueta: ahí están las medidas y el resto de los datos." : "";
+    setNotice(`${applied.filled.length ? `Código leído: ${applied.filled.join(", ")}.` : "Código leído; no trae lote ni vencimiento reconocibles (queda guardado en el registro)."}${applied.mismatch ? " Algún dato no coincidía con lo que había: revisa la etiqueta." : ""}${missing}`);
+  };
+
+  /** Un registro a medias de otra pieza no se reutiliza: la foto o el código quedarían con la pieza equivocada. */
+  const otherToothOpen = () => {
+    const wanted = cleanTooth(startTooth);
+    if (!draft || draft.id !== null || !wanted || cleanTooth(draft.tooth) === wanted) return false;
+    setNotice(""); setError(`Primero guarda o descarta el producto ${draft.tooth ? `de la ${draft.tooth}` : "sin pieza"} que está abierto.`);
+    formRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    return true;
+  };
+  const openScanner = () => { if (busy || (embedded && otherToothOpen())) return; setError(""); setNotice(""); setScanning(true); };
+
   useEffect(() => {
     if (!tool) return;
-    tool.current = { photograph: () => {
-      if (busy) return;
-      // Un registro a medias de otra pieza no se reutiliza: la foto quedaría con la pieza equivocada.
-      const wanted = cleanTooth(startTooth);
-      if (draft && draft.id === null && wanted && cleanTooth(draft.tooth) !== wanted) {
-        setNotice(""); setError(`Primero guarda o descarta el producto ${draft.tooth ? `de la ${draft.tooth}` : "sin pieza"} que está abierto.`);
-        formRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-        return;
-      }
-      cameraRef.current?.click();
-    } };
+    tool.current = { photograph: () => { if (!busy && !otherToothOpen()) cameraRef.current?.click(); }, scan: openScanner };
     return () => { tool.current = null; };
   });
 
@@ -149,7 +156,8 @@ export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, e
     if (!draft || busy) return;
     setBusy("saving"); setError("");
     try {
-      const body = { patientId: patient.id, imageId: draft.imageId, aiRead: draft.aiRead, category: draft.category, brand: draft.brand, reference: draft.reference, lot: draft.lot, serial: draft.serial, expiry: draft.expiry, manufacturer: draft.manufacturer, tooth: draft.tooth, note: draft.note, placedOn: draft.placedOn };
+      const { id: _id, imageUrl: _url, suggested: _suggested, fromCode: _fromCode, ...data } = draft;
+      const body = { ...data, patientId: patient.id };
       if (draft.id === null) {
         const saved = await call<{ product: ProductView }>("/api/productos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
         setProducts(previous => [saved.product, ...(previous ?? [])].sort((a, b) => b.placedOn.localeCompare(a.placedOn) || b.id - a.id));
@@ -171,7 +179,7 @@ export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, e
     setDraft(null); setError(""); setNotice("");
   };
 
-  const edit = (product: ProductView) => { setDraft({ ...blank(), id: product.id, imageId: product.imageId, imageUrl: product.imageUrl, category: product.category, brand: product.brand, reference: product.reference, lot: product.lot, serial: product.serial, expiry: product.expiry.slice(0, 7), manufacturer: product.manufacturer, tooth: product.tooth, note: product.note, placedOn: product.placedOn, aiRead: product.aiRead }); setNotice(""); setError(""); };
+  const edit = (product: ProductView) => { setDraft({ ...blank(), id: product.id, imageId: product.imageId, imageUrl: product.imageUrl, category: product.category, brand: product.brand, reference: product.reference, lot: product.lot, serial: product.serial, expiry: product.expiry, manufacturer: product.manufacturer, model: product.model, diameter: product.diameter, length: product.length, registration: product.registration, manufactured: product.manufactured, gtin: product.gtin, details: product.details, code: product.code, tooth: product.tooth, note: product.note, placedOn: product.placedOn, aiRead: product.aiRead }); setNotice(""); setError(""); };
 
   const remove = async (product: ProductView) => {
     if (!window.confirm(`¿Desea eliminar este producto del registro? Se borrará también la foto de la etiqueta${product.lot || product.serial ? ` (${[product.lot && `lote ${product.lot}`, product.serial && `serie ${product.serial}`].filter(Boolean).join(", ")})` : ""}. No se puede deshacer.`)) return;
@@ -184,16 +192,26 @@ export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, e
     } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo quitar el producto."); }
   };
 
+  const setDetail = (index: number, item: ProductDetail | null) => setDraft(previous => {
+    if (!previous) return previous;
+    const details = item ? Object.assign([...previous.details], { [index]: item }) : previous.details.filter((_, position) => position !== index);
+    const suggested = new Set(previous.suggested); suggested.delete("details");
+    return { ...previous, details, suggested };
+  });
+  /** Fecha completa o solo mes, según lo que traiga la etiqueta. */
+  const dateType = (value: string) => value.length === 10 ? "date" : "month";
+
   const working = busy === "photo" || busy === "reading";
   const flagged = (key: string) => draft?.fromCode.has(key) ? "border-emerald-500 bg-emerald-50" : draft?.suggested.has(key) ? "border-amber-400 bg-amber-50" : "border-[#d8d5e4] bg-white";
 
   return <section className="space-y-4" data-testid="biomedical-products">
     <div className="surface">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div><h3 className="font-semibold">{embedded ? `Producto${startTooth ? ` · pieza ${startTooth}` : ""}` : "Productos biomédicos y trazabilidad"}</h3><p className="mt-1 max-w-2xl text-sm text-[#615f73]">Fotografía la etiqueta de un implante, injerto, membrana o pilar: la app lee la marca, el lote y la serie, tú confirmas, y queda en la ficha con la pieza y la fecha.</p></div>
+        <div><h3 className="font-semibold">{embedded ? `Producto${startTooth ? ` · pieza ${startTooth}` : ""}` : "Productos biomédicos y trazabilidad"}</h3><p className="mt-1 max-w-2xl text-sm text-[#615f73]">Escanea el código y fotografía la etiqueta de un implante, injerto, membrana o pilar: la app lee las medidas, el lote y los demás datos, tú confirmas, y queda en la ficha con la pieza y la fecha.</p></div>
         {!!products?.length && <a href={`/api/productos/pdf?patientId=${patient.id}`} target="_blank" rel="noopener noreferrer" className={secondary} data-testid="products-pdf"><FileText className="size-4" aria-hidden="true"/>Imprimir registro (PDF)</a>}
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
+        <button type="button" className={primary} disabled={working} onClick={openScanner} data-testid="products-scan"><ScanLine className="size-5" aria-hidden="true"/>Escanear código</button>
         <button type="button" className={primary} disabled={working} onClick={() => cameraRef.current?.click()} data-testid="products-camera">{working ? <LoaderCircle className="size-5 animate-spin" aria-hidden="true"/> : <Camera className="size-5" aria-hidden="true"/>}{busy === "photo" ? "Guardando foto…" : busy === "reading" ? "Leyendo la etiqueta…" : "Tomar foto del producto"}</button>
         <button type="button" className={secondary} disabled={working} onClick={() => galleryRef.current?.click()}><ImagePlus className="size-4" aria-hidden="true"/>Elegir de la galería</button>
         <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={event => { void pick(event.target.files?.[0]); event.target.value = ""; }} data-testid="products-camera-input"/>
@@ -209,24 +227,43 @@ export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, e
       <div className="grid gap-3 md:grid-cols-[minmax(0,260px)_minmax(0,1fr)]">
         <div>{draft.imageUrl ? <a href={draft.imageUrl} target="_blank" rel="noopener noreferrer" aria-label="Abrir la foto de la etiqueta en grande"><img src={draft.imageUrl} alt="Foto de la etiqueta del producto" className="max-h-80 w-full rounded-xl border border-[#e6e4ee] bg-white object-contain"/></a> : <p className="rounded-xl border border-dashed border-[#c9c4da] p-4 text-sm text-[#615f73]">Sin foto: puedes agregarla con «Tomar foto del producto».</p>}</div>
         <div className="space-y-3">
-          {draft.fromCode.size > 0 && <p className="flex items-start gap-2 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-950" data-testid="product-qr-note"><Sparkles className="mt-0.5 size-4 shrink-0" aria-hidden="true"/><span>Los campos en verde vienen del <strong>QR de la etiqueta</strong> (lectura exacta).</span></p>}
+          {draft.fromCode.size > 0 && <p className="flex items-start gap-2 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-950" data-testid="product-qr-note"><Sparkles className="mt-0.5 size-4 shrink-0" aria-hidden="true"/><span>Los campos en verde vienen del <strong>código de la etiqueta</strong> (lectura exacta).</span></p>}
           {draft.suggested.size > 0 && <p className="flex items-start gap-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-950" data-testid="product-ai-note"><Sparkles className="mt-0.5 size-4 shrink-0" aria-hidden="true"/><span>La IA leyó los campos marcados en amarillo. <strong>Compáralos con la foto</strong>, sobre todo lote y serie, y corrige lo que haga falta antes de guardar.</span></p>}
           <fieldset><legend className="text-sm font-semibold">Tipo de producto</legend>
             <div className="mt-1 flex flex-wrap gap-2">{PRODUCT_CATEGORIES.map(item => <button key={item.id} type="button" onClick={() => set("category", item.id)} aria-pressed={draft.category === item.id} className={`min-h-11 rounded-full border px-3 text-sm font-medium ${draft.category === item.id ? "border-[#473a6d] bg-[#473a6d] text-white" : "border-[#d8d5e4] bg-white text-[#473a6d]"}`}>{item.label}</button>)}</div></fieldset>
+          <label className="block text-sm font-semibold">Producto (como dice la etiqueta)<textarea value={draft.model} onChange={event => set("model", event.target.value)} maxLength={200} rows={2} className={`${inputBase} py-2 ${flagged("model")}`} data-testid="product-model"/></label>
           <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid grid-cols-2 gap-3 sm:col-span-2">
+              <label className="text-sm font-semibold">Diámetro (mm)<input value={draft.diameter} onChange={event => set("diameter", event.target.value)} inputMode="decimal" maxLength={30} className={`${inputBase} ${flagged("diameter")}`} data-testid="product-diameter"/></label>
+              <label className="text-sm font-semibold">Largo (mm)<input value={draft.length} onChange={event => set("length", event.target.value)} inputMode="decimal" maxLength={30} className={`${inputBase} ${flagged("length")}`} data-testid="product-length"/></label>
+            </div>
             <label className="text-sm font-semibold">Marca<input value={draft.brand} onChange={event => set("brand", event.target.value)} maxLength={80} className={`${inputBase} ${flagged("brand")}`} data-testid="product-brand"/></label>
             <label className="text-sm font-semibold">Referencia / código<input value={draft.reference} onChange={event => set("reference", event.target.value)} maxLength={60} className={`${inputBase} ${flagged("reference")}`}/></label>
             <label className="text-sm font-semibold">Lote<input value={draft.lot} onChange={event => set("lot", event.target.value)} maxLength={60} autoCapitalize="characters" className={`${inputBase} ${flagged("lot")}`} data-testid="product-lot"/></label>
             <label className="text-sm font-semibold">N.º de serie<input value={draft.serial} onChange={event => set("serial", event.target.value)} maxLength={60} autoCapitalize="characters" className={`${inputBase} ${flagged("serial")}`} data-testid="product-serial"/></label>
-            <label className="text-sm font-semibold">Vencimiento<input type="month" value={draft.expiry} onChange={event => set("expiry", event.target.value)} className={`${inputBase} ${flagged("expiry")}`}/></label>
-            <label className="text-sm font-semibold">Fabricante<input value={draft.manufacturer} onChange={event => set("manufacturer", event.target.value)} maxLength={80} className={`${inputBase} ${flagged("manufacturer")}`}/></label>
+            <label className="min-w-0 text-sm font-semibold">Fecha de fabricación<input type={dateType(draft.manufactured)} value={draft.manufactured} onChange={event => set("manufactured", event.target.value)} className={`${inputBase} ${dateBox} ${flagged("manufactured")}`} data-testid="product-manufactured"/></label>
+            <label className="min-w-0 text-sm font-semibold">Vencimiento<input type={dateType(draft.expiry)} value={draft.expiry} onChange={event => set("expiry", event.target.value)} className={`${inputBase} ${dateBox} ${flagged("expiry")}`} data-testid="product-expiry"/></label>
+            <label className="text-sm font-semibold">Fabricante<input value={draft.manufacturer} onChange={event => set("manufacturer", event.target.value)} maxLength={200} className={`${inputBase} ${flagged("manufacturer")}`}/></label>
+            <label className="text-sm font-semibold">Registro sanitario<input value={draft.registration} onChange={event => set("registration", event.target.value)} maxLength={100} className={`${inputBase} ${flagged("registration")}`} data-testid="product-registration"/></label>
+            <label className="text-sm font-semibold">GTIN (código de barras)<input value={draft.gtin} onChange={event => set("gtin", event.target.value)} inputMode="numeric" maxLength={14} className={`${inputBase} ${flagged("gtin")}`} data-testid="product-gtin"/></label>
             <label className="text-sm font-semibold">Pieza (FDI)<input value={draft.tooth} onChange={event => set("tooth", event.target.value)} inputMode="decimal" placeholder="Ej.: 3.6" maxLength={4} className={input} data-testid="product-tooth"/></label>
-            <label className="text-sm font-semibold">Fecha de colocación<input type="date" value={draft.placedOn} max={today()} onChange={event => set("placedOn", event.target.value)} className={input}/></label>
+            <label className="min-w-0 text-sm font-semibold">Fecha de colocación<input type="date" value={draft.placedOn} max={today()} onChange={event => set("placedOn", event.target.value)} className={`${input} ${dateBox}`}/></label>
           </div>
+          <fieldset className={`space-y-2 rounded-lg border p-3 ${draft.suggested.has("details") ? "border-amber-400 bg-amber-50" : "border-[#e6e4ee]"}`} data-testid="product-details"><legend className="px-1 text-sm font-semibold">Otros datos de la etiqueta</legend>
+            {draft.details.map((item, index) => <div key={index} className="flex items-end gap-1">
+              <div className="min-w-0 flex-1">
+                <input value={item.label} aria-label={`Nombre del dato ${index + 1}`} placeholder="Nombre del dato" maxLength={60} onChange={event => setDetail(index, { ...item, label: event.target.value })} className="block w-full bg-transparent px-1 text-xs font-semibold text-[#615f73]"/>
+                <input value={item.value} aria-label={`Valor del dato ${index + 1}`} placeholder="Lo que dice" maxLength={240} onChange={event => setDetail(index, { ...item, value: event.target.value })} className={`${input} !mt-0.5`}/>
+              </div>
+              <button type="button" aria-label={`Quitar el dato ${index + 1}`} onClick={() => setDetail(index, null)} className="rounded-lg p-3 text-rose-800 hover:bg-rose-50"><X className="size-4"/></button>
+            </div>)}
+            {draft.details.length < MAX_DETAILS && <button type="button" className={secondary} onClick={() => setDetail(draft.details.length, { label: "", value: "" })}><Plus className="size-4" aria-hidden="true"/>Agregar dato</button>}
+          </fieldset>
+          {draft.code && <p className="break-all rounded-lg bg-[#f3f1f7] p-3 text-xs text-[#473a6d]" data-testid="product-code">Contenido del código: {draft.code}{/^https?:\/\/\S+$/.test(draft.code) && <> · <a href={draft.code} target="_blank" rel="noopener noreferrer" className="font-semibold underline">Abrir la página del fabricante</a></>}</p>}
           <label className="block text-sm font-semibold">Nota (opcional)<textarea value={draft.note} onChange={event => set("note", event.target.value)} maxLength={600} rows={2} className={`${input} py-2`}/></label>
           {missingTrace(draft) && <p className="flex items-start gap-2 text-sm text-[#7a5a12]"><TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true"/>Sin lote ni número de serie no se puede rastrear el producto. Puedes guardarlo igual y completarlo después.</p>}
           <div className="flex flex-wrap gap-2">
-            <button type="button" className={primary} disabled={busy !== "" || (!draft.imageId && !draft.brand && !draft.reference && !draft.lot && !draft.serial)} onClick={() => void save()} data-testid="product-save">{busy === "saving" ? <LoaderCircle className="size-5 animate-spin" aria-hidden="true"/> : null}{busy === "saving" ? "Guardando…" : "Guardar producto"}</button>
+            <button type="button" className={primary} disabled={busy !== "" || (!draft.imageId && !draft.brand && !draft.reference && !draft.lot && !draft.serial && !draft.gtin && !draft.code)} onClick={() => void save()} data-testid="product-save">{busy === "saving" ? <LoaderCircle className="size-5 animate-spin" aria-hidden="true"/> : null}{busy === "saving" ? "Guardando…" : "Guardar producto"}</button>
             <button type="button" className={secondary} disabled={busy !== ""} onClick={() => void discard()}>{draft.id === null ? "Descartar" : "Cancelar"}</button>
           </div>
         </div>
@@ -240,7 +277,13 @@ export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, e
           <div className="min-w-0 text-sm">
             <p className="font-semibold">{categoryLabel(product.category)}{product.brand ? ` · ${product.brand}` : ""}{product.tooth ? ` · pieza ${product.tooth}` : ""}</p>
             <p className="mt-0.5 text-[#615f73]">{dayLabel(product.placedOn)}{product.createdByName ? ` · ${product.createdByName}` : ""}</p>
+            {(product.model || measureText(product)) && <p className="mt-1 break-words font-medium">{[product.model, measureText(product)].filter(Boolean).join(" · ")}</p>}
             <p className="mt-1 break-words">{[product.reference && `Ref. ${product.reference}`, product.lot && `Lote ${product.lot}`, product.serial && `Serie ${product.serial}`, product.expiry && `Vence ${expiryLabel(product.expiry)}`].filter(Boolean).join(" · ") || <span className="text-[#7a5a12]">Sin lote ni serie registrados</span>}</p>
+            {(product.manufacturer || product.registration || product.manufactured || product.gtin || product.details.length > 0) && <details className="mt-1"><summary className="cursor-pointer py-1 text-[#473a6d]">Todos los datos de la etiqueta</summary><ul className="break-words text-[#615f73]">{[
+              product.manufacturer && `Fabricante: ${product.manufacturer}`, product.registration && `Registro sanitario: ${product.registration}`,
+              product.manufactured && `Fabricación: ${expiryLabel(product.manufactured)}`, product.gtin && `GTIN: ${product.gtin}`,
+              ...product.details.map(item => item.label ? `${item.label}: ${item.value}` : item.value),
+            ].filter(Boolean).map((line, index) => <li key={index}>{line}</li>)}</ul></details>}
             {product.note && <p className="mt-1 text-[#615f73]">{product.note}</p>}
           </div>
           <div className="flex gap-2 sm:flex-col">
@@ -249,6 +292,7 @@ export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, e
           </div>
         </li>)}</ul>}
     </ProductList>}
+    {scanning && <CodeScanner onRead={scanned} onClose={() => setScanning(false)}/>}
   </section>;
 }
 

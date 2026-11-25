@@ -29,3 +29,9 @@ declare namespace Cloudflare {
     CLINIC_OWNERS?: string;
   }
 }
+
+/** Importar un archivo como dirección (Vite), p. ej. el lector de códigos en WebAssembly. */
+declare module "*?url" {
+  const url: string;
+  export default url;
+}

@@ -80,10 +80,11 @@ test("QR: texto con LOT/SN/REF/EXP se lee; un QR sin datos solo conserva el text
   assert.equal(parseProductCode(null).raw, "");
 });
 
-test("QR: el formulario lee el QR en el teléfono, el QR manda sobre la IA y la IA recibe el texto del QR", () => {
+test("códigos: el formulario los lee en el equipo, el código manda sobre la IA y la IA recibe su texto", () => {
   const form = read("components/biomedical-products.tsx");
-  assert.match(form, /extractQrFromImage\(file\)/);
-  assert.match(form, /fromCode/);
+  assert.match(form, /readCodes\(file\)/);
+  assert.match(form, /applyCode\(next, code\)/);
   assert.match(form, /code: code\?\.raw/);
+  assert.match(form, /products-scan/);
   assert.match(read("app/api/productos/leer/route.ts"), /body\?\.code/);
 });

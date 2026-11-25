@@ -17,9 +17,9 @@ export function fitWithin(width: number, height: number, max: number): { width: 
 }
 
 /** ¿Hace falta recomprimir? Solo imágenes grandes (en px o en bytes). */
-export function needsCompression(type: string, size: number, width: number, height: number): boolean {
+export function needsCompression(type: string, size: number, width: number, height: number, maxEdge = MAX_EDGE): boolean {
   if (!/^image\/(jpeg|png|webp)$/.test(type)) return false;
-  return Math.max(width, height) > MAX_EDGE || size > KEEP_BELOW_BYTES;
+  return Math.max(width, height) > maxEdge || size > KEEP_BELOW_BYTES;
 }
 
 /** Nombre con extensión .jpg (el archivo comprimido siempre es JPEG). */
@@ -59,15 +59,15 @@ function draw(image: HTMLImageElement, max: number, quality: number): Promise<Bl
 }
 
 /** Prepara la subida: imagen (posiblemente comprimida) + miniatura opcional. Nunca lanza. */
-export async function prepareImageUpload(file: File): Promise<{ file: File; thumb: Blob | null }> {
+export async function prepareImageUpload(file: File, maxEdge = MAX_EDGE): Promise<{ file: File; thumb: Blob | null }> {
   if (!/^image\/(jpeg|png|webp)$/.test(file.type) || typeof document === "undefined") return { file, thumb: null };
   let loaded: Loaded | null = null;
   try {
     loaded = await loadImage(file);
     const { image } = loaded;
     let upload = file;
-    if (needsCompression(file.type, file.size, image.naturalWidth, image.naturalHeight)) {
-      const blob = await draw(image, MAX_EDGE, 0.88);
+    if (needsCompression(file.type, file.size, image.naturalWidth, image.naturalHeight, maxEdge)) {
+      const blob = await draw(image, maxEdge, 0.88);
       if (blob && blob.size > 0 && blob.size < file.size) upload = new File([blob], jpegName(file.name), { type: "image/jpeg", lastModified: file.lastModified });
     }
     const thumb = await draw(image, THUMB_EDGE, 0.8);
