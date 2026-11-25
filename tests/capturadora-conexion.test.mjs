@@ -94,7 +94,8 @@ test("capturadora: la ficha manda el tipo elegido, pide todas las vistas y confi
 });
 
 test("capturadora: las vistas se llaman igual en el programa y en la ficha", () => {
-  assert.deepEqual(Object.keys(CAPTURE_VIEWS).sort(), [...IMPLANT_VIEWS].sort());
+  // La foto clínica no se captura del visor: se agrega dentro de su etapa.
+  assert.deepEqual(Object.keys(CAPTURE_VIEWS).sort(), IMPLANT_VIEWS.filter(view => view !== "Foto clínica").sort());
   const bridge = read("tools/capturadora/Puente.cs");
   for (const id of Object.values(CAPTURE_VIEWS)) assert.ok(bridge.includes(`"${id}"`), id);
 });

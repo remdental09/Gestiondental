@@ -22,7 +22,7 @@ export const stageOptions = (marked: readonly string[] = []) => ALL_PHASES.filte
 export const phaseLabel = (id: string) => ALL_PHASES.find(item => item.id === id)?.label ?? "Sin etapa registrada";
 
 export type RecordedPhase = Exclude<ImplantPhase, "">;
-const isPhase = (value: unknown): value is RecordedPhase => ALL_PHASES.some(item => item.id === value);
+export const isPhase = (value: unknown): value is RecordedPhase => ALL_PHASES.some(item => item.id === value);
 
 export const IMPLANT_CONNECTIONS = [
   { id: "hexagono-externo", label: "Hexágono externo", text: "Conexión hexágono externo" },
@@ -47,9 +47,11 @@ export function suggestConnection(known: KnownConnection[], brand: string, syste
   return (found?.connection ?? "") as ImplantConnection;
 }
 
-export const IMPLANT_VIEWS = ["Panorámica", "Transversal", "Axial", "Vista 3D", "Radiografía"] as const;
+export const IMPLANT_VIEWS = ["Panorámica", "Transversal", "Axial", "Vista 3D", "Radiografía", "Foto clínica"] as const;
 export type ImplantView = typeof IMPLANT_VIEWS[number];
-export const imageKindForView = (view: ImplantView) => view === "Radiografía" ? "Radiografía" as const : "Captura CBCT" as const;
+export const imageKindForView = (view: ImplantView) => view === "Radiografía" ? "Radiografía" as const : view === "Foto clínica" ? "Foto clínica" as const : "Captura CBCT" as const;
+/** Lo que no es un corte de tomografía no se pasa por el recorte de ventanas del visor. */
+export const isCutView = (view: ImplantView) => view !== "Radiografía" && view !== "Foto clínica";
 export const MAX_IMPLANT_IMAGES = 40;
 export const MAX_IMPLANTS_PER_PATIENT = 80;
 
@@ -65,12 +67,16 @@ export type ImplantFields = {
   diameter: number | null; length: number | null; placedOn: string; torque: number | null; isq: number | null;
   productId: number | null; note: string;
 };
-export type ImplantImage = { imageId: number; view: ImplantView };
+/** `stage`: la fase donde se agregó; sin él, la imagen es del implante en general. */
+export type ImplantImage = { imageId: number; view: ImplantView; stage?: RecordedPhase };
 /** Paso por una etapa. `date` AAAA-MM-DD, o vacío si no se sabe cuándo fue. */
 export type PhaseEntry = { phase: RecordedPhase; date: string };
 export const MAX_PHASE_HISTORY = 40;
 /** `history` guarda las etapas marcadas y su fecha; la actual (`phase`) es la más avanzada. */
-export type Implant = ImplantFields & { id: number; images: ImplantImage[]; history: PhaseEntry[] };
+export type Implant = ImplantFields & { id: number; images: ImplantImage[]; history: PhaseEntry[]; stageNotes: StageNotes };
+/** Nota escrita en cada fase. */
+export type StageNotes = Partial<Record<RecordedPhase, string>>;
+export const MAX_STAGE_NOTE = 1000;
 
 const text = (value: unknown, max: number): string =>
   typeof value === "string" ? value.normalize("NFC").replace(/[\u0000-\u001F\u007F]/g, " ").replace(/\s+/g, " ").trim().slice(0, max) : "";
@@ -116,10 +122,10 @@ export function cleanImplantFields(input: Record<string, unknown>, today: string
 
 export function cleanImplantImage(input: unknown): ImplantImage | null {
   if (!input || typeof input !== "object") return null;
-  const { imageId, view } = input as { imageId?: unknown; view?: unknown };
+  const { imageId, view, stage } = input as { imageId?: unknown; view?: unknown; stage?: unknown };
   const id = Number(imageId);
   if (!Number.isSafeInteger(id) || id < 1 || !IMPLANT_VIEWS.includes(view as ImplantView)) return null;
-  return { imageId: id, view: view as ImplantView };
+  return { imageId: id, view: view as ImplantView, ...(isPhase(stage) ? { stage } : {}) };
 }
 
 /** Lee la lista guardada; lo dañado o repetido se omite. */
@@ -130,6 +136,31 @@ export function parseImplantImages(raw: string): ImplantImage[] {
     const seen = new Set<number>();
     return list.flatMap(item => { const image = cleanImplantImage(item); if (!image || seen.has(image.imageId)) return []; seen.add(image.imageId); return [image]; }).slice(0, MAX_IMPLANT_IMAGES);
   } catch { return []; }
+}
+
+/** Nota de varias líneas: se conservan los saltos; el resto de los caracteres de control se quita. */
+export const cleanStageNote = (value: unknown): string =>
+  typeof value === "string" ? value.normalize("NFC").replace(/\r\n?/g, "\n").replace(/[\u0000-\u0009\u000B-\u001F\u007F]/g, " ").trim().slice(0, MAX_STAGE_NOTE) : "";
+
+/** Lee las notas guardadas; lo dañado o de una fase desconocida se omite. */
+export function parseStageNotes(raw: unknown): StageNotes {
+  try {
+    const data = JSON.parse(String(raw)) as Record<string, unknown> | null;
+    if (!data || typeof data !== "object" || Array.isArray(data)) return {};
+    return Object.fromEntries(ALL_PHASES.flatMap(item => { const note = cleanStageNote(data[item.id]); return note ? [[item.id, note]] : []; }));
+  } catch { return {}; }
+}
+
+/** Escribe, corrige o borra (vacía) la nota de una fase. `was` es la que mostraba la pantalla: si cambió en otro lado, no se pisa. */
+export function setStageNote(raw: unknown, change: unknown): { notes: StageNotes } | { error: string; stale?: boolean } {
+  const { phase, was, note } = (change ?? {}) as { phase?: unknown; was?: unknown; note?: unknown };
+  if (!isPhase(phase) || typeof note !== "string") return { error: "Nota no válida." };
+  if (note.trim().length > MAX_STAGE_NOTE) return { error: `La nota de la fase admite hasta ${MAX_STAGE_NOTE} caracteres.` };
+  const notes = parseStageNotes(raw);
+  if ((notes[phase] ?? "") !== cleanStageNote(was)) return { error: "La nota de esta fase cambió en otro lado. Revísala y guarda otra vez.", stale: true };
+  const next = cleanStageNote(note);
+  if (next) notes[phase] = next; else delete notes[phase];
+  return { notes };
 }
 
 const historyDay = (value: unknown, today?: string): value is string => value === "" || (typeof value === "string" && isDay(value) && (!today || value <= today));
@@ -237,12 +268,14 @@ export function archOrder<T extends { id: number; tooth: string }>(list: T[]): T
 }
 
 /** Datos de un implante tal como salen en el respaldo y las descargas (sin las imágenes que ya se borraron). */
-export type StoredImplant = Omit<ImplantFields, "phase" | "connection"> & { phase: string; connection: string; history: string; id: number; images: string; createdByName: string; createdAt: string; updatedAt: string };
+export type StoredImplant = Omit<ImplantFields, "phase" | "connection"> & { phase: string; connection: string; history: string; id: number; images: string; stageNotes?: string | null; createdByName: string; createdAt: string; updatedAt: string };
 export function backupImplant(r: StoredImplant, available?: Set<number>) {
   return {
     id: r.id, tooth: r.tooth, phase: r.phase, history: parseHistory(r.history), brand: r.brand, system: r.system, connection: r.connection ?? "", diameter: r.diameter, length: r.length, placedOn: r.placedOn,
     torque: r.torque, isq: r.isq, productId: r.productId, note: r.note,
     images: parseImplantImages(r.images).filter(image => !available || available.has(image.imageId)),
+    // Solo si hay alguna: el respaldo de un implante sin notas por fase queda igual que antes.
+    ...(Object.keys(parseStageNotes(r.stageNotes ?? "")).length ? { stageNotes: parseStageNotes(r.stageNotes ?? "") } : {}),
     createdByName: r.createdByName, createdAt: r.createdAt, updatedAt: r.updatedAt,
   };
 }

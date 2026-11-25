@@ -63,7 +63,8 @@ export async function POST(request: Request) {
     let parsed: unknown = null;
     try { parsed = JSON.parse(data.choices?.[0]?.message?.content ?? "null"); } catch { /* respuesta ilegible */ }
     const fields = parseLabelReading(parsed);
-    if (!fields.legible) return json({ fields: null, aiError: "No se alcanzó a leer la etiqueta. Toma la foto de nuevo más cerca y con luz, o escribe los datos." });
+    const unread = "No se alcanzó a leer la etiqueta. Toma la foto de nuevo más cerca y con luz, o escribe los datos.";
+    if (!fields.legible) return json({ fields: fields.kind ? fields : null, aiError: unread });
     return json({ fields });
   } catch { return json({ fields: null, aiError: "No se pudo leer la etiqueta ahora: escribe los datos." }); }
 }

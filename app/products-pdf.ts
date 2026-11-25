@@ -12,6 +12,7 @@ import { displayName } from "@/lib/clinician-profile";
 import { formatChileanRut, isValidChileanRut } from "@/lib/patient-document";
 import { registrationLine } from "@/lib/prestador-certificate";
 import { categoryLabel, productFigureLines, productFigureTitle } from "@/lib/biomedical-products";
+import { phaseLabel } from "@/lib/implants";
 import { thumbKey } from "@/lib/image-keys";
 
 const toBase64 = (bytes: Uint8Array) => { let bin = ""; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return btoa(bin); };
@@ -52,7 +53,7 @@ export async function renderProductsPdf(ownerId: string, professionalId: string,
     const image = images.find(item => item.id === product.imageId);
     return {
       title: productFigureTitle(index + 1, product, categoryLabel(product.category)),
-      lines: productFigureLines({ ...product, placedOnLabel: dateLong(product.placedOn) }),
+      lines: productFigureLines({ ...product, stageLabel: product.implantId && product.stage ? phaseLabel(product.stage) : "", placedOnLabel: dateLong(product.placedOn) || "sin fecha" }),
       image: image ? await photoDataUrl(image.objectKey, image.contentType, image.size).catch(() => undefined) : undefined,
     };
   }));

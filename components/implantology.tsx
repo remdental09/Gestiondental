@@ -1,8 +1,8 @@
 "use client";
 /* eslint-disable @next/next/no-img-element -- Las imágenes clínicas son rutas autenticadas que se cargan con la sesión del navegador. */
 /**
- * Pestaña «Implantología»: abajo del implantograma no hay nada más. Cada diente abre la ventana de su implante, con sus etapas y fechas,
- * sus datos y etiqueta, y sus imágenes (capturar, subir, pegar o arrastrar).
+ * Pestaña «Implantología»: abajo del implantograma no hay nada más. Cada diente abre la ventana de su implante, con sus etapas
+ * (cada una con su fecha, las piezas y materiales usados, nota e imágenes) y todas sus imágenes (capturar, subir, pegar o arrastrar).
  * La app propone fichas desde las etiquetas y el odontograma; nada se guarda sin que el profesional confirme.
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
@@ -12,16 +12,18 @@ import type { ClinicalImage } from "@/app/clinical-data";
 import { BiomedicalProducts, type ProductTool, type ProductView } from "@/components/biomedical-products";
 import { CaptureLink } from "@/components/capture-link";
 import { CutOffer, type Offer } from "@/components/cut-offer";
-import { ImplantIdBox, ImplantSheet, StageList, type SheetTab } from "@/components/implant-sheet";
+import { ImplantIdBox, ImplantSheet, StageList, StagePage, stageDate, stagePending, type SheetTab, type StageEdit } from "@/components/implant-sheet";
+import type { CaptureView } from "@/lib/capture-bridge";
 import { cutViews } from "@/lib/capture-crop";
 import type { DetectedView } from "@/lib/capture-detect";
 import { thumbUrl } from "@/lib/image-compress";
 import { IMPLANT_BRANDS } from "@/lib/dictation/implant-brands";
 import {
   COMMON_DIAMETERS, COMMON_LENGTHS, IMPLANT_CONNECTIONS, IMPLANT_VIEWS, LOWER_ARCH, UPPER_ARCH,
-  archOrder, imageKindForView, implantSuggestions, labelMeasures, mm, phaseLabel, stageOptions, suggestConnection,
-  type Implant, type ImplantFields, type ImplantLabel, type ImplantView, type KnownConnection, type StageChange,
+  archOrder, imageKindForView, implantSuggestions, isCutView, labelMeasures, mm, phaseLabel, stageMarks, stageOptions, suggestConnection,
+  type Implant, type ImplantFields, type ImplantLabel, type ImplantView, type KnownConnection, type RecordedPhase, type StageChange,
 } from "@/lib/implants";
+import type { Piece } from "@/lib/implant-pieces";
 
 const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Santiago", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 const dayLabel = (iso: string) => iso.split("-").reverse().join("-");
@@ -76,7 +78,7 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
   images: ClinicalImage[];
   /** La capturadora de prueba (sin firmar) por ahora solo la ve el desarrollador. */
   showCapturer: boolean;
-  onUploadImage: (file: File, kind: "Radiografía" | "Captura CBCT" | "Producto biomédico", note: string) => Promise<ClinicalImage>;
+  onUploadImage: (file: File, kind: "Radiografía" | "Captura CBCT" | "Foto clínica" | "Producto biomédico", note: string) => Promise<ClinicalImage>;
   onRemoveImage: (id: number) => Promise<void>;
   /** La foto de una etiqueta se borró junto con su producto. */
   onImageGone: (id: number) => void;
@@ -92,7 +94,14 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
   const [tab, setTab] = useState<SheetTab>("etapas");
   /** Cambia al abrir la ventana o pasar a otro implante: lo que había dentro no se arrastra. */
   const [visit, setVisit] = useState(0);
-  const [view, setView] = useState<ImplantView>("Transversal");
+  /** Tipo con que entra lo que se sube o captura en «Imágenes»; las fotos clínicas se agregan dentro de su etapa. */
+  const [view, setView] = useState<CaptureView>("Transversal");
+  /** Etapa cuya pantalla está abierta, con lo que se está escribiendo en ella. */
+  const [stage, setStage] = useState<StageEdit | null>(null);
+  /** Lo mínimo de cada producto del paciente, para el resumen de las etapas. */
+  const [pieces, setPieces] = useState<Piece[]>([]);
+  /** Tipos de pieza que la cuenta ya usó. */
+  const [kinds, setKinds] = useState<string[]>([]);
   const [busy, setBusy] = useState<"" | "saving" | "image">("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -124,12 +133,12 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
   useEffect(() => { setWindows(/Windows/i.test(navigator.userAgent)); }, []);
   const load = useCallback(async () => {
     try {
-      let data: { implants: Implant[]; labels: ImplantLabel[]; connections?: KnownConnection[] }, before: number;
+      let data: { implants: Implant[]; labels: ImplantLabel[]; connections?: KnownConnection[]; pieces?: Piece[]; kinds?: string[] }, before: number;
       do {
         before = written.current;
         data = await call(`/api/implantes?patientId=${patient.id}`, { cache: "no-store" });
       } while (before !== written.current);
-      setImplants(data.implants); setLabels(data.labels); setKnown(data.connections ?? []); setError("");
+      setImplants(data.implants); setLabels(data.labels); setKnown(data.connections ?? []); setPieces(data.pieces ?? []); setKinds(data.kinds ?? []); setError("");
       return data;
     } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudieron cargar los implantes."); return null; }
   }, [patient.id]);
@@ -159,7 +168,7 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
     if (serialized === baseline) return;
     setDraft(rebase(draft, JSON.parse(baseline) as Draft, next)); setBaseline(serialized);
   }, [implants, draft, baseline]);
-  const dismiss = () => { session.current++; dropOffers(); setDraft(null); setBaseline(""); setError(""); setNotice(""); };
+  const dismiss = () => { session.current++; dropOffers(); setStage(null); setDraft(null); setBaseline(""); setError(""); setNotice(""); };
   useEffect(() => {
     if (!draft?.id || !implants || implants.some(item => item.id === draft.id)) return;
     productTool.current?.discard(); session.current++; dropOffers();
@@ -168,7 +177,7 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
 
   /** Abre la ventana (o cambia su contenido) con otra ficha. */
   const show = (next: Draft, section: SheetTab) => {
-    session.current++; setVisit(value => value + 1); dropOffers();
+    session.current++; setVisit(value => value + 1); dropOffers(); setStage(null);
     setDraft(next); setBaseline(JSON.stringify(next)); setTab(section); setError(""); setNotice("");
   };
   /** Antes de cerrar o cambiar de implante: si queda algo sin guardar, se pregunta. */
@@ -179,6 +188,7 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
     const pending = [
       dirty && "los cambios sin guardar de este implante",
       productTool.current?.pending() && "el producto a medio registrar, con su foto",
+      current && stagePending(current, stage, today()) && "la fecha, la nota o la imagen pegada sin guardar de la etapa",
       offers.length > 0 && "las imágenes aún sin guardar",
       held.current > 0 && "las capturas retenidas por nombre distinto (siguen en la carpeta Imágenes\\SpeakDent del computador)",
     ].filter(Boolean);
@@ -207,8 +217,19 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
     });
   };
 
+  /** Vuelve de la pantalla de una etapa a la lista. */
+  const closeStage = () => {
+    if (busy === "saving" || productTool.current?.saving()) { setNotice("Se está guardando. Espera un momento."); return; }
+    const pending = [productTool.current?.pending() && "lo que estás anotando, con su foto", current && stagePending(current, stage, today()) && "la fecha, la nota o la imagen pegada sin guardar"].filter(Boolean);
+    if (pending.length && !window.confirm(`¿Descartar ${pending.join(" y ")}?`)) return;
+    productTool.current?.discard(); setStage(null); setError(""); setNotice("");
+  };
+  const openStage = (phase: RecordedPhase) => { setStage({ phase, date: null, note: null }); setError(""); setNotice(""); };
+
   const save = async () => {
     if (!draft || busy) return;
+    // La ficha nueva pasa a sus etapas: un producto a medio registrar se termina antes.
+    if (!draft.id && productTool.current?.pending()) { setError(""); setNotice("Primero guarda o descarta el producto que estás registrando."); return; }
     setBusy("saving"); setError("");
     const opened = session.current;
     try {
@@ -222,8 +243,7 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
         // Lo que se haya escrito mientras se guardaba se conserva como cambio pendiente.
         setDraft(previous => previous ? rebase(previous, draft, next) : next); setBaseline(JSON.stringify(next));
       }
-      // Una ficha nueva pasa a sus etapas, salvo que quede un producto a medias en sus datos.
-      if (!id && session.current === opened && !productTool.current?.pending()) setTab("etapas");
+      if (!id && session.current === opened) setTab("etapas");
       setNotice(id ? `Cambios guardados en el implante ${implant.tooth}.` : `Implante ${implant.tooth} guardado. Marca sus etapas o agrega imágenes.`);
       onChanged();
     } catch (reason) {
@@ -236,7 +256,7 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
 
   const remove = async () => {
     if (!draft?.id || busy) return;
-    if (!window.confirm(`¿Desea eliminar la ficha del implante ${draft.tooth}? Sus imágenes y su etiqueta seguirán en la ficha del paciente.`)) return;
+    if (!window.confirm(`¿Desea eliminar la ficha del implante ${draft.tooth}? Se borran sus etapas y notas. Sus imágenes y productos seguirán en la ficha del paciente.`)) return;
     setError("");
     try {
       await call("/api/implantes?id=" + draft.id, { method: "DELETE" });
@@ -246,7 +266,7 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
     } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo quitar el implante."); }
   };
 
-  const addFiles = useCallback(async (files: File[], as: ImplantView = view): Promise<"saved" | "busy" | "failed"> => {
+  const addFiles = useCallback(async (files: File[], as: ImplantView = view, phase?: RecordedPhase): Promise<"saved" | "busy" | "failed"> => {
     const target = current;
     if (working.current) return "busy";
     if (!files.length) return "failed";
@@ -258,14 +278,14 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
       for (const original of files) {
         const extension = original.type === "image/png" ? "png" : original.type === "image/webp" ? "webp" : "jpg";
         const file = new File([original], `Implante ${target.tooth} ${as} ${today()}.${extension}`, { type: original.type });
-        const image = await onUploadImage(file, imageKindForView(as), `Implante ${target.tooth} · ${as}`);
+        const image = await onUploadImage(file, imageKindForView(as), [`Implante ${target.tooth}`, phase && phaseLabel(phase), as].filter(Boolean).join(" · "));
         try {
-          const { implant } = await send<{ implant: Implant }>("PATCH", { id: target.id, addImage: { imageId: image.id, view: as } });
+          const { implant } = await send<{ implant: Implant }>("PATCH", { id: target.id, addImage: { imageId: image.id, view: as, ...(phase ? { stage: phase } : {}) } });
           apply(implant);
         } catch (reason) { await onRemoveImage(image.id).catch(() => undefined); throw reason; }
         added++;
       }
-      setNotice(`${added === 1 ? "Imagen guardada" : `${added} imágenes guardadas`} en el implante ${target.tooth} de ${patient.name} · ${as}.`);
+      setNotice(`${added === 1 ? "Imagen guardada" : `${added} imágenes guardadas`} en el implante ${target.tooth} de ${patient.name} · ${phase ? `${phaseLabel(phase)} · ` : ""}${as}.`);
       onChanged();
       return "saved";
     } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo guardar la imagen."); return "failed"; }
@@ -279,8 +299,16 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
   const receive = useCallback(async (files: File[]) => {
     const target = current;
     if (working.current || cutting.current) return;
+    // Dentro de una etapa lo pegado queda en ella: primero se dice si es radiografía o foto clínica.
+    if (stage && tab === "etapas") {
+      if (!files.length) return;
+      if (!files.every(usable)) { setError(UNUSABLE); return; }
+      // Lo que ya esperaba respuesta se conserva.
+      setError(""); setNotice("Imagen pegada: elige qué es, en «Radiografías y fotos»."); setStage(previous => previous ? { ...previous, pasted: [...(previous.pasted ?? []), ...files] } : previous);
+      return;
+    }
     // Una radiografía no se recorta; sin implante o con un archivo no admitido, el aviso lo da el guardado.
-    if (!target || !files.length || view === "Radiografía" || !files.every(usable)) { await addFiles(files); return; }
+    if (!target || !files.length || !isCutView(view) || !files.every(usable)) { await addFiles(files); return; }
     const opened = session.current;
     cutting.current = true; working.current = true; setBusy("image"); setError(""); setNotice("");
     const plain: File[] = [], found: Offer[] = [];
@@ -296,7 +324,7 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
     } finally { cutting.current = false; working.current = false; setBusy(""); }
     if (found.length) { setOffers(list => [...list, ...found]); setTab("imagenes"); }
     if (plain.length) await addFiles(plain);
-  }, [current, view, addFiles]);
+  }, [current, view, addFiles, stage, tab]);
 
   const closeOffer = (offer: Offer) => {
     release([offer.url, ...offer.cuts.map(cut => cut.url)]);
@@ -447,6 +475,78 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
     } finally { setBusy(""); }
   };
 
+  /**
+   * Lo nuevo anotado en una etapa la marca, si aún no estaba marcada. Se pide con la ficha recién leída:
+   * si ya la marcaron en otro lado, no se toca. Una fecha de instalación ya registrada nunca se reemplaza desde aquí.
+   */
+  const ensureMarked = async (id: number, phase: RecordedPhase, date: string) => {
+    const data = await load();
+    const target = data?.implants.find(item => item.id === id);
+    if (!target || stageMarks(target.history, target.phase, target.placedOn)[phase] !== undefined) return data;
+    const day = phase === "cirugia" && target.placedOn ? target.placedOn : date;
+    try {
+      const { implant } = await send<{ implant: Implant }>("PATCH", { id, markStage: { phase, was: null, date: day } });
+      apply(implant);
+      if (phase === "cirugia") setDraft(previous => previous && previous.id === implant.id ? { ...previous, placedOn: implant.placedOn } : previous);
+      // Una fecha distinta que se estaba escribiendo sigue pendiente de guardar.
+      setStage(previous => previous?.phase !== phase ? previous : previous.date === day ? { ...previous, date: null } : { ...previous, dateFrom: day });
+      return { ...data!, implants: data!.implants.map(item => item.id === id ? implant : item) };
+    } catch (reason) { setError(reason instanceof Error ? `Se guardó, pero la etapa no se pudo marcar: ${reason.message}` : "Se guardó, pero la etapa no se pudo marcar."); return data; }
+  };
+
+  /**
+   * Una pieza guardada dentro de una etapa. Si es nueva en ella (`added`), la marca con la fecha en que se usó.
+   * Corregir una pieza no vuelve a marcar una etapa a la que se quitó la marca. Si es el implante de la cirugía, lo une a la ficha;
+   * si dejó de ser un implante, se ofrece quitar esa unión.
+   */
+  const pieceSaved = async (product: ProductView, added: boolean) => {
+    let data = await load();
+    if (data && await releaseWrong(product, data.implants)) data = await load();
+    const id = product.implantId, phase = product.stage as RecordedPhase;
+    if (!data || !id || !phase) return;
+    if (added) data = await ensureMarked(id, phase, product.placedOn);
+    const target = data?.implants.find(item => item.id === id);
+    if (!data || !target || phase !== "cirugia" || product.category !== "implante" || target.productId) return;
+    const measures = labelMeasures(product);
+    try {
+      const { implant } = await send<{ implant: Implant }>("PATCH", { ...toDraft(target), id: target.id, base: toDraft(target), productId: String(product.id), brand: target.brand || product.brand, diameter: mm(target.diameter ?? measures.diameter), length: mm(target.length ?? measures.length) });
+      apply(implant); await load(); onChanged();
+    } catch (reason) { setError(reason instanceof Error ? `La pieza se guardó, pero no se pudo unir a la ficha del implante: ${reason.message}` : "La pieza se guardó, pero no se pudo unir a la ficha del implante."); }
+  };
+
+  const saveNote = async (replacing?: string) => {
+    if (!current || !stage || stage.note === null || busy) return;
+    const { phase, note } = stage, date = stageDate(current, stage, today()), id = current.id;
+    const was = replacing ?? stage.noteFrom ?? current.stageNotes[phase] ?? "";
+    setBusy("saving"); setError(""); setNotice("");
+    try {
+      const { implant } = await send<{ implant: Implant }>("PATCH", { id, stageNote: { phase, was, note } });
+      apply(implant);
+      setStage(previous => previous?.phase !== phase ? previous : previous.note === note ? { ...previous, note: null, noteFrom: undefined } : { ...previous, noteFrom: implant.stageNotes[phase] ?? "" });
+      // Solo una nota nueva marca la etapa: corregirla no deshace una marca que se quitó.
+      if (!was && implant.stageNotes[phase]) await ensureMarked(id, phase, date);
+      setNotice(implant.stageNotes[phase] ? "Nota guardada." : "Nota borrada."); onChanged();
+    } catch (reason) {
+      await load();
+      setError(reason instanceof Error ? reason.message : "No se pudo guardar la nota.");
+    } finally { setBusy(""); }
+  };
+
+  const addStageImages = async (files: File[], as: ImplantView) => {
+    if (!current || !stage) return;
+    const { phase } = stage, date = stageDate(current, stage, today()), id = current.id;
+    let saved = 0;
+    for (const file of files) {
+      if (await addFiles([file], as, phase) !== "saved") break;
+      saved++;
+      // Cada una sale de las pendientes al guardarse: reintentar no la duplica.
+      setStage(previous => previous?.phase === phase && previous.pasted ? { ...previous, pasted: previous.pasted.filter(other => other !== file) } : previous);
+    }
+    if (!saved) return;
+    if (saved > 1) setNotice(`${saved} imágenes guardadas en el implante ${current.tooth} de ${patient.name} · ${phaseLabel(phase)} · ${as}.`);
+    await ensureMarked(id, phase, date);
+  };
+
   const ordered = archOrder(implants ?? []);
   const at = current ? ordered.findIndex(item => item.id === current.id) : -1;
   const step = (direction: 1 | -1) => {
@@ -480,37 +580,11 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
   </>;
   const mustSave = draft !== null && (draft.id === null || dirty);
 
-  return <section className="space-y-4" data-testid="implantology">
-    <div className="surface space-y-3">
-      <div><h3 className="font-semibold">Implantología</h3><p className="mt-1 text-sm text-[#615f73]">Toca un diente para abrir su implante.</p></div>
-      <div className="space-y-2" role="group" aria-label="Implantograma">{arch(UPPER_ARCH)}<div className="border-t border-dashed border-[#d8d5e4]"/>{arch(LOWER_ARCH)}</div>
-      <div className="flex flex-wrap gap-2 text-xs" data-testid="implant-legend">{stageOptions((implants ?? []).map(item => item.phase)).map(item => <span key={item.id} className={`rounded-full border px-2 py-1 ${PHASE_COLOR[item.id]}`}>{item.label}</span>)}
-        {suggestions.length > 0 && <span className="rounded-full border border-dashed border-[#473a6d] px-2 py-1 text-[#473a6d]">Sugerido, sin ficha</span>}</div>
-      {implants === null && !error && <p role="status" className="text-sm text-[#615f73]">Cargando implantes…</p>}
-      {implants === null && error && <button type="button" className={secondary} onClick={() => { setError(""); void load(); }}>Volver a intentar</button>}
-      {!draft && messages}
-    </div>
-
-    {draft && <ImplantSheet title={draft.id === null ? `Nuevo implante ${draft.tooth}` : `Implante ${current?.tooth ?? draft.tooth}`} patientName={patient.name}
-      position={at >= 0 ? { at, total: ordered.length } : null} summary={current && <ImplantIdBox item={current} extra={trace}/>}
-      tabs={current ? [{ id: "etapas", label: "Etapas" }, { id: "datos", label: "Datos" }, { id: "imagenes", label: current.images.length ? `Imágenes (${current.images.length})` : "Imágenes" }] : null}
-      tab={tab} onTab={next => { setTab(next); setNotice(""); }} scrollKey={`${visit}-${tab}`} covered={open !== null} locked={busy !== ""} onStep={step} canClose={leave} onClosed={dismiss}
-      footer={(error || notice || mustSave) ? <>{messages}
-        {mustSave && <button type="button" className={`${primary} w-full`} disabled={busy !== ""} onClick={() => void save()} data-testid="implant-save">{busy === "saving" && <LoaderCircle className="size-4 animate-spin" aria-hidden="true"/>}{draft.id ? "Guardar cambios" : "Guardar implante"}</button>}
-      </> : null}>
-
-      {current && <div hidden={tab !== "etapas"}><StageList key={current.id} item={current} today={today()} busy={busy !== ""} onChange={changeStage}/></div>}
-
-      {/* Las secciones ocultas siguen montadas: un producto a medias o la capturadora no se pierden al cambiar de sección. */}
-      <div hidden={Boolean(current) && tab !== "datos"} className="space-y-4" data-testid="implant-form">
-        <BiomedicalProducts key={visit} embedded compact tool={productTool} patient={patient} startTooth={draft.tooth} onSaved={(product, created, implantKnown) => void productSaved(product, created, implantKnown)}
-          onUploadImage={onUploadImage} onRemoveImage={onRemoveImage} onImageGone={onImageGone} onChanged={() => { void load(); onChanged(); }}/>
-        {sameTooth > 0 && <p className="text-sm text-[#7a5a12]">Ya hay una ficha de implante en la {draft.tooth}. Guarda otra solo si es un implante distinto.</p>}
+  /** Datos propios del implante: en la ficha nueva y dentro de Cirugía. */
+  const dataFields = draft && <>
         <div className="grid grid-cols-2 items-end gap-3">
           <label className="min-w-0 text-sm font-semibold">Pieza (FDI)<select value={draft.tooth} onChange={e => set("tooth", e.target.value)} className={input}>{[...UPPER_ARCH, ...LOWER_ARCH].map(code => <option key={code} value={fdi(code)}>{fdi(code)}</option>)}</select></label>
-          {draft.id === null
-            ? <label className="min-w-0 text-sm font-semibold">Instalación<input type="date" max={today()} value={draft.placedOn} onChange={e => set("placedOn", e.target.value)} className={`${input} min-w-0 max-w-full appearance-none`}/></label>
-            : <button type="button" onClick={() => setTab("etapas")} className="min-w-0 rounded-lg text-left text-sm font-semibold" data-testid="implant-installed">Instalación<span className="mt-1 flex min-h-11 items-center rounded-lg border border-dashed border-[#d8d5e4] px-3 text-sm font-normal text-[#473a6d]">{draft.placedOn ? dayLabel(draft.placedOn) : "En Etapas → Cirugía"}</span></button>}
+          {draft.id === null && <label className="min-w-0 text-sm font-semibold">Instalación<input type="date" max={today()} value={draft.placedOn} onChange={e => set("placedOn", e.target.value)} className={`${input} min-w-0 max-w-full appearance-none`}/></label>}
           <label className="min-w-0 text-sm font-semibold">Marca<input list="implant-brand-list" value={draft.brand} maxLength={80} onChange={e => set("brand", e.target.value)} className={input} data-testid="implant-brand"/></label>
           <label className="min-w-0 text-sm font-semibold">Sistema o modelo<input value={draft.system} maxLength={80} onChange={e => set("system", e.target.value)} className={input}/></label>
           <label className="min-w-0 text-sm font-semibold">Diámetro (mm)<input list="implant-diameter-list" inputMode="decimal" value={draft.diameter} maxLength={6} onChange={e => set("diameter", e.target.value)} className={input} data-testid="implant-diameter"/></label>
@@ -525,14 +599,62 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
           {proposed && <button type="button" onClick={() => set("connection", proposed)} data-testid="implant-connection-proposal" className="mt-2 min-h-11 rounded-xl border border-dashed border-[#473a6d] bg-white px-3 py-2 text-left text-sm font-semibold text-[#473a6d]">Usar «{IMPLANT_CONNECTIONS.find(item => item.id === proposed)?.label}», la que ya registraste para {[draft.brand.trim(), draft.system.trim()].filter(Boolean).join(" ")}</button>}
         </fieldset>
         <label className="block text-sm font-semibold">Etiqueta (trazabilidad)<select value={draft.productId} onChange={e => chooseLabel(e.target.value)} className={input} data-testid="implant-label"><option value="">Sin etiqueta vinculada</option>{labels.map(item => <option key={item.id} value={item.id}>{[item.tooth || "sin pieza", item.brand, item.lot && `lote ${item.lot}`, item.serial && `serie ${item.serial}`, dayLabel(item.placedOn)].filter(Boolean).join(" · ")}</option>)}</select></label>
-        <label className="block text-sm font-semibold">Nota (opcional)<textarea rows={2} value={draft.note} maxLength={600} onChange={e => set("note", e.target.value)} className={`${input} py-2`}/></label>
-        {draft.id === null && draft.phase && <p className="text-sm text-[#615f73]">Se guardará en etapa «{phaseLabel(draft.phase)}». Después puedes cambiarla en Etapas.</p>}
-        {draft.id !== null && <button type="button" disabled={busy !== ""} className="inline-flex min-h-11 w-full items-center justify-center gap-2 text-sm font-semibold text-rose-800" onClick={() => void remove()} data-testid="implant-delete"><Trash2 className="size-4" aria-hidden="true"/>Eliminar implante</button>}
-      </div>
+  </>;
+  const noteField = draft && <label className="block text-sm font-semibold">{draft.id === null ? "Nota (opcional)" : "Nota general del implante (opcional)"}<textarea rows={2} value={draft.note} maxLength={600} onChange={e => set("note", e.target.value)} className={`${input} py-2`} data-testid="implant-note"/></label>;
+  const noteAndRemove = draft && draft.id !== null && <>
+    {noteField}
+    <button type="button" disabled={busy !== ""} className="inline-flex min-h-11 w-full items-center justify-center gap-2 text-sm font-semibold text-rose-800" onClick={() => void remove()} data-testid="implant-delete"><Trash2 className="size-4" aria-hidden="true"/>Eliminar implante</button>
+  </>;
+
+  return <section className="space-y-4" data-testid="implantology">
+    <div className="surface space-y-3">
+      <div><h3 className="font-semibold">Implantología</h3><p className="mt-1 text-sm text-[#615f73]">Toca un diente para abrir su implante.</p></div>
+      <div className="space-y-2" role="group" aria-label="Implantograma">{arch(UPPER_ARCH)}<div className="border-t border-dashed border-[#d8d5e4]"/>{arch(LOWER_ARCH)}</div>
+      <div className="flex flex-wrap gap-2 text-xs" data-testid="implant-legend">{stageOptions((implants ?? []).map(item => item.phase)).map(item => <span key={item.id} className={`rounded-full border px-2 py-1 ${PHASE_COLOR[item.id]}`}>{item.label}</span>)}
+        {suggestions.length > 0 && <span className="rounded-full border border-dashed border-[#473a6d] px-2 py-1 text-[#473a6d]">Sugerido, sin ficha</span>}</div>
+      {implants === null && !error && <p role="status" className="text-sm text-[#615f73]">Cargando implantes…</p>}
+      {implants === null && error && <button type="button" className={secondary} onClick={() => { setError(""); void load(); }}>Volver a intentar</button>}
+      {!draft && messages}
+    </div>
+
+    {draft && <ImplantSheet title={draft.id === null ? `Nuevo implante ${draft.tooth}` : `Implante ${current?.tooth ?? draft.tooth}`} patientName={patient.name}
+      position={at >= 0 ? { at, total: ordered.length } : null} summary={current && <ImplantIdBox item={current} extra={trace}/>}
+      tabs={current && !(stage && tab === "etapas") ? [{ id: "etapas", label: "Etapas" }, { id: "imagenes", label: current.images.length ? `Imágenes (${current.images.length})` : "Imágenes" }] : null}
+      tab={tab} onTab={next => { setTab(next); setNotice(""); }} scrollKey={`${visit}-${tab}-${stage?.phase ?? ""}`} covered={open !== null} locked={busy !== ""} onStep={step} canClose={leave} onClosed={dismiss}
+      footer={(error || notice || mustSave) ? <>{messages}
+        {mustSave && <button type="button" className={`${primary} w-full`} disabled={busy !== ""} onClick={() => void save()} data-testid="implant-save">{busy === "saving" && <LoaderCircle className="size-4 animate-spin" aria-hidden="true"/>}{draft.id ? "Guardar cambios" : "Guardar implante"}</button>}
+      </> : null}>
+
+      {current && <div hidden={tab !== "etapas"} className="space-y-4">
+        {!stage ? <>
+          <StageList item={current} pieces={pieces} onOpen={openStage}/>
+          {noteAndRemove}
+        </> : <StagePage key={`${current.id}-${stage.phase}`} item={current} edit={stage} today={today()} busy={busy !== ""} images={images}
+          onEdit={change => setStage(previous => previous ? { ...previous, ...change } : previous)} onBack={closeStage} onChange={changeStage} onNote={was => void saveNote(was)}
+          onImages={(files, as) => void addStageImages(files, as)} onOpenImage={setOpen} onRemoveImage={id => void removeImage(id)}>
+          <BiomedicalProducts key={`${visit}-${stage.phase}`} embedded compact tool={productTool} patient={patient} startTooth={current.tooth}
+            slot={{ implant: current, implants: implants ?? [], phase: stage.phase, date: stageDate(current, stage, today()), kinds }}
+            onSaved={(product, added) => void pieceSaved(product, added)}
+            onUploadImage={onUploadImage} onRemoveImage={onRemoveImage} onImageGone={onImageGone} onChanged={() => { void load(); onChanged(); }}/>
+          {stage.phase === "cirugia" && <details className="rounded-xl border border-[#e6e4ee] px-3" data-testid="implant-data"><summary className="cursor-pointer py-3 text-sm font-semibold text-[#473a6d]">Datos del implante (medidas, conexión, torque, ISQ)</summary><div className="space-y-4 pb-3" data-testid="implant-form">{dataFields}</div></details>}
+        </StagePage>}
+      </div>}
+
+      {draft.id === null && <div className="space-y-4" data-testid="implant-form">
+        {/* Mientras se guarda el implante no se empieza un producto: al terminar, la ficha cambia a sus etapas. */}
+        <fieldset disabled={busy === "saving"} className="min-w-0">
+          <BiomedicalProducts key={visit} embedded compact tool={productTool} patient={patient} startTooth={draft.tooth} onSaved={(product, created, implantKnown) => void productSaved(product, created, implantKnown)}
+            onUploadImage={onUploadImage} onRemoveImage={onRemoveImage} onImageGone={onImageGone} onChanged={() => { void load(); onChanged(); }}/>
+        </fieldset>
+        {sameTooth > 0 && <p className="text-sm text-[#7a5a12]">Ya hay una ficha de implante en la {draft.tooth}. Guarda otra solo si es un implante distinto.</p>}
+        {dataFields}
+        {noteField}
+        {draft.phase && <p className="text-sm text-[#615f73]">Se guardará en etapa «{phaseLabel(draft.phase)}». Después puedes cambiarla en Etapas.</p>}
+      </div>}
 
       {current && <div hidden={tab !== "imagenes"} className="space-y-3" data-testid="implant-images"
         onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); void receive([...e.dataTransfer.files]); }}>
-        <div className="flex flex-wrap gap-2" role="group" aria-label="Tipo de imagen">{IMPLANT_VIEWS.map(item => <button key={item} type="button" aria-pressed={view === item} className={chip(view === item)} onClick={() => setView(item)}>{item}</button>)}</div>
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Tipo de imagen">{IMPLANT_VIEWS.filter((item): item is CaptureView => item !== "Foto clínica").map(item => <button key={item} type="button" aria-pressed={view === item} className={chip(view === item)} onClick={() => setView(item)}>{item}</button>)}</div>
         {showCapturer && windows && <CaptureLink key={current.id} target={`implante ${current.tooth}`} patientName={patient.name} view={view} busy={busy === "image"} onHeld={count => { held.current = count; }}
           onCapture={(file, as) => addFiles([file], as)} onProblem={message => { setNotice(""); setError(message); }}/>}
         <div className="grid grid-cols-2 gap-2">
@@ -546,7 +668,7 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
           const image = images.find(found => found.id === item.imageId);
           return <li key={item.imageId} className="overflow-hidden rounded-xl border border-[#e6e4ee] bg-white">
             {image ? <button type="button" className="block h-36 w-full bg-[#1f1b30]" onClick={() => setOpen(image)} aria-label={`Abrir ${item.view}`}><img src={thumbUrl(image.url)} loading="lazy" alt={`${item.view}, implante ${current.tooth}`} className="h-36 w-full object-contain"/></button> : <p className="flex h-36 items-center justify-center text-xs text-[#615f73]">Cargando…</p>}
-            <div className="flex items-center justify-between gap-2 px-2 py-1"><span className="text-sm font-medium">{item.view}</span><button type="button" className="rounded-lg p-2 text-rose-800 hover:bg-rose-50" aria-label={`Eliminar imagen ${item.view}`} onClick={() => void removeImage(item.imageId)}><Trash2 className="size-4"/></button></div>
+            <div className="flex items-center justify-between gap-2 px-2 py-1"><span className="min-w-0 text-sm font-medium">{item.view}{item.stage && <span className="block truncate text-xs font-normal text-[#615f73]">{phaseLabel(item.stage)}</span>}</span><button type="button" className="rounded-lg p-2 text-rose-800 hover:bg-rose-50" aria-label={`Eliminar imagen ${item.view}`} onClick={() => void removeImage(item.imageId)}><Trash2 className="size-4"/></button></div>
           </li>;
         })}</ul> : <p className="text-sm text-[#6b6a7c]">Aún no hay imágenes de este implante.</p>}
         {showCapturer && windows && <details className="rounded-xl border border-[#e6e4ee] px-3" data-testid="implant-capturer">

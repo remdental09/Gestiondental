@@ -1,5 +1,6 @@
 import { chileDay } from "./chile-day.ts";
-import { connectionText, implantSummary, phaseLabel, type backupImplant } from "./implants.ts";
+import { connectionText, implantSummary, phaseLabel, stageOptions, type backupImplant, type RecordedPhase } from "./implants.ts";
+import { pieceKind, stagePieces } from "./implant-pieces.ts";
 import { categoryLabel, parseDetails, productFigureLines, type ProductCategory } from "./biomedical-products.ts";
 
 /**
@@ -20,7 +21,7 @@ export type MarkdownRecord = {
   imageMetadata: Array<{ name: string; driveFile?: string; kind?: string | null; note?: string | null; addedAt?: string | null }>;
   implants?: Array<ReturnType<typeof backupImplant>>;
   biomedicalProducts?: Array<{ id: number; category?: string; brand?: string; model?: string; diameter?: string; length?: string; reference?: string; lot?: string; serial?: string; manufactured?: string; expiry?: string;
-    manufacturer?: string; registration?: string; gtin?: string; details?: unknown; code?: string; tooth?: string; placedOn?: string; note?: string }>;
+    manufacturer?: string; registration?: string; gtin?: string; details?: unknown; code?: string; tooth?: string; placedOn?: string; note?: string; kind?: string; implantId?: number | null; stage?: string }>;
   documents?: Array<{ title: string; kind?: string; content: string; status?: string; createdAt?: string; createdByName?: string; signature?: { signerName: string; signerRole: string; signerRelation: string; signedAt: string; method: string; signatureHash: string } }>;
 };
 
@@ -96,15 +97,26 @@ export function fichaMarkdown(record: MarkdownRecord, generatedAt = ""): string 
     const trace = label ? [label.reference && `ref. ${label.reference}`, label.lot && `lote ${label.lot}`, label.serial && `serie ${label.serial}`].filter(Boolean).join(", ") : "";
     const stages = (item.history ?? []).map(entry => `${phaseLabel(entry.phase)} ${entry.date ? entry.date.split("-").reverse().join("-") : "sin fecha"}`).join(", ");
     const details = [implantSummary(item), connectionText(item.connection), trace && `etiqueta: ${cell(trace)}`, item.placedOn && `instalado ${item.placedOn.split("-").reverse().join("-")}`, stages && `etapas: ${stages}`, item.torque !== null && `torque ${item.torque} Ncm`, item.isq !== null && `ISQ ${item.isq}`,
-      item.images.length && `imágenes: ${item.images.map(image => `${image.view} (adjunto ${image.imageId})`).join(", ")}`, item.note.replace(/\n/g, " ")].filter(Boolean);
-    return `- **${item.tooth}** · ${phaseLabel(item.phase)}${details.length ? ` · ${details.join(" · ")}` : ""}`;
+      item.images.length && `imágenes: ${item.images.map(image => `${image.view}${image.stage ? ` de ${phaseLabel(image.stage)}` : ""} (adjunto ${image.imageId})`).join(", ")}`, item.note.replace(/\n/g, " ")].filter(Boolean);
+    const pieces = (record.biomedicalProducts ?? []).map(product => ({ ...product, implantId: product.implantId ?? null, stage: product.stage ?? "", kind: product.kind ?? "", category: product.category ?? "otro", tooth: product.tooth ?? "" }));
+    const phases = [...stageOptions((item.history ?? []).map(entry => entry.phase)).map(entry => entry.id as RecordedPhase),
+      // Una fase retirada también se imprime si tiene algo anotado.
+      "osteointegracion" as const].filter((id, index, list) => list.indexOf(id) === index);
+    // Qué se usó en cada fase: sus piezas y materiales y la nota. Solo las fases con algo anotado.
+    const used = phases.flatMap(phase => {
+      // Breve: el detalle completo de cada una va en «Productos biomédicos».
+      const mine = stagePieces(pieces, item, phase).map(piece => [pieceKind(piece), piece.brand || piece.model, piece.lot && `lote ${piece.lot}`, piece.serial && `serie ${piece.serial}`].filter(Boolean).map(cell).join(", "));
+      const note = item.stageNotes?.[phase];
+      return mine.length || note ? [`  - ${phaseLabel(phase)}: ${[mine.join("; "), note && `nota: ${cell(note)}`].filter(Boolean).join(" · ")}`] : [];
+    });
+    return [`- **${item.tooth}** · ${phaseLabel(item.phase)}${details.length ? ` · ${details.join(" · ")}` : ""}`, ...used].join("\n");
   }), "");
 
   if (record.biomedicalProducts?.length) out.push("## Productos biomédicos", "", ...record.biomedicalProducts.map(item => {
     const lines = productFigureLines({ ...item, reference: item.reference ?? "", lot: item.lot ?? "", serial: item.serial ?? "", expiry: item.expiry ?? "", manufacturer: item.manufacturer ?? "", note: item.note ?? "",
-      details: "[]", placedOnLabel: item.placedOn ? item.placedOn.split("-").reverse().join("-") : "sin fecha" });
+      details: "[]", stageLabel: item.implantId && item.stage ? phaseLabel(item.stage) : "", placedOnLabel: item.placedOn ? item.placedOn.split("-").reverse().join("-") : "sin fecha" });
     const rest = [...parseDetails(item.details).map(detail => detail.label ? `${detail.label}: ${detail.value}` : detail.value), item.code ? `Contenido del código: ${item.code}` : ""];
-    return `- **${categoryLabel((item.category || "otro") as ProductCategory)}**${item.brand ? ` · ${cell(item.brand)}` : ""}${item.tooth ? ` · pieza ${item.tooth}` : ""} · ${[...lines, ...rest].filter(Boolean).map(cell).join(" · ")}`;
+    return `- **${item.kind ? cell(item.kind) : categoryLabel((item.category || "otro") as ProductCategory)}**${item.brand ? ` · ${cell(item.brand)}` : ""}${item.tooth ? ` · pieza ${item.tooth}` : ""} · ${[...lines, ...rest].filter(Boolean).map(cell).join(" · ")}`;
   }), "");
 
   out.push("## Presupuestos", "");

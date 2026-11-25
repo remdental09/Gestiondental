@@ -5,7 +5,7 @@ import { displayName } from "@/lib/clinician-profile";
 import { getDb } from "@/db";
 import { biomedicalProducts, clinicalImages, implants, patients } from "@/db/schema";
 import { PRODUCT_IMAGE_KIND, santiagoToday } from "@/lib/biomedical-products";
-import { MAX_IMPLANTS_PER_PATIENT, MAX_IMPLANT_IMAGES, cleanImplantFields, cleanImplantImage, mergeImplantEdit, parseHistory, parseImplantImages, recordPhase, setStage, type ImplantImage } from "@/lib/implants";
+import { MAX_IMPLANTS_PER_PATIENT, MAX_IMPLANT_IMAGES, cleanImplantFields, cleanImplantImage, mergeImplantEdit, parseHistory, parseImplantImages, parseStageNotes, recordPhase, setStage, setStageNote, type ImplantImage } from "@/lib/implants";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -20,6 +20,7 @@ const view = (row: Row, available?: Set<number>) => ({
   diameter: row.diameter, length: row.length, placedOn: row.placedOn, torque: row.torque, isq: row.isq, productId: row.productId, note: row.note,
   // Una imagen borrada desde la pestaña Imágenes deja de aparecer aquí.
   images: parseImplantImages(row.images).filter(image => !available || available.has(image.imageId)),
+  stageNotes: parseStageNotes(row.stageNotes),
   createdByName: row.createdByName, createdAt: row.createdAt, updatedAt: row.updatedAt,
 });
 
@@ -48,18 +49,23 @@ export async function GET(request: Request) {
   try {
     const db = getDb(), ownerId = checked.user.userId;
     if (!await ownsPatient(ownerId, patientId)) return fail("Paciente no encontrado.", 404);
-    const [rows, labels, images, connections] = await Promise.all([
+    const [rows, products, images, connections, kinds] = await Promise.all([
       db.select().from(implants).where(and(eq(implants.ownerId, ownerId), eq(implants.patientId, patientId))).orderBy(asc(implants.tooth), asc(implants.id)),
-      db.select().from(biomedicalProducts).where(and(eq(biomedicalProducts.ownerId, ownerId), eq(biomedicalProducts.patientId, patientId), eq(biomedicalProducts.category, "implante"))).orderBy(desc(biomedicalProducts.placedOn), desc(biomedicalProducts.id)),
+      db.select().from(biomedicalProducts).where(and(eq(biomedicalProducts.ownerId, ownerId), eq(biomedicalProducts.patientId, patientId))).orderBy(desc(biomedicalProducts.placedOn), desc(biomedicalProducts.id)),
       db.select({ id: clinicalImages.id }).from(clinicalImages).where(and(eq(clinicalImages.ownerId, ownerId), eq(clinicalImages.patientId, patientId))),
       // Conexiones ya confirmadas por marca y sistema en esta cuenta, para proponerlas. No incluye datos de pacientes.
       db.select({ brand: implants.brand, system: implants.system, connection: implants.connection }).from(implants).where(and(eq(implants.ownerId, ownerId), ne(implants.connection, ""), ne(implants.brand, ""))).orderBy(desc(implants.updatedAt), desc(implants.id)).limit(500),
+      // Nombres de piezas que esta cuenta ya usó, para ofrecerlos. Solo el nombre del tipo, sin datos de pacientes.
+      db.select({ kind: biomedicalProducts.kind }).from(biomedicalProducts).where(and(eq(biomedicalProducts.ownerId, ownerId), ne(biomedicalProducts.kind, ""))).orderBy(desc(biomedicalProducts.id)).limit(500),
     ]);
     const available = new Set(images.map(image => image.id));
     return ok({
       implants: rows.map(row => view(row, available)),
       connections,
-      labels: labels.map(p => ({ id: p.id, tooth: p.tooth, brand: p.brand, reference: p.reference, lot: p.lot, serial: p.serial, placedOn: p.placedOn, model: p.model, diameter: p.diameter, length: p.length })),
+      kinds: [...new Set(kinds.map(item => item.kind))].slice(0, 40),
+      // Lo mínimo de cada producto para el resumen de las fases.
+      pieces: products.map(p => ({ id: p.id, implantId: p.implantId, stage: p.stage, kind: p.kind, category: p.category, tooth: p.tooth, brand: p.brand, model: p.model, reference: p.reference, lot: p.lot, serial: p.serial, diameter: p.diameter, length: p.length })),
+      labels: products.filter(p => p.category === "implante").map(p => ({ id: p.id, tooth: p.tooth, brand: p.brand, reference: p.reference, lot: p.lot, serial: p.serial, placedOn: p.placedOn, model: p.model, diameter: p.diameter, length: p.length })),
     });
   } catch { return fail("No se pudieron cargar los implantes.", 500); }
 }
@@ -90,8 +96,8 @@ export async function POST(request: Request) {
 }
 
 /**
- * Cuatro usos: corregir los datos, marcar una etapa con su fecha o quitar la marca (`markStage`),
- * añadir una imagen (`addImage`) o desvincularla (`removeImageId`).
+ * Cinco usos: corregir los datos, marcar una etapa con su fecha o quitar la marca (`markStage`),
+ * escribir la nota de una fase (`stageNote`), añadir una imagen (`addImage`) o desvincularla (`removeImageId`).
  */
 export async function PATCH(request: Request) {
   const checked = await guard(request, true);
@@ -122,6 +128,10 @@ export async function PATCH(request: Request) {
           if (list.length > MAX_IMPLANT_IMAGES) return fail(`Máximo ${MAX_IMPLANT_IMAGES} imágenes por implante.`);
         } else list = list.filter(i => i.imageId !== positive(body.removeImageId));
         change = { images: JSON.stringify(list) };
+      } else if (body.stageNote !== undefined) {
+        const edited = setStageNote(current.stageNotes, body.stageNote);
+        if ("error" in edited) return fail(edited.error, edited.stale ? 409 : 400);
+        change = { stageNotes: JSON.stringify(edited.notes) };
       } else if (body.markStage !== undefined) {
         const edited = setStage(parseHistory(current.history), current, body.markStage, santiagoToday());
         if ("error" in edited) return fail(edited.error, edited.stale ? 409 : 400);
@@ -136,14 +146,16 @@ export async function PATCH(request: Request) {
           history: JSON.stringify(recordPhase(parseHistory(current.history), current, cleaned.fields)) };
       }
       const [row] = await db.update(implants).set({ ...change, updatedAt: new Date().toISOString() })
-        .where(and(mine, eq(implants.images, current.images), eq(implants.history, current.history), eq(implants.phase, current.phase), eq(implants.updatedAt, current.updatedAt))).returning();
+        .where(and(mine, eq(implants.images, current.images), eq(implants.history, current.history), eq(implants.phase, current.phase), eq(implants.stageNotes, current.stageNotes), eq(implants.updatedAt, current.updatedAt))).returning();
+      // Al corregir la pieza del implante, lo anotado en sus fases pasa a la pieza correcta (si falló antes, se completa ahora).
+      if (row) await db.update(biomedicalProducts).set({ tooth: row.tooth }).where(and(eq(biomedicalProducts.ownerId, ownerId), eq(biomedicalProducts.implantId, row.id), ne(biomedicalProducts.tooth, row.tooth))).catch(() => undefined);
       if (row) return ok({ implant: view(row, available) });
     }
     return fail("El implante cambió mientras se guardaba. Intenta otra vez.", 409);
   } catch { return fail("No se pudo guardar el cambio.", 503); }
 }
 
-/** Quita la ficha del implante. Sus imágenes y su etiqueta quedan en la ficha del paciente. La confirmación la pide la pantalla. */
+/** Quita la ficha del implante. Sus imágenes y sus productos quedan en la ficha del paciente. La confirmación la pide la pantalla. */
 export async function DELETE(request: Request) {
   const checked = await guard(request, true);
   if (checked.error) return checked.error;
@@ -153,6 +165,7 @@ export async function DELETE(request: Request) {
   try {
     const [row] = await getDb().delete(implants).where(and(eq(implants.id, id), eq(implants.ownerId, ownerId))).returning();
     if (!row) return fail("Implante no encontrado.", 404);
+    await getDb().update(biomedicalProducts).set({ implantId: null, stage: "" }).where(and(eq(biomedicalProducts.ownerId, ownerId), eq(biomedicalProducts.implantId, id)));
     return ok({ ok: true });
   } catch { return fail("No se pudo quitar el implante.", 503); }
 }

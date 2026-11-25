@@ -111,7 +111,7 @@ test("subidas: pegar, arrastrar y subir pasan por la propuesta; nada se guarda s
   assert.match(panel, /onDrop=\{[^}]*receive\(/);
   assert.match(panel, /onChange=\{[^}]*receive\(/);
   assert.equal(panel.match(/receive\(files\)/g)?.length, 2, "Ctrl+V y botón Pegar");
-  assert.match(panel, /view === "Radiografía"[^\n]*addFiles\(files\)/);
+  assert.match(panel, /!isCutView\(view\)[^\n]*addFiles\(files\)/);
   assert.match(panel, /onCapture=\{\(file, as\) => addFiles\(\[file\], as\)\}/, "la capturadora ya recorta sola");
   assert.match(panel, /offers\.length > 0 && "las imágenes aún sin guardar"/, "cerrar o cambiar de implante pregunta");
   assert.match(panel, /if \(cutting\.current\) \{[^}]*return false; \}/);
