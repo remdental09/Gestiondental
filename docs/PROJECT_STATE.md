@@ -47,6 +47,7 @@
 
 ## Decisiones y pendientes
 - Conservar el acceso privado al publicar.
+- Respaldo (revisión del 24-nov-2026, previo a implantes): documentos, firmas y productos todavía se omiten sin aviso si su consulta falla; y una ficha sobre 250.000 caracteres detiene la revisión de las fichas siguientes de esa cuenta. Conviene aislar el error por ficha.
 - Capturadora de imágenes: falta probarla en Windows con Blue Sky Plan; después, envío directo a la ficha abierta y firma del ejecutable antes de ofrecerla a otros profesionales (la dirección de descarga exige sesión, pero cualquier cuenta que la conozca puede bajarla).
 - Las citas creadas en la ficha y los eventos importados desde Google Calendar se conservan en fuentes separadas. No fusionar ni asociar por coincidencia parcial; la importaci�n solo copia eventos del calendario autenticado del propietario.
 - Mostrar las piezas FDI con punto (por ejemplo, FDI 1.2; código compacto interno 12) junto a la equivalencia nacional chilena. Distinguir esta numeración de la Universal estadounidense: FDI 3.6 = Chile 30 = EE. UU. 19; FDI 4.6 = Chile 19 = EE. UU. 30. Una mención sin etiqueta «pieza 12» sigue la numeración nacional chilena; FDI 1.2 debe identificarse como FDI y no se debe confundir con ella. Indicar el sistema original en evoluciones.

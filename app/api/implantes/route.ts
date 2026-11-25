@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import { getChatGPTUser, personalIdOf } from "@/app/chatgpt-auth";
 import { loadProfile } from "@/app/clinician-profile-db";
 import { displayName } from "@/lib/clinician-profile";
@@ -96,32 +96,35 @@ export async function PATCH(request: Request) {
   try {
     const db = getDb();
     const mine = and(eq(implants.id, id), eq(implants.ownerId, ownerId));
-    const [current] = await db.select().from(implants).where(mine).limit(1);
-    if (!current) return fail("Implante no encontrado.", 404);
-    let change: Partial<Row>;
-    if (body.addImage !== undefined || body.removeImageId !== undefined) {
-      let list: ImplantImage[] = parseImplantImages(current.images);
-      if (list.length) {
-        const alive = await db.select({ id: clinicalImages.id }).from(clinicalImages).where(and(eq(clinicalImages.ownerId, ownerId), eq(clinicalImages.patientId, current.patientId), inArray(clinicalImages.id, list.map(i => i.imageId))));
-        const ids = new Set(alive.map(i => i.id));
-        list = list.filter(i => ids.has(i.imageId));
+    // Los vínculos de imágenes se escriben solo si nadie los cambió entre la lectura y la escritura; si cambiaron, se relee.
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const [current] = await db.select().from(implants).where(mine).limit(1);
+      if (!current) return fail("Implante no encontrado.", 404);
+      const alive = await db.select({ id: clinicalImages.id, kind: clinicalImages.kind }).from(clinicalImages).where(and(eq(clinicalImages.ownerId, ownerId), eq(clinicalImages.patientId, current.patientId)));
+      const kinds = new Map(alive.map(image => [image.id, image.kind]));
+      const available = new Set(kinds.keys());
+      let change: Partial<Row>;
+      if (body.addImage !== undefined || body.removeImageId !== undefined) {
+        let list: ImplantImage[] = parseImplantImages(current.images).filter(i => available.has(i.imageId));
+        if (body.addImage !== undefined) {
+          const added = cleanImplantImage(body.addImage);
+          if (!added) return fail("Imagen no válida.");
+          // Solo imágenes de este mismo paciente; la foto de una etiqueta no es un corte.
+          if (!kinds.has(added.imageId) || kinds.get(added.imageId) === PRODUCT_IMAGE_KIND) return fail("La imagen no pertenece a este paciente.", 404);
+          list = [...list.filter(i => i.imageId !== added.imageId), added];
+          if (list.length > MAX_IMPLANT_IMAGES) return fail(`Máximo ${MAX_IMPLANT_IMAGES} imágenes por implante.`);
+        } else list = list.filter(i => i.imageId !== positive(body.removeImageId));
+        change = { images: JSON.stringify(list) };
+      } else {
+        const cleaned = cleanImplantFields(body, santiagoToday());
+        if ("error" in cleaned) return fail(cleaned.error);
+        change = { ...cleaned.fields, productId: await ownLabel(ownerId, current.patientId, cleaned.fields.productId) };
       }
-      if (body.addImage !== undefined) {
-        const added = cleanImplantImage(body.addImage);
-        if (!added) return fail("Imagen no válida.");
-        const [image] = await db.select({ id: clinicalImages.id, kind: clinicalImages.kind }).from(clinicalImages).where(and(eq(clinicalImages.id, added.imageId), eq(clinicalImages.ownerId, ownerId), eq(clinicalImages.patientId, current.patientId))).limit(1);
-        if (!image || image.kind === PRODUCT_IMAGE_KIND) return fail("La imagen no pertenece a este paciente.", 404);
-        list = [...list.filter(i => i.imageId !== added.imageId), added];
-        if (list.length > MAX_IMPLANT_IMAGES) return fail(`Máximo ${MAX_IMPLANT_IMAGES} imágenes por implante.`);
-      } else list = list.filter(i => i.imageId !== positive(body.removeImageId));
-      change = { images: JSON.stringify(list) };
-    } else {
-      const cleaned = cleanImplantFields(body, santiagoToday());
-      if ("error" in cleaned) return fail(cleaned.error);
-      change = { ...cleaned.fields, productId: await ownLabel(ownerId, current.patientId, cleaned.fields.productId) };
+      const [row] = await db.update(implants).set({ ...change, updatedAt: new Date().toISOString() })
+        .where(and(mine, eq(implants.images, current.images))).returning();
+      if (row) return ok({ implant: view(row, available) });
     }
-    const [row] = await db.update(implants).set({ ...change, updatedAt: new Date().toISOString() }).where(mine).returning();
-    return ok({ implant: view(row!) });
+    return fail("El implante cambió mientras se guardaba. Intenta otra vez.", 409);
   } catch { return fail("No se pudo guardar el cambio.", 503); }
 }
 

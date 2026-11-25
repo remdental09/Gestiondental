@@ -66,7 +66,8 @@ export async function getDriveSnapshot(ownerId: string, patientId: number, conne
       Promise.resolve().then(queries.signatures).catch(() => [] as (typeof consentSignatures.$inferSelect)[]),
       // Trazabilidad de productos biomédicos: si la tabla aún no existe o falla, el respaldo sigue sin ella.
       Promise.resolve().then(queries.products).catch(() => [] as (typeof biomedicalProducts.$inferSelect)[]),
-      Promise.resolve().then(queries.implants).catch(() => [] as (typeof implants.$inferSelect)[]),
+      // Los implantes no se omiten en silencio: si la consulta falla, falla el respaldo y se reintenta (nunca queda «verificado» incompleto).
+      queries.implants(),
     ]);
     rows = { patient, notes, plans, visits, exams, teeth, attachments: images, documents, backups, signatures, products, implantRows };
   }

@@ -73,6 +73,8 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
   const fileRef = useRef<HTMLInputElement | null>(null);
   const formRef = useRef<HTMLDivElement | null>(null);
   const working = useRef(false);
+  /** Cambia cada vez que se abre o cierra una ficha: una respuesta tardía no pisa la que está en pantalla. */
+  const session = useRef(0);
 
   useEffect(() => { setWindows(/Windows/i.test(navigator.userAgent)); }, []);
   const load = useCallback(async () => {
@@ -95,6 +97,7 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
 
   const show = (next: Draft | null) => {
     if (dirty && !window.confirm("Hay cambios sin guardar en este implante. ¿Descartarlos?")) return;
+    session.current++;
     setDraft(next); setBaseline(next ? JSON.stringify(next) : ""); setError(""); setNotice("");
     if (next) requestAnimationFrame(() => formRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }));
   };
@@ -109,13 +112,17 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
   const chooseLabel = (value: string) => setDraft(previous => {
     if (!previous) return previous;
     const label = labels.find(item => String(item.id) === value);
-    // Solo completa lo que está vacío: lo escrito por el profesional no se pisa.
-    return { ...previous, productId: value, brand: previous.brand || label?.brand || "", placedOn: previous.placedOn || label?.placedOn || "" };
+    // Completa lo vacío o lo que venía de la etiqueta anterior; lo escrito por el profesional no se pisa.
+    if (!label) return { ...previous, productId: value };
+    const old = labels.find(item => String(item.id) === previous.productId);
+    const fill = (now: string, from: string | undefined, to: string) => !now || now === from ? to : now;
+    return { ...previous, productId: value, brand: fill(previous.brand, old?.brand, label.brand), placedOn: fill(previous.placedOn, old?.placedOn, label.placedOn) };
   });
 
   const save = async () => {
     if (!draft || busy) return;
     setBusy("saving"); setError("");
+    const opened = session.current;
     try {
       const { id, ...fields } = draft;
       const { implant } = await send<{ implant: Implant }>(id ? "PATCH" : "POST", { ...fields, ...(id ? { id } : { patientId: patient.id }) });
@@ -124,8 +131,12 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
         return [...kept, implant].sort((a, b) => a.tooth.localeCompare(b.tooth) || a.id - b.id);
       });
       const next = toDraft(implant);
-      setDraft(next); setBaseline(JSON.stringify(next));
-      setNotice(id ? "Cambios guardados." : "Implante guardado. Ya puedes pegar o subir sus imágenes.");
+      // Si mientras se guardaba se abrió otra ficha, no se reemplaza lo que hay en pantalla.
+      if (session.current === opened) {
+        // Lo que se haya escrito mientras se guardaba se conserva como cambio pendiente.
+        setDraft(previous => previous && previous !== draft ? { ...previous, id: next.id } : next); setBaseline(JSON.stringify(next));
+      }
+      setNotice(id ? `Cambios guardados en el implante ${implant.tooth}.` : `Implante ${implant.tooth} guardado. Ya puedes pegar o subir sus imágenes.`);
       onChanged();
     } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo guardar el implante."); }
     finally { setBusy(""); }
@@ -172,6 +183,8 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
     const onPaste = (event: ClipboardEvent) => {
       const files = [...(event.clipboardData?.items ?? [])].filter(item => item.kind === "file" && item.type.startsWith("image/")).flatMap(item => { const file = item.getAsFile(); return file ? [file] : []; });
       if (!files.length) return;
+      // Texto copiado de Word o Excel suele traer además una imagen: en un campo de texto se pega como texto.
+      if (event.target instanceof Element && event.target.closest("input, textarea") && event.clipboardData?.getData("text/plain")) return;
       event.preventDefault();
       void addFiles(files);
     };
@@ -194,16 +207,16 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
   };
 
   const removeImage = async (imageId: number) => {
-    if (!current || busy) return;
+    if (!current || busy || working.current) return;
     if (!window.confirm("¿Desea eliminar esta imagen? Se borrará de la ficha del paciente y no se puede deshacer.")) return;
-    setBusy("image"); setError("");
+    working.current = true; setBusy("image"); setError("");
     try {
       const { implant } = await send<{ implant: Implant }>("PATCH", { id: current.id, removeImageId: imageId });
       setImplants(previous => (previous ?? []).map(item => item.id === implant.id ? implant : item));
       await onRemoveImage(imageId);
       setNotice("Imagen eliminada."); onChanged();
     } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo quitar la imagen."); }
-    finally { setBusy(""); }
+    finally { working.current = false; setBusy(""); }
   };
 
   const suggestions = implants ? implantSuggestions({ implants, labels, teeth, crowns }) : [];

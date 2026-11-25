@@ -64,6 +64,8 @@ test("implantes: resumen y respaldo incluyen solo lo registrado", () => {
   assert.match(markdown, /## Implantes/);
   assert.match(markdown, /\*\*3\.6\*\* · Cirugía · Marca A · 4,1 × 10 mm · instalado 24-11-2026 · torque 35 Ncm · imágenes: Axial \(adjunto 3\)/);
   assert.doesNotMatch(markdown, /ISQ/);
+  const traced = fichaMarkdown({ ...base, implants: [{ ...saved, productId: 5 }], biomedicalProducts: [{ id: 5, reference: "R1", lot: "L1", serial: "" }] });
+  assert.match(traced, /etiqueta: ref\. R1, lote L1/);
 });
 
 test("implantes: la migración 0027 solo agrega la tabla, se puede repetir y está en el journal", () => {
@@ -95,6 +97,8 @@ test("implantes: permisos, pestaña, respaldo, descarga y capturadora conectados
   assert.match(page, /showCapturer=\{isDeveloper\}/);
   assert.match(read("app/drive-backup.ts"), /implantRows\.length \?/);
   assert.match(read("app/api/clinical/export/route.ts"), /implantRows/);
+  for (const file of ["app/drive-backup.ts", "app/api/clinical/export/route.ts"]) assert.doesNotMatch(read(file), /from\(implants\)[^\n]*\.catch|queries\.implants\)\.catch/, "los implantes no se omiten en silencio");
+  assert.match(route, /eq\(implants\.images, current\.images\)/, "dos cambios de imágenes no se pisan");
   const panel = read("components/implantology.tsx");
   assert.match(panel, /¿Desea eliminar/);
   assert.match(panel, /\/descargas\/capturadora-speakdent-prueba\.zip/);
