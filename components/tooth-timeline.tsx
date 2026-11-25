@@ -38,6 +38,15 @@ export function ToothTimeline({ tooth, history, exams, mode, editableIds = [], o
     .filter((event) => event.tooth === tooth)
     .map((event) => ({ id: event.id, day: dayOf(event.clinicalDate, event.recordedAt), title: spanishTitle(event.title || event.eventType), detail: event.detail || "", manual: event.source === "manual" }))
     .sort((a, b) => b.day.localeCompare(a.day));
+  const sessions = events.reduce<Array<{ key: string; day: string; events: typeof events }>>((groups, event) => {
+    // Agrupa los hitos de una misma pieza y día en una atención; los hitos sin fecha
+    // quedan separados porque no hay una fecha fiable para afirmar que son la misma sesión.
+    const key = event.day ? `day:${event.day}` : `event:${event.id}`;
+    const session = groups.find((item) => item.key === key);
+    if (session) session.events.push(event);
+    else groups.push({ key, day: event.day, events: [event] });
+    return groups;
+  }, []);
   const measured = exams
     .filter((exam) => exam.teeth[tooth])
     .map((exam) => ({ exam, data: exam.teeth[tooth], day: dayOf(exam.recordedAt) }))
@@ -56,9 +65,14 @@ export function ToothTimeline({ tooth, history, exams, mode, editableIds = [], o
       <h4 className="font-semibold">Evolución de la pieza FDI {formatFdi(tooth)}</h4>
       {message ? <p role="alert" className="mt-2 text-sm text-rose-700">{message}</p> : null}
       {mode === "odontograma" && (
-        <ul className="mt-3 space-y-2 text-sm text-[#3b3355]">
-          {events.length === 0 && <li className="text-[#6b6a7c]">Sin cambios registrados para esta pieza.</li>}
-          {events.map((event) => {
+        <div className="mt-3 space-y-2 text-sm text-[#3b3355]">
+          {events.length === 0 && <p className="text-[#6b6a7c]">Sin cambios registrados para esta pieza.</p>}
+          {sessions.map((session, sessionIndex) => <details key={session.key} className="rounded-lg border border-[#e6e4ee] bg-white p-2.5" open={sessionIndex === 0} data-testid="tooth-evolution-session">
+            <summary className="cursor-pointer font-semibold text-[#473a6d]">
+              {shown(session.day)}{session.events.length > 1 ? <span className="ml-2 text-xs font-normal text-[#6b6a7c]">{session.events.length} registros de la misma atención</span> : null}
+            </summary>
+            <ul className="mt-2 space-y-2">
+          {session.events.map((event) => {
             const editable = editableIds.includes(event.id);
             if (editingEvent === event.id) {
               return (
@@ -75,7 +89,7 @@ export function ToothTimeline({ tooth, history, exams, mode, editableIds = [], o
             }
             return (
               <li key={event.id} className="rounded-lg border border-[#e6e4ee] p-2.5">
-                <span className="font-semibold text-[#473a6d]">{shown(event.day)}</span> · {event.title}
+                <span className="font-semibold text-[#473a6d]">{event.title}</span>
                 {event.detail ? <span className="text-[#615f73]"> — {event.detail}</span> : null}
                 {event.manual ? <span className="ml-2 text-xs text-[#6b6a7c]">(manual)</span> : null}
                 {editable && onEditEvent ? <button type="button" className="ml-3 text-xs font-semibold text-[#473a6d] underline" aria-label={`Editar hito ${event.title}`} onClick={() => { setEditingEvent(event.id); setEventDraft({ title: event.title, detail: event.detail, clinicalDate: event.day }); }}>Editar</button> : null}
@@ -83,7 +97,9 @@ export function ToothTimeline({ tooth, history, exams, mode, editableIds = [], o
               </li>
             );
           })}
-        </ul>
+            </ul>
+          </details>)}
+        </div>
       )}
       {mode === "periodontograma" && (
         measured.length === 0 ? <p className="mt-3 text-sm text-[#6b6a7c]">Sin sondaje registrado para esta pieza.</p> : (
