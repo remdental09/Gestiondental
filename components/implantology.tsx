@@ -167,7 +167,7 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
     } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo quitar el implante."); }
   };
 
-  const addFiles = useCallback(async (files: File[]): Promise<"saved" | "busy" | "failed"> => {
+  const addFiles = useCallback(async (files: File[], as: ImplantView = view): Promise<"saved" | "busy" | "failed"> => {
     const target = current;
     if (working.current) return "busy";
     if (!files.length) return "failed";
@@ -178,15 +178,15 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
     try {
       for (const original of files) {
         const extension = original.type === "image/png" ? "png" : original.type === "image/webp" ? "webp" : "jpg";
-        const file = new File([original], `Implante ${target.tooth} ${view} ${today()}.${extension}`, { type: original.type });
-        const image = await onUploadImage(file, imageKindForView(view), `Implante ${target.tooth} · ${view}`);
+        const file = new File([original], `Implante ${target.tooth} ${as} ${today()}.${extension}`, { type: original.type });
+        const image = await onUploadImage(file, imageKindForView(as), `Implante ${target.tooth} · ${as}`);
         try {
-          const { implant } = await send<{ implant: Implant }>("PATCH", { id: target.id, addImage: { imageId: image.id, view } });
+          const { implant } = await send<{ implant: Implant }>("PATCH", { id: target.id, addImage: { imageId: image.id, view: as } });
           setImplants(previous => (previous ?? []).map(item => item.id === implant.id ? implant : item));
         } catch (reason) { await onRemoveImage(image.id).catch(() => undefined); throw reason; }
         added++;
       }
-      setNotice(`${added === 1 ? "Imagen guardada" : `${added} imágenes guardadas`} en el implante ${target.tooth} de ${patient.name} · ${view}.`);
+      setNotice(`${added === 1 ? "Imagen guardada" : `${added} imágenes guardadas`} en el implante ${target.tooth} de ${patient.name} · ${as}.`);
       onChanged();
       return "saved";
     } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo guardar la imagen."); return "failed"; }
@@ -362,8 +362,8 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
         onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); void addFiles([...e.dataTransfer.files]); }}>
         <div><h4 className="font-semibold">Imágenes del implante {current.tooth}</h4><p className="text-sm text-[#615f73]">Elige el tipo de corte y pega con Ctrl+V, o arrastra el archivo aquí.</p></div>
         <div className="flex flex-wrap gap-2" role="group" aria-label="Tipo de imagen">{IMPLANT_VIEWS.map(item => <button key={item} type="button" aria-pressed={view === item} className={chip(view === item)} onClick={() => setView(item)}>{item}</button>)}</div>
-        {showCapturer && windows && <CaptureLink key={current.id} target={`implante ${current.tooth} de ${patient.name}`} view={view} busy={busy === "image"}
-          onCapture={file => addFiles([file])} onProblem={message => { setNotice(""); setError(message); }}/>}
+        {showCapturer && windows && <CaptureLink key={current.id} target={`implante ${current.tooth}`} patientName={patient.name} view={view} busy={busy === "image"}
+          onCapture={(file, as) => addFiles([file], as)} onProblem={message => { setNotice(""); setError(message); }}/>}
         <div className="flex flex-wrap gap-2">
           <button type="button" className={primary} disabled={busy !== ""} onClick={() => void pasteButton()} data-testid="implant-paste">{busy === "image" ? <LoaderCircle className="size-4 animate-spin" aria-hidden="true"/> : <ClipboardPaste className="size-4" aria-hidden="true"/>}{busy === "image" ? "Guardando…" : "Pegar imagen"}</button>
           <button type="button" className={secondary} disabled={busy !== ""} onClick={() => fileRef.current?.click()}><ImagePlus className="size-4" aria-hidden="true"/>Subir imagen</button>
@@ -389,7 +389,7 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
 
     {showCapturer && windows && <div className="surface space-y-2" data-testid="implant-capturer">
       <h3 className="font-semibold">Capturadora de imágenes (Windows, versión de prueba)</h3>
-      <p className="text-sm text-[#615f73]">Versión 0.2: con la ficha de un implante abierta, lo que captures con F8 entra solo a sus imágenes. Si tenías la anterior, ciérrala antes de abrir esta. Aún no está firmada, por eso solo la ve la cuenta de desarrollo.</p>
+      <p className="text-sm text-[#615f73]">Versión 0.3: marca una vez las vistas en la capturadora y, con un implante abierto, captura cada una o todas juntas. Si tenías la anterior, ciérrala antes de abrir esta. Aún no está firmada, por eso solo la ve la cuenta de desarrollo.</p>
       <a href="/descargas/capturadora-speakdent-prueba.zip" download className={secondary}><Download className="size-4" aria-hidden="true"/>Descargar capturadora</a>
     </div>}
 

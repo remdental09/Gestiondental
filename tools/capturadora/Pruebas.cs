@@ -12,12 +12,16 @@ class Falso : IAnfitrion
 {
     public string Nombre = "Blue Sky \"Plan\"";
     public string Pedida;
+    public bool Todas;
     public Puente Puente;
     public string Visor() { return Nombre; }
     public string Tecla() { return "F8"; }
-    public Resultado Capturar(string sesion)
+    public string Titulo() { return Nombre == null ? null : "Blue Sky Plan - PRUEBA FICTICIA - C:/estudios"; }
+    public string[] Marcadas() { return new[] { "transversal", "axial" }; }
+    public Resultado Capturar(string sesion, bool todas)
     {
         Pedida = sesion;
+        Todas = todas;
         if (Nombre == null) return Resultado.Mal("No veo un visor abierto.");
         Puente.Entregar(sesion, new byte[] { 137, 80, 78, 71, 1, 2, 3 }, Nombre);
         return Resultado.Bien();
@@ -69,6 +73,7 @@ static class Pruebas
             var previa = Pedir(p, "OPTIONS", "/capturar");
             Check("consulta previa", previa.Codigo == 204 && previa.Cabeceras.Contains("Access-Control-Allow-Origin: " + Sitio));
             var estado = Pedir(p, "GET", "/estado");
+            Check("estado sin nombre del estudio", !estado.Texto.Contains("PRUEBA FICTICIA") && !estado.Texto.Contains("titulo"));
             Check("estado", estado.Codigo == 200 && estado.Texto.Contains("capturadora-speakdent") && estado.Texto.Contains("Blue Sky \\\"Plan\\\"") && estado.Texto.Contains("\"tecla\":\"F8\""));
             Check("sesión corta rechazada", Pedir(p, "POST", "/escuchar?sesion=abc").Codigo == 400);
             Check("sesión rara rechazada", Pedir(p, "POST", "/escuchar?sesion=" + A + "%22").Codigo == 400);
@@ -115,13 +120,42 @@ static class Pruebas
             Pedir(p, "POST", "/soltar?sesion=" + B);
             Check("soltar apaga y borra", p.SesionActiva() == null && Id(Pedir(p, "GET", "/esperar?sesion=" + B).Texto) == null);
 
+            // Vista elegida en la ficha, título del estudio y «capturar todo».
+            var turno = Pedir(p, "POST", "/escuchar?sesion=" + A + "&vista=axial&encuadre=marcado");
+            Check("turno informa estudio y marcas", turno.Texto.Contains("PRUEBA FICTICIA") && turno.Texto.Contains("\"marcadas\":[\"transversal\",\"axial\"]"));
+            string v; bool completa;
+            p.Preferencia(A, out v, out completa);
+            Check("vista elegida", v == "axial" && !completa);
+            p.Preferencia(B, out v, out completa);
+            Check("otra sesión no tiene preferencia", v == null && !completa);
+            Check("ajustar vista", Pedir(p, "POST", "/ajustar?sesion=" + A + "&vista=panoramica&encuadre=completo").Texto.Contains("\"ok\":true"));
+            p.Preferencia(A, out v, out completa);
+            Check("vista ajustada", v == "panoramica" && completa);
+            Check("otra ficha no ajusta", Pedir(p, "POST", "/ajustar?sesion=" + B + "&vista=axial").Texto.Contains("\"ok\":false"));
+            p.Preferencia(A, out v, out completa);
+            Check("preferencia intacta", v == "panoramica");
+            Pedir(p, "POST", "/ajustar?sesion=" + A + "&vista=..%2Fx");
+            p.Preferencia(A, out v, out completa);
+            Check("vista desconocida se ignora", v == null);
+            Pedir(p, "POST", "/capturar?sesion=" + A);
+            Check("capturar una", !host.Todas);
+            Pedir(p, "POST", "/capturar?sesion=" + A + "&todas=1");
+            Check("capturar todas", host.Todas);
+            Pedir(p, "POST", "/soltar?sesion=" + A);
+            Pedir(p, "POST", "/escuchar?sesion=" + A);
+            p.Entregar(A, new byte[] { 3 }, "Blue Sky Plan", "vista3d", "Blue Sky Plan - X \"Y\"", "revisa");
+            var conVista = Pedir(p, "GET", "/esperar?sesion=" + A).Texto;
+            Check("la captura lleva vista, título y aviso", conVista.Contains("\"vista\":\"vista3d\"") && conVista.Contains("\"titulo\":\"Blue Sky Plan - X \\\"Y\\\"\"") && conVista.Contains("\"aviso\":\"revisa\""));
+            Pedir(p, "POST", "/soltar?sesion=" + A);
+            Check("sin turno no hay estudio", !Pedir(p, "GET", "/esperar?sesion=" + B).Texto.Contains("PRUEBA FICTICIA"));
+
             host.Nombre = null;
             Pedir(p, "POST", "/escuchar?sesion=" + A);
             Check("error de captura llega a la ficha", Pedir(p, "POST", "/capturar?sesion=" + A).Texto.Contains("No veo un visor abierto."));
             Thread.Sleep(1100);
             Check("sesión sin señales deja de recibir", p.SesionActiva() == null);
-            for (int i = 0; i < 20; i++) p.Entregar(A, new byte[] { (byte)i }, "x");
-            Check("cola limitada", Regex.Matches(Pedir(p, "GET", "/esperar?sesion=" + A).Texto, "\"id\"").Count == 12);
+            for (int i = 0; i < 24; i++) p.Entregar(A, new byte[] { (byte)i }, "x");
+            Check("cola limitada", Regex.Matches(Pedir(p, "GET", "/esperar?sesion=" + A).Texto, "\"id\"").Count == 16);
             Check("ruta desconocida", Pedir(p, "GET", "/archivos?sesion=" + A).Codigo == 404);
         }
         using (var p = new Puente(host, Puente.Origenes, 50, 900, 100))
@@ -146,15 +180,33 @@ static class Pruebas
         var manual = new WindowInfo { ByProcess = false, Area = 900 };
         Check("programa gana a título", Windows.Better(viewer, manual) && !Windows.Better(manual, viewer));
         Check("primera candidata", Windows.Better(manual, null));
+        var blue = new WindowInfo { ByProcess = true, Area = 100, Viewer = "Blue Sky Plan" };
+        var otro = new WindowInfo { ByProcess = true, Area = 900, Viewer = "CS Imaging" };
+        Check("Blue Sky va primero", Windows.Better(blue, otro) && !Windows.Better(otro, blue));
+        var pagina = new WindowInfo { ByProcess = false, Area = 900, Viewer = "Blue Sky Plan" };
+        Check("programa antes que título aunque sea Blue Sky", Windows.Better(otro, pagina));
+
         var s = new Settings();
         var crop = new RectangleF(0.1f, 0.2f, 0.5f, 0.25f);
-        s.SetCrop("BlueSkyPlan", crop);
-        var read = new Settings().GetCrop("BlueSkyPlan");
-        Check("recorte se recuerda", read != null && Math.Abs(read.Value.X - 0.1f) < 1e-5 && Math.Abs(read.Value.Height - 0.25f) < 1e-5);
-        new Settings().SetCrop("BlueSkyPlan", null);
-        Check("recorte se quita", new Settings().GetCrop("BlueSkyPlan") == null);
-        new Settings().Set("recorte.malo", "a;b;c;d");
-        Check("recorte dañado se ignora", new Settings().GetCrop("malo") == null);
+        s.SetRegion("BlueSkyPlan", "axial", crop);
+        var read = new Settings().GetRegion("BlueSkyPlan", "axial");
+        Check("vista se recuerda", read != null && Math.Abs(read.Value.X - 0.1f) < 1e-5 && Math.Abs(read.Value.Height - 0.25f) < 1e-5);
+        Check("cada vista es aparte", new Settings().GetRegion("BlueSkyPlan", "transversal") == null && new Settings().GetRegion("otro", "axial") == null);
+        s.SetRegion("BlueSkyPlan", "panoramica", crop);
+        Check("lista de marcadas en orden", string.Join(",", s.Marked("BlueSkyPlan")) == "axial,panoramica");
+        s.SetRegion("BlueSkyPlan", "axial", null);
+        s.SetRegion("BlueSkyPlan", "panoramica", null);
+        Check("marcas se quitan", new Settings().Marked("BlueSkyPlan").Length == 0);
+        s.Set("vista.malo.axial", "a;b;c;d");
+        s.Set("vista.malo.vista3d", "2;0;1;1");
+        Check("marca dañada se ignora", new Settings().Marked("malo").Length == 0);
+        Check("sin tamaño guardado no avisa", !s.SizeChanged("BlueSkyPlan", new Size(1920, 1040)));
+        s.SetMarkedSize("BlueSkyPlan", new Size(1920, 1040));
+        Check("mismo tamaño no avisa", !new Settings().SizeChanged("BlueSkyPlan", new Size(1920, 1030)));
+        Check("otro tamaño avisa", s.SizeChanged("BlueSkyPlan", new Size(1280, 720)));
+        Check("recorte en puntos", Settings.Pixels(crop, new Size(1000, 800)) == new Rectangle(100, 160, 500, 200));
+        Check("recorte no sale de la imagen", Settings.Pixels(new RectangleF(0.9f, 0.9f, 0.5f, 0.5f), new Size(100, 100)) == new Rectangle(90, 90, 10, 10));
+        Check("nombres de vistas", Vistas.Nombre("panoramica") == "Panorámica" && Vistas.Nombre("radiografia") == "Radiografía" && Vistas.Nombre("x") == null && !Vistas.Conocida("../x"));
         Check("orden de inicio", Inicio.Orden(@"C:\Con espacios\C.exe") == "\"C:\\Con espacios\\C.exe\" --en-segundo-plano");
         Check("desde temporal no se registra", !Inicio.RutaEstable(@"C:\Users\x\AppData\Local\Temp\zip\C.exe", @"C:\Users\x\AppData\Local\Temp\"));
         Check("carpeta normal sí", Inicio.RutaEstable(@"C:\Users\x\Documents\C.exe", @"C:\Users\x\AppData\Local\Temp\"));

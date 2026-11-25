@@ -6,8 +6,21 @@
 export const CAPTURE_URL = "http://127.0.0.1:47821";
 export const CAPTURE_REMEMBER_KEY = "speakdent.capturadora";
 
-export type CaptureStatus = { viewer: string | null; hotkey: string | null };
-export type PendingCapture = { id: string; viewer: string | null };
+/** Vistas que la capturadora sabe recortar o rotular; los identificadores son los de tools/capturadora/Puente.cs. */
+export const CAPTURE_VIEWS = { "Transversal": "transversal", "Axial": "axial", "Panorámica": "panoramica", "Vista 3D": "vista3d", "Radiografía": "radiografia" } as const;
+export type CaptureView = keyof typeof CAPTURE_VIEWS;
+const viewFrom = (id: unknown) => (Object.keys(CAPTURE_VIEWS) as CaptureView[]).find(name => CAPTURE_VIEWS[name] === id) ?? null;
+/** Lo que la ficha quiere recibir: el tipo elegido y si va solo el recuadro marcado o la ventana completa. */
+export type CaptureChoice = { view: CaptureView; wholeWindow: boolean };
+
+export type CaptureStatus = {
+  viewer: string | null; hotkey: string | null; version: string | null;
+  /** Título de la ventana del visor (puede traer el nombre del paciente); solo en memoria. */
+  title: string | null;
+  /** Vistas con recuadro marcado. null: capturadora anterior, que no las maneja. */
+  marked: CaptureView[] | null;
+};
+export type PendingCapture = { id: string; viewer: string | null; view: CaptureView | null; title: string | null; warning: string | null };
 export type CaptureState =
   | { kind: "receiving"; status: CaptureStatus }
   /** Otra ficha (otra pestaña) tomó el turno. */
@@ -17,8 +30,11 @@ export type CaptureState =
 
 type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
 export type CaptureOptions = {
-  /** Guarda la imagen en la ficha. «busy»: se está guardando otra, reintentar; «failed»: no se pudo. */
-  save: (file: File) => Promise<"saved" | "busy" | "failed">;
+  /**
+   * Recibe la imagen. «saved»: quedó en la ficha; «held»: la ficha la retiene para preguntar;
+   * «busy»: se está guardando otra, reintentar; «failed»: no se pudo.
+   */
+  save: (file: File, capture: PendingCapture) => Promise<"saved" | "held" | "busy" | "failed">;
   onState: (state: CaptureState) => void;
   onProblem: (message: string) => void;
   session?: string;
@@ -26,17 +42,50 @@ export type CaptureOptions = {
   wait?: (ms: number) => Promise<void>;
 };
 
-const text = (value: unknown) => typeof value === "string" && value ? value.slice(0, 80) : null;
+const text = (value: unknown, max = 80) => typeof value === "string" && value ? value.slice(0, max) : null;
+
+const PARTICLES = new Set(["DE", "DEL", "LA", "LAS", "LOS", "DA", "DO", "VON", "VAN"]);
+/** Partes de un nombre comparables entre sí: sin tildes, en mayúsculas y sin letras repetidas (errores de digitación). */
+const nameParts = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase()
+  .split(/[^A-Z]+/).filter(part => part.length > 1 && !PARTICLES.has(part)).map(part => part.replace(/(.)\1+/g, "$1"));
+
+/** El nombre que muestra Blue Sky Plan en su barra: «Blue Sky Plan - NOMBRE - C:/carpeta». */
+export function viewerPatient(title: string | null): string | null {
+  const parts = (title ?? "").split(" - ").map(part => part.trim());
+  if (!/^blue ?sky ?plan/i.test(parts[0] ?? "")) return null;
+  const name = parts[1] ?? "";
+  return name && !/[\\/]|^[A-Za-z]:|\.[A-Za-z0-9]{2,5}$/.test(name) && nameParts(name).length ? name : null;
+}
+
+/**
+ * ¿El estudio abierto es del paciente de la ficha?
+ * «distinto»: Blue Sky muestra un nombre y no calza; «sin-dato»: no se puede saber.
+ * Calza solo si comparten dos partes o más y una de las dos listas está completa dentro de la otra,
+ * así un hermano con los mismos apellidos no pasa.
+ */
+export function patientCheck(title: string | null, patientName: string): "coincide" | "distinto" | "sin-dato" {
+  const record = nameParts(patientName), shown = viewerPatient(title);
+  if (!record.length) return "sin-dato";
+  if (shown === null) {
+    const all = nameParts(title ?? "");
+    return record.length > 1 && record.every(part => all.includes(part)) ? "coincide" : "sin-dato";
+  }
+  const viewer = nameParts(shown);
+  const common = new Set(viewer.filter(part => record.includes(part))).size;
+  return common >= 2 && (viewer.every(part => record.includes(part)) || record.every(part => viewer.includes(part))) ? "coincide" : "distinto";
+}
 
 export function readStatus(data: unknown): (CaptureStatus & { active: boolean; captures: PendingCapture[] }) | null {
   if (!data || typeof data !== "object") return null;
   const value = data as Record<string, unknown>;
   if (value.app !== "capturadora-speakdent") return null;
   const captures = Array.isArray(value.capturas) ? value.capturas.flatMap(item => {
-    const row = item as { id?: unknown; visor?: unknown } | null;
-    return row && typeof row.id === "string" && /^[0-9a-f]{32}$/.test(row.id) ? [{ id: row.id, viewer: text(row.visor) }] : [];
+    const row = item as { id?: unknown; visor?: unknown; vista?: unknown; titulo?: unknown; aviso?: unknown } | null;
+    return row && typeof row.id === "string" && /^[0-9a-f]{32}$/.test(row.id)
+      ? [{ id: row.id, viewer: text(row.visor), view: viewFrom(row.vista), title: text(row.titulo, 300), warning: text(row.aviso, 200) }] : [];
   }) : [];
-  return { viewer: text(value.visor), hotkey: text(value.tecla), active: value.activa !== false, captures };
+  const marked = Array.isArray(value.marcadas) ? value.marcadas.flatMap(id => viewFrom(id) ?? []) : null;
+  return { viewer: text(value.visor), hotkey: text(value.tecla), version: text(value.version), title: text(value.titulo, 300), marked, active: value.activa !== false, captures };
 }
 
 export function newCaptureSession(): string {
@@ -55,27 +104,29 @@ export function createCaptureLink(options: CaptureOptions) {
   const done = new Set<string>(), saving = new Set<string>();
   const abort = new AbortController();
   let stopped = false, turn = 0;
+  let choice: CaptureChoice | null = null;
+  const preferences = () => choice ? `&vista=${CAPTURE_VIEWS[choice.view]}&encuadre=${choice.wholeWindow ? "completo" : "marcado"}` : "";
 
-  const request = async (path: string, method: "GET" | "POST", id = "", timeout = 30_000) => {
-    const url = `${CAPTURE_URL}${path}?sesion=${session}${id ? `&id=${id}` : ""}`;
+  const request = async (path: string, method: "GET" | "POST", extra = "", timeout = 30_000) => {
+    const url = `${CAPTURE_URL}${path}?sesion=${session}${extra}`;
     const response = await fetcher(url, { method, cache: "no-store", credentials: "omit", signal: AbortSignal.any([abort.signal, AbortSignal.timeout(timeout)]) });
     if (!response.ok) throw new Error(`capturadora ${response.status}`);
     return response;
   };
 
   const receive = async (capture: PendingCapture) => {
-    if (done.has(capture.id)) { await request("/recibida", "POST", capture.id); return; }
+    if (done.has(capture.id)) { await request("/recibida", "POST", `&id=${capture.id}`); return; }
     // Si se volvió a tomar el turno mientras se guardaba, la misma captura no se guarda dos veces.
     if (saving.has(capture.id)) { await wait(700); return; }
     saving.add(capture.id);
     try {
-      const blob = await (await request("/imagen", "GET", capture.id)).blob();
+      const blob = await (await request("/imagen", "GET", `&id=${capture.id}`)).blob();
       if (stopped) return;
-      const result = await options.save(new File([blob], "captura.png", { type: "image/png" }));
+      const result = await options.save(new File([blob], "captura.png", { type: "image/png" }), capture);
       if (result === "busy") { await wait(700); return; }
       done.add(capture.id);
       if (result === "failed") options.onProblem("La captura no se pudo guardar en la ficha. Quedó en la carpeta Imágenes\\SpeakDent del computador: súbela desde ahí.");
-      await request("/recibida", "POST", capture.id);
+      await request("/recibida", "POST", `&id=${capture.id}`);
     } finally { saving.delete(capture.id); }
   };
 
@@ -106,7 +157,7 @@ export function createCaptureLink(options: CaptureOptions) {
       const own = ++turn;
       try {
         // El primer intento espera más: el navegador puede estar mostrando su pregunta de permiso.
-        const data = readStatus(await (await request("/escuchar", "POST", "", 60_000)).json());
+        const data = readStatus(await (await request("/escuchar", "POST", preferences(), 60_000)).json());
         if (!data) throw new Error("respuesta desconocida");
         if (stopped || own !== turn) return false;
         options.onState({ kind: "receiving", status: data });
@@ -117,10 +168,18 @@ export function createCaptureLink(options: CaptureOptions) {
         return false;
       }
     },
-    /** Pide la captura ahora; la imagen llega por la misma escucha. */
-    async capture(): Promise<void> {
+    /** Cambia el tipo elegido: la capturadora lo usa para lo que se capture con F8. */
+    async choose(next: CaptureChoice): Promise<void> {
+      choice = next;
+      if (stopped || !turn) return;
+      // Una capturadora anterior no conoce esta orden: se sigue igual, sin recortes por vista.
+      await request("/ajustar", "POST", preferences()).catch(() => undefined);
+    },
+    /** Pide la captura ahora (o una de cada vista marcada); las imágenes llegan por la misma escucha. */
+    async capture(all = false): Promise<void> {
       try {
-        const answer = await (await request("/capturar", "POST", "", 25_000)).json() as { ok?: boolean; error?: unknown };
+        if (choice) await request("/ajustar", "POST", preferences()).catch(() => undefined);
+        const answer = await (await request("/capturar", "POST", all ? "&todas=1" : "", 25_000)).json() as { ok?: boolean; error?: unknown };
         if (!answer.ok && !stopped) options.onProblem(text(answer.error) ?? "No se pudo capturar.");
       } catch { if (!stopped) options.onProblem("La capturadora no respondió. Comprueba que esté abierta."); }
     },

@@ -23,14 +23,29 @@ namespace SpeakDent
 
     interface IAnfitrion
     {
-        string Visor();   // nombre del visor abierto, o null
-        string Tecla();   // "F8", "F9" o null
-        Resultado Capturar(string sesion); // captura pedida desde la ficha
+        string Visor();     // nombre del visor abierto, o null
+        string Tecla();     // "F8", "F9" o null
+        string Titulo();    // título de la ventana del visor (puede traer el nombre del paciente), o null
+        string[] Marcadas(); // vistas con recuadro marcado en ese visor
+        Resultado Capturar(string sesion, bool todas); // captura pedida desde la ficha
+    }
+
+    // Vistas que se pueden marcar en el visor. La ficha usa estos mismos identificadores.
+    static class Vistas
+    {
+        public static readonly string[] Ids = { "transversal", "axial", "panoramica", "vista3d" };
+        public static readonly string[] Nombres = { "Transversal", "Axial", "Panorámica", "Vista 3D" };
+        public static bool Conocida(string id) { return Array.IndexOf(Ids, id) >= 0 || id == "radiografia"; }
+        public static string Nombre(string id)
+        {
+            int i = Array.IndexOf(Ids, id);
+            return i >= 0 ? Nombres[i] : id == "radiografia" ? "Radiografía" : null;
+        }
     }
 
     class Captura
     {
-        public string Id, Sesion, Visor;
+        public string Id, Sesion, Visor, Vista, Titulo, Aviso;
         public byte[] Png;
         public DateTime Hora;
     }
@@ -38,12 +53,12 @@ namespace SpeakDent
     class Puente : IDisposable
     {
         public const int Puerto = 47821;
-        public const string Version = "0.2";
+        public const string Version = "0.3";
         public static readonly string[] Origenes = {
             "https://speakdent.cl", "https://www.speakdent.cl",
             "https://gestion-dental-luis-rodriguez.remdental09.workers.dev"
         };
-        const int MaxPendientes = 12;
+        const int MaxPendientes = 16;
         const int MaxConexiones = 12;
 
         readonly IAnfitrion anfitrion;
@@ -54,6 +69,8 @@ namespace SpeakDent
         TcpListener escucha;
         string activa;          // sesión que recibe las capturas
         DateTime visto;         // última señal de esa sesión
+        string vista;           // tipo de corte elegido en la ficha activa
+        bool completa;          // la ficha pidió la ventana completa en vez del recuadro marcado
         int esperando;          // peticiones de la sesión activa que siguen abiertas
         int conexiones;
         volatile bool cerrado;
@@ -98,14 +115,27 @@ namespace SpeakDent
             }
         }
 
-        public bool Entregar(string sesion, byte[] png, string visor)
+        // Lo que la ficha que escucha quiere recibir con F8.
+        public void Preferencia(string sesion, out string vistaElegida, out bool ventanaCompleta)
+        {
+            lock (candado)
+            {
+                bool es = sesion != null && sesion == activa;
+                vistaElegida = es ? vista : null;
+                ventanaCompleta = es && completa;
+            }
+        }
+
+        public bool Entregar(string sesion, byte[] png, string visor) { return Entregar(sesion, png, visor, null, null, null); }
+
+        public bool Entregar(string sesion, byte[] png, string visor, string vistaCaptura, string titulo, string aviso)
         {
             if (sesion == null || png == null) return false;
             lock (candado)
             {
                 Limpiar();
                 while (pendientes.Count >= MaxPendientes) pendientes.RemoveAt(0);
-                pendientes.Add(new Captura { Id = Guid.NewGuid().ToString("N"), Sesion = sesion, Png = png, Visor = visor, Hora = DateTime.UtcNow });
+                pendientes.Add(new Captura { Id = Guid.NewGuid().ToString("N"), Sesion = sesion, Png = png, Visor = visor, Vista = vistaCaptura, Titulo = titulo, Aviso = aviso, Hora = DateTime.UtcNow });
                 Monitor.PulseAll(candado);
             }
             return true;
@@ -215,16 +245,30 @@ namespace SpeakDent
             string sesion; args.TryGetValue("sesion", out sesion);
             if (!SesionValida(sesion)) { Responder(s, "400 Bad Request", origen, "application/json", Utf8("{\"error\":\"falta la sesión\"}")); return; }
             string id; args.TryGetValue("id", out id);
+            string pedida; args.TryGetValue("vista", out pedida);
+            if (pedida != null && !Vistas.Conocida(pedida)) pedida = null;
+            string encuadre; args.TryGetValue("encuadre", out encuadre);
 
             if (metodo == "POST" && ruta == "/escuchar")
             {
                 lock (candado)
                 {
                     if (activa != sesion) { activa = sesion; esperando = 0; }
+                    vista = pedida; completa = encuadre == "completo";
                     visto = DateTime.UtcNow;
                     Monitor.PulseAll(candado);
                 }
-                Json(s, origen, "{\"ok\":true," + Identidad() + "}");
+                Json(s, origen, "{\"ok\":true," + Identidad() + Estudio() + "}");
+            }
+            else if (metodo == "POST" && ruta == "/ajustar")
+            {
+                bool es;
+                lock (candado)
+                {
+                    es = activa == sesion;
+                    if (es) { vista = pedida; completa = encuadre == "completo"; visto = DateTime.UtcNow; }
+                }
+                Json(s, origen, es ? "{\"ok\":true}" : "{\"ok\":false}");
             }
             else if (metodo == "GET" && ruta == "/esperar") Json(s, origen, Esperar(sesion));
             else if (metodo == "GET" && ruta == "/imagen")
@@ -243,7 +287,8 @@ namespace SpeakDent
             {
                 bool puede;
                 lock (candado) { puede = activa == sesion; if (puede) visto = DateTime.UtcNow; }
-                Resultado r = puede ? anfitrion.Capturar(sesion) : Resultado.Mal("Otra ficha está recibiendo las capturas.");
+                string todas; args.TryGetValue("todas", out todas);
+                Resultado r = puede ? anfitrion.Capturar(sesion, todas == "1") : Resultado.Mal("Otra ficha está recibiendo las capturas.");
                 Json(s, origen, r.Ok ? "{\"ok\":true}" : "{\"ok\":false,\"error\":" + Texto(r.Error) + "}");
             }
             else if (metodo == "POST" && ruta == "/soltar")
@@ -277,11 +322,13 @@ namespace SpeakDent
                         {
                             if (c.Sesion != sesion) continue;
                             if (lista.Length > 0) lista.Append(',');
-                            lista.Append("{\"id\":").Append(Texto(c.Id)).Append(",\"visor\":").Append(Texto(c.Visor)).Append('}');
+                            lista.Append("{\"id\":").Append(Texto(c.Id)).Append(",\"visor\":").Append(Texto(c.Visor))
+                                .Append(",\"vista\":").Append(Texto(c.Vista)).Append(",\"titulo\":").Append(Texto(c.Titulo))
+                                .Append(",\"aviso\":").Append(Texto(c.Aviso)).Append('}');
                         }
                         TimeSpan resta = limite - DateTime.UtcNow;
                         if (lista.Length > 0 || activa != sesion || cerrado || resta <= TimeSpan.Zero)
-                            return "{\"activa\":" + (activa == sesion ? "true" : "false") + ",\"capturas\":[" + lista + "]," + Identidad() + "}";
+                            return "{\"activa\":" + (activa == sesion ? "true" : "false") + ",\"capturas\":[" + lista + "]," + Identidad() + (activa == sesion ? Estudio() : "") + "}";
                         Monitor.Wait(candado, resta);
                     }
                 }
@@ -295,6 +342,18 @@ namespace SpeakDent
         string Identidad()
         {
             return "\"app\":\"capturadora-speakdent\",\"version\":" + Texto(Version) + ",\"visor\":" + Texto(anfitrion.Visor()) + ",\"tecla\":" + Texto(anfitrion.Tecla());
+        }
+
+        // El título del visor solo va a la ficha que tiene el turno, nunca en /estado.
+        string Estudio()
+        {
+            var marcadas = new StringBuilder();
+            foreach (string m in anfitrion.Marcadas())
+            {
+                if (marcadas.Length > 0) marcadas.Append(',');
+                marcadas.Append(Texto(m));
+            }
+            return ",\"titulo\":" + Texto(anfitrion.Titulo()) + ",\"marcadas\":[" + marcadas + "]";
         }
 
         public static string Texto(string valor)
