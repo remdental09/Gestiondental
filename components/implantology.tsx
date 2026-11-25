@@ -76,7 +76,7 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
   teeth: Record<number, string>;
   crowns?: Record<number, { foundation?: string }>;
   images: ClinicalImage[];
-  /** La capturadora de prueba (sin firmar) por ahora solo la ve el desarrollador. */
+  /** Si se ofrece la capturadora de prueba (sin firmar). Solo se ve además en Windows. */
   showCapturer: boolean;
   onUploadImage: (file: File, kind: "Radiografía" | "Captura CBCT" | "Foto clínica" | "Producto biomédico", note: string) => Promise<ClinicalImage>;
   onRemoveImage: (id: number) => Promise<void>;
@@ -687,7 +687,7 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
         })}</ul> : <p className="text-sm text-[#6b6a7c]">Aún no hay imágenes de este implante.</p>}
         {showCapturer && windows && <details className="rounded-xl border border-[#e6e4ee] px-3" data-testid="implant-capturer">
           <summary className="cursor-pointer py-3 text-sm font-semibold text-[#473a6d]">Instalar capturadora (Windows, versión de prueba)</summary>
-          <p className="text-sm text-[#615f73]">Versión 0.3: con este implante abierto, captura un corte o «Capturar todo»; SpeakDent ubica solo las vistas de Blue Sky Plan. Si tenías la anterior, ciérrala antes de abrir esta. Aún no está firmada, por eso solo la ve la cuenta de desarrollo.</p>
+          <p className="text-sm text-[#615f73]">Versión 0.3: con este implante abierto, captura un corte o «Capturar todo»; SpeakDent ubica solo las vistas de Blue Sky Plan. Si tenías la anterior, ciérrala antes de abrir esta. Aún no está firmada; se descarga solo desde un computador con Windows.</p>
           <a href="/descargas/capturadora-speakdent-prueba.zip" download className={`${secondary} my-3`}><Download className="size-4" aria-hidden="true"/>Descargar capturadora</a>
         </details>}
         <p className="text-xs text-[#615f73]">Las capturas no sustituyen el estudio original para diagnóstico.</p>
