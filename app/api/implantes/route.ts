@@ -1,11 +1,11 @@
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, ne } from "drizzle-orm";
 import { getChatGPTUser, personalIdOf } from "@/app/chatgpt-auth";
 import { loadProfile } from "@/app/clinician-profile-db";
 import { displayName } from "@/lib/clinician-profile";
 import { getDb } from "@/db";
 import { biomedicalProducts, clinicalImages, implants, patients } from "@/db/schema";
 import { PRODUCT_IMAGE_KIND, santiagoToday } from "@/lib/biomedical-products";
-import { MAX_IMPLANTS_PER_PATIENT, MAX_IMPLANT_IMAGES, cleanImplantFields, cleanImplantImage, parseImplantImages, type ImplantImage } from "@/lib/implants";
+import { MAX_IMPLANTS_PER_PATIENT, MAX_IMPLANT_IMAGES, cleanImplantFields, cleanImplantImage, editHistory, mergeImplantEdit, nextPhase, parseHistory, parseImplantImages, recordPhase, type ImplantImage } from "@/lib/implants";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -16,7 +16,7 @@ const positive = (value: unknown) => { const n = Number(value); return Number.is
 
 type Row = typeof implants.$inferSelect;
 const view = (row: Row, available?: Set<number>) => ({
-  id: row.id, patientId: row.patientId, tooth: row.tooth, phase: row.phase, brand: row.brand, system: row.system,
+  id: row.id, patientId: row.patientId, tooth: row.tooth, phase: row.phase, history: parseHistory(row.history), brand: row.brand, system: row.system, connection: row.connection,
   diameter: row.diameter, length: row.length, placedOn: row.placedOn, torque: row.torque, isq: row.isq, productId: row.productId, note: row.note,
   // Una imagen borrada desde la pestaña Imágenes deja de aparecer aquí.
   images: parseImplantImages(row.images).filter(image => !available || available.has(image.imageId)),
@@ -48,14 +48,17 @@ export async function GET(request: Request) {
   try {
     const db = getDb(), ownerId = checked.user.userId;
     if (!await ownsPatient(ownerId, patientId)) return fail("Paciente no encontrado.", 404);
-    const [rows, labels, images] = await Promise.all([
+    const [rows, labels, images, connections] = await Promise.all([
       db.select().from(implants).where(and(eq(implants.ownerId, ownerId), eq(implants.patientId, patientId))).orderBy(asc(implants.tooth), asc(implants.id)),
       db.select().from(biomedicalProducts).where(and(eq(biomedicalProducts.ownerId, ownerId), eq(biomedicalProducts.patientId, patientId), eq(biomedicalProducts.category, "implante"))).orderBy(desc(biomedicalProducts.placedOn), desc(biomedicalProducts.id)),
       db.select({ id: clinicalImages.id }).from(clinicalImages).where(and(eq(clinicalImages.ownerId, ownerId), eq(clinicalImages.patientId, patientId))),
+      // Conexiones ya confirmadas por marca y sistema en esta cuenta, para proponerlas. No incluye datos de pacientes.
+      db.select({ brand: implants.brand, system: implants.system, connection: implants.connection }).from(implants).where(and(eq(implants.ownerId, ownerId), ne(implants.connection, ""), ne(implants.brand, ""))).orderBy(desc(implants.updatedAt), desc(implants.id)).limit(500),
     ]);
     const available = new Set(images.map(image => image.id));
     return ok({
       implants: rows.map(row => view(row, available)),
+      connections,
       labels: labels.map(p => ({ id: p.id, tooth: p.tooth, brand: p.brand, reference: p.reference, lot: p.lot, serial: p.serial, placedOn: p.placedOn, model: p.model, diameter: p.diameter, length: p.length })),
     });
   } catch { return fail("No se pudieron cargar los implantes.", 500); }
@@ -77,15 +80,19 @@ export async function POST(request: Request) {
     if (existing.length >= MAX_IMPLANTS_PER_PATIENT) return fail("Esta ficha alcanzó el máximo de implantes registrados.");
     const profile = await loadProfile(personalIdOf(user)).catch(() => null);
     const now = new Date().toISOString();
+    const history = recordPhase([], { phase: "", placedOn: "" }, cleaned.fields);
     const [row] = await db.insert(implants).values({
-      ownerId, patientId, ...cleaned.fields, productId: await ownLabel(ownerId, patientId, cleaned.fields.productId),
+      ownerId, patientId, ...cleaned.fields, history: JSON.stringify(history), productId: await ownLabel(ownerId, patientId, cleaned.fields.productId),
       createdBy: personalIdOf(user), createdByName: (profile ? displayName(profile) : user.displayName).trim().slice(0, 120), createdAt: now, updatedAt: now,
     }).returning();
     return ok({ implant: view(row!) }, 201);
   } catch { return fail("No se pudo guardar el implante. Intenta otra vez.", 503); }
 }
 
-/** Tres usos: corregir los datos, añadir una imagen (`addImage`) o desvincularla (`removeImageId`). */
+/**
+ * Cinco usos: corregir los datos, pasar a la etapa siguiente (`advanceFrom`), corregir o eliminar una entrada del historial (`editStage`),
+ * añadir una imagen (`addImage`) o desvincularla (`removeImageId`).
+ */
 export async function PATCH(request: Request) {
   const checked = await guard(request, true);
   if (checked.error) return checked.error;
@@ -96,7 +103,7 @@ export async function PATCH(request: Request) {
   try {
     const db = getDb();
     const mine = and(eq(implants.id, id), eq(implants.ownerId, ownerId));
-    // Los vínculos de imágenes se escriben solo si nadie los cambió entre la lectura y la escritura; si cambiaron, se relee.
+    // Se escribe solo si nadie cambió el implante entre la lectura y la escritura; si cambió, se relee.
     for (let attempt = 0; attempt < 8; attempt++) {
       const [current] = await db.select().from(implants).where(mine).limit(1);
       if (!current) return fail("Implante no encontrado.", 404);
@@ -115,13 +122,27 @@ export async function PATCH(request: Request) {
           if (list.length > MAX_IMPLANT_IMAGES) return fail(`Máximo ${MAX_IMPLANT_IMAGES} imágenes por implante.`);
         } else list = list.filter(i => i.imageId !== positive(body.removeImageId));
         change = { images: JSON.stringify(list) };
+      } else if (body.advanceFrom !== undefined) {
+        // La etapa de partida evita que un doble toque, u otro equipo, avance dos veces.
+        if (body.advanceFrom !== current.phase) return fail("La etapa de este implante ya cambió. Revísala antes de avanzar.", 409);
+        const phase = nextPhase(current.phase);
+        if (!phase) return fail("No hay una etapa siguiente.");
+        change = { phase, history: JSON.stringify(recordPhase(parseHistory(current.history), current, { phase, placedOn: current.placedOn }, santiagoToday())) };
+      } else if (body.editStage !== undefined) {
+        const edited = editHistory(parseHistory(current.history), current.phase, body.editStage, santiagoToday());
+        if ("error" in edited) return fail(edited.error, edited.stale ? 409 : 400);
+        change = { phase: edited.phase, history: JSON.stringify(edited.history) };
       } else {
-        const cleaned = cleanImplantFields(body, santiagoToday());
+        // Una ficha abierta desde antes no puede devolver la etapa ni borrar lo confirmado en otro lado.
+        const merged = mergeImplantEdit(current, body);
+        if ("error" in merged) return fail(merged.error, 409);
+        const cleaned = cleanImplantFields(merged.input, santiagoToday());
         if ("error" in cleaned) return fail(cleaned.error);
-        change = { ...cleaned.fields, productId: await ownLabel(ownerId, current.patientId, cleaned.fields.productId) };
+        change = { ...cleaned.fields, productId: await ownLabel(ownerId, current.patientId, cleaned.fields.productId),
+          history: JSON.stringify(recordPhase(parseHistory(current.history), current, cleaned.fields)) };
       }
       const [row] = await db.update(implants).set({ ...change, updatedAt: new Date().toISOString() })
-        .where(and(mine, eq(implants.images, current.images))).returning();
+        .where(and(mine, eq(implants.images, current.images), eq(implants.history, current.history), eq(implants.phase, current.phase), eq(implants.updatedAt, current.updatedAt))).returning();
       if (row) return ok({ implant: view(row, available) });
     }
     return fail("El implante cambió mientras se guardaba. Intenta otra vez.", 409);

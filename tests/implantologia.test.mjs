@@ -19,7 +19,7 @@ test("implantes: solo piezas permanentes FDI con punto", () => {
 
 test("implantes: basta la pieza; lo no informado queda vacío", () => {
   const { fields: saved } = fields({ tooth: "3.6" });
-  assert.deepEqual(saved, { tooth: "3.6", phase: "", brand: "", system: "", diameter: null, length: null, placedOn: "", torque: null, isq: null, productId: null, note: "" });
+  assert.deepEqual(saved, { tooth: "3.6", phase: "", brand: "", system: "", connection: "", diameter: null, length: null, placedOn: "", torque: null, isq: null, productId: null, note: "" });
   assert.ok(fields({ brand: "X" }).error);
 });
 
@@ -68,18 +68,26 @@ test("implantes: resumen y respaldo incluyen solo lo registrado", () => {
   assert.match(traced, /etiqueta: ref\. R1, lote L1/);
 });
 
-test("implantes: la migración 0027 solo agrega la tabla, se puede repetir y está en el journal", () => {
+test("implantes: la migración 0027 solo agrega la tabla, la 0029 solo columnas, y ambas coinciden con el esquema", () => {
   const sql = read("drizzle/0027_implants.sql");
   assert.doesNotMatch(sql, /\b(DROP|ALTER|DELETE|UPDATE)\s+(TABLE|FROM|`)/i);
   const db = new DatabaseSync(":memory:");
   db.exec("CREATE TABLE patients (id integer PRIMARY KEY)");
   for (let round = 0; round < 2; round++) for (const statement of sql.split("--> statement-breakpoint")) db.exec(statement);
+  db.exec("INSERT INTO patients (id) VALUES (1)");
+  db.exec("INSERT INTO implants (owner_id, patient_id, tooth, phase, created_by, created_at, updated_at) VALUES ('a', 1, '3.6', 'cirugia', 'a', 'x', 'x')");
+  const added = read("drizzle/0029_implant_connection_history.sql");
+  assert.doesNotMatch(added, /\b(DROP|DELETE|UPDATE)\s+(TABLE|FROM|`)/i);
+  for (const statement of added.split("--> statement-breakpoint")) db.exec(statement);
+  // Un implante que ya existía queda con su etapa, sin conexión y sin historial inventado.
+  assert.deepEqual({ ...db.prepare("SELECT phase, connection, history FROM implants").get() }, { phase: "cirugia", connection: "", history: "[]" });
   const columns = db.prepare("PRAGMA table_info(implants)").all().map(column => column.name);
   const schema = read("db/schema.ts").split('sqliteTable("implants"')[1].split("implants_patient_idx")[0];
   const declared = [...schema.matchAll(/(?:text|integer|real)\("([a-z_]+)"/g)].map(match => match[1]);
   assert.deepEqual([...columns].sort(), declared.sort());
   const journal = JSON.parse(read("drizzle/meta/_journal.json"));
   assert.ok(journal.entries.some(entry => entry.tag === "0027_implants" && entry.idx === 27));
+  assert.ok(journal.entries.some(entry => entry.tag === "0029_implant_connection_history" && entry.idx === 29));
 });
 
 test("implantes: permisos, pestaña, respaldo, descarga y capturadora conectados", () => {
