@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { MAX_PHASE_HISTORY, backupImplant, cleanImplantFields, connectionText, mergeImplantEdit, parseHistory, recordPhase, setStage, stageMarks, suggestConnection } from "../lib/implants.ts";
+import { MAX_PHASE_HISTORY, backupImplant, cleanImplantFields, connectionText, mergeImplantEdit, parseHistory, phaseLabel, recordPhase, setStage, stageMarks, stageOptions, suggestConnection } from "../lib/implants.ts";
 import { fichaMarkdown } from "../lib/backup-markdown.ts";
 
 const read = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
@@ -167,3 +167,18 @@ test("ventana: bajo el implantograma no queda nada; todo lo del implante está e
   assert.match(read("components/biomedical-products.tsx"), /generation\.current !== started/, "una lectura tardía no reaparece");
   assert.match(read("components/implant-sheet.tsx"), /¿Desea eliminar la marca de/);
 });
+
+test("conexión de implante reemplaza a osteointegración, sin convertir lo que ya estaba marcado", () => {
+  assert.deepEqual(stageOptions().map(item => item.label), ["Evaluación", "Plan", "Cirugía", "Conexión de implante", "Rehabilitación", "Mantención"]);
+  const next = mark([], staged("cirugia", "2026-11-24"), { phase: "conexion", was: null, date: today });
+  assert.deepEqual([next.phase, next.history.at(-1)], ["conexion", { phase: "conexion", date: today }]);
+  // Un implante que ya la tenía la sigue mostrando, en su lugar y con su nombre; puede quitarla.
+  const old = [{ phase: "cirugia", date: "2026-08-01" }, { phase: "osteointegracion", date: "2026-11-01" }];
+  const kept = mark(old, staged("osteointegracion", "2026-08-01"), { phase: "conexion", was: null, date: today });
+  assert.deepEqual(kept.history.map(entry => entry.phase), ["cirugia", "osteointegracion", "conexion"]);
+  assert.deepEqual(stageOptions(["cirugia", "osteointegracion"]).map(item => item.id), ["evaluacion", "plan", "cirugia", "osteointegracion", "conexion", "rehabilitacion", "mantencion"]);
+  assert.equal(phaseLabel("osteointegracion"), "Osteointegración");
+  const removed = mark(old, staged("osteointegracion", "2026-08-01"), { phase: "osteointegracion", was: "2026-11-01", remove: true });
+  assert.equal(removed.phase, "cirugia");
+});
+
