@@ -19,7 +19,7 @@ export async function GET(request: Request) {
   if (available && new URL(request.url).searchParams.get("probe") === "1") {
     try {
       let response = await fetch(`https://api.openai.com/v1/models/${encodeURIComponent(model)}`, { headers: { Authorization: `Bearer ${env.OPENAI_API_KEY!.trim()}` }, signal: AbortSignal.timeout(8_000) });
-      if (response.status === 404 && !env.OPENAI_TRANSCRIPTION_MODEL?.trim()) {
+      if (response.status === 404 && model === AUDIO_TRANSCRIPTION_MODEL) {
         model = AUDIO_COMPATIBILITY_MODEL;
         response = await fetch(`https://api.openai.com/v1/models/${encodeURIComponent(model)}`, { headers: { Authorization: `Bearer ${env.OPENAI_API_KEY!.trim()}` }, signal: AbortSignal.timeout(8_000) });
       }
