@@ -169,6 +169,8 @@ test("implantes: la nota de la etapa es su propia evolución fechada, con la mis
   assert.match(sheet, /<EvolutionHistory notes=\{evolutions\} allNotes=\{allEvolutions\} odontogram=\{odontogram\} onSyncOdontogram=\{onSyncOdontogram\} onAnnul=\{onAnnulEvolution\} onEdit=\{onEditEvolution\} rail=\{evolutionRail\}\/>/, "misma vista y misma barra que la evolución general, dentro del propio módulo");
   assert.match(sheet, /onNote: \(\) => void/, "guardar ya no reemplaza una nota: solo agrega, sin «was» para reemplazar");
   assert.doesNotMatch(sheet, /Reemplazar con la mía/, "ya no se puede reemplazar lo que escribió otro: solo agregar después o descartar lo propio");
+  // Lo anotado antes de este cambio (sin evolución propia vinculada) no desaparece: se muestra aparte, solo lectura, sin inventarle fecha.
+  assert.match(sheet, /\{!evolutions\.length && saved\.trim\(\) !== "" && <div[^>]*data-testid="stage-legacy-note"/, "las notas de fases ya marcadas antes de este cambio se siguen viendo, no se esconden");
 });
 
 test("implantes: la pantalla de implantología pasa la barra de accesos directos y el odontograma, con valores por defecto para seguir funcionando sola", () => {
@@ -177,6 +179,30 @@ test("implantes: la pantalla de implantología pasa la barra de accesos directos
   assert.match(panel, /evolutions=\{evolutions\.filter\(n => n\.implantId === current\.id && n\.stagePhase === stage\.phase\)\}/, "cada etapa muestra solo sus propias evoluciones");
   assert.match(panel, /onNote=\{\(\) => void saveNote\(\)\}/, "ya no se pasa un «was» a reemplazar");
   assert.match(read("app/page.tsx"), /evolutionRail=\{\(note,latest\)=>buildRail\(patient,note,latest\)\}\n\s*odontogram=\{toothStatuses\[selectedId\] \?\? emptyOdontogram\(\)\}\n\s*onSyncOdontogram=\{syncEvolutionOdontogram\}\n\s*onEditEvolution=\{editEvolution\}\n\s*onAnnulEvolution=\{note=>setAnnulTarget\(note\)\}/, "la ficha conecta implantología con la misma barra, el mismo odontograma y el mismo anular/editar que usa la evolución general");
+  // Este panel lee sus evoluciones con su propio `load()` (aparte de las de app/page.tsx): si no refresca su
+  // estado tras editar, la etapa vuelve a mostrar lo viejo al cerrar el editor.
+  assert.match(panel, /const editEvolutionHere = onEditEvolution && \(async \(note: EvolutionHistoryNote, title: string, body: string\) => \{/, "envuelve onEditEvolution para refrescar también el estado propio del panel");
+  assert.match(panel, /setEvolutions\(previous => previous\.map\(n => n\.id === note\.id \? \{ \.\.\.n, title, body \} : n\)\)/, "la evolución editada se actualiza en el estado del panel, no solo en el de la ficha");
+  assert.match(panel, /onEditEvolution=\{editEvolutionHere\}/, "la etapa recibe el wrapper, no el onEditEvolution crudo");
+});
+
+test("implantes: marcar la etapa con la fecha elegida va antes de guardar la nota, para no fechar en «hoy» por falta de marca", () => {
+  const panel = read("components/implantology.tsx");
+  const saveNote = panel.slice(panel.indexOf("const saveNote = async () => {"), panel.indexOf("const addStageImages = async"));
+  const markedAt = saveNote.indexOf("await ensureMarked(id, phase, date);");
+  const sentAt = saveNote.indexOf('await send<{ implant: Implant }>("PATCH", { id, stageNote:');
+  assert.ok(markedAt > -1 && sentAt > -1 && markedAt < sentAt, "ensureMarked debe llamarse antes de enviar la nota, no después");
+});
+
+test("implantes: un implante borrado no se lleva sus evoluciones (solo deja de estar vinculado)", () => {
+  assert.match(read("db/schema.ts"), /implantId: integer\("implant_id"\)\.references\(\(\) => implants\.id, \{ onDelete: "set null" \}\)/, "borrar el implante no debe bloquearse por tener evoluciones vinculadas");
+  assert.match(read("drizzle/0031_evolution_implant_stage.sql"), /REFERENCES `implants`\(`id`\) ON DELETE SET NULL/, "la migración declara el mismo comportamiento que el esquema");
+});
+
+test("implantes: el diálogo de anular una evolución de una etapa queda encima de la ficha del implante", () => {
+  assert.match(read("components/ui/dialog.tsx"), /overlayClassName\?: string/, "DialogContent acepta subir también el z-index del fondo, no solo el del contenido");
+  const annul = read("components/evolution-annul.tsx");
+  assert.match(annul, /<DialogContent className="z-\[90\][^"]*" overlayClassName="z-\[90\]"/, "z-[90] > z-[80] de la ficha de implante: el diálogo de anular no queda tapado al abrirse desde una etapa");
 });
 
 test("implantes: lo agregado a la nota de una fase se detecta sin repetir lo que ya estaba", () => {
@@ -202,6 +228,8 @@ test("implantes: lo trabajado en una fase se compila para la evolución general 
   assert.match(entry.body, /Piezas: Implante · Pilar/, "las piezas usadas en la fase se compilan");
   assert.match(entry.body, /Se instaló sin incidentes/, "lo nuevo de la nota se compila, no lo ya agregado antes");
   assert.equal(stageEvolutionEntry({ tooth: "1.1", phaseId: "cirugia", implant: {}, connection: "", pieces: [], addedNote: "" }), null, "sin nada nuevo que agregar, no hay evolución que compilar");
+  // Si por algún motivo lo guardado fuera el código compacto (sin punto), el título igual queda en FDI con punto.
+  assert.match(stageEvolutionEntry({ tooth: "12", phaseId: "cirugia", implant: {}, connection: "", pieces: [], addedNote: "algo" }).title, /pieza 1\.2/);
 });
 
 test("implantes: la nota de una fase se compila y se suma a la evolución general del paciente", () => {
@@ -213,6 +241,9 @@ test("implantes: la nota de una fase se compila y se suma a la evolución genera
   assert.match(route, /db\.insert\(evolutions\)\.values\(\{ ownerId, patientId: row\.patientId,.*title: pendingEvolution\.title, body: pendingEvolution\.body.*implantId: row\.id, stagePhase: pendingEvolutionPhase/, "se agrega como una evolución nueva, vinculada a su implante y fase (no se reemplaza ninguna)");
   assert.match(route, /\(await authorStatement\(db, ownerId\)\)\.statement/, "el autor se registra en el mismo batch: si no se puede registrar, tampoco se guarda la evolución");
   assert.match(route, /if \(row && pendingEvolution && pendingEvolutionPhase\)/, "solo se compila si la nota del implante quedó guardada");
+  // Si falla el batch de evolución+autor, no se traga en silencio (antes `.catch(() => undefined)` dejaba
+  // que igual se respondiera éxito aunque la evolución no quedara guardada).
+  assert.doesNotMatch(route, /db\.insert\(evolutions\)\.values\(\{ ownerId, patientId: row\.patientId,[\s\S]{0,400}\]\)\.catch/, "un fallo al compilar la evolución no se oculta: debe propagarse y responder error");
 });
 
 test("implantes: la ficha devuelve las evoluciones que compiló cada implante, con la misma forma que la evolución general", () => {

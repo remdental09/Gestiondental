@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
-import { MAX_STAGE_NOTE, backupImplant, cleanImplantImage, imageKindForView, isCutView, parseImplantImages, parseStageNotes, setStageNote } from "../lib/implants.ts";
+import { MAX_STAGE_NOTE_TOTAL, backupImplant, cleanImplantImage, imageKindForView, isCutView, parseImplantImages, parseStageNotes, setStageNote } from "../lib/implants.ts";
 import { PIECE_KINDS, categoryKind, kindCategory, loosePieces, pieceKind, pieceKindOptions, pieceSummary, stagePieces } from "../lib/implant-pieces.ts";
 import { cleanProductFields, labelExtras, parseLabelReading, productFigureLines, productFigureTitle } from "../lib/biomedical-products.ts";
 import { applyPhoto } from "../lib/product-draft.ts";
@@ -53,7 +53,9 @@ test("nota por fase: varias líneas, se borra al vaciarla y no pisa una escrita 
   assert.equal(setStageNote(raw, { phase: "cirugia", was: "", note: "otra" }).stale, true);
   assert.deepEqual(setStageNote(raw, { phase: "conexion", was: "", note: "ok" }).notes, { ...first.notes, conexion: "ok" });
   assert.deepEqual(setStageNote(raw, { phase: "cirugia", was: first.notes.cirugia, note: "  " }).notes, {});
-  assert.ok(setStageNote(raw, { phase: "cirugia", was: first.notes.cirugia, note: "x".repeat(MAX_STAGE_NOTE + 1) }).error);
+  assert.ok(setStageNote(raw, { phase: "cirugia", was: first.notes.cirugia, note: "x".repeat(MAX_STAGE_NOTE_TOTAL + 1) }).error);
+  // El total acumulado permite mucho más que una sola entrada (1000): agregar algo corto nunca se bloquea solo porque el acumulado ya es largo.
+  assert.deepEqual(setStageNote(raw, { phase: "cirugia", was: first.notes.cirugia, note: `${first.notes.cirugia}\n\n${"x".repeat(900)}` }).notes.cirugia?.length, (first.notes.cirugia?.length ?? 0) + 2 + 900);
   assert.ok(setStageNote(raw, { phase: "fracaso", was: "", note: "x" }).error);
   assert.ok(setStageNote(raw, { phase: "plan", note: 3 }).error);
 });

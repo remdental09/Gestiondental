@@ -207,12 +207,16 @@ export async function PATCH(request: Request) {
       if (row) await db.update(biomedicalProducts).set({ tooth: row.tooth }).where(and(eq(biomedicalProducts.ownerId, ownerId), eq(biomedicalProducts.implantId, row.id), ne(biomedicalProducts.tooth, row.tooth))).catch(() => undefined);
       // Se agrega a evolución general solo si la nota se guardó; el autor va en el mismo batch (si no se puede
       // registrar, tampoco se guarda la evolución). La nota de la fase ya quedó guardada igual: esto no la bloquea.
+      // Si este batch falla, no se traga el error: la nota de la fase ya persistió, pero decir éxito aquí haría
+      // creer que quedó en la evolución cuando no es así. Se deja que el catch de afuera responda 503 y el
+      // profesional reintente (al reintentar, la nota ya guardada hace que el servidor detecte el desfase y
+      // ofrezca el mismo flujo de «se agregó en otro lado» que ya existe para conflictos).
       if (row && pendingEvolution && pendingEvolutionPhase) {
         const clinicalDate = stageMarks(parseHistory(row.history), row.phase, row.placedOn)[pendingEvolutionPhase] || santiagoToday();
         await db.batch([
           db.insert(evolutions).values({ ownerId, patientId: row.patientId, clinicalDate, recordedAt: row.updatedAt, title: pendingEvolution.title, body: pendingEvolution.body, backupStatus: "not_configured", implantId: row.id, stagePhase: pendingEvolutionPhase }).returning(),
           (await authorStatement(db, ownerId)).statement,
-        ]).catch(() => undefined);
+        ]);
       }
       if (row) return ok({ implant: view(row, available) });
     }

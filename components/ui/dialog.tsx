@@ -50,11 +50,16 @@ function DialogOverlay({
 
 function DialogContent({
   className,
+  // Para un diálogo que se abre sobre algo que ya está por encima de z-50 (p. ej. la ficha de implante, z-[80]):
+  // se le pasa aquí la misma clase que a `className` para que el fondo oscuro también suba, y no se note el diálogo
+  // como si estuviera «debajo» de lo que se supone que tapa.
+  overlayClassName,
   children,
   showCloseButton = true,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
+  overlayClassName?: string
 }) {
   // El contenido se monta al abrir: en ese momento se fija el origen. La ventana sale de ahí (embudo) y vuelve al mismo punto al cerrarse.
   const setOrigin = React.useCallback((node: HTMLDivElement | null) => {
@@ -65,7 +70,7 @@ function DialogContent({
   }, [])
   return (
     <DialogPortal data-slot="dialog-portal">
-      <DialogOverlay />
+      <DialogOverlay className={overlayClassName} />
       <DialogPrimitive.Content
         data-slot="dialog-content"
         data-genie=""

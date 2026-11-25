@@ -226,6 +226,12 @@ export function StagePage({ item, edit, today, busy, images, evolutions, allEvol
         <button type="button" disabled={busy} className={`${action} w-full`} onClick={() => onEdit({ noteFrom: saved })}>Agregar lo mío después de eso</button>
         <button type="button" disabled={busy} className={`${action} w-full`} onClick={() => onEdit({ note: null, noteFrom: undefined })}>Descartar lo mío</button>
       </div> : draftAddition.trim() !== "" && <button type="button" disabled={busy} onClick={onNote} className="min-h-11 w-full rounded-xl bg-[#473a6d] px-4 text-sm font-semibold text-white hover:bg-[#3a2f5a] disabled:opacity-50" data-testid="stage-note-save">Agregar a la evolución</button>}
+      {/* Lo anotado antes de que la etapa tuviera su propia evolución (no se migra: no hay fecha ni autor que inventarle). Solo lectura. */}
+      {!evolutions.length && saved.trim() !== "" && <div className="space-y-1 rounded-lg border border-[#d8d5e4] bg-[#f3f1f7] p-3 text-sm" data-testid="stage-legacy-note">
+        <p className="font-semibold text-[#473a6d]">Lo anotado antes de esta evolución fechada</p>
+        <p className="whitespace-pre-wrap break-words text-[#2b2540]">{saved}</p>
+        <p className="text-xs text-[#615f73]">Sin fecha propia: se escribió antes de este cambio.</p>
+      </div>}
       <EvolutionHistory notes={evolutions} allNotes={allEvolutions} odontogram={odontogram} onSyncOdontogram={onSyncOdontogram} onAnnul={onAnnulEvolution} onEdit={onEditEvolution} rail={evolutionRail}/>
     </div>
     {marked && <button type="button" disabled={busy} onClick={remove} data-testid="implant-stage-remove" className="min-h-11 w-full text-sm font-semibold text-rose-800">Quitar marca de la etapa</button>}

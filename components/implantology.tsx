@@ -538,6 +538,17 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
     } catch (reason) { setError(reason instanceof Error ? `La pieza se guardó, pero no se pudo unir a la ficha del implante: ${reason.message}` : "La pieza se guardó, pero no se pudo unir a la ficha del implante."); }
   };
 
+  /**
+   * Edita una evolución compilada desde una etapa: además de lo que ya hace `onEditEvolution` (guardarla y
+   * corregir la evolución general del paciente), actualiza el estado propio de este panel para que, al cerrar
+   * el editor, la etapa muestre lo corregido y no lo viejo (este panel lee sus evoluciones de su propio `load()`,
+   * aparte de las del paciente en `app/page.tsx`).
+   */
+  const editEvolutionHere = onEditEvolution && (async (note: EvolutionHistoryNote, title: string, body: string) => {
+    await onEditEvolution(note, title, body);
+    setEvolutions(previous => previous.map(n => n.id === note.id ? { ...n, title, body } : n));
+  });
+
   /** Agrega lo escrito o dictado en la etapa como una evolución más (nunca reemplaza lo ya guardado). */
   const saveNote = async () => {
     if (!current || !stage || stage.note === null || !stage.note.trim() || busy) return;
@@ -546,10 +557,12 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
     const note = was ? `${was}\n\n${stage.note.trim()}` : stage.note.trim();
     setBusy("saving"); setError(""); setNotice("");
     try {
+      // Primero se marca la etapa con la fecha elegida (si aún no tenía marca): así, si esta es la primera nota,
+      // el servidor ya encuentra esa fecha al compilar la evolución y no cae en «hoy» por falta de marca.
+      await ensureMarked(id, phase, date);
       const { implant } = await send<{ implant: Implant }>("PATCH", { id, stageNote: { phase, was, note } });
       apply(implant);
       setStage(previous => previous?.phase !== phase ? previous : { ...previous, note: null, noteFrom: undefined });
-      await ensureMarked(id, phase, date);
       await load();
       setNotice("Agregado a la evolución de esta etapa."); onChanged();
     } catch (reason) {
@@ -665,7 +678,7 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
         <StagePage key={`${current.id}-${stage.phase}`} item={current} edit={stage} today={today()} busy={busy !== ""} images={images}
           evolutions={evolutions.filter(n => n.implantId === current.id && n.stagePhase === stage.phase)}
           allEvolutions={evolutions.filter(n => n.implantId === current.id)}
-          odontogram={odontogram} evolutionRail={evolutionRail} onSyncOdontogram={onSyncOdontogram} onEditEvolution={onEditEvolution} onAnnulEvolution={onAnnulEvolution}
+          odontogram={odontogram} evolutionRail={evolutionRail} onSyncOdontogram={onSyncOdontogram} onEditEvolution={editEvolutionHere} onAnnulEvolution={onAnnulEvolution}
           onEdit={change => setStage(previous => previous ? { ...previous, ...change } : previous)} onBack={closeStage} onChange={changeStage} onNote={() => void saveNote()}
           onImages={(files, as) => void addStageImages(files, as)} onOpenImage={setOpen} onRemoveImage={id => void removeImage(id)}>
           <BiomedicalProducts key={`${visit}-${stage.phase}`} embedded compact tool={productTool} patient={patient} startTooth={current.tooth}
