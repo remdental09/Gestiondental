@@ -12,7 +12,7 @@ import type { ClinicalImage } from "@/app/clinical-data";
 import { BiomedicalProducts, type ProductTool, type ProductView } from "@/components/biomedical-products";
 import { CaptureLink } from "@/components/capture-link";
 import { CutOffer, type Offer } from "@/components/cut-offer";
-import { ImplantIdBox, ImplantSheet, StageList, StagePage, stageDate, stagePending, type SheetTab, type StageEdit } from "@/components/implant-sheet";
+import { ImplantIdBox, ImplantSheet, StageList, StagePage, StageStrip, stageDate, stagePending, type SheetTab, type StageEdit } from "@/components/implant-sheet";
 import type { CaptureView } from "@/lib/capture-bridge";
 import { cutViews } from "@/lib/capture-crop";
 import type { DetectedView } from "@/lib/capture-detect";
@@ -217,14 +217,19 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
     });
   };
 
-  /** Vuelve de la pantalla de una etapa a la lista. */
-  const closeStage = () => {
-    if (busy === "saving" || productTool.current?.saving()) { setNotice("Se está guardando. Espera un momento."); return; }
+  /** Antes de cerrar el lienzo de una etapa o pasar a otra: si queda algo sin guardar, se pregunta. */
+  const releaseStage = (): boolean => {
+    if (busy === "saving" || productTool.current?.saving()) { setNotice("Se está guardando. Espera un momento."); return false; }
     const pending = [productTool.current?.pending() && "lo que estás anotando, con su foto", current && stagePending(current, stage, today()) && "la fecha, la nota o la imagen pegada sin guardar"].filter(Boolean);
-    if (pending.length && !window.confirm(`¿Descartar ${pending.join(" y ")}?`)) return;
-    productTool.current?.discard(); setStage(null); setError(""); setNotice("");
+    if (pending.length && !window.confirm(`¿Descartar ${pending.join(" y ")}?`)) return false;
+    productTool.current?.discard();
+    return true;
   };
-  const openStage = (phase: RecordedPhase) => { setStage({ phase, date: null, note: null }); setError(""); setNotice(""); };
+  const closeStage = () => { if (releaseStage()) { setStage(null); setError(""); setNotice(""); } };
+  const openStage = (phase: RecordedPhase) => {
+    if (stage?.phase === phase || (stage && !releaseStage())) return;
+    setStage({ phase, date: null, note: null }); setError(""); setNotice("");
+  };
 
   const save = async () => {
     if (!draft || busy) return;
@@ -256,6 +261,7 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
 
   const remove = async () => {
     if (!draft?.id || busy) return;
+    if (productTool.current?.saving()) { setNotice("Se está guardando. Espera un momento."); return; }
     if (!window.confirm(`¿Desea eliminar la ficha del implante ${draft.tooth}? Se borran sus etapas y notas. Sus imágenes y productos seguirán en la ficha del paciente.`)) return;
     setError("");
     try {
@@ -579,10 +585,12 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
     {notice && !error && <p role="status" className="rounded-lg bg-[#f3f1f7] p-3 text-sm text-[#473a6d]">{notice}</p>}
   </>;
   const mustSave = draft !== null && (draft.id === null || dirty);
+  /** El lienzo de una etapa está a la vista. */
+  const canvas = stage !== null && tab === "etapas";
 
   /** Datos propios del implante: en la ficha nueva y dentro de Cirugía. */
   const dataFields = draft && <>
-        <div className="grid grid-cols-2 items-end gap-3">
+        <div className="grid grid-cols-2 items-end gap-3 @2xl:grid-cols-4">
           <label className="min-w-0 text-sm font-semibold">Pieza (FDI)<select value={draft.tooth} onChange={e => set("tooth", e.target.value)} className={input}>{[...UPPER_ARCH, ...LOWER_ARCH].map(code => <option key={code} value={fdi(code)}>{fdi(code)}</option>)}</select></label>
           {draft.id === null && <label className="min-w-0 text-sm font-semibold">Instalación<input type="date" max={today()} value={draft.placedOn} onChange={e => set("placedOn", e.target.value)} className={`${input} min-w-0 max-w-full appearance-none`}/></label>}
           <label className="min-w-0 text-sm font-semibold">Marca<input list="implant-brand-list" value={draft.brand} maxLength={80} onChange={e => set("brand", e.target.value)} className={input} data-testid="implant-brand"/></label>
@@ -619,17 +627,22 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
 
     {draft && <ImplantSheet title={draft.id === null ? `Nuevo implante ${draft.tooth}` : `Implante ${current?.tooth ?? draft.tooth}`} patientName={patient.name}
       position={at >= 0 ? { at, total: ordered.length } : null} summary={current && <ImplantIdBox item={current} extra={trace}/>}
-      tabs={current && !(stage && tab === "etapas") ? [{ id: "etapas", label: "Etapas" }, { id: "imagenes", label: current.images.length ? `Imágenes (${current.images.length})` : "Imágenes" }] : null}
-      tab={tab} onTab={next => { setTab(next); setNotice(""); }} scrollKey={`${visit}-${tab}-${stage?.phase ?? ""}`} covered={open !== null} locked={busy !== ""} onStep={step} canClose={leave} onClosed={dismiss}
+      tabs={current ? [{ id: "etapas", label: "Etapas" }, { id: "imagenes", label: current.images.length ? `Imágenes (${current.images.length})` : "Imágenes" }] : null}
+      tab={tab} onTab={next => { setTab(next); setNotice(""); }} wide={stage !== null} canvas={canvas}
+      onEscape={() => { if (!canvas) return false; closeStage(); return true; }} scrollKey={`${visit}-${tab}-${stage?.phase ?? ""}`} covered={open !== null} locked={busy !== ""} onStep={step} canClose={leave} onClosed={dismiss}
       footer={(error || notice || mustSave) ? <>{messages}
         {mustSave && <button type="button" className={`${primary} w-full`} disabled={busy !== ""} onClick={() => void save()} data-testid="implant-save">{busy === "saving" && <LoaderCircle className="size-4 animate-spin" aria-hidden="true"/>}{draft.id ? "Guardar cambios" : "Guardar implante"}</button>}
       </> : null}>
 
-      {current && <div hidden={tab !== "etapas"} className="space-y-4">
-        {!stage ? <>
-          <StageList item={current} pieces={pieces} onOpen={openStage}/>
+      {current && <div hidden={tab !== "etapas"} className={canvas ? "md:flex md:h-full" : ""}>
+        {/* Las etapas siguen a la vista; en el teléfono, con un lienzo abierto, quedan arriba de él. */}
+        <div className={`space-y-4 ${stage ? "max-md:hidden md:w-72 md:shrink-0 md:overflow-y-auto md:overscroll-contain md:pr-3" : ""}`} data-testid="implant-stage-column">
+          <StageList item={current} pieces={pieces} open={stage?.phase} onOpen={openStage}/>
           {noteAndRemove}
-        </> : <StagePage key={`${current.id}-${stage.phase}`} item={current} edit={stage} today={today()} busy={busy !== ""} images={images}
+        </div>
+        {stage && <div key={`${current.id}-${stage.phase}`} className="gd-implant-canvas md:min-w-0 md:flex-1 md:overflow-y-auto md:overflow-x-hidden md:overscroll-contain md:border-l md:border-[#ebe9f2] md:pl-4" data-testid="implant-canvas">
+        <StageStrip item={current} pieces={pieces} open={stage.phase} onOpen={openStage}/>
+        <StagePage key={`${current.id}-${stage.phase}`} item={current} edit={stage} today={today()} busy={busy !== ""} images={images}
           onEdit={change => setStage(previous => previous ? { ...previous, ...change } : previous)} onBack={closeStage} onChange={changeStage} onNote={was => void saveNote(was)}
           onImages={(files, as) => void addStageImages(files, as)} onOpenImage={setOpen} onRemoveImage={id => void removeImage(id)}>
           <BiomedicalProducts key={`${visit}-${stage.phase}`} embedded compact tool={productTool} patient={patient} startTooth={current.tooth}
@@ -637,10 +650,11 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
             onSaved={(product, added) => void pieceSaved(product, added)}
             onUploadImage={onUploadImage} onRemoveImage={onRemoveImage} onImageGone={onImageGone} onChanged={() => { void load(); onChanged(); }}/>
           {stage.phase === "cirugia" && <details className="rounded-xl border border-[#e6e4ee] px-3" data-testid="implant-data"><summary className="cursor-pointer py-3 text-sm font-semibold text-[#473a6d]">Datos del implante (medidas, conexión, torque, ISQ)</summary><div className="space-y-4 pb-3" data-testid="implant-form">{dataFields}</div></details>}
-        </StagePage>}
+        </StagePage>
+        </div>}
       </div>}
 
-      {draft.id === null && <div className="space-y-4" data-testid="implant-form">
+      {draft.id === null && <div className="@container space-y-4" data-testid="implant-form">
         {/* Mientras se guarda el implante no se empieza un producto: al terminar, la ficha cambia a sus etapas. */}
         <fieldset disabled={busy === "saving"} className="min-w-0">
           <BiomedicalProducts key={visit} embedded compact tool={productTool} patient={patient} startTooth={draft.tooth} onSaved={(product, created, implantKnown) => void productSaved(product, created, implantKnown)}
@@ -664,7 +678,7 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
         </div>
         {offer && <CutOffer key={offer.id} offer={offer} waiting={offers.length - 1} patientName={patient.name} view={view} busy={busy !== ""}
           onToggle={cut => toggleCut(offer, cut)} onSaveCuts={() => void saveCuts(offer)} onSaveWhole={() => void saveWhole(offer)} onDiscard={() => closeOffer(offer)}/>}
-        {current.images.length ? <ul className="grid grid-cols-2 gap-3">{current.images.map(item => {
+        {current.images.length ? <ul className="grid grid-cols-2 gap-3 md:grid-cols-3">{current.images.map(item => {
           const image = images.find(found => found.id === item.imageId);
           return <li key={item.imageId} className="overflow-hidden rounded-xl border border-[#e6e4ee] bg-white">
             {image ? <button type="button" className="block h-36 w-full bg-[#1f1b30]" onClick={() => setOpen(image)} aria-label={`Abrir ${item.view}`}><img src={thumbUrl(image.url)} loading="lazy" alt={`${item.view}, implante ${current.tooth}`} className="h-36 w-full object-contain"/></button> : <p className="flex h-36 items-center justify-center text-xs text-[#615f73]">Cargando…</p>}
