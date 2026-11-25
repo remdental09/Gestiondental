@@ -26,3 +26,11 @@ test("la barra de herramientas sale abierta en toda evolución expandida, no sol
   assert.match(rail, /useState\(true\)/);
   assert.doesNotMatch(rail, /useState\(latest\)/);
 });
+
+test("el titular de la evolución no se aprieta en una columna: la fila baja los chips y el titular tiene ancho mínimo", () => {
+  const ui = readFileSync(new URL("../components/evolution-history.tsx", import.meta.url), "utf8");
+  assert.match(ui, /data-testid="evolution-row"/);
+  assert.match(ui, /flex-wrap items-center gap-x-2/);
+  assert.match(ui, /min-w-\[12rem\] flex-1 basis-\[14rem\]/);
+  assert.match(ui, /max-w-\[22rem\] truncate/);
+});
