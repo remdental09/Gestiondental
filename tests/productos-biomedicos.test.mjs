@@ -63,9 +63,9 @@ test("productos: migración 0021 registrada en el journal", () => {
 import { parseProductCode, codeHasFields, gs1Date } from "../lib/product-code.ts";
 
 test("QR: GS1 con paréntesis, sin paréntesis (FNC1) y Digital Link entregan lote, serie y vencimiento", () => {
-  for (const payload of ["(01)07612345678901(17)280500(10)AB123(21)SN99", "01076123456789011728050010AB123\x1d21SN99", "https://id.gs1.org/01/07612345678901/10/AB123/21/SN99?17=280500"]) {
+  for (const payload of ["(01)07612345678900(17)280500(10)AB123(21)SN99", "01076123456789001728050010AB123\x1d21SN99", "https://id.gs1.org/01/07612345678900/10/AB123/21/SN99?17=280500"]) {
     const code = parseProductCode(payload);
-    assert.deepEqual([code.lot, code.serial, code.expiry, code.gtin], ["AB123", "SN99", "2028-05", "7612345678901"], payload);
+    assert.deepEqual([code.lot, code.serial, code.expiry, code.gtin], ["AB123", "SN99", "2028-05", "7612345678900"], payload);
   }
   assert.equal(gs1Date("281231"), "2028-12-31");
   assert.equal(gs1Date("281340"), "");
@@ -80,10 +80,11 @@ test("QR: texto con LOT/SN/REF/EXP se lee; un QR sin datos solo conserva el text
   assert.equal(parseProductCode(null).raw, "");
 });
 
-test("QR: el formulario lee el QR en el teléfono, el QR manda sobre la IA y la IA recibe el texto del QR", () => {
+test("códigos: el formulario los lee en el equipo, el código manda sobre la IA y la IA recibe su texto", () => {
   const form = read("components/biomedical-products.tsx");
-  assert.match(form, /extractQrFromImage\(file\)/);
-  assert.match(form, /fromCode/);
+  assert.match(form, /readCodes\(file\)/);
+  assert.match(form, /applyPhoto\(base, code, read\.fields\)/);
   assert.match(form, /code: code\?\.raw/);
+  assert.match(form, /products-scan/);
   assert.match(read("app/api/productos/leer/route.ts"), /body\?\.code/);
 });

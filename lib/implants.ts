@@ -118,7 +118,12 @@ export function backupImplant(r: StoredImplant, available?: Set<number>) {
   };
 }
 
-export type ImplantLabel = { id: number; tooth: string; brand: string; reference: string; lot: string; serial: string; placedOn: string };
+export type ImplantLabel = { id: number; tooth: string; brand: string; reference: string; lot: string; serial: string; placedOn: string; model?: string; diameter?: string; length?: string };
+
+/** Medidas de la etiqueta que sirven para la ficha del implante: solo un número simple dentro de rango. */
+export function labelMeasures(label: Pick<ImplantLabel, "diameter" | "length"> | undefined): { diameter: number | null; length: number | null } {
+  return { diameter: measure(label?.diameter, 1.5, 8, 2) ?? null, length: measure(label?.length, 3, 60, 1) ?? null };
+}
 export type ImplantSuggestion = { tooth: string; source: "etiqueta" | "odontograma"; draft: Partial<ImplantFields> };
 
 /**
@@ -138,7 +143,8 @@ export function implantSuggestions(input: {
     const tooth = implantTooth(label.tooth);
     if (!tooth || covered.has(tooth) || used.has(label.id)) continue;
     covered.add(tooth);
-    out.push({ tooth, source: "etiqueta", draft: { tooth, brand: label.brand, placedOn: label.placedOn, productId: label.id, phase: "cirugia" } });
+    const { diameter, length } = labelMeasures(label);
+    out.push({ tooth, source: "etiqueta", draft: { tooth, brand: label.brand, placedOn: label.placedOn, productId: label.id, phase: "cirugia", ...(diameter !== null ? { diameter } : {}), ...(length !== null ? { length } : {}) } });
   }
   const chart = new Set<number>();
   for (const [key, status] of Object.entries(input.teeth)) if (/^Implante/.test(status)) chart.add(Number(key));

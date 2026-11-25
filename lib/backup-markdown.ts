@@ -1,5 +1,6 @@
 import { chileDay } from "./chile-day.ts";
 import { implantSummary, phaseLabel, type backupImplant } from "./implants.ts";
+import { categoryLabel, parseDetails, productFigureLines, type ProductCategory } from "./biomedical-products.ts";
 
 /**
  * Ficha clínica en Markdown: legible por cualquier persona y cualquier programa, sin depender de la app.
@@ -18,7 +19,8 @@ export type MarkdownRecord = {
   odontogram: { teeth?: Record<string, string>; surfaces?: Record<string, Record<string, { condition?: string; depth?: string | null; restorationMaterial?: string | null } | null>>; crowns?: Record<string, { material?: string; foundation?: string } | null>; missingReason?: Record<string, string> } | null;
   imageMetadata: Array<{ name: string; driveFile?: string; kind?: string | null; note?: string | null; addedAt?: string | null }>;
   implants?: Array<ReturnType<typeof backupImplant>>;
-  biomedicalProducts?: Array<{ id: number; reference?: string; lot?: string; serial?: string }>;
+  biomedicalProducts?: Array<{ id: number; category?: string; brand?: string; model?: string; diameter?: string; length?: string; reference?: string; lot?: string; serial?: string; manufactured?: string; expiry?: string;
+    manufacturer?: string; registration?: string; gtin?: string; details?: unknown; code?: string; tooth?: string; placedOn?: string; note?: string }>;
   documents?: Array<{ title: string; kind?: string; content: string; status?: string; createdAt?: string; createdByName?: string; signature?: { signerName: string; signerRole: string; signerRelation: string; signedAt: string; method: string; signatureHash: string } }>;
 };
 
@@ -95,6 +97,13 @@ export function fichaMarkdown(record: MarkdownRecord, generatedAt = ""): string 
     const details = [implantSummary(item), trace && `etiqueta: ${cell(trace)}`, item.placedOn && `instalado ${item.placedOn.split("-").reverse().join("-")}`, item.torque !== null && `torque ${item.torque} Ncm`, item.isq !== null && `ISQ ${item.isq}`,
       item.images.length && `imágenes: ${item.images.map(image => `${image.view} (adjunto ${image.imageId})`).join(", ")}`, item.note.replace(/\n/g, " ")].filter(Boolean);
     return `- **${item.tooth}** · ${phaseLabel(item.phase)}${details.length ? ` · ${details.join(" · ")}` : ""}`;
+  }), "");
+
+  if (record.biomedicalProducts?.length) out.push("## Productos biomédicos", "", ...record.biomedicalProducts.map(item => {
+    const lines = productFigureLines({ ...item, reference: item.reference ?? "", lot: item.lot ?? "", serial: item.serial ?? "", expiry: item.expiry ?? "", manufacturer: item.manufacturer ?? "", note: item.note ?? "",
+      details: "[]", placedOnLabel: item.placedOn ? item.placedOn.split("-").reverse().join("-") : "sin fecha" });
+    const rest = [...parseDetails(item.details).map(detail => detail.label ? `${detail.label}: ${detail.value}` : detail.value), item.code ? `Contenido del código: ${item.code}` : ""];
+    return `- **${categoryLabel((item.category || "otro") as ProductCategory)}**${item.brand ? ` · ${cell(item.brand)}` : ""}${item.tooth ? ` · pieza ${item.tooth}` : ""} · ${[...lines, ...rest].filter(Boolean).map(cell).join(" · ")}`;
   }), "");
 
   out.push("## Presupuestos", "");

@@ -5,7 +5,7 @@ import { loadProfile } from "@/app/clinician-profile-db";
 import { displayName } from "@/lib/clinician-profile";
 import { getDb } from "@/db";
 import { biomedicalProducts, clinicalImages, patients } from "@/db/schema";
-import { PRODUCT_IMAGE_KIND, cleanProductFields, santiagoToday } from "@/lib/biomedical-products";
+import { PRODUCT_EXTRA_FIELDS, PRODUCT_IMAGE_KIND, cleanProductFields, parseDetails, santiagoToday } from "@/lib/biomedical-products";
 import { thumbKey } from "@/lib/image-keys";
 
 export const runtime = "edge";
@@ -18,6 +18,7 @@ const view = (row: Row) => ({
   id: row.id, patientId: row.patientId, imageId: row.imageId, category: row.category, brand: row.brand, reference: row.reference, lot: row.lot, serial: row.serial,
   expiry: row.expiry, manufacturer: row.manufacturer, tooth: row.tooth, note: row.note, placedOn: row.placedOn, aiRead: row.aiRead === 1,
   createdByName: row.createdByName, createdAt: row.createdAt,
+  model: row.model, diameter: row.diameter, length: row.length, registration: row.registration, manufactured: row.manufactured, gtin: row.gtin, details: parseDetails(row.details), code: row.code,
   imageUrl: row.imageId ? `/api/images/${row.imageId}` : "", thumbUrl: row.imageId ? `/api/images/${row.imageId}?thumb=1` : "",
 });
 
@@ -53,7 +54,7 @@ export async function POST(request: Request) {
   if (!fields) return fail("Elige el tipo de producto y una fecha que no sea futura.");
   const imageId = Number(body.imageId);
   const hasImage = Number.isSafeInteger(imageId) && imageId > 0;
-  if (!hasImage && !fields.brand && !fields.reference && !fields.lot && !fields.serial) return fail("Toma la foto de la etiqueta o escribe al menos la marca, la referencia, el lote o la serie.");
+  if (!hasImage && !fields.brand && !fields.reference && !fields.lot && !fields.serial && !fields.gtin && !fields.code) return fail("Toma la foto de la etiqueta o escribe al menos la marca, la referencia, el lote o la serie.");
   try {
     const db = getDb();
     const [patient] = await db.select({ id: patients.id }).from(patients).where(and(eq(patients.id, patientId), eq(patients.ownerId, ownerId))).limit(1);
@@ -83,8 +84,11 @@ export async function PATCH(request: Request) {
   if (!body || !Number.isSafeInteger(id) || id < 1) return fail("Producto no válido.");
   const fields = cleanProductFields(body, santiagoToday());
   if (!fields) return fail("Elige el tipo de producto y una fecha que no sea futura.");
+  // Una pantalla abierta antes de esta versión no envía los datos nuevos: no se borran.
+  const change: Partial<typeof fields> = { ...fields };
+  for (const key of PRODUCT_EXTRA_FIELDS) if (!(key in body)) delete change[key];
   try {
-    const [row] = await getDb().update(biomedicalProducts).set(fields).where(and(eq(biomedicalProducts.id, id), eq(biomedicalProducts.ownerId, ownerId))).returning();
+    const [row] = await getDb().update(biomedicalProducts).set(change).where(and(eq(biomedicalProducts.id, id), eq(biomedicalProducts.ownerId, ownerId))).returning();
     if (!row) return fail("Producto no encontrado.", 404);
     return ok({ product: view(row) });
   } catch { return fail("No se pudo guardar el cambio.", 503); }

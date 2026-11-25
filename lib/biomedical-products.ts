@@ -21,9 +21,54 @@ export type ProductFields = {
   category: ProductCategory;
   brand: string; reference: string; lot: string; serial: string; expiry: string; manufacturer: string;
   tooth: string; note: string; placedOn: string;
+  /** Descripción impresa del producto («Implante … 3,3X9mm + Tapa»). */
+  model: string;
+  /** Medidas en mm, tal como las dice la etiqueta (texto: no todo producto trae un número simple). */
+  diameter: string; length: string;
+  /** Registro sanitario con su organismo («ANVISA 12345678901»). */
+  registration: string;
+  /** Fecha de fabricación (AAAA-MM o AAAA-MM-DD). */
+  manufactured: string;
+  gtin: string;
+  /** Todo lo demás impreso en la etiqueta, como JSON [{label, value}]. */
+  details: string;
+  /** Contenido literal del código leído (QR, Data Matrix o barras). */
+  code: string;
 };
 
-const LIMITS = { brand: 80, reference: 60, lot: 60, serial: 60, manufacturer: 80, note: 600 } as const;
+/** Campos añadidos después del primer registro: se respaldan y se editan solo cuando existen. */
+export const PRODUCT_EXTRA_FIELDS = ["model", "diameter", "length", "registration", "manufactured", "gtin", "details", "code"] as const;
+export type ProductDetail = { label: string; value: string };
+export const MAX_DETAILS = 30;
+
+/** Datos nuevos de la etiqueta para el respaldo: solo los que existen, así un producto anterior queda igual que antes. */
+export function labelExtras(p: Partial<Record<typeof PRODUCT_EXTRA_FIELDS[number], string | null>>): Record<string, unknown> {
+  return Object.fromEntries(PRODUCT_EXTRA_FIELDS.flatMap(key => {
+    const value = key === "details" ? parseDetails(p.details) : p[key];
+    return value && value.length ? [[key, value]] : [];
+  }));
+}
+
+/** Acepta la lista o su JSON; omite filas sin dato. */
+export function parseDetails(value: unknown): ProductDetail[] {
+  let list: unknown = value;
+  if (typeof value === "string") { try { list = JSON.parse(value || "[]"); } catch { return []; } }
+  if (!Array.isArray(list)) return [];
+  return list.flatMap(item => {
+    const label = text((item as ProductDetail | null)?.label, 60), data = text((item as ProductDetail | null)?.value, 240);
+    return data ? [{ label, value: data }] : [];
+  }).slice(0, MAX_DETAILS);
+}
+
+/** Medida en mm: «3,3», «Ø 3.3 mm» → «3,3». Lo que no sea un número simple se conserva como está escrito. */
+export function cleanMeasure(value: unknown): string {
+  const raw = text(value, 30);
+  const number = /^(?:[ØøDLdl⌀]\s*[:=]?\s*)?(\d{1,3}(?:[.,]\d{1,2})?)\s*(?:mm)?$/i.exec(raw);
+  return number ? number[1]!.replace(".", ",") : raw;
+}
+
+const LIMITS = { brand: 80, reference: 60, lot: 60, serial: 60, manufacturer: 200, note: 600, model: 200, registration: 100, code: 1500 } as const;
+const cleanGtin = (value: unknown) => { const digits = text(value, 30).replace(/\s/g, ""); return /^\d{8,14}$/.test(digits) ? digits : ""; };
 const text = (value: unknown, max: number): string =>
   typeof value === "string" ? value.normalize("NFC").replace(/[\u0000-\u001F\u007F]/g, " ").replace(/\s+/g, " ").trim().slice(0, max) : "";
 
@@ -69,6 +114,9 @@ export function cleanProductFields(input: Record<string, unknown>, today: string
     lot: cleanCode(input.lot, LIMITS.lot), serial: cleanCode(input.serial, LIMITS.serial),
     expiry: cleanExpiry(input.expiry), manufacturer: text(input.manufacturer, LIMITS.manufacturer),
     tooth: cleanTooth(input.tooth), note: text(input.note, LIMITS.note), placedOn,
+    model: text(input.model, LIMITS.model), diameter: cleanMeasure(input.diameter), length: cleanMeasure(input.length),
+    registration: text(input.registration, LIMITS.registration), manufactured: cleanExpiry(input.manufactured), gtin: cleanGtin(input.gtin),
+    details: JSON.stringify(parseDetails(input.details)), code: text(input.code, LIMITS.code),
   };
 }
 
@@ -85,25 +133,32 @@ export const missingTrace = (p: Pick<ProductFields, "lot" | "serial">) => !p.lot
 
 export const LABEL_SCHEMA = {
   type: "object", additionalProperties: false,
-  required: ["category", "brand", "reference", "lot", "serial", "expiry", "manufacturer", "legible"],
+  required: ["category", "brand", "model", "diameter", "length", "reference", "lot", "serial", "manufactured", "expiry", "manufacturer", "registration", "gtin", "other", "legible"],
   properties: {
     category: { type: "string", enum: ["implante", "injerto", "membrana", "pilar", "sutura", "otro", ""] },
-    brand: { type: "string" }, reference: { type: "string" }, lot: { type: "string" }, serial: { type: "string" },
-    expiry: { type: "string" }, manufacturer: { type: "string" }, legible: { type: "boolean" },
+    brand: { type: "string" }, model: { type: "string" }, diameter: { type: "string" }, length: { type: "string" },
+    reference: { type: "string" }, lot: { type: "string" }, serial: { type: "string" }, manufactured: { type: "string" },
+    expiry: { type: "string" }, manufacturer: { type: "string" }, registration: { type: "string" }, gtin: { type: "string" },
+    other: { type: "array", items: { type: "object", additionalProperties: false, required: ["label", "value"], properties: { label: { type: "string" }, value: { type: "string" } } } },
+    legible: { type: "boolean" },
   },
 } as const;
 
 export const LABEL_PROMPT = [
-  "Lees la foto de la etiqueta o envase de un producto biomédico odontológico (implante, injerto óseo, membrana, pilar, sutura) y transcribes SOLO lo que se ve impreso.",
+  "Lees la foto de la etiqueta o envase de un producto biomédico odontológico (implante, injerto óseo, membrana, pilar, sutura) y transcribes TODO lo que se ve impreso, sin omitir datos.",
   "Reglas estrictas: no inventes, no completes ni corrijas números; si un dato no se ve con total claridad, devuélvelo como cadena vacía.",
+  "model = descripción o nombre del producto como está impreso (si viene en varios idiomas, una sola vez, en español si existe).",
+  "diameter y length = medidas en milímetros impresas en la etiqueta (por ejemplo «SIZE 3.3X9MM» o «Ø 3,3 x 9 mm» en un implante: diameter 3,3 y length 9). No las deduzcas del código de referencia. Otras medidas (volumen, granulometría, dimensiones de una membrana) van en other.",
   "Lote (LOT) y número de serie (SN): cópialos exactamente como están, carácter por carácter; un lote o serie dudoso va vacío.",
-  "Referencia o código de catálogo (REF): tal cual. Marca = nombre comercial visible; fabricante = empresa fabricante si aparece.",
-  "Vencimiento (símbolo de reloj de arena o «EXP»): entrégalo como AAAA-MM o AAAA-MM-DD.",
+  "Referencia o código de catálogo (REF): tal cual. Marca = nombre comercial visible; manufacturer = empresa fabricante (nombre y, si aparece, dirección o país).",
+  "registration = registro sanitario con el nombre del organismo (por ejemplo «ANVISA 12345678901», «ISP …»). gtin = número del código de barras si está impreso.",
+  "manufactured (símbolo de fábrica con fecha) y expiry (reloj de arena o «EXP»): AAAA-MM-DD, o AAAA-MM si la etiqueta no trae día.",
+  "other = lista con cada dato impreso que no tenga campo propio, con su nombre en español en label: material, superficie, conexión o plataforma, contenido del envase, esterilización, cantidad, revisión, representante autorizado, marcado CE, símbolos y advertencias, sitio de instrucciones, teléfono del fabricante.",
   "category: implante, injerto, membrana, pilar, sutura u otro según el producto; vacío si no se puede saber.",
   "legible=false si la foto no permite leer la etiqueta. No describas al paciente ni nada fuera de la etiqueta.",
 ].join("\n");
 
-export type LabelReading = Partial<Pick<ProductFields, "category" | "brand" | "reference" | "lot" | "serial" | "expiry" | "manufacturer">> & { legible: boolean };
+export type LabelReading = Partial<Pick<ProductFields, "category" | "brand" | "model" | "diameter" | "length" | "reference" | "lot" | "serial" | "manufactured" | "expiry" | "manufacturer" | "registration" | "gtin">> & { other?: ProductDetail[]; legible: boolean };
 
 /** Convierte la respuesta del modelo en campos limpios (lo desconocido queda vacío). */
 export function parseLabelReading(raw: unknown): LabelReading {
@@ -113,6 +168,9 @@ export function parseLabelReading(raw: unknown): LabelReading {
   out.brand = text(data.brand, LIMITS.brand); out.reference = cleanCode(data.reference, LIMITS.reference);
   out.lot = cleanCode(data.lot, LIMITS.lot); out.serial = cleanCode(data.serial, LIMITS.serial);
   out.expiry = cleanExpiry(data.expiry); out.manufacturer = text(data.manufacturer, LIMITS.manufacturer);
+  out.model = text(data.model, LIMITS.model); out.diameter = cleanMeasure(data.diameter); out.length = cleanMeasure(data.length);
+  out.manufactured = cleanExpiry(data.manufactured); out.registration = text(data.registration, LIMITS.registration); out.gtin = cleanGtin(data.gtin);
+  out.other = parseDetails(data.other);
   // Si el modelo dice que no es legible, no se propone nada: evita lotes «adivinados».
   if (!out.legible) return { legible: false };
   return out;
@@ -125,13 +183,25 @@ export const santiagoToday = (now = new Date()) => new Intl.DateTimeFormat("en-C
 export const productFigureTitle = (index: number, p: Pick<ProductFields, "brand" | "tooth">, category: string) =>
   `${index}. ${[category, p.brand].filter(Boolean).join(" · ")}${p.tooth ? ` — pieza ${p.tooth}` : ""}`;
 
-const expiryLabel = (value: string) => value.length === 7 ? `${value.slice(5)}/${value.slice(0, 4)}` : value ? value.split("-").reverse().join("/") : "";
+export const expiryLabel = (value: string) => value.length === 7 ? `${value.slice(5)}/${value.slice(0, 4)}` : value ? value.split("-").reverse().join("/") : "";
+
+/** «Ø 3,3 mm · largo 9 mm»: solo lo registrado. */
+export function measureText(p: { diameter?: string; length?: string }): string {
+  const mm = (value: string) => /^\d+(?:,\d+)?$/.test(value) ? `${value} mm` : value;
+  return [p.diameter && `Ø ${mm(p.diameter)}`, p.length && `largo ${mm(p.length)}`].filter(Boolean).join(" · ");
+}
 
 /** Líneas de detalle del producto para el documento; solo lo que está registrado (no se imprimen «sin dato»). */
-export function productFigureLines(p: Pick<ProductFields, "reference" | "lot" | "serial" | "expiry" | "manufacturer" | "note"> & { placedOnLabel: string }): string[] {
+export function productFigureLines(p: Pick<ProductFields, "reference" | "lot" | "serial" | "expiry" | "manufacturer" | "note"> & Partial<Pick<ProductFields, "model" | "diameter" | "length" | "registration" | "manufactured" | "gtin" | "details">> & { placedOnLabel: string }): string[] {
+  const measures = measureText(p);
+  // El resto de la etiqueta va en un solo párrafo acotado: cada producto debe caber en una página (el dato completo queda en la ficha y su foto).
+  const others = parseDetails(p.details).map(item => item.label ? `${item.label}: ${item.value}` : item.value).join(" · ");
   return [
+    p.model && `Producto: ${p.model}`, measures && `Medidas: ${measures}`,
     p.reference && `Referencia / código: ${p.reference}`, p.lot && `Lote: ${p.lot}`, p.serial && `N.º de serie: ${p.serial}`,
-    p.expiry && `Vencimiento: ${expiryLabel(p.expiry)}`, p.manufacturer && `Fabricante: ${p.manufacturer}`,
+    p.manufactured && `Fabricación: ${expiryLabel(p.manufactured)}`, p.expiry && `Vencimiento: ${expiryLabel(p.expiry)}`,
+    p.manufacturer && `Fabricante: ${p.manufacturer}`, p.registration && `Registro sanitario: ${p.registration}`, p.gtin && `GTIN: ${p.gtin}`,
+    others && `Otros datos: ${others.length > 700 ? `${others.slice(0, 700)}…` : others}`,
     `Colocado el ${p.placedOnLabel}`, p.note && `Nota: ${p.note}`,
   ].filter((line): line is string => Boolean(line));
 }

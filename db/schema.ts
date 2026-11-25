@@ -239,6 +239,16 @@ export const biomedicalProducts = sqliteTable("biomedical_products", {
   createdBy: text("created_by").notNull(),
   createdByName: text("created_by_name").notNull().default(""),
   createdAt: text("created_at").notNull(),
+  model: text("model").notNull().default(""),
+  diameter: text("diameter").notNull().default(""),
+  length: text("length").notNull().default(""),
+  registration: text("registration").notNull().default(""),
+  manufactured: text("manufactured").notNull().default(""),
+  gtin: text("gtin").notNull().default(""),
+  /** JSON [{label, value}] con el resto de lo impreso. */
+  details: text("details").notNull().default("[]"),
+  /** Contenido literal del código leído. */
+  code: text("code").notNull().default(""),
 }, table => [index("biomedical_products_patient_idx").on(table.ownerId, table.patientId)]);
 
 /** Ficha por implante (implantología). `images` es JSON: [{ imageId, view }] sobre clinical_images del mismo paciente. */

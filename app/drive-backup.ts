@@ -3,6 +3,7 @@ import { ensureDocumentIssuanceColumns } from "@/app/document-issuance-db";
 import { ensureConsentSignatureTable } from "@/app/consent-signature-db";
 import { fichaMarkdown } from "@/lib/backup-markdown";
 import { backupImplant } from "@/lib/implants";
+import { labelExtras } from "@/lib/biomedical-products";
 import { loadAnamnesis } from "@/app/anamnesis-db";
 import { loadAddresses } from "@/app/patient-address-db";
 import { getDb } from "@/db";
@@ -96,6 +97,7 @@ export async function getDriveSnapshot(ownerId: string, patientId: number, conne
     ...(products.length ? { biomedicalProducts: products.map(p => ({
       id: p.id, category: p.category, brand: p.brand, reference: p.reference, lot: p.lot, serial: p.serial, expiry: p.expiry,
       manufacturer: p.manufacturer, tooth: p.tooth, note: p.note, placedOn: p.placedOn, createdByName: p.createdByName, createdAt: p.createdAt,
+      ...labelExtras(p),
     })) } : {}),
     ...(implantRows.length ? { implants: implantRows.map(row => backupImplant(row, new Set(images.map(i => i.id)))) } : {}),
     // Las anuladas se respaldan igual (Ley 20.584), marcadas con motivo, fecha y autor.
