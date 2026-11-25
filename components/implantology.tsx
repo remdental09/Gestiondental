@@ -1,20 +1,22 @@
 "use client";
 /* eslint-disable @next/next/no-img-element -- Las imágenes clínicas son rutas autenticadas que se cargan con la sesión del navegador. */
 /**
- * Pestaña «Implantología»: implantograma, una ficha por implante, su etiqueta y sus cortes (pegar, arrastrar o subir).
+ * Pestaña «Implantología»: implantograma, la ventana de cada implante (etapa e historial), su ficha, su etiqueta y sus cortes (pegar, arrastrar o subir).
  * La app propone fichas desde las etiquetas y el odontograma; nada se guarda sin que el profesional confirme.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Camera, ClipboardPaste, Download, ImagePlus, LoaderCircle, Plus, ScanLine, Trash2, X } from "lucide-react";
 import type { ClinicalImage } from "@/app/clinical-data";
 import { BiomedicalProducts, type ProductTool, type ProductView } from "@/components/biomedical-products";
 import { CaptureLink } from "@/components/capture-link";
+import { ImplantIdBox, ImplantSheet, type StageChange } from "@/components/implant-sheet";
 import { thumbUrl } from "@/lib/image-compress";
 import { IMPLANT_BRANDS } from "@/lib/dictation/implant-brands";
 import {
-  COMMON_DIAMETERS, COMMON_LENGTHS, IMPLANT_PHASES, IMPLANT_VIEWS, LOWER_ARCH, UPPER_ARCH,
-  imageKindForView, implantSuggestions, implantSummary, labelMeasures, mm, phaseLabel,
-  type Implant, type ImplantFields, type ImplantLabel, type ImplantView,
+  COMMON_DIAMETERS, COMMON_LENGTHS, IMPLANT_CONNECTIONS, IMPLANT_PHASES, IMPLANT_VIEWS, LOWER_ARCH, UPPER_ARCH,
+  archOrder, imageKindForView, implantSuggestions, implantSummary, labelMeasures, mm, phaseLabel, suggestConnection,
+  type Implant, type ImplantFields, type ImplantLabel, type ImplantView, type KnownConnection,
 } from "@/lib/implants";
 
 const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Santiago", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
@@ -22,13 +24,16 @@ const dayLabel = (iso: string) => iso.split("-").reverse().join("-");
 const fdi = (code: number) => `${Math.floor(code / 10)}.${code % 10}`;
 const BRANDS = [...new Set(IMPLANT_BRANDS.map(item => item.brand))].sort((a, b) => a.localeCompare(b, "es"));
 
-type Draft = { id: number | null; tooth: string; phase: string; brand: string; system: string; diameter: string; length: string; placedOn: string; torque: string; isq: string; productId: string; note: string };
+type Draft = { id: number | null; tooth: string; phase: string; brand: string; system: string; connection: string; diameter: string; length: string; placedOn: string; torque: string; isq: string; productId: string; note: string };
 const toDraft = (item: Partial<ImplantFields> & { id?: number }): Draft => ({
-  id: item.id ?? null, tooth: item.tooth ?? "", phase: item.phase ?? "", brand: item.brand ?? "", system: item.system ?? "",
+  id: item.id ?? null, tooth: item.tooth ?? "", phase: item.phase ?? "", brand: item.brand ?? "", system: item.system ?? "", connection: item.connection ?? "",
   diameter: mm(item.diameter ?? null), length: mm(item.length ?? null), placedOn: item.placedOn ?? "",
   torque: item.torque == null ? "" : String(item.torque), isq: item.isq == null ? "" : String(item.isq),
   productId: item.productId ? String(item.productId) : "", note: item.note ?? "",
 });
+
+/** Lleva la ficha abierta a lo último guardado: lo que no se tocó desde `from` sigue a `saved`; lo escrito queda pendiente. */
+const rebase = (draft: Draft, from: Draft, saved: Draft) => Object.fromEntries((Object.keys(saved) as (keyof Draft)[]).map(key => [key, draft[key] === from[key] ? saved[key] : draft[key]])) as Draft;
 
 const PHASE_COLOR: Record<string, string> = {
   "": "border-[#473a6d] bg-[#e6e4ee] text-[#2a2540]", evaluacion: "border-slate-500 bg-slate-100 text-slate-800", plan: "border-sky-600 bg-sky-100 text-sky-900",
@@ -72,6 +77,10 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
 }) {
   const [implants, setImplants] = useState<Implant[] | null>(null);
   const [labels, setLabels] = useState<ImplantLabel[]>([]);
+  /** Conexiones ya confirmadas por marca y sistema, de la más reciente a la más antigua. */
+  const [known, setKnown] = useState<KnownConnection[]>([]);
+  /** Implante cuya ventana está abierta. */
+  const [shown, setShown] = useState<number | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [baseline, setBaseline] = useState("");
   const [view, setView] = useState<ImplantView>("Transversal");
@@ -89,8 +98,8 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
   useEffect(() => { setWindows(/Windows/i.test(navigator.userAgent)); }, []);
   const load = useCallback(async () => {
     try {
-      const data = await call<{ implants: Implant[]; labels: ImplantLabel[] }>(`/api/implantes?patientId=${patient.id}`, { cache: "no-store" });
-      setImplants(data.implants); setLabels(data.labels); setError("");
+      const data = await call<{ implants: Implant[]; labels: ImplantLabel[]; connections?: KnownConnection[] }>(`/api/implantes?patientId=${patient.id}`, { cache: "no-store" });
+      setImplants(data.implants); setLabels(data.labels); setKnown(data.connections ?? []); setError("");
       return data;
     } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudieron cargar los implantes."); return null; }
   }, [patient.id]);
@@ -98,7 +107,8 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
 
   useEffect(() => {
     if (!open) return;
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setOpen(null); };
+    // La tecla es solo para la imagen: la ventana del implante que quede debajo no se cierra con ella.
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") { event.stopPropagation(); setOpen(null); } };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [open]);
@@ -106,11 +116,25 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
   const current = draft?.id ? implants?.find(item => item.id === draft.id) ?? null : null;
   const dirty = draft !== null && JSON.stringify(draft) !== baseline;
 
-  const show = (next: Draft | null) => {
-    if (dirty && !window.confirm("Hay cambios sin guardar en este implante. ¿Descartarlos?")) return;
+  // Si el implante de la ficha abierta cambió (aquí o en otro equipo), la ficha se pone al día sin perder lo escrito.
+  useEffect(() => {
+    const saved = draft?.id ? implants?.find(item => item.id === draft.id) : undefined;
+    if (!draft || !saved || !baseline) return;
+    const next = toDraft(saved), serialized = JSON.stringify(next);
+    if (serialized === baseline) return;
+    setDraft(rebase(draft, JSON.parse(baseline) as Draft, next)); setBaseline(serialized);
+  }, [implants, draft, baseline]);
+  useEffect(() => {
+    if (shown === null || !implants || implants.some(item => item.id === shown)) return;
+    setShown(null); setNotice(""); setError("Ese implante ya no está: su ficha se eliminó desde otro equipo.");
+  }, [implants, shown]);
+
+  const show = (next: Draft | null): boolean => {
+    if (dirty && !window.confirm("Hay cambios sin guardar en este implante. ¿Descartarlos?")) return false;
     session.current++;
     setDraft(next); setBaseline(next ? JSON.stringify(next) : ""); setError(""); setNotice("");
     if (next) requestAnimationFrame(() => formRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }));
+    return true;
   };
   /** Etiqueta que puso la aplicación al abrir la ficha nueva (no elegida a mano): una recién registrada la reemplaza. */
   const autoLabel = useRef("");
@@ -139,20 +163,25 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
     const opened = session.current;
     try {
       const { id, ...fields } = draft;
-      const { implant } = await send<{ implant: Implant }>(id ? "PATCH" : "POST", { ...fields, ...(id ? { id } : { patientId: patient.id }) });
+      const { implant } = await send<{ implant: Implant }>(id ? "PATCH" : "POST", { ...fields, ...(id ? { id, base: JSON.parse(baseline) as Draft } : { patientId: patient.id }) });
       setImplants(previous => {
         const kept = (previous ?? []).filter(item => item.id !== implant.id);
         return [...kept, implant].sort((a, b) => a.tooth.localeCompare(b.tooth) || a.id - b.id);
       });
+      if (implant.connection && implant.brand) setKnown(previous => [{ brand: implant.brand, system: implant.system, connection: implant.connection }, ...previous]);
       const next = toDraft(implant);
       // Si mientras se guardaba se abrió otra ficha, no se reemplaza lo que hay en pantalla.
       if (session.current === opened) {
         // Lo que se haya escrito mientras se guardaba se conserva como cambio pendiente.
-        setDraft(previous => previous && previous !== draft ? { ...previous, id: next.id } : next); setBaseline(JSON.stringify(next));
+        setDraft(previous => previous ? rebase(previous, draft, next) : next); setBaseline(JSON.stringify(next));
       }
       setNotice(id ? `Cambios guardados en el implante ${implant.tooth}.` : `Implante ${implant.tooth} guardado. Ya puedes pegar o subir sus imágenes.`);
       onChanged();
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo guardar el implante."); }
+    } catch (reason) {
+      // Con un cambio hecho en otro lado, se recarga para que la ficha muestre lo vigente junto a lo escrito.
+      if (draft.id) await load();
+      setError(reason instanceof Error ? reason.message : "No se pudo guardar el implante.");
+    }
     finally { setBusy(""); }
   };
 
@@ -195,7 +224,7 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
 
   // Ctrl+V en cualquier parte de la pestaña, con una ficha abierta. El texto pegado en los campos no se intercepta.
   useEffect(() => {
-    if (!draft) return;
+    if (!draft || shown !== null) return;
     const onPaste = (event: ClipboardEvent) => {
       const files = [...(event.clipboardData?.items ?? [])].filter(item => item.kind === "file" && item.type.startsWith("image/")).flatMap(item => { const file = item.getAsFile(); return file ? [file] : []; });
       if (!files.length) return;
@@ -206,7 +235,7 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
     };
     document.addEventListener("paste", onPaste);
     return () => document.removeEventListener("paste", onPaste);
-  }, [draft, addFiles]);
+  }, [draft, shown, addFiles]);
 
   const pasteButton = async () => {
     setError("");
@@ -258,10 +287,9 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
     for (const item of list.filter(wrong)) {
       if (!window.confirm(`Esta etiqueta sigue unida al implante ${item.tooth}. ¿Desea quitarla de ese implante? También se quitan la marca y las medidas que vinieron de ella.`)) continue;
       try {
-        const { implant } = await send<{ implant: Implant }>("PATCH", { ...toDraft(item), id: item.id, productId: "", brand: item.brand === old?.brand ? "" : item.brand,
+        const { implant } = await send<{ implant: Implant }>("PATCH", { ...toDraft(item), id: item.id, base: toDraft(item), productId: "", brand: item.brand === old?.brand ? "" : item.brand,
           diameter: item.diameter === measures.diameter ? "" : mm(item.diameter), length: item.length === measures.length ? "" : mm(item.length) });
         setImplants(previous => (previous ?? []).map(other => other.id === implant.id ? implant : other));
-        if (screen.current.draft?.id === implant.id) { const next = toDraft(implant); setDraft(next); setBaseline(JSON.stringify(next)); }
         setNotice(`Etiqueta quitada del implante ${implant.tooth}.`); onChanged(); released = true;
       } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo quitar la etiqueta del implante."); }
     }
@@ -288,23 +316,47 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
     const target = same.find(item => item.id === here?.id && !item.productId) ?? (same.length === 1 && !same[0]!.productId ? same[0] : undefined);
     if (!target) return;
     try {
-      const { implant } = await send<{ implant: Implant }>("PATCH", { ...toDraft(target), id: target.id, productId: String(product.id), brand: target.brand || product.brand, diameter: mm(target.diameter ?? measures.diameter), length: mm(target.length ?? measures.length) });
+      const { implant } = await send<{ implant: Implant }>("PATCH", { ...toDraft(target), id: target.id, base: toDraft(target), productId: String(product.id), brand: target.brand || product.brand, diameter: mm(target.diameter ?? measures.diameter), length: mm(target.length ?? measures.length) });
       setImplants(previous => (previous ?? []).map(item => item.id === implant.id ? implant : item));
-      if (screen.current.draft?.id === implant.id && !screen.current.dirty) { const next = toDraft(implant); setDraft(next); setBaseline(JSON.stringify(next)); }
       setNotice(`Etiqueta vinculada al implante ${implant.tooth}.`); onChanged();
     } catch (reason) { setError(reason instanceof Error ? reason.message : "El producto se guardó, pero no se pudo vincular al implante."); }
   };
 
+  const openSheet = (id: number) => {
+    // Una ficha de otro implante sin cambios se cierra: así lo que se capture o pegue no cae en uno distinto del que se está mirando.
+    if (draft?.id && draft.id !== id && !dirty) { session.current++; setDraft(null); setBaseline(""); }
+    setError(""); setNotice(""); setShown(id);
+  };
+  /** Cambios de etapa desde la ventana. */
+  const saveStage = async (body: { id: number; advanceFrom: string } | { id: number; editStage: StageChange }) => {
+    let implant: Implant;
+    try { ({ implant } = await send<{ implant: Implant }>("PATCH", body)); }
+    catch (reason) { await load(); throw reason; }
+    setImplants(previous => (previous ?? []).map(item => item.id === implant.id ? implant : item));
+    onChanged();
+    return implant;
+  };
+  const openForm = (item: Implant) => {
+    if (draft?.id === item.id) requestAnimationFrame(() => formRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }));
+    // Si prefiere no descartar lo escrito en otra ficha, la ventana sigue abierta.
+    else if (!show(toDraft(item))) return;
+    setShown(null);
+  };
+  const closeSheet = useCallback(() => setShown(null), []);
+  const ordered = archOrder(implants ?? []);
+  const sheetItem = shown === null ? undefined : ordered.find(item => item.id === shown);
+
   const suggestions = implants ? implantSuggestions({ implants, labels, teeth, crowns }) : [];
   const label = current?.productId ? labels.find(item => item.id === current.productId) : undefined;
   const sameTooth = draft && !draft.id ? (implants ?? []).filter(item => item.tooth === draft.tooth).length : 0;
+  const proposed = draft && !draft.connection ? suggestConnection(known, draft.brand, draft.system) : "";
 
   const arch = (codes: number[]) => <div className="grid grid-cols-8 gap-1 lg:grid-cols-16">{codes.map(code => {
     const tooth = fdi(code), found = (implants ?? []).filter(item => item.tooth === tooth), last = found.at(-1);
     const marked = !last && suggestions.some(item => item.tooth === tooth);
-    return <button key={code} type="button" disabled={!implants} onClick={() => last ? show(toDraft(last)) : startNew(tooth)} data-testid={`implant-tooth-${code}`}
+    return <button key={code} type="button" disabled={!implants} onClick={() => last ? openSheet(last.id) : startNew(tooth)} data-testid={`implant-tooth-${code}`}
       aria-label={last ? `Implante ${tooth}, ${phaseLabel(last.phase)}` : `Registrar implante en ${tooth}`}
-      className={`flex min-h-14 flex-col items-center justify-center rounded-lg border text-sm font-semibold ${last ? `${PHASE_COLOR[last.phase]} border-2` : marked ? "border-dashed border-[#473a6d] bg-white text-[#473a6d]" : "border-[#e0dde9] bg-white text-[#6b6a7c] hover:border-[#473a6d]"} ${draft?.tooth === tooth ? "ring-2 ring-[#ef895f]" : ""}`}>
+      className={`flex min-h-14 flex-col items-center justify-center rounded-lg border text-sm font-semibold ${last ? `${PHASE_COLOR[last.phase]} border-2` : marked ? "border-dashed border-[#473a6d] bg-white text-[#473a6d]" : "border-[#e0dde9] bg-white text-[#6b6a7c] hover:border-[#473a6d]"} ${(sheetItem?.tooth ?? draft?.tooth) === tooth ? "ring-2 ring-[#ef895f]" : ""}`}>
       <span>{tooth}</span>
       {last ? <svg viewBox="0 0 16 22" className="mt-0.5 h-5 w-4" aria-hidden="true"><path d="M4 1h8v4H4zM5 6h6l-1.5 14h-3z" fill="currentColor"/><path d="M3 9h10M3.5 12h9M4 15h8" stroke="currentColor" strokeWidth="1.2"/></svg> : <span className="h-5 text-xs leading-5" aria-hidden="true">{marked ? "+" : ""}</span>}
       {found.length > 1 && <span className="text-[10px]">×{found.length}</span>}
@@ -313,7 +365,7 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
 
   return <section className="space-y-4" data-testid="implantology">
     <div className="surface space-y-3">
-      <div><h3 className="font-semibold">Implantología</h3><p className="mt-1 text-sm text-[#615f73]">Toca una pieza para abrir o crear la ficha de su implante.</p></div>
+      <div><h3 className="font-semibold">Implantología</h3><p className="mt-1 text-sm text-[#615f73]">Toca una pieza: si tiene implante se abre su ventana; si no, se crea la ficha.</p></div>
       <div className="space-y-2" role="group" aria-label="Implantograma">{arch(UPPER_ARCH)}<div className="border-t border-dashed border-[#d8d5e4]"/>{arch(LOWER_ARCH)}</div>
       <div className="flex flex-wrap gap-2 text-xs">{IMPLANT_PHASES.map(item => <span key={item.id} className={`rounded-full border px-2 py-1 ${PHASE_COLOR[item.id]}`}>{item.label}</span>)}</div>
       {suggestions.length > 0 && <div data-testid="implant-suggestions"><p className="text-sm font-semibold">Sin ficha todavía</p><div className="mt-1 flex flex-wrap gap-2">{suggestions.map(item => <button key={item.tooth} type="button" className={secondary} onClick={() => startNew(item.tooth, item.draft)}><Plus className="size-4" aria-hidden="true"/>{item.tooth} · {item.source === "etiqueta" ? `desde la etiqueta${item.draft.brand ? ` (${item.draft.brand})` : ""}` : "desde el odontograma"}</button>)}</div></div>}
@@ -332,7 +384,7 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
         <button type="button" className="rounded-lg p-2 text-[#473a6d] hover:bg-[#f3f1f7]" aria-label="Cerrar ficha del implante" onClick={() => show(null)}><X className="size-5"/></button>
       </div>
       {sameTooth > 0 && <p className="text-sm text-[#7a5a12]">Ya hay una ficha de implante en la {draft.tooth}. Guarda otra solo si es un implante distinto.</p>}
-      <fieldset><legend className="text-sm font-semibold">Fase</legend><div className="mt-1 flex flex-wrap gap-2">{IMPLANT_PHASES.map(item => <button key={item.id} type="button" aria-pressed={draft.phase === item.id} className={chip(draft.phase === item.id)} onClick={() => set("phase", draft.phase === item.id ? "" : item.id)}>{item.label}</button>)}</div></fieldset>
+      <fieldset><legend className="text-sm font-semibold">Etapa</legend><div className="mt-1 flex flex-wrap gap-2">{IMPLANT_PHASES.map(item => <button key={item.id} type="button" aria-pressed={draft.phase === item.id} className={chip(draft.phase === item.id)} onClick={() => set("phase", draft.phase === item.id ? "" : item.id)}>{item.label}</button>)}</div></fieldset>
       <div className="grid grid-cols-2 items-end gap-3 lg:grid-cols-4">
         <label className="text-sm font-semibold">Pieza (FDI)<select value={draft.tooth} onChange={e => set("tooth", e.target.value)} className={input}>{[...UPPER_ARCH, ...LOWER_ARCH].map(code => <option key={code} value={fdi(code)}>{fdi(code)}</option>)}</select></label>
         <label className="text-sm font-semibold">Marca<input list="implant-brand-list" value={draft.brand} maxLength={80} onChange={e => set("brand", e.target.value)} className={input} data-testid="implant-brand"/></label>
@@ -346,6 +398,9 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
       <datalist id="implant-brand-list">{BRANDS.map(brand => <option key={brand} value={brand}/>)}</datalist>
       <datalist id="implant-diameter-list">{COMMON_DIAMETERS.map(value => <option key={value} value={mm(value)}/>)}</datalist>
       <datalist id="implant-length-list">{COMMON_LENGTHS.map(value => <option key={value} value={mm(value)}/>)}</datalist>
+      <fieldset data-testid="implant-connection"><legend className="text-sm font-semibold">Tipo de conexión</legend><div className="mt-1 flex flex-wrap gap-2">{IMPLANT_CONNECTIONS.map(item => <button key={item.id} type="button" aria-pressed={draft.connection === item.id} className={chip(draft.connection === item.id)} onClick={() => set("connection", draft.connection === item.id ? "" : item.id)}>{item.label}</button>)}</div>
+        {proposed && <button type="button" onClick={() => set("connection", proposed)} data-testid="implant-connection-proposal" className="mt-2 min-h-11 rounded-xl border border-dashed border-[#473a6d] bg-white px-3 py-2 text-left text-sm font-semibold text-[#473a6d]">Usar «{IMPLANT_CONNECTIONS.find(item => item.id === proposed)?.label}», la que ya registraste para {[draft.brand.trim(), draft.system.trim()].filter(Boolean).join(" ")}</button>}
+      </fieldset>
       <div className="flex flex-wrap items-end gap-2">
         <label className="min-w-60 flex-1 text-sm font-semibold">Etiqueta (trazabilidad)<select value={draft.productId} onChange={e => chooseLabel(e.target.value)} className={input} data-testid="implant-label"><option value="">Sin etiqueta vinculada</option>{labels.map(item => <option key={item.id} value={item.id}>{[item.tooth || "sin pieza", item.brand, item.lot && `lote ${item.lot}`, item.serial && `serie ${item.serial}`, dayLabel(item.placedOn)].filter(Boolean).join(" · ")}</option>)}</select></label>
         <button type="button" className={secondary} onClick={() => productTool.current?.scan()} data-testid="implant-scan"><ScanLine className="size-4" aria-hidden="true"/>Escanear código</button>
@@ -381,10 +436,10 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
     </div>}
 
     {!!implants?.length && <div className="surface" data-testid="implant-list"><h3 className="font-semibold">Implantes registrados</h3>
-      <ul className="mt-3 space-y-2">{implants.map(item => <li key={item.id}><button type="button" onClick={() => show(toDraft(item))} className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-[#e6e4ee] bg-white p-3 text-left text-sm hover:border-[#473a6d]">
-        <span className="font-bold">{item.tooth}</span><span className={`rounded-full border px-2 py-0.5 text-xs ${PHASE_COLOR[item.phase]}`}>{phaseLabel(item.phase)}</span>
-        <span>{implantSummary(item) || "Sin marca ni medidas registradas"}</span>
-        <span className="text-[#615f73]">{[item.placedOn && dayLabel(item.placedOn), item.torque !== null && `${item.torque} Ncm`, item.isq !== null && `ISQ ${item.isq}`, item.images.length && `${item.images.length} ${item.images.length === 1 ? "imagen" : "imágenes"}`].filter(Boolean).join(" · ")}</span>
+      <ul className="mt-3 space-y-2">{ordered.map(item => <li key={item.id}><button type="button" onClick={() => openSheet(item.id)} className="flex w-full flex-col gap-2 rounded-xl border border-[#e6e4ee] bg-white p-3 text-left text-sm hover:border-[#473a6d]">
+        <span className="flex flex-wrap items-center gap-2"><span className="text-base font-bold">{item.tooth}</span><span className={`rounded-full border px-2 py-0.5 text-xs ${PHASE_COLOR[item.phase]}`}>{phaseLabel(item.phase)}</span>
+          <span className="text-[#615f73]">{[item.placedOn && dayLabel(item.placedOn), item.images.length && `${item.images.length} ${item.images.length === 1 ? "imagen" : "imágenes"}`].filter(Boolean).join(" · ")}</span></span>
+        <ImplantIdBox item={item}/>
       </button></li>)}</ul></div>}
 
     {showCapturer && windows && <div className="surface space-y-2" data-testid="implant-capturer">
@@ -393,9 +448,14 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
       <a href="/descargas/capturadora-speakdent-prueba.zip" download className={secondary}><Download className="size-4" aria-hidden="true"/>Descargar capturadora</a>
     </div>}
 
-    {open && <div role="dialog" aria-modal="true" aria-label={open.name} className="fixed inset-0 z-[70] flex flex-col bg-[#2a2540]/95 p-4 text-white">
+    {sheetItem && <ImplantSheet implants={ordered} shownId={sheetItem.id} label={labels.find(item => item.id === sheetItem.productId)} images={images} patientName={patient.name} today={today()} covered={open !== null}
+      onShow={setShown} onClose={closeSheet} onAdvance={item => saveStage({ id: item.id, advanceFrom: item.phase })} onEditStage={(item, change) => saveStage({ id: item.id, editStage: change })}
+      onOpenForm={openForm} onOpenImage={setOpen}/>}
+
+    {/* Va al <body>, por encima de la ventana del implante. */}
+    {open && createPortal(<div role="dialog" aria-modal="true" aria-label={open.name} className="fixed inset-0 z-[90] flex flex-col bg-[#2a2540]/95 p-4 text-white">
       <div className="mb-3 flex items-center justify-between gap-3"><strong>{open.note || open.name}</strong><button type="button" className="rounded-lg p-2 hover:bg-white/10" aria-label="Cerrar imagen" onClick={() => setOpen(null)}><X/></button></div>
       <img src={open.url} alt={open.note || open.name} className="min-h-0 flex-1 object-contain"/>
-    </div>}
+    </div>, document.body)}
   </section>;
 }

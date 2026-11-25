@@ -261,6 +261,10 @@ export const implants = sqliteTable("implants", {
   phase: text("phase").notNull().default(""),
   brand: text("brand").notNull().default(""),
   system: text("system").notNull().default(""),
+  /** Tipo de conexión confirmado por el profesional; vacío = sin registrar. */
+  connection: text("connection").notNull().default(""),
+  /** JSON [{phase, date}] en el orden en que se registró. */
+  history: text("history").notNull().default("[]"),
   diameter: real("diameter"),
   length: real("length"),
   /** AAAA-MM-DD o vacío si aún no se instala o no se registró. */

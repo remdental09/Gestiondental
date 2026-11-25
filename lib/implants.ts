@@ -1,7 +1,7 @@
 /**
- * Implantología: una ficha por implante (pieza, fase, medidas, etiqueta e imágenes). Puro (sin DOM ni base de datos).
+ * Implantología: una ficha por implante (pieza, etapa e historial, medidas, conexión, etiqueta e imágenes). Puro (sin DOM ni base de datos).
  * Principios: escribir lo mínimo, la app propone desde la etiqueta o el odontograma y el profesional confirma.
- * Un dato no informado queda vacío; no se deducen medidas, marcas ni estados clínicos.
+ * Un dato no informado queda vacío; no se deducen medidas, marcas, conexiones ni estados clínicos.
  */
 import { cleanTooth, isDay } from "./biomedical-products.ts";
 
@@ -15,7 +15,38 @@ export const IMPLANT_PHASES = [
 ] as const;
 /** "" = sin registrar. */
 export type ImplantPhase = typeof IMPLANT_PHASES[number]["id"] | "";
-export const phaseLabel = (id: string) => IMPLANT_PHASES.find(item => item.id === id)?.label ?? "Sin fase registrada";
+export const phaseLabel = (id: string) => IMPLANT_PHASES.find(item => item.id === id)?.label ?? "Sin etapa registrada";
+
+export type RecordedPhase = Exclude<ImplantPhase, "">;
+const isPhase = (value: unknown): value is RecordedPhase => IMPLANT_PHASES.some(item => item.id === value);
+/** Etapa que sigue; null si no hay etapa registrada (la elige el profesional) o ya es la última. */
+export function nextPhase(phase: string): RecordedPhase | null {
+  const at = IMPLANT_PHASES.findIndex(item => item.id === phase);
+  return at < 0 ? null : IMPLANT_PHASES[at + 1]?.id ?? null;
+}
+
+export const IMPLANT_CONNECTIONS = [
+  { id: "hexagono-externo", label: "Hexágono externo", text: "Conexión hexágono externo" },
+  { id: "hexagono-interno", label: "Hexágono interno", text: "Conexión hexágono interno" },
+  { id: "conica", label: "Cónica (cono Morse)", text: "Conexión cónica" },
+  { id: "otra", label: "Otra", text: "Otra conexión" },
+] as const;
+/** "" = sin registrar. */
+export type ImplantConnection = typeof IMPLANT_CONNECTIONS[number]["id"] | "";
+/** Frase para el recuadro y el respaldo («Conexión cónica»); vacía si no está registrada. */
+export const connectionText = (id: string) => IMPLANT_CONNECTIONS.find(item => item.id === id)?.text ?? "";
+
+export type KnownConnection = { brand: string; system: string; connection: string };
+const same = (value: string) => value.normalize("NFC").trim().replace(/\s+/g, " ").toLocaleLowerCase("es");
+/**
+ * La conexión que el profesional ya confirmó para la misma marca y sistema (la lista viene de la más reciente a la más antigua).
+ * Es solo una propuesta: no se escribe sin que la toque. Sin marca no se propone nada.
+ */
+export function suggestConnection(known: KnownConnection[], brand: string, system: string): ImplantConnection {
+  if (!same(brand)) return "";
+  const found = known.find(item => connectionText(item.connection) && same(item.brand) === same(brand) && same(item.system) === same(system));
+  return (found?.connection ?? "") as ImplantConnection;
+}
 
 export const IMPLANT_VIEWS = ["Panorámica", "Transversal", "Axial", "Vista 3D", "Radiografía"] as const;
 export type ImplantView = typeof IMPLANT_VIEWS[number];
@@ -31,12 +62,16 @@ export const UPPER_ARCH = [18, 17, 16, 15, 14, 13, 12, 11, 21, 22, 23, 24, 25, 2
 export const LOWER_ARCH = [48, 47, 46, 45, 44, 43, 42, 41, 31, 32, 33, 34, 35, 36, 37, 38];
 
 export type ImplantFields = {
-  tooth: string; phase: ImplantPhase; brand: string; system: string;
+  tooth: string; phase: ImplantPhase; brand: string; system: string; connection: ImplantConnection;
   diameter: number | null; length: number | null; placedOn: string; torque: number | null; isq: number | null;
   productId: number | null; note: string;
 };
 export type ImplantImage = { imageId: number; view: ImplantView };
-export type Implant = ImplantFields & { id: number; images: ImplantImage[] };
+/** Paso por una etapa. `date` AAAA-MM-DD, o vacío si no se sabe cuándo fue. */
+export type PhaseEntry = { phase: RecordedPhase; date: string };
+export const MAX_PHASE_HISTORY = 40;
+/** `history` va en el orden en que se registró; la última entrada es la etapa actual. */
+export type Implant = ImplantFields & { id: number; images: ImplantImage[]; history: PhaseEntry[] };
 
 const text = (value: unknown, max: number): string =>
   typeof value === "string" ? value.normalize("NFC").replace(/[\u0000-\u001F\u007F]/g, " ").replace(/\s+/g, " ").trim().slice(0, max) : "";
@@ -73,7 +108,8 @@ export function cleanImplantFields(input: Record<string, unknown>, today: string
   return {
     fields: {
       tooth, phase: IMPLANT_PHASES.some(item => item.id === input.phase) ? input.phase as ImplantPhase : "",
-      brand: text(input.brand, 80), system: text(input.system, 80), diameter, length, placedOn: placed, torque, isq,
+      brand: text(input.brand, 80), system: text(input.system, 80),
+      connection: IMPLANT_CONNECTIONS.some(item => item.id === input.connection) ? input.connection as ImplantConnection : "", diameter, length, placedOn: placed, torque, isq,
       productId: Number.isSafeInteger(productId) && productId > 0 ? productId : null, note: text(input.note, 600),
     },
   };
@@ -97,21 +133,97 @@ export function parseImplantImages(raw: string): ImplantImage[] {
   } catch { return []; }
 }
 
+const historyDay = (value: unknown, today?: string): value is string => value === "" || (typeof value === "string" && isDay(value) && (!today || value <= today));
+
+/** Lee el historial guardado; lo dañado se omite. */
+export function parseHistory(raw: unknown): PhaseEntry[] {
+  try {
+    const list = JSON.parse(String(raw)) as unknown;
+    if (!Array.isArray(list)) return [];
+    return list.flatMap(item => {
+      const { phase, date } = (item ?? {}) as { phase?: unknown; date?: unknown };
+      return isPhase(phase) && historyDay(date) ? [{ phase, date }] : [];
+    }).slice(-MAX_PHASE_HISTORY);
+  } catch { return []; }
+}
+
+type Staged = { phase: string; placedOn: string };
+/**
+ * Historial después de guardar un cambio de etapa. La fecha (`date`) solo la trae el botón «Pasar a…», que anota hoy; lo marcado en la
+ * ficha queda sin fecha porque nadie la informó. La cirugía usa la fecha de instalación si está.
+ * La etapa que un implante ya tenía antes de existir el historial se conserva sin inventarle fecha.
+ * La entrada de cirugía que repetía la fecha de instalación la sigue cuando esta se corrige.
+ */
+export function recordPhase(history: PhaseEntry[], before: Staged, after: Staged, date = ""): PhaseEntry[] {
+  let list = before.placedOn === after.placedOn ? history
+    : history.map(entry => entry.phase === "cirugia" && entry.date === before.placedOn ? { ...entry, date: after.placedOn } : entry);
+  if (!isPhase(after.phase) || after.phase === before.phase) return list;
+  if (!list.length && isPhase(before.phase)) list = [{ phase: before.phase, date: before.phase === "cirugia" ? after.placedOn : "" }];
+  if (list.at(-1)?.phase === after.phase) return list;
+  return [...list, { phase: after.phase, date: after.phase === "cirugia" && after.placedOn ? after.placedOn : date }].slice(-MAX_PHASE_HISTORY);
+}
+
+const EDITABLE = ["tooth", "phase", "brand", "system", "connection", "diameter", "length", "placedOn", "torque", "isq", "productId", "note"] as const;
+/**
+ * Corrección de una ficha que pudo quedar atrás: `base` es lo que la pantalla tenía antes de escribir. Lo que no se tocó conserva lo
+ * guardado; si la etapa o la conexión cambiaron a la vez aquí y en otro lado, no se guarda y se avisa.
+ * Una pantalla antigua no envía `base` (ni conexión): se guarda lo que manda y la conexión se conserva.
+ */
+export function mergeImplantEdit(current: Record<string, unknown>, body: Record<string, unknown>): { input: Record<string, unknown> } | { error: string } {
+  const base = body.base && typeof body.base === "object" ? body.base as Record<string, unknown> : null;
+  const input: Record<string, unknown> = { ...body };
+  if (base) {
+    for (const field of ["phase", "connection"] as const) {
+      if (body[field] !== base[field] && current[field] !== base[field] && current[field] !== body[field])
+        return { error: `${field === "phase" ? "La etapa" : "La conexión"} de este implante cambió mientras la ficha estaba abierta. Revísala y guarda otra vez.` };
+    }
+    for (const field of EDITABLE) if (body[field] === base[field]) input[field] = current[field];
+  }
+  if (input.connection === undefined) input.connection = current.connection;
+  return { input };
+}
+
+/**
+ * Corrige la fecha de una entrada o la elimina. La entrada se identifica por posición, etapa y fecha: si cambió, no se toca otra.
+ * Eliminar la entrada de la etapa actual devuelve el implante a la etapa anterior (o a «sin registrar»).
+ */
+export function editHistory(history: PhaseEntry[], phase: string, change: unknown, today: string): { history: PhaseEntry[]; phase: string } | { error: string; stale?: boolean } {
+  const { index, phase: from, date, to, remove } = (change ?? {}) as { index?: unknown; phase?: unknown; date?: unknown; to?: unknown; remove?: unknown };
+  const at = typeof index === "number" ? history[index] : undefined;
+  if (!at || at.phase !== from || at.date !== date) return { error: "El historial cambió. Revísalo e intenta otra vez.", stale: true };
+  if (remove === true) {
+    const rest = history.filter((_, i) => i !== index);
+    const wasCurrent = index === history.length - 1 && at.phase === phase;
+    return { history: rest, phase: wasCurrent ? rest.at(-1)?.phase ?? "" : phase };
+  }
+  if (!historyDay(to, today)) return { error: "La fecha de la etapa no puede ser futura." };
+  return { history: history.map((entry, i) => i === index ? { ...entry, date: to } : entry), phase };
+}
+
 export const mm = (value: number | null) => value === null ? "" : String(value).replace(".", ",");
+
+/** «4,1 × 10 mm», o solo la medida registrada. */
+export function implantSize(item: Pick<ImplantFields, "diameter" | "length">): string {
+  return item.diameter !== null && item.length !== null ? `${mm(item.diameter)} × ${mm(item.length)} mm`
+    : item.diameter !== null ? `Ø ${mm(item.diameter)} mm` : item.length !== null ? `largo ${mm(item.length)} mm` : "";
+}
 
 /** «Straumann BLT · 4,1 × 10 mm»: solo lo registrado. */
 export function implantSummary(item: Pick<ImplantFields, "brand" | "system" | "diameter" | "length">): string {
-  const name = [item.brand, item.system].filter(Boolean).join(" ");
-  const size = item.diameter !== null && item.length !== null ? `${mm(item.diameter)} × ${mm(item.length)} mm`
-    : item.diameter !== null ? `Ø ${mm(item.diameter)} mm` : item.length !== null ? `largo ${mm(item.length)} mm` : "";
-  return [name, size].filter(Boolean).join(" · ");
+  return [[item.brand, item.system].filter(Boolean).join(" "), implantSize(item)].filter(Boolean).join(" · ");
+}
+
+/** Orden de los implantes como se ven en el implantograma (arcada superior y luego inferior). */
+export function archOrder<T extends { id: number; tooth: string }>(list: T[]): T[] {
+  const arch = [...UPPER_ARCH, ...LOWER_ARCH].map(code => `${Math.floor(code / 10)}.${code % 10}`);
+  return [...list].sort((a, b) => arch.indexOf(a.tooth) - arch.indexOf(b.tooth) || a.id - b.id);
 }
 
 /** Datos de un implante tal como salen en el respaldo y las descargas (sin las imágenes que ya se borraron). */
-export type StoredImplant = Omit<ImplantFields, "phase"> & { phase: string; id: number; images: string; createdByName: string; createdAt: string; updatedAt: string };
+export type StoredImplant = Omit<ImplantFields, "phase" | "connection"> & { phase: string; connection: string; history: string; id: number; images: string; createdByName: string; createdAt: string; updatedAt: string };
 export function backupImplant(r: StoredImplant, available?: Set<number>) {
   return {
-    id: r.id, tooth: r.tooth, phase: r.phase, brand: r.brand, system: r.system, diameter: r.diameter, length: r.length, placedOn: r.placedOn,
+    id: r.id, tooth: r.tooth, phase: r.phase, history: parseHistory(r.history), brand: r.brand, system: r.system, connection: r.connection ?? "", diameter: r.diameter, length: r.length, placedOn: r.placedOn,
     torque: r.torque, isq: r.isq, productId: r.productId, note: r.note,
     images: parseImplantImages(r.images).filter(image => !available || available.has(image.imageId)),
     createdByName: r.createdByName, createdAt: r.createdAt, updatedAt: r.updatedAt,

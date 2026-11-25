@@ -1,5 +1,5 @@
 import { chileDay } from "./chile-day.ts";
-import { implantSummary, phaseLabel, type backupImplant } from "./implants.ts";
+import { connectionText, implantSummary, phaseLabel, type backupImplant } from "./implants.ts";
 import { categoryLabel, parseDetails, productFigureLines, type ProductCategory } from "./biomedical-products.ts";
 
 /**
@@ -94,7 +94,8 @@ export function fichaMarkdown(record: MarkdownRecord, generatedAt = ""): string 
   if (record.implants?.length) out.push("## Implantes", "", ...record.implants.map(item => {
     const label = record.biomedicalProducts?.find(product => product.id === item.productId);
     const trace = label ? [label.reference && `ref. ${label.reference}`, label.lot && `lote ${label.lot}`, label.serial && `serie ${label.serial}`].filter(Boolean).join(", ") : "";
-    const details = [implantSummary(item), trace && `etiqueta: ${cell(trace)}`, item.placedOn && `instalado ${item.placedOn.split("-").reverse().join("-")}`, item.torque !== null && `torque ${item.torque} Ncm`, item.isq !== null && `ISQ ${item.isq}`,
+    const stages = (item.history ?? []).map(entry => `${phaseLabel(entry.phase)} ${entry.date ? entry.date.split("-").reverse().join("-") : "sin fecha"}`).join(", ");
+    const details = [implantSummary(item), connectionText(item.connection), trace && `etiqueta: ${cell(trace)}`, item.placedOn && `instalado ${item.placedOn.split("-").reverse().join("-")}`, stages && `etapas: ${stages}`, item.torque !== null && `torque ${item.torque} Ncm`, item.isq !== null && `ISQ ${item.isq}`,
       item.images.length && `imágenes: ${item.images.map(image => `${image.view} (adjunto ${image.imageId})`).join(", ")}`, item.note.replace(/\n/g, " ")].filter(Boolean);
     return `- **${item.tooth}** · ${phaseLabel(item.phase)}${details.length ? ` · ${details.join(" · ")}` : ""}`;
   }), "");

@@ -105,11 +105,16 @@ test('el respaldo incluye los implantes y falla, en vez de omitirlos, si no pued
   const sin = await getDriveSnapshot('owner', 4);
   assert.equal(sin.documentText.includes('"implants"'), false);
 
-  rows.implants.push({ id: 1, ownerId: 'owner', patientId: 4, tooth: '3.6', phase: 'cirugia', brand: 'Marca A', system: '', diameter: 4.1, length: 10,
+  rows.implants.push({ id: 1, ownerId: 'owner', patientId: 4, tooth: '3.6', phase: 'cirugia', connection: 'conica', history: '[{"phase":"cirugia","date":"2026-11-24"}]', brand: 'Marca A', system: '', diameter: 4.1, length: 10,
     placedOn: '', torque: null, isq: null, productId: null, images: '[]', note: '', createdByName: 'Dr. Prueba', createdAt: '2026-11-24', updatedAt: '2026-11-24' });
   const con = await getDriveSnapshot('owner', 4);
   assert.equal(con.documentText.includes('"implants"'), true);
   assert.notEqual(con.digest, sin.digest);
+  assert.match(con.documentText, /conica/);
+
+  // Corregir la fecha de una etapa cambia el respaldo.
+  rows.implants[0].history = '[{"phase":"cirugia","date":"2026-11-20"}]';
+  assert.notEqual((await getDriveSnapshot('owner', 4)).digest, con.digest);
 
   delete rows.implants; // la consulta falla
   await assert.rejects(() => getDriveSnapshot('owner', 4));
