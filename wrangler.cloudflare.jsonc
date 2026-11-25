@@ -5,7 +5,7 @@
   "compatibility_date": "2026-10-30",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "vars": {
-    "OPENAI_TRANSCRIPTION_MODEL": "gpt-4o-transcribe",
+    "OPENAI_TRANSCRIPTION_MODEL": "gpt-transcribe",
     "CLINIC_OPEN_REGISTRATION": "true",
     "MCP_OAUTH_ALLOWED_EMAIL": "remdental09@gmail.com",
     "DICTATION_AGENT_EMAILS": "remdental09@gmail.com",
