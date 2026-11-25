@@ -118,7 +118,11 @@ test("implantes: permisos, pestaña, respaldo, descarga y capturadora conectados
 test("implantes: la etapa se puede dictar, con redacción ordenada y sin voz", () => {
   const sheet = read("components/implant-sheet.tsx");
   assert.match(sheet, /import \{ StageDictation \} from "@\/components\/stage-dictation"/);
-  assert.match(sheet, /<StageDictation disabled=\{busy\} onInsert=\{text => onEdit\(/, "el dictado se agrega a la nota de la etapa, no la reemplaza sola");
+  assert.match(sheet, /<StageDictation disabled=\{busy\} onInsert=\{insertDictation\}/);
+  assert.match(sheet, /const insertDictation = \(text: string\) => \{/, "el dictado se agrega a la nota de la etapa, no la reemplaza sola");
+  assert.match(sheet, /\[note, stamp\]\.filter\(Boolean\)\.join\("\\n\\n"\)/, "cada dictado se suma a lo ya escrito, con su fecha, como una evolución");
+  assert.match(sheet, /dayLabel\(today\)/, "la fecha del dictado es la de hoy, no una guardada antes");
+  assert.match(sheet, /data-testid="stage-note-expand"/, "la nota se puede ampliar para leerla completa");
   const dictation = read("components/stage-dictation.tsx");
   assert.match(dictation, /createAudioTranscription/);
   assert.match(dictation, /useTextCorrection/);

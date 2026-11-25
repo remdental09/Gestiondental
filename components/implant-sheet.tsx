@@ -131,6 +131,15 @@ export function StagePage({ item, edit, today, busy, images, onEdit, onBack, onC
   const mine = item.images.filter(image => image.stage === edit.phase);
   const radiograph = useRef<HTMLInputElement | null>(null);
   const clinical = useRef<HTMLInputElement | null>(null);
+  const noteBox = useRef<HTMLTextAreaElement | null>(null);
+  const [noteExpanded, setNoteExpanded] = useState(false);
+  /** Cada dictado queda fechado, como una evolución: se agrega, nunca reemplaza lo ya escrito. */
+  const insertDictation = (text: string) => {
+    const stamp = `— ${dayLabel(today)} —\n${text}`;
+    onEdit({ note: [note, stamp].filter(Boolean).join("\n\n"), ...(edit.note === null ? { noteFrom: saved } : {}) });
+    setNoteExpanded(true);
+    requestAnimationFrame(() => { if (noteBox.current) noteBox.current.scrollTop = noteBox.current.scrollHeight; });
+  };
   const save = async (change: StageChange) => { if (await onChange(change)) onEdit({ date: null }); };
   const remove = () => {
     const rest = stageOptions(Object.keys(marks)).filter(other => other.id !== edit.phase && marks[other.id] !== undefined).at(-1);
@@ -192,8 +201,12 @@ export function StagePage({ item, edit, today, busy, images, onEdit, onBack, onC
     </section>
 
     <div className="space-y-2">
-      <StageDictation disabled={busy} onInsert={text => onEdit({ note: [note, text].filter(Boolean).join("\n"), ...(edit.note === null ? { noteFrom: saved } : {}) })} />
-      <label className="block text-sm font-semibold">Nota de esta etapa (opcional)<textarea rows={3} value={note} maxLength={MAX_STAGE_NOTE} onChange={e => onEdit({ note: e.target.value, ...(edit.note === null ? { noteFrom: saved } : {}) })} className="mt-1 block w-full rounded-lg border border-[#d8d5e4] bg-white px-3 py-2 text-base font-normal" data-testid="stage-note"/></label>
+      <StageDictation disabled={busy} onInsert={insertDictation} />
+      <div className="flex items-center justify-between gap-2">
+        <label htmlFor="stage-note-field" className="text-sm font-semibold">Nota de esta etapa (opcional)</label>
+        <button type="button" onClick={() => setNoteExpanded(v => !v)} className="min-h-8 shrink-0 text-xs font-semibold text-[#473a6d] underline" data-testid="stage-note-expand">{noteExpanded ? "Reducir" : "Ampliar"}</button>
+      </div>
+      <textarea id="stage-note-field" ref={noteBox} rows={noteExpanded ? 16 : 3} value={note} maxLength={MAX_STAGE_NOTE} onChange={e => onEdit({ note: e.target.value, ...(edit.note === null ? { noteFrom: saved } : {}) })} className="block w-full rounded-lg border border-[#d8d5e4] bg-white px-3 py-2 text-base font-normal" data-testid="stage-note"/>
       {noteConflict ? <div className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950" role="alert" data-testid="stage-note-conflict">
         <p>Mientras escribías se guardó otra nota{saved ? ":" : " vacía (se borró)."}</p>
         {saved && <p className="whitespace-pre-wrap break-words rounded bg-white p-2">{saved}</p>}
