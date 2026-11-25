@@ -2,7 +2,9 @@
 /* eslint-disable @next/next/no-img-element -- Las imágenes clínicas son rutas autenticadas que se cargan con la sesión del navegador. */
 /**
  * Ventana de un implante (hoja que sube desde abajo en el teléfono): todo lo de ese implante está aquí, en dos secciones
- * (etapas, cada una con lo que se usó en ella, e imágenes). Se pasa de un implante a otro deslizando o con las flechas.
+ * (etapas, cada una con lo que se usó en ella, e imágenes). La etapa elegida se abre como un lienzo hacia el costado: en
+ * pantallas anchas junto a la lista; en el teléfono entra por el lado, con las demás etapas arriba.
+ * Se pasa de un implante a otro deslizando o con las flechas.
  * Nada cambia sin un toque del profesional; quitar una marca y descartar lo escrito piden confirmación.
  */
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type ReactNode, type TouchEvent } from "react";
@@ -28,7 +30,7 @@ export function ImplantIdBox({ item, extra = "" }: { item: Implant; extra?: stri
  * Las etapas del implante, cada una con lo que se usó en ella y su fecha. Tocar una abre su pantalla;
  * la actual es la más avanzada marcada.
  */
-export function StageList({ item, pieces, onOpen }: { item: Implant; pieces: readonly Piece[]; onOpen: (phase: RecordedPhase) => void }) {
+export function StageList({ item, pieces, open, onOpen }: { item: Implant; pieces: readonly Piece[]; open?: RecordedPhase; onOpen: (phase: RecordedPhase) => void }) {
   const marks = stageMarks(item.history, item.phase, item.placedOn);
   const stages = stageOptions(listedStages(item, pieces, marks));
   return <div data-testid="implant-stages">
@@ -40,8 +42,8 @@ export function StageList({ item, pieces, onOpen }: { item: Implant; pieces: rea
       const summary = [pieceSummary(stagePieces(pieces, item, phase.id)), images && (images === 1 ? "1 imagen" : `${images} imágenes`), item.stageNotes[phase.id] && "nota"].filter(Boolean).join(" · ");
       const Icon = current ? CircleDot : marked ? CircleCheck : Circle;
       return <li key={phase.id}>
-        <button type="button" onClick={() => onOpen(phase.id)} data-testid={`implant-stage-${phase.id}`} data-state={current ? "actual" : marked ? "marcada" : "sin-marcar"}
-          className={`flex min-h-14 w-full items-center gap-3 rounded-lg px-1 py-2 text-left text-base ${current ? "text-[#473a6d]" : "text-[#2b2540]"}`}>
+        <button type="button" onClick={() => onOpen(phase.id)} data-testid={`implant-stage-${phase.id}`} data-state={current ? "actual" : marked ? "marcada" : "sin-marcar"} aria-current={open === phase.id ? "true" : undefined}
+          className={`flex min-h-14 w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-base ${open === phase.id ? "bg-[#ece8f5]" : "hover:bg-[#f7f5fb]"} ${current ? "text-[#473a6d]" : "text-[#2b2540]"}`}>
           <Icon className={`size-5 shrink-0 ${marked ? "text-[#473a6d]" : "text-[#b4b0c4]"}`} aria-hidden="true"/>
           <span className="min-w-0 flex-1">
             <span className={`block ${current ? "font-semibold" : ""}`}>{phase.label}{current && " (actual)"}</span>
@@ -52,6 +54,23 @@ export function StageList({ item, pieces, onOpen }: { item: Implant; pieces: rea
         </button>
       </li>;
     })}</ol>
+  </div>;
+}
+
+/** En el teléfono el lienzo ocupa el ancho: las demás etapas quedan arriba, a un toque. */
+export function StageStrip({ item, pieces, open, onOpen }: { item: Implant; pieces: readonly Piece[]; open: RecordedPhase; onOpen: (phase: RecordedPhase) => void }) {
+  const marks = stageMarks(item.history, item.phase, item.placedOn);
+  const box = useRef<HTMLDivElement | null>(null);
+  // Solo se mueve la tira (nunca la ventana) para que la etapa abierta quede a la vista.
+  useEffect(() => {
+    const strip = box.current, chosen = strip?.querySelector<HTMLElement>('[aria-current="true"]');
+    if (strip && chosen) strip.scrollLeft = chosen.offsetLeft - (strip.clientWidth - chosen.offsetWidth) / 2;
+  }, [open]);
+  return <div ref={box} data-nostep className="relative -mx-4 flex touch-pan-x gap-2 overflow-x-auto px-4 pb-2 md:hidden" role="group" aria-label="Etapas del implante" data-testid="implant-stage-strip">
+    {stageOptions(listedStages(item, pieces, marks)).map(phase => <button key={phase.id} type="button" onClick={() => onOpen(phase.id)} aria-current={open === phase.id ? "true" : undefined} data-testid={`implant-chip-${phase.id}`}
+      className={`inline-flex min-h-11 shrink-0 items-center gap-1 rounded-full border px-3 text-sm font-semibold ${open === phase.id ? "border-[#473a6d] bg-[#473a6d] text-white" : "border-[#d8d5e4] bg-white text-[#473a6d]"}`}>
+      {marks[phase.id] !== undefined && <CircleCheck className="size-4" aria-hidden="true"/>}{phase.label}
+    </button>)}
   </div>;
 }
 
@@ -121,11 +140,14 @@ export function StagePage({ item, edit, today, busy, images, onEdit, onBack, onC
   const pick = (view: "Radiografía" | "Foto clínica") => (event: ChangeEvent<HTMLInputElement>) => { const files = [...(event.target.files ?? [])]; event.target.value = ""; if (files.length) onImages(files, view); };
   const action = "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#473a6d] bg-white px-3 text-sm font-semibold text-[#473a6d] hover:bg-[#f3f1f7] disabled:opacity-50";
 
-  return <div className="space-y-4" data-testid="implant-stage-page" data-stage={edit.phase}>
-    <div>
-      <button type="button" onClick={onBack} className="-ml-1 inline-flex min-h-11 items-center gap-1 text-sm font-semibold text-[#473a6d]" data-testid="implant-stage-back"><ChevronLeft className="size-5" aria-hidden="true"/>Etapas</button>
+  return <div className="@container space-y-3" data-testid="implant-stage-page" data-stage={edit.phase}>
+    <div className="flex flex-col md:flex-row-reverse md:items-center md:justify-between md:gap-3">
+      <button type="button" onClick={onBack} className="-ml-1 inline-flex min-h-11 items-center gap-1 self-start text-sm font-semibold text-[#473a6d] md:ml-0 md:self-auto md:rounded-lg md:px-3 md:hover:bg-[#f3f1f7]" data-testid="implant-stage-back"><ChevronLeft className="size-5 md:hidden" aria-hidden="true"/><span className="md:hidden">Etapas</span><span className="max-md:hidden">Cerrar etapa</span></button>
       <h3 className="text-lg font-bold text-[#2b2540]" data-testid="implant-stage-title">{label}{item.phase === edit.phase && <span className="ml-2 text-sm font-semibold text-[#473a6d]">etapa actual</span>}</h3>
     </div>
+    {/* Con espacio suficiente: lo usado a un lado; imágenes y nota al otro, sin tener que bajar. */}
+    <div className="grid grid-cols-1 gap-4 @2xl:grid-cols-2 @2xl:items-start" data-testid="stage-columns">
+    <div className="@container min-w-0 space-y-4">
     <div className="space-y-2 rounded-xl bg-[#f3f1f7] p-3" data-testid="implant-stage-editor">
       <label className="block text-sm font-semibold text-[#473a6d]">{edit.phase === "cirugia" ? "Fecha de cirugía (instalación)" : `Fecha de ${label.toLocaleLowerCase("es")}`}
         <input type="date" max={today} value={date} onChange={e => onEdit({ date: e.target.value, ...(edit.date === null ? { dateFrom: day ?? null } : {}) })} className="mt-1 block min-h-11 w-full min-w-0 max-w-full appearance-none rounded-lg border border-[#d8d5e4] bg-white px-3 text-base font-normal text-[#2b2540]" data-testid="implant-stage-date"/></label>
@@ -141,7 +163,9 @@ export function StagePage({ item, edit, today, busy, images, onEdit, onBack, onC
     </div>
 
     {children}
+    </div>
 
+    <div className="@container min-w-0 space-y-4">
     <section className="space-y-2" data-testid="stage-images"><h4 className="font-semibold">Radiografías y fotos</h4>
       {mine.length > 0 && <ul className="grid grid-cols-2 gap-2">{mine.map(entry => {
         const image = images.find(found => found.id === entry.imageId);
@@ -176,22 +200,30 @@ export function StagePage({ item, edit, today, busy, images, onEdit, onBack, onC
       </div> : noteChanged && <button type="button" disabled={busy} onClick={() => onNote()} className="min-h-11 w-full rounded-xl bg-[#473a6d] px-4 text-sm font-semibold text-white hover:bg-[#3a2f5a] disabled:opacity-50" data-testid="stage-note-save">Guardar nota</button>}
     </div>
     {marked && <button type="button" disabled={busy} onClick={remove} data-testid="implant-stage-remove" className="min-h-11 w-full text-sm font-semibold text-rose-800">Quitar marca de la etapa</button>}
+    </div>
+    </div>
   </div>;
 }
 
 export type SheetTab = "etapas" | "datos" | "imagenes";
 
-export function ImplantSheet({ title, patientName, position, summary, tabs, tab, onTab, scrollKey, covered, locked, onStep, canClose, onClosed, footer, children }: {
+export function ImplantSheet({ title, patientName, position, summary, tabs, tab, onTab, wide = false, canvas = false, onEscape, scrollKey, covered, locked, onStep, canClose, onClosed, footer, children }: {
   title: string;
   patientName: string;
   /** Lugar de este implante entre los del paciente; null en una ficha nueva. */
   position: { at: number; total: number } | null;
   /** Recuadro de identificación: se ve en todas las secciones. */
   summary?: ReactNode;
-  /** null en una ficha nueva (solo sus datos) y dentro de una etapa (se vuelve con «Etapas»). */
+  /** null en una ficha nueva (solo sus datos). */
   tabs: { id: SheetTab; label: string }[] | null;
   tab: SheetTab;
   onTab: (tab: SheetTab) => void;
+  /** Hay una etapa abierta: en pantallas anchas la ventana se ensancha hacia los lados. */
+  wide?: boolean;
+  /** El lienzo está a la vista: lista y lienzo se desplazan por separado; en el teléfono se vuelve con «Etapas». */
+  canvas?: boolean;
+  /** Escape cierra primero lo que esté abierto dentro; false = cerrar la ventana. */
+  onEscape?: () => boolean;
   /** Al cambiar, el contenido vuelve arriba. */
   scrollKey: string;
   /** Hay una imagen abierta encima: las teclas son para ella. */
@@ -236,20 +268,20 @@ export function ImplantSheet({ title, patientName, position, summary, tabs, tab,
     const onKey = (event: KeyboardEvent) => {
       // Con una imagen o el lector de códigos encima, las teclas son para ellos.
       if (covered || document.querySelector('[data-testid="code-scanner"]')) return;
-      if (event.key === "Escape") { close(); return; }
+      if (event.key === "Escape") { if (!onEscape?.()) close(); return; }
       if (event.target instanceof Element && event.target.closest("input, textarea, select")) return;
       if (event.key === "ArrowRight") go(1);
       if (event.key === "ArrowLeft") go(-1);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [covered, close, go]);
+  }, [covered, close, go, onEscape]);
 
   /** Deslizar a los lados cambia de implante; hacia abajo desde la cabecera, cierra. */
   const onTouchStart = (event: TouchEvent) => {
     const start = event.touches.length === 1 ? event.touches[0]! : null, target = event.target as Element;
     // Lo que se abre por encima (el lector de códigos) no está dentro de la hoja: sus gestos no cuentan.
-    touch.current = start && panel.current?.contains(target) && !target.closest("input, textarea, select") ? { x: start.clientX, y: start.clientY, handle: !!target.closest("[data-sheet-handle]") } : null;
+    touch.current = start && panel.current?.contains(target) && !target.closest("input, textarea, select, [data-nostep]") ? { x: start.clientX, y: start.clientY, handle: !!target.closest("[data-sheet-handle]") } : null;
   };
   const onTouchEnd = (event: TouchEvent) => {
     const start = touch.current, end = event.changedTouches[0];
@@ -277,13 +309,17 @@ export function ImplantSheet({ title, patientName, position, summary, tabs, tab,
         .gd-implant-closing .gd-implant-backdrop{opacity:0;transition:opacity .2s}
         .gd-implant-next{animation:gd-implant-next .28s ease-out}
         .gd-implant-previous{animation:gd-implant-previous .28s ease-out}
+        @keyframes gd-implant-canvas{from{transform:translateX(40px);opacity:0}to{transform:none;opacity:1}}
+        .gd-implant-canvas{animation:gd-implant-canvas .3s cubic-bezier(.2,.9,.2,1)}
+        .gd-implant{transition:max-width .32s cubic-bezier(.2,.9,.2,1)}
+        @media (min-width:768px){@keyframes gd-implant-canvas{from{clip-path:inset(0 100% 0 0);transform:translateX(-24px)}to{clip-path:inset(0);transform:none}}}
         @media (min-width:640px){@keyframes gd-implant-up{from{transform:translateY(32px) scale(.96);opacity:0}to{transform:none;opacity:1}}}
-        @media (prefers-reduced-motion:reduce){.gd-implant,.gd-implant-closing .gd-implant,.gd-implant-backdrop,.gd-implant-next,.gd-implant-previous{animation:none}}
+        @media (prefers-reduced-motion:reduce){.gd-implant,.gd-implant-closing .gd-implant,.gd-implant-backdrop,.gd-implant-next,.gd-implant-previous,.gd-implant-canvas{animation:none}.gd-implant{transition:none}}
       `}</style>
       <div className={`contents ${closing ? "gd-implant-closing" : ""}`}>
         <button type="button" tabIndex={-1} aria-label="Cerrar ventana del implante" onClick={close} className="gd-implant-backdrop absolute inset-0 cursor-default bg-black/35 backdrop-blur-sm"/>
         <div ref={panel} tabIndex={-1} role="dialog" aria-modal="true" aria-label={`${title} de ${patientName}`} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}
-          className="gd-implant relative flex h-[92dvh] w-full touch-pan-y flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl outline-none sm:h-[min(92dvh,52rem)] sm:max-w-xl sm:rounded-3xl">
+          className={`gd-implant relative flex h-[92dvh] w-full touch-pan-y flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl outline-none sm:h-[min(92dvh,52rem)] sm:max-w-3xl sm:rounded-3xl ${wide ? "md:max-w-[min(96vw,76rem)]" : ""}`}>
           <div data-sheet-handle className="touch-none select-none border-b border-[#ebe9f2] px-4 pb-2">
             <div className="mx-auto mt-2 h-1.5 w-10 rounded-full bg-[#d8d3e3] sm:hidden" aria-hidden="true"/>
             <div className="flex items-center gap-1 pt-1">
@@ -300,13 +336,15 @@ export function ImplantSheet({ title, patientName, position, summary, tabs, tab,
             </div>
           </div>
 
-          {summary && <div className="px-4 pt-3">{summary}</div>}
-          {tabs && <div className="px-4 pt-3"><div className="flex gap-1 rounded-xl bg-[#f3f1f7] p-1" role="tablist" aria-label="Secciones del implante">{tabs.map(item => <button key={item.id} type="button" role="tab" aria-selected={tab === item.id} onClick={() => onTab(item.id)} data-testid={`implant-tab-${item.id}`}
+          <div className="md:flex md:items-end">
+          {summary && <div className="px-4 pt-3 md:min-w-0 md:flex-1">{summary}</div>}
+          {tabs && <div className={`px-4 pt-3 md:w-80 md:shrink-0 md:pl-0 ${canvas ? "max-md:hidden" : ""}`}><div className="flex gap-1 rounded-xl bg-[#f3f1f7] p-1" role="tablist" aria-label="Secciones del implante">{tabs.map(item => <button key={item.id} type="button" role="tab" aria-selected={tab === item.id} onClick={() => onTab(item.id)} data-testid={`implant-tab-${item.id}`}
             className={`min-h-11 flex-1 rounded-lg px-1 text-sm font-semibold ${tab === item.id ? "bg-white text-[#2b2540] shadow-sm" : "text-[#615f73]"}`}>{item.label}</button>)}</div></div>}
+          </div>
 
-          <div ref={body} className="flex-1 touch-pan-y overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-3">
+          <div ref={body} className={`min-h-0 flex-1 touch-pan-y overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-3 ${canvas ? "md:overflow-hidden" : ""}`}>
             {/* Sin `key`: lo que está a medias dentro (producto, capturadora) no se vuelve a montar al cambiar de sección. */}
-            <div className={direction ? `gd-implant-${direction}` : ""} onAnimationEnd={event => { if (event.target === event.currentTarget) setDirection(""); }}>{children}</div>
+            <div className={`${direction ? `gd-implant-${direction}` : ""} ${canvas ? "md:h-full" : ""}`} onAnimationEnd={event => { if (event.target === event.currentTarget) setDirection(""); }}>{children}</div>
           </div>
 
           {footer && <div className="space-y-2 border-t border-[#ebe9f2] px-4 pb-[max(.75rem,env(safe-area-inset-bottom))] pt-3">{footer}</div>}
