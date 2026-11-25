@@ -5,20 +5,24 @@
  */
 import { cleanTooth, isDay } from "./biomedical-products.ts";
 
-export const IMPLANT_PHASES = [
+/** Todas las etapas en su orden. `retired`: ya no se ofrece, pero lo que se marcó se conserva (no se convierte en otra etapa). */
+const ALL_PHASES = [
   { id: "evaluacion", label: "Evaluación" },
   { id: "plan", label: "Plan" },
   { id: "cirugia", label: "Cirugía" },
-  { id: "osteointegracion", label: "Osteointegración" },
+  { id: "osteointegracion", label: "Osteointegración", retired: true },
+  { id: "conexion", label: "Conexión de implante" },
   { id: "rehabilitacion", label: "Rehabilitación" },
   { id: "mantencion", label: "Mantención" },
 ] as const;
 /** "" = sin registrar. */
-export type ImplantPhase = typeof IMPLANT_PHASES[number]["id"] | "";
-export const phaseLabel = (id: string) => IMPLANT_PHASES.find(item => item.id === id)?.label ?? "Sin etapa registrada";
+export type ImplantPhase = typeof ALL_PHASES[number]["id"] | "";
+/** Etapas que se ofrecen, más las retiradas que este implante ya tenga marcadas. */
+export const stageOptions = (marked: readonly string[] = []) => ALL_PHASES.filter(item => !("retired" in item) || marked.includes(item.id));
+export const phaseLabel = (id: string) => ALL_PHASES.find(item => item.id === id)?.label ?? "Sin etapa registrada";
 
 export type RecordedPhase = Exclude<ImplantPhase, "">;
-const isPhase = (value: unknown): value is RecordedPhase => IMPLANT_PHASES.some(item => item.id === value);
+const isPhase = (value: unknown): value is RecordedPhase => ALL_PHASES.some(item => item.id === value);
 
 export const IMPLANT_CONNECTIONS = [
   { id: "hexagono-externo", label: "Hexágono externo", text: "Conexión hexágono externo" },
@@ -102,7 +106,7 @@ export function cleanImplantFields(input: Record<string, unknown>, today: string
   const productId = Number(input.productId);
   return {
     fields: {
-      tooth, phase: IMPLANT_PHASES.some(item => item.id === input.phase) ? input.phase as ImplantPhase : "",
+      tooth, phase: isPhase(input.phase) ? input.phase : "",
       brand: text(input.brand, 80), system: text(input.system, 80),
       connection: IMPLANT_CONNECTIONS.some(item => item.id === input.connection) ? input.connection as ImplantConnection : "", diameter, length, placedOn: placed, torque, isq,
       productId: Number.isSafeInteger(productId) && productId > 0 ? productId : null, note: text(input.note, 600),
@@ -209,7 +213,7 @@ export function setStage(history: PhaseEntry[], current: Staged, change: unknown
     marks[phase] = date;
     if (phase === "cirugia") placedOn = date;
   }
-  const list = IMPLANT_PHASES.flatMap(item => { const day = marks[item.id]; return day === undefined ? [] : [{ phase: item.id, date: day }]; });
+  const list = ALL_PHASES.flatMap(item => { const day = marks[item.id]; return day === undefined ? [] : [{ phase: item.id, date: day }]; });
   return { history: list, phase: list.at(-1)?.phase ?? "", placedOn };
 }
 

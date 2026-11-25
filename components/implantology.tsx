@@ -18,8 +18,8 @@ import type { DetectedView } from "@/lib/capture-detect";
 import { thumbUrl } from "@/lib/image-compress";
 import { IMPLANT_BRANDS } from "@/lib/dictation/implant-brands";
 import {
-  COMMON_DIAMETERS, COMMON_LENGTHS, IMPLANT_CONNECTIONS, IMPLANT_PHASES, IMPLANT_VIEWS, LOWER_ARCH, UPPER_ARCH,
-  archOrder, imageKindForView, implantSuggestions, labelMeasures, mm, phaseLabel, suggestConnection,
+  COMMON_DIAMETERS, COMMON_LENGTHS, IMPLANT_CONNECTIONS, IMPLANT_VIEWS, LOWER_ARCH, UPPER_ARCH,
+  archOrder, imageKindForView, implantSuggestions, labelMeasures, mm, phaseLabel, stageOptions, suggestConnection,
   type Implant, type ImplantFields, type ImplantLabel, type ImplantView, type KnownConnection, type StageChange,
 } from "@/lib/implants";
 
@@ -41,7 +41,7 @@ const rebase = (draft: Draft, from: Draft, saved: Draft) => Object.fromEntries((
 
 const PHASE_COLOR: Record<string, string> = {
   "": "border-[#473a6d] bg-[#e6e4ee] text-[#2a2540]", evaluacion: "border-slate-500 bg-slate-100 text-slate-800", plan: "border-sky-600 bg-sky-100 text-sky-900",
-  cirugia: "border-rose-600 bg-rose-100 text-rose-900", osteointegracion: "border-amber-600 bg-amber-100 text-amber-900",
+  cirugia: "border-rose-600 bg-rose-100 text-rose-900", osteointegracion: "border-stone-500 bg-stone-100 text-stone-800", conexion: "border-amber-600 bg-amber-100 text-amber-900",
   rehabilitacion: "border-violet-600 bg-violet-100 text-violet-900", mantencion: "border-emerald-600 bg-emerald-100 text-emerald-900",
 };
 const input = "mt-1 block min-h-11 w-full rounded-lg border border-[#d8d5e4] bg-white px-3 text-base";
@@ -484,7 +484,7 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
     <div className="surface space-y-3">
       <div><h3 className="font-semibold">Implantología</h3><p className="mt-1 text-sm text-[#615f73]">Toca un diente para abrir su implante.</p></div>
       <div className="space-y-2" role="group" aria-label="Implantograma">{arch(UPPER_ARCH)}<div className="border-t border-dashed border-[#d8d5e4]"/>{arch(LOWER_ARCH)}</div>
-      <div className="flex flex-wrap gap-2 text-xs" data-testid="implant-legend">{IMPLANT_PHASES.map(item => <span key={item.id} className={`rounded-full border px-2 py-1 ${PHASE_COLOR[item.id]}`}>{item.label}</span>)}
+      <div className="flex flex-wrap gap-2 text-xs" data-testid="implant-legend">{stageOptions((implants ?? []).map(item => item.phase)).map(item => <span key={item.id} className={`rounded-full border px-2 py-1 ${PHASE_COLOR[item.id]}`}>{item.label}</span>)}
         {suggestions.length > 0 && <span className="rounded-full border border-dashed border-[#473a6d] px-2 py-1 text-[#473a6d]">Sugerido, sin ficha</span>}</div>
       {implants === null && !error && <p role="status" className="text-sm text-[#615f73]">Cargando implantes…</p>}
       {implants === null && error && <button type="button" className={secondary} onClick={() => { setError(""); void load(); }}>Volver a intentar</button>}

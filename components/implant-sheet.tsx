@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode, type TouchEvent } from "react";
 import { createPortal } from "react-dom";
 import { ChevronLeft, ChevronRight, Circle, CircleCheck, CircleDot, X } from "lucide-react";
-import { IMPLANT_PHASES, connectionText, implantSize, phaseLabel, stageMarks, type Implant, type RecordedPhase, type StageChange } from "@/lib/implants";
+import { connectionText, implantSize, phaseLabel, stageMarks, stageOptions, type Implant, type RecordedPhase, type StageChange } from "@/lib/implants";
 
 const dayLabel = (iso: string) => iso ? iso.split("-").reverse().join("-") : "sin fecha";
 
@@ -30,13 +30,14 @@ export function StageList({ item, today, busy, onChange }: {
   onChange: (change: StageChange) => Promise<boolean>;
 }) {
   const marks = stageMarks(item.history, item.phase, item.placedOn);
+  const stages = stageOptions(Object.keys(marks));
   const [open, setOpen] = useState<{ phase: RecordedPhase; date: string } | null>(null);
   const save = async (change: StageChange) => { if (await onChange(change)) setOpen(null); };
   const toggle = (phase: RecordedPhase) => setOpen(previous => previous?.phase === phase ? null
     // Para una marca nueva se propone hoy (la cirugía, la fecha de instalación si ya está); una marcada muestra lo guardado.
     : { phase, date: marks[phase] ?? (phase === "cirugia" && item.placedOn ? item.placedOn : today) });
   const remove = (phase: RecordedPhase) => {
-    const rest = IMPLANT_PHASES.filter(other => other.id !== phase && marks[other.id] !== undefined).at(-1);
+    const rest = stages.filter(other => other.id !== phase && marks[other.id] !== undefined).at(-1);
     const after = phase !== item.phase ? "" : rest ? ` La etapa actual quedará en «${rest.label}».` : " El implante quedará sin etapa registrada.";
     const placed = phase === "cirugia" && item.placedOn ? ` También se borra la fecha de instalación (${dayLabel(item.placedOn)}).` : "";
     if (window.confirm(`¿Desea eliminar la marca de «${phaseLabel(phase)}»?${after}${placed}`)) void save({ phase, was: marks[phase] ?? null, remove: true });
@@ -44,7 +45,7 @@ export function StageList({ item, today, busy, onChange }: {
 
   return <div data-testid="implant-stages">
     <p className="text-sm text-[#615f73]">Toca una etapa para marcarla o cambiar su fecha.</p>
-    <ol className="mt-1 divide-y divide-[#ebe9f2]">{IMPLANT_PHASES.map(phase => {
+    <ol className="mt-1 divide-y divide-[#ebe9f2]">{stages.map(phase => {
       const day = marks[phase.id], marked = day !== undefined, current = item.phase === phase.id, editing = open?.phase === phase.id ? open : null;
       const installed = phase.id === "cirugia" ? item.placedOn : "";
       const Icon = current ? CircleDot : marked ? CircleCheck : Circle;
