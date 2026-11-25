@@ -236,7 +236,7 @@ export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, e
       }
       const body = { ...data, patientId: patient.id, ...place, ...expected, ...(unplace ? { unplace } : {}),
         // En una fase manda lo que se dijo que es; sin nombre ni lectura no se supone que sea un implante.
-        ...(slot ? { placedOn: data.placedOn || (draft.id === null ? slot.date || today() : ""), category: data.kind ? kindCategory(data.kind) : categoryBy ? data.category : "otro" } : { kind: draft.id === null ? "" : data.kind }) };
+        ...(slot ? { placedOn: data.placedOn || (draft.id === null ? slot.date : ""), category: data.kind ? kindCategory(data.kind) : categoryBy ? data.category : "otro" } : { kind: draft.id === null ? "" : data.kind }) };
       // Sin tipo elegido ni leído y sin medidas, una foto o un código podrían ser de un injerto o membrana.
       const implantKnown = slot ? body.category === "implante" : categoryBy !== "" || (!scan && !data.imageId) || !!(data.diameter && data.length);
       const done = slot ? `Guardado en ${phaseLabel(moveTo || slot.phase)}.` : "Producto registrado en la ficha.";
@@ -341,7 +341,7 @@ export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, e
     <label className="text-sm font-semibold">Registro sanitario<input value={draft.registration} onChange={event => set("registration", event.target.value)} maxLength={100} className={`${inputBase} ${flagged("registration")}`} data-testid="product-registration"/></label>
     <label className="text-sm font-semibold">GTIN (código de barras)<input value={draft.gtin} onChange={event => set("gtin", event.target.value)} inputMode="numeric" maxLength={14} className={`${inputBase} ${flagged("gtin")}`} data-testid="product-gtin"/></label>
     {!slot && <label className="text-sm font-semibold">Pieza (FDI)<input value={draft.tooth} onChange={event => set("tooth", event.target.value)} inputMode="decimal" placeholder="Ej.: 3.6" maxLength={4} className={input} data-testid="product-tooth"/></label>}
-    <label className="min-w-0 text-sm font-semibold">{slot ? "Fecha en que se usó" : "Fecha de colocación"}<input type="date" value={draft.placedOn || (slot && draft.id === null ? slot.date || today() : "")} max={today()} onChange={event => set("placedOn", event.target.value)} className={`${input} ${dateBox}`}/></label>
+    <label className="min-w-0 text-sm font-semibold">{slot ? "Fecha en que se usó" : "Fecha de colocación"}<input type="date" value={draft.placedOn || (slot && draft.id === null ? slot.date : "")} max={today()} onChange={event => set("placedOn", event.target.value)} className={`${input} ${dateBox}`}/></label>
   </>;
   const detailFields = draft && <fieldset className={`space-y-2 rounded-lg border p-3 ${draft.suggested.has("details") ? "border-amber-400 bg-amber-50" : "border-[#e6e4ee]"}`} data-testid="product-details"><legend className="px-1 text-sm font-semibold">Otros datos de la etiqueta</legend>
     {draft.details.map((item, index) => <div key={index} className="flex items-end gap-1">
@@ -441,7 +441,7 @@ export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, e
           {product.thumbUrl ? <a href={product.imageUrl} target="_blank" rel="noopener noreferrer" aria-label="Abrir la foto de la etiqueta"><img src={product.thumbUrl} alt={`Etiqueta: ${categoryLabel(product.category)} ${product.brand}`.trim()} className="h-24 w-24 rounded-lg border border-[#e6e4ee] object-cover" loading="lazy"/></a> : <span className="flex h-24 w-24 items-center justify-center rounded-lg bg-[#f3f1f7] text-xs text-[#615f73]">Sin foto</span>}
           <div className="min-w-0 text-sm">
             <p className="font-semibold">{product.kind || categoryLabel(product.category)}{product.brand ? ` · ${product.brand}` : ""}{product.tooth ? ` · pieza ${product.tooth}` : ""}{product.implantId && product.stage ? ` · ${phaseLabel(product.stage)}` : ""}</p>
-            <p className="mt-0.5 text-[#615f73]">{dayLabel(product.placedOn)}{product.createdByName ? ` · ${product.createdByName}` : ""}</p>
+            <p className="mt-0.5 text-[#615f73]">{dayLabel(product.placedOn) || "sin fecha"}{product.createdByName ? ` · ${product.createdByName}` : ""}</p>
             {(product.model || measureText(product)) && <p className="mt-1 break-words font-medium">{[product.model, measureText(product)].filter(Boolean).join(" · ")}</p>}
             <p className="mt-1 break-words">{[product.reference && `Ref. ${product.reference}`, product.lot && `Lote ${product.lot}`, product.serial && `Serie ${product.serial}`, product.expiry && `Vence ${expiryLabel(product.expiry)}`].filter(Boolean).join(" · ") || <span className="text-[#7a5a12]">Sin lote ni serie registrados</span>}</p>
             {(product.manufacturer || product.registration || product.manufactured || product.gtin || product.details.length > 0) && <details className="mt-1"><summary className="cursor-pointer py-1 text-[#473a6d]">Todos los datos de la etiqueta</summary><ul className="break-words text-[#615f73]">{[

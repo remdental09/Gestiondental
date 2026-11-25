@@ -53,7 +53,7 @@ export async function renderProductsPdf(ownerId: string, professionalId: string,
     const image = images.find(item => item.id === product.imageId);
     return {
       title: productFigureTitle(index + 1, product, categoryLabel(product.category)),
-      lines: productFigureLines({ ...product, stageLabel: product.implantId && product.stage ? phaseLabel(product.stage) : "", placedOnLabel: dateLong(product.placedOn) }),
+      lines: productFigureLines({ ...product, stageLabel: product.implantId && product.stage ? phaseLabel(product.stage) : "", placedOnLabel: dateLong(product.placedOn) || "sin fecha" }),
       image: image ? await photoDataUrl(image.objectKey, image.contentType, image.size).catch(() => undefined) : undefined,
     };
   }));

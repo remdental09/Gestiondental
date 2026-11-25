@@ -160,3 +160,10 @@ test("revisión: mover o sacar una pieza de su fase exige saber dónde estaba y 
   assert.match(form, /Al cambiar la pieza dental se quita de esa fase/);
 });
 
+test("una fecha dejada en blanco no se convierte en hoy, y dos cambios a la vez no se pisan", () => {
+  const products = read("app/api/productos/route.ts"), form = read("components/biomedical-products.tsx");
+  assert.match(form, /placedOn: data\.placedOn \|\| \(draft\.id === null \? slot\.date : ""\)/);
+  assert.match(products, /place\.implantId && body\.placedOn === ""\) fields\.placedOn = ""/);
+  assert.match(products, /isNull\(biomedicalProducts\.implantId\), eq\(biomedicalProducts\.stage, current\.stage\)/);
+});
+

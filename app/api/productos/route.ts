@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { and, desc, eq, ne } from "drizzle-orm";
+import { and, desc, eq, isNull, ne } from "drizzle-orm";
 import { getChatGPTUser, personalIdOf } from "@/app/chatgpt-auth";
 import { loadProfile } from "@/app/clinician-profile-db";
 import { displayName } from "@/lib/clinician-profile";
@@ -89,6 +89,8 @@ export async function POST(request: Request) {
       const [used] = await db.select({ id: biomedicalProducts.id }).from(biomedicalProducts).where(and(eq(biomedicalProducts.ownerId, ownerId), eq(biomedicalProducts.imageId, imageId))).limit(1);
       if (used) return fail("Esa foto ya está registrada en otro producto.", 409);
     }
+    // En una fase, una fecha dejada en blanco queda sin fecha: no se inventa la de hoy.
+    if (place.implantId && body.placedOn === "") fields.placedOn = "";
     const profile = await loadProfile(personalIdOf(user)).catch(() => null);
     const [row] = await db.insert(biomedicalProducts).values({
       ownerId, patientId, imageId: hasImage ? imageId : null, ...fields, ...place, aiRead: body.aiRead === true ? 1 : 0,
@@ -138,8 +140,11 @@ export async function PATCH(request: Request) {
       if (body.unplace !== true) return fail("Este producto está en una fase de un implante. Cancela, ábrelo otra vez y confirma el cambio de pieza dental.", 409);
       Object.assign(change, { implantId: null, stage: "" });
     }
-    const [row] = await db.update(biomedicalProducts).set(change).where(mine).returning();
-    if (!row) return fail("Producto no encontrado.", 404);
+    // Lo sin fecha sigue sin fecha al corregirlo o moverlo.
+    if (fields && body.placedOn === "" && (current.placedOn === "" || current.implantId || change.implantId)) change.placedOn = "";
+    // Se escribe solo si sigue donde estaba al leerlo: dos equipos a la vez no se pisan.
+    const [row] = await db.update(biomedicalProducts).set(change).where(and(mine, current.implantId ? eq(biomedicalProducts.implantId, current.implantId) : isNull(biomedicalProducts.implantId), eq(biomedicalProducts.stage, current.stage))).returning();
+    if (!row) return fail("Esta pieza cambió en otro lado. Cancela, revisa dónde quedó e intenta otra vez.", 409);
     // También una etiqueta unida antes de que hubiera fases: si se saca de la fase, deja de estar en la ficha del implante.
     if ((current.implantId && row.implantId !== current.implantId) || (wanted && !row.implantId)) await releaseLabel(ownerId, id, row.implantId);
     return ok({ product: view(row) });
