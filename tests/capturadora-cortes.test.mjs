@@ -119,4 +119,5 @@ test("subidas: pegar, arrastrar y subir pasan por la propuesta; nada se guarda s
   assert.match(card, /Comprueba que sea de \{patientName\}/);
   assert.match(card, /Guardar completa/);
   assert.match(card, /No guardar/);
+  assert.match(card, /behavior: still \? "auto" : "smooth"/, "respeta «reducir movimiento»");
 });

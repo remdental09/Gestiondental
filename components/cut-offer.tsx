@@ -36,7 +36,10 @@ export function CutOffer({ offer, waiting, patientName, view, busy, onToggle, on
   onDiscard: () => void;
 }) {
   const box = useRef<HTMLDivElement | null>(null);
-  useEffect(() => { box.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }); }, [offer.id]);
+  useEffect(() => {
+    const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    box.current?.scrollIntoView({ block: "nearest", behavior: still ? "auto" : "smooth" });
+  }, [offer.id]);
   const count = offer.chosen.length;
   return <div ref={box} className="space-y-3 rounded-xl border border-[#473a6d] bg-[#f7f5fb] p-3" data-testid="cut-offer">
     <p className="break-words text-sm font-semibold text-[#2a2540]">Es una ventana de Blue Sky. Comprueba que sea de {patientName}.</p>
