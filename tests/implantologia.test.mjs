@@ -113,10 +113,10 @@ test("implantes: permisos, pestaña, respaldo, descarga y capturadora conectados
   assert.ok(existsSync(new URL("../public/descargas/capturadora-speakdent-prueba.zip", import.meta.url)));
 });
 
-test("implantes: la herramienta Producto está dentro de la pestaña y no mezcla piezas", () => {
+test("implantes: la herramienta Producto está en la ventana del implante y no mezcla piezas", () => {
   const panel = read("components/implantology.tsx");
-  assert.match(panel, /<BiomedicalProducts embedded/);
-  assert.match(panel, /productTool\.current\?\.photograph\(\)/);
+  assert.match(panel, /<BiomedicalProducts key=\{visit\} embedded compact/);
+  assert.match(panel, /tool=\{productTool\} patient=\{patient\} startTooth=\{draft\.tooth\}/);
   assert.match(panel, /!same\[0\]!\.productId/, "solo se une sola a un implante sin etiqueta");
   assert.match(read("components/biomedical-products.tsx"), /Primero guarda o descarta el producto/);
   assert.match(read("app/page.tsx"), /onImageGone=\{productImageGone\} onChanged/);

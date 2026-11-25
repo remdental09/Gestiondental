@@ -123,7 +123,8 @@ test("cableado: lector propio sin CDN, cámara que se cierra y migración que so
   assert.match(reader, /locateFile/);
   assert.match(reader, /DataMatrix/);
   assert.match(read("components/code-scanner.tsx"), /getTracks\(\)\.forEach\(track => track\.stop\(\)\)/);
-  assert.match(read("components/implantology.tsx"), /implant-scan/);
+  assert.match(read("components/implantology.tsx"), /<BiomedicalProducts key=\{visit\} embedded compact/);
+  assert.match(read("components/biomedical-products.tsx"), /"Escanear etiqueta"/);
   const sql = read("drizzle/0028_product_label_fields.sql");
   assert.equal(sql.match(/ADD COLUMN/g).length, PRODUCT_EXTRA_FIELDS.length);
   assert.doesNotMatch(sql, /DROP|UPDATE|DELETE/);

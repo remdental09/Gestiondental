@@ -19,11 +19,6 @@ export const phaseLabel = (id: string) => IMPLANT_PHASES.find(item => item.id ==
 
 export type RecordedPhase = Exclude<ImplantPhase, "">;
 const isPhase = (value: unknown): value is RecordedPhase => IMPLANT_PHASES.some(item => item.id === value);
-/** Etapa que sigue; null si no hay etapa registrada (la elige el profesional) o ya es la última. */
-export function nextPhase(phase: string): RecordedPhase | null {
-  const at = IMPLANT_PHASES.findIndex(item => item.id === phase);
-  return at < 0 ? null : IMPLANT_PHASES[at + 1]?.id ?? null;
-}
 
 export const IMPLANT_CONNECTIONS = [
   { id: "hexagono-externo", label: "Hexágono externo", text: "Conexión hexágono externo" },
@@ -70,7 +65,7 @@ export type ImplantImage = { imageId: number; view: ImplantView };
 /** Paso por una etapa. `date` AAAA-MM-DD, o vacío si no se sabe cuándo fue. */
 export type PhaseEntry = { phase: RecordedPhase; date: string };
 export const MAX_PHASE_HISTORY = 40;
-/** `history` va en el orden en que se registró; la última entrada es la etapa actual. */
+/** `history` guarda las etapas marcadas y su fecha; la actual (`phase`) es la más avanzada. */
 export type Implant = ImplantFields & { id: number; images: ImplantImage[]; history: PhaseEntry[] };
 
 const text = (value: unknown, max: number): string =>
@@ -149,18 +144,18 @@ export function parseHistory(raw: unknown): PhaseEntry[] {
 
 type Staged = { phase: string; placedOn: string };
 /**
- * Historial después de guardar un cambio de etapa. La fecha (`date`) solo la trae el botón «Pasar a…», que anota hoy; lo marcado en la
- * ficha queda sin fecha porque nadie la informó. La cirugía usa la fecha de instalación si está.
+ * Historial después de guardar la ficha. Una etapa que llega por aquí (ficha nueva) queda sin fecha porque nadie la informó;
+ * la cirugía usa la fecha de instalación si está. Las fechas de etapa se anotan con `setStage`.
  * La etapa que un implante ya tenía antes de existir el historial se conserva sin inventarle fecha.
  * La entrada de cirugía que repetía la fecha de instalación la sigue cuando esta se corrige.
  */
-export function recordPhase(history: PhaseEntry[], before: Staged, after: Staged, date = ""): PhaseEntry[] {
+export function recordPhase(history: PhaseEntry[], before: Staged, after: Staged): PhaseEntry[] {
   let list = before.placedOn === after.placedOn ? history
     : history.map(entry => entry.phase === "cirugia" && entry.date === before.placedOn ? { ...entry, date: after.placedOn } : entry);
   if (!isPhase(after.phase) || after.phase === before.phase) return list;
   if (!list.length && isPhase(before.phase)) list = [{ phase: before.phase, date: before.phase === "cirugia" ? after.placedOn : "" }];
   if (list.at(-1)?.phase === after.phase) return list;
-  return [...list, { phase: after.phase, date: after.phase === "cirugia" && after.placedOn ? after.placedOn : date }].slice(-MAX_PHASE_HISTORY);
+  return [...list, { phase: after.phase, date: after.phase === "cirugia" ? after.placedOn : "" }].slice(-MAX_PHASE_HISTORY);
 }
 
 const EDITABLE = ["tooth", "phase", "brand", "system", "connection", "diameter", "length", "placedOn", "torque", "isq", "productId", "note"] as const;
@@ -183,21 +178,39 @@ export function mergeImplantEdit(current: Record<string, unknown>, body: Record<
   return { input };
 }
 
+/** Etapas marcadas de un implante con su fecha ("" = sin fecha). La fecha de la cirugía es la de instalación. */
+export function stageMarks(history: PhaseEntry[], phase: string, placedOn: string): Partial<Record<RecordedPhase, string>> {
+  const marks: Partial<Record<RecordedPhase, string>> = {};
+  for (const entry of history) marks[entry.phase] = entry.date;
+  if (isPhase(phase)) marks[phase] ??= "";
+  if (marks.cirugia === "" && placedOn) marks.cirugia = placedOn;
+  return marks;
+}
+
+/** `was` es lo que mostraba la pantalla para esa etapa: su fecha, "" si estaba sin fecha o null si no estaba marcada. */
+export type StageChange = { phase: RecordedPhase; was: string | null } & ({ date: string } | { remove: true });
+
 /**
- * Corrige la fecha de una entrada o la elimina. La entrada se identifica por posición, etapa y fecha: si cambió, no se toca otra.
- * Eliminar la entrada de la etapa actual devuelve el implante a la etapa anterior (o a «sin registrar»).
+ * Marca una etapa con su fecha (en cualquier orden), corrige la fecha o quita la marca. La etapa actual es la más avanzada marcada.
+ * Si la etapa cambió en otro lado desde que se vio, no se toca nada.
  */
-export function editHistory(history: PhaseEntry[], phase: string, change: unknown, today: string): { history: PhaseEntry[]; phase: string } | { error: string; stale?: boolean } {
-  const { index, phase: from, date, to, remove } = (change ?? {}) as { index?: unknown; phase?: unknown; date?: unknown; to?: unknown; remove?: unknown };
-  const at = typeof index === "number" ? history[index] : undefined;
-  if (!at || at.phase !== from || at.date !== date) return { error: "El historial cambió. Revísalo e intenta otra vez.", stale: true };
+export function setStage(history: PhaseEntry[], current: Staged, change: unknown, today: string): { history: PhaseEntry[]; phase: RecordedPhase | ""; placedOn: string } | { error: string; stale?: boolean } {
+  const { phase, was, date, remove } = (change ?? {}) as { phase?: unknown; was?: unknown; date?: unknown; remove?: unknown };
+  if (!isPhase(phase)) return { error: "Etapa no válida." };
+  const marks = stageMarks(history, current.phase, current.placedOn);
+  if (was !== (marks[phase] ?? null)) return { error: "Esa etapa cambió. Revísala e intenta otra vez.", stale: true };
+  let placedOn = current.placedOn;
   if (remove === true) {
-    const rest = history.filter((_, i) => i !== index);
-    const wasCurrent = index === history.length - 1 && at.phase === phase;
-    return { history: rest, phase: wasCurrent ? rest.at(-1)?.phase ?? "" : phase };
+    if (marks[phase] === undefined) return { error: "Esa etapa no estaba marcada." };
+    delete marks[phase];
+    if (phase === "cirugia") placedOn = "";
+  } else {
+    if (!historyDay(date, today)) return { error: "La fecha de la etapa no puede ser futura." };
+    marks[phase] = date;
+    if (phase === "cirugia") placedOn = date;
   }
-  if (!historyDay(to, today)) return { error: "La fecha de la etapa no puede ser futura." };
-  return { history: history.map((entry, i) => i === index ? { ...entry, date: to } : entry), phase };
+  const list = IMPLANT_PHASES.flatMap(item => { const day = marks[item.id]; return day === undefined ? [] : [{ phase: item.id, date: day }]; });
+  return { history: list, phase: list.at(-1)?.phase ?? "", placedOn };
 }
 
 export const mm = (value: number | null) => value === null ? "" : String(value).replace(".", ",");

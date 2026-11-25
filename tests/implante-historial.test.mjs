@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { MAX_PHASE_HISTORY, backupImplant, cleanImplantFields, connectionText, editHistory, mergeImplantEdit, nextPhase, parseHistory, recordPhase, suggestConnection } from "../lib/implants.ts";
+import { MAX_PHASE_HISTORY, backupImplant, cleanImplantFields, connectionText, mergeImplantEdit, parseHistory, recordPhase, setStage, stageMarks, suggestConnection } from "../lib/implants.ts";
 import { fichaMarkdown } from "../lib/backup-markdown.ts";
 
 const read = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
@@ -31,65 +31,90 @@ test("conexión: se propone la confirmada para la misma marca y sistema; nunca p
   assert.equal(suggestConnection(known, "", ""), "");
 });
 
-test("etapas: la siguiente se ofrece en orden; sin etapa o en la última no hay avance", () => {
-  assert.equal(nextPhase("cirugia"), "osteointegracion");
-  assert.equal(nextPhase("rehabilitacion"), "mantencion");
-  assert.equal(nextPhase("mantencion"), null);
-  assert.equal(nextPhase(""), null);
-});
-
-test("historial: la ficha no inventa fechas; «Pasar a…» anota hoy y la cirugía usa la fecha de instalación", () => {
+test("historial: la ficha no inventa fechas; la cirugía usa la fecha de instalación", () => {
   assert.deepEqual(recordPhase([], none, at("plan")), [{ phase: "plan", date: "" }]);
   assert.deepEqual(recordPhase([], none, at("mantencion", "2020-03-01")), [{ phase: "mantencion", date: "" }]);
   assert.deepEqual(recordPhase([], none, at("cirugia", "2026-11-20")), [{ phase: "cirugia", date: "2026-11-20" }]);
   assert.deepEqual(recordPhase([], none, at("cirugia")), [{ phase: "cirugia", date: "" }]);
-  assert.deepEqual(recordPhase([], none, at("plan"), today), [{ phase: "plan", date: today }]);
-  assert.deepEqual(recordPhase([], none, at("cirugia"), today), [{ phase: "cirugia", date: today }]);
-  assert.deepEqual(recordPhase([], none, none, today), []);
+  assert.deepEqual(recordPhase([], none, none), []);
   const history = [{ phase: "plan", date: "2026-11-01" }];
-  assert.deepEqual(recordPhase(history, at("plan"), at("plan"), today), history, "guardar sin cambiar de etapa no agrega nada");
-  assert.deepEqual(recordPhase(history, at("plan"), none, today), history, "dejar sin etapa conserva lo anotado");
-  assert.deepEqual(recordPhase(history, none, at("plan"), today), history, "volver a marcar la misma no la repite");
+  assert.deepEqual(recordPhase(history, at("plan"), at("plan")), history, "guardar sin cambiar de etapa no agrega nada");
+  assert.deepEqual(recordPhase(history, at("plan"), none), history, "dejar sin etapa conserva lo anotado");
+  assert.deepEqual(recordPhase(history, none, at("plan")), history, "volver a marcar la misma no la repite");
 });
 
 test("historial: un implante anterior conserva su etapa sin inventarle fecha", () => {
-  assert.deepEqual(recordPhase([], at("osteointegracion"), at("rehabilitacion"), today), [{ phase: "osteointegracion", date: "" }, { phase: "rehabilitacion", date: today }]);
-  assert.deepEqual(recordPhase([], at("cirugia", "2026-08-01"), at("osteointegracion", "2026-08-01"), today), [{ phase: "cirugia", date: "2026-08-01" }, { phase: "osteointegracion", date: today }]);
+  assert.deepEqual(recordPhase([], at("osteointegracion"), at("rehabilitacion")), [{ phase: "osteointegracion", date: "" }, { phase: "rehabilitacion", date: "" }]);
+  assert.deepEqual(recordPhase([], at("cirugia", "2026-08-01"), at("osteointegracion", "2026-08-01")), [{ phase: "cirugia", date: "2026-08-01" }, { phase: "osteointegracion", date: "" }]);
 });
 
 test("historial: la cirugía sigue a la fecha de instalación corregida, pero no pisa una fecha escrita a mano", () => {
   const history = [{ phase: "cirugia", date: "2026-11-20" }, { phase: "osteointegracion", date: today }];
-  const moved = recordPhase(history, at("osteointegracion", "2026-11-20"), at("osteointegracion", "2026-11-18"), today);
+  const moved = recordPhase(history, at("osteointegracion", "2026-11-20"), at("osteointegracion", "2026-11-18"));
   assert.deepEqual(moved, [{ phase: "cirugia", date: "2026-11-18" }, { phase: "osteointegracion", date: today }]);
   const own = [{ phase: "cirugia", date: "2026-11-02" }];
-  assert.deepEqual(recordPhase(own, at("cirugia", "2026-11-20"), at("cirugia", "2026-11-18"), today), own);
+  assert.deepEqual(recordPhase(own, at("cirugia", "2026-11-20"), at("cirugia", "2026-11-18")), own);
 });
 
 test("historial: tiene tope y omite lo dañado", () => {
   let history = [];
-  for (let i = 0; i < MAX_PHASE_HISTORY + 5; i++) history = recordPhase(history, at(i % 2 ? "plan" : "evaluacion"), at(i % 2 ? "evaluacion" : "plan"), today);
+  for (let i = 0; i < MAX_PHASE_HISTORY + 5; i++) history = recordPhase(history, at(i % 2 ? "plan" : "evaluacion"), at(i % 2 ? "evaluacion" : "plan"));
   assert.equal(history.length, MAX_PHASE_HISTORY);
   assert.deepEqual(parseHistory('[{"phase":"plan","date":""},{"phase":"x","date":""},{"phase":"plan","date":"ayer"},null]'), [{ phase: "plan", date: "" }]);
   for (const raw of ["no es json", "{}", undefined]) assert.deepEqual(parseHistory(raw), []);
 });
 
-test("historial: corregir una fecha exige que la entrada siga igual y no admite futuro", () => {
-  const history = [{ phase: "cirugia", date: "2026-11-20" }];
-  const change = { index: 0, phase: "cirugia", date: "2026-11-20" };
-  assert.deepEqual(editHistory(history, "cirugia", { ...change, to: "2026-11-19" }, today), { history: [{ phase: "cirugia", date: "2026-11-19" }], phase: "cirugia" });
-  assert.deepEqual(editHistory(history, "cirugia", { ...change, to: "" }, today).history, [{ phase: "cirugia", date: "" }]);
-  assert.ok(editHistory(history, "cirugia", { ...change, to: "2026-12-01" }, today).error);
-  assert.ok(editHistory(history, "cirugia", { ...change, to: "19/11" }, today).error);
-  for (const stale of [{ ...change, index: 1 }, { ...change, index: "0" }, { ...change, date: "2026-11-01" }, { ...change, phase: "plan" }, null]) assert.equal(editHistory(history, "cirugia", stale, today).stale, true);
+const staged = (phase, placedOn = "") => ({ phase, placedOn });
+const mark = (history, current, change) => setStage(history, current, change, today);
+
+test("etapas: se marca cualquiera con su fecha, en cualquier orden, y la actual es la más avanzada", () => {
+  const surgery = mark([], staged(""), { phase: "cirugia", was: null, date: "2026-11-20" });
+  assert.deepEqual(surgery, { history: [{ phase: "cirugia", date: "2026-11-20" }], phase: "cirugia", placedOn: "2026-11-20" });
+  const jump = mark(surgery.history, surgery, { phase: "rehabilitacion", was: null, date: today });
+  assert.equal(jump.phase, "rehabilitacion");
+  const back = mark(jump.history, jump, { phase: "plan", was: null, date: "2026-11-01" });
+  assert.equal(back.phase, "rehabilitacion", "completar una etapa anterior no cambia la actual");
+  assert.deepEqual(back.history.map(entry => entry.phase), ["plan", "cirugia", "rehabilitacion"], "en el orden de las etapas");
+  assert.equal(back.placedOn, "2026-11-20");
 });
 
-test("historial: eliminar la etapa actual vuelve a la anterior; eliminar otra no cambia la etapa", () => {
+test("etapas: la fecha de la cirugía es la de instalación; sin fecha queda marcada sin día", () => {
+  const history = [{ phase: "cirugia", date: "2026-11-20" }];
+  const moved = mark(history, staged("cirugia", "2026-11-20"), { phase: "cirugia", was: "2026-11-20", date: "2026-11-18" });
+  assert.deepEqual([moved.history[0].date, moved.placedOn], ["2026-11-18", "2026-11-18"]);
+  const blank = mark(history, staged("cirugia", "2026-11-20"), { phase: "cirugia", was: "2026-11-20", date: "" });
+  assert.deepEqual(blank, { history: [{ phase: "cirugia", date: "" }], phase: "cirugia", placedOn: "" });
+  const other = mark([], staged("", "2026-11-20"), { phase: "plan", was: null, date: "" });
+  assert.deepEqual([other.history, other.placedOn], [[{ phase: "plan", date: "" }], "2026-11-20"], "marcar otra etapa no toca la instalación");
+});
+
+test("etapas: un implante anterior conserva su etapa y muestra la instalación en la cirugía", () => {
+  assert.deepEqual(stageMarks([], "cirugia", "2026-11-24"), { cirugia: "2026-11-24" });
+  assert.deepEqual(stageMarks([], "osteointegracion", "2026-11-24"), { osteointegracion: "" }, "no se da por marcada la cirugía");
+  const next = mark([], staged("osteointegracion"), { phase: "rehabilitacion", was: null, date: today });
+  assert.deepEqual(next.history, [{ phase: "osteointegracion", date: "" }, { phase: "rehabilitacion", date: today }]);
+  const dated = mark([], staged("cirugia", "2026-11-24"), { phase: "osteointegracion", was: null, date: today });
+  assert.deepEqual(dated.history, [{ phase: "cirugia", date: "2026-11-24" }, { phase: "osteointegracion", date: today }]);
+});
+
+test("etapas: quitar la marca actual vuelve a la anterior; quitar la cirugía quita la instalación", () => {
   const history = [{ phase: "cirugia", date: "2026-08-01" }, { phase: "osteointegracion", date: today }];
-  const last = { index: 1, phase: "osteointegracion", date: today, remove: true };
-  assert.deepEqual(editHistory(history, "osteointegracion", last, today), { history: [history[0]], phase: "cirugia" });
-  assert.deepEqual(editHistory(history, "osteointegracion", { index: 0, phase: "cirugia", date: "2026-08-01", remove: true }, today), { history: [history[1]], phase: "osteointegracion" });
-  assert.deepEqual(editHistory([history[0]], "cirugia", { index: 0, phase: "cirugia", date: "2026-08-01", remove: true }, today), { history: [], phase: "" });
-  assert.equal(editHistory(history, "", last, today).phase, "", "sin etapa registrada, sigue sin ella");
+  const current = staged("osteointegracion", "2026-08-01");
+  assert.deepEqual(mark(history, current, { phase: "osteointegracion", was: today, remove: true }), { history: [history[0]], phase: "cirugia", placedOn: "2026-08-01" });
+  assert.deepEqual(mark(history, current, { phase: "cirugia", was: "2026-08-01", remove: true }), { history: [history[1]], phase: "osteointegracion", placedOn: "" });
+  assert.deepEqual(mark([history[0]], staged("cirugia", "2026-08-01"), { phase: "cirugia", was: "2026-08-01", remove: true }), { history: [], phase: "", placedOn: "" });
+  const twice = [{ phase: "plan", date: "2026-07-01" }, { phase: "cirugia", date: "" }, { phase: "plan", date: "2026-07-05" }];
+  assert.deepEqual(mark(twice, staged("plan"), { phase: "plan", was: "2026-07-05", remove: true }).history, [{ phase: "cirugia", date: "" }], "las repetidas se van juntas");
+});
+
+test("etapas: no se pisa lo que cambió en otro lado ni se aceptan fechas futuras", () => {
+  const history = [{ phase: "cirugia", date: "2026-11-20" }];
+  const current = staged("cirugia", "2026-11-20");
+  for (const change of [{ phase: "cirugia", was: null, date: today }, { phase: "cirugia", was: "2026-11-01", date: today }, { phase: "plan", was: "", date: today }, { phase: "plan", was: null, remove: true }, { phase: "plan", date: today }])
+    assert.ok(mark(history, current, change).error, JSON.stringify(change));
+  assert.equal(mark(history, current, { phase: "cirugia", was: null, date: today }).stale, true);
+  for (const date of ["2026-12-01", "19/11", undefined]) assert.ok(mark(history, current, { phase: "plan", was: null, date }).error);
+  for (const change of [null, { phase: "x", was: null, date: "" }, { phase: "", was: null, date: "" }]) assert.ok(mark(history, current, change).error);
 });
 
 test("conexión e historial salen en el respaldo y en la ficha descargada", () => {
@@ -102,9 +127,10 @@ test("conexión e historial salen en el respaldo y en la ficha descargada", () =
   assert.match(markdown, /3,3 × 9 mm · Conexión cónica · etapas: Cirugía sin fecha, Osteointegración 25-11-2026/);
 });
 
-test("API: la etapa solo avanza desde la que se veía, nada se pisa y la conexión no se borra desde una pantalla antigua", () => {
+test("API: una etapa solo se cambia desde lo que se veía, nada se pisa y la conexión no se borra desde una pantalla antigua", () => {
   const route = read("app/api/implantes/route.ts");
-  assert.match(route, /body\.advanceFrom !== current\.phase/);
+  assert.match(route, /setStage\(parseHistory\(current\.history\), current, body\.markStage, santiagoToday\(\)\)/);
+  assert.match(route, /placedOn: edited\.placedOn/);
   assert.match(route, /mergeImplantEdit\(current, body\)/);
   assert.match(route, /eq\(implants\.history, current\.history\), eq\(implants\.phase, current\.phase\), eq\(implants\.updatedAt, current\.updatedAt\)/);
   const panel = read("components/implantology.tsx");
@@ -129,11 +155,15 @@ test("ficha abierta desde antes: lo que no se tocó no pisa lo guardado y un cho
   assert.deepEqual([mergeImplantEdit(current, old).input.connection, mergeImplantEdit(current, old).input.phase], ["conica", "cirugia"], "pantalla antigua");
 });
 
-test("capturadora: mientras la ventana muestra otro implante, la ficha abierta deja de recibir", () => {
+test("ventana: bajo el implantograma no queda nada; todo lo del implante está en su ventana", () => {
   const panel = read("components/implantology.tsx");
-  assert.match(panel, /lookingElsewhere = Boolean\(sheetItem && draft\?\.id && sheetItem\.id !== draft\.id\)/);
-  assert.match(panel, /paused=\{lookingElsewhere\}/);
-  const link = read("components/capture-link.tsx");
-  assert.match(link, /if \(paused\) \{ setState\(\{ kind: "idle" \}\); return; \}/);
-  assert.match(link, /\}, \[restored, paused\]\);/);
+  const [below, inside] = panel.slice(panel.indexOf('data-testid="implantology"')).split("<ImplantSheet");
+  assert.doesNotMatch(below, /BiomedicalProducts|CaptureLink|implant-form|implant-list|implant-capturer/);
+  for (const part of [/<StageList/, /<BiomedicalProducts key=\{visit\} embedded compact/, /data-testid="implant-images"/, /<CaptureLink key=\{current\.id\}/, /data-testid="implant-delete"/]) assert.match(inside, part);
+  assert.match(panel, /canClose=\{leave\}/);
+  assert.match(panel, /if \(!next \|\| !leave\(\)\) return false;/, "pasar a otro implante también pregunta");
+  assert.match(panel, /productTool\.current\?\.pending\(\)/);
+  assert.match(panel, /if \(busy === "saving" \|\| productTool\.current\?\.saving\(\)\) \{[^}]*return false; \}/, "con un guardado en curso no se sale");
+  assert.match(read("components/biomedical-products.tsx"), /generation\.current !== started/, "una lectura tardía no reaparece");
+  assert.match(read("components/implant-sheet.tsx"), /¿Desea eliminar la marca de/);
 });
