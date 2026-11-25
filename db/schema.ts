@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { integer, primaryKey, sqliteTable, text, uniqueIndex, index } from "drizzle-orm/sqlite-core";
+import { integer, primaryKey, sqliteTable, text, uniqueIndex, index, real } from "drizzle-orm/sqlite-core";
 
 export const patients = sqliteTable("patients", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -240,6 +240,32 @@ export const biomedicalProducts = sqliteTable("biomedical_products", {
   createdByName: text("created_by_name").notNull().default(""),
   createdAt: text("created_at").notNull(),
 }, table => [index("biomedical_products_patient_idx").on(table.ownerId, table.patientId)]);
+
+/** Ficha por implante (implantología). `images` es JSON: [{ imageId, view }] sobre clinical_images del mismo paciente. */
+export const implants = sqliteTable("implants", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  ownerId: text("owner_id").notNull(),
+  patientId: integer("patient_id").notNull().references(() => patients.id),
+  /** Pieza FDI permanente con punto («3.6»). */
+  tooth: text("tooth").notNull(),
+  phase: text("phase").notNull().default(""),
+  brand: text("brand").notNull().default(""),
+  system: text("system").notNull().default(""),
+  diameter: real("diameter"),
+  length: real("length"),
+  /** AAAA-MM-DD o vacío si aún no se instala o no se registró. */
+  placedOn: text("placed_on").notNull().default(""),
+  torque: integer("torque"),
+  isq: integer("isq"),
+  /** Etiqueta escaneada (biomedical_products, categoría implante). */
+  productId: integer("product_id"),
+  images: text("images").notNull().default("[]"),
+  note: text("note").notNull().default(""),
+  createdBy: text("created_by").notNull(),
+  createdByName: text("created_by_name").notNull().default(""),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, table => [index("implants_patient_idx").on(table.ownerId, table.patientId)]);
 
 export const driveBackups = sqliteTable("drive_backups", {
   patientId: integer("patient_id").primaryKey().references(() => patients.id),

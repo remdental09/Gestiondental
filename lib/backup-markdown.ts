@@ -1,4 +1,5 @@
 import { chileDay } from "./chile-day.ts";
+import { implantSummary, phaseLabel, type backupImplant } from "./implants.ts";
 
 /**
  * Ficha clínica en Markdown: legible por cualquier persona y cualquier programa, sin depender de la app.
@@ -16,6 +17,7 @@ export type MarkdownRecord = {
   periodontalExams: Array<{ recordedAt: string; data: unknown }>;
   odontogram: { teeth?: Record<string, string>; surfaces?: Record<string, Record<string, { condition?: string; depth?: string | null; restorationMaterial?: string | null } | null>>; crowns?: Record<string, { material?: string; foundation?: string } | null>; missingReason?: Record<string, string> } | null;
   imageMetadata: Array<{ name: string; driveFile?: string; kind?: string | null; note?: string | null; addedAt?: string | null }>;
+  implants?: Array<ReturnType<typeof backupImplant>>;
   documents?: Array<{ title: string; kind?: string; content: string; status?: string; createdAt?: string; createdByName?: string; signature?: { signerName: string; signerRole: string; signerRelation: string; signedAt: string; method: string; signatureHash: string } }>;
 };
 
@@ -85,6 +87,12 @@ export function fichaMarkdown(record: MarkdownRecord, generatedAt = ""): string 
   if (record.periodontalExams.length) {
     out.push("## Periodontograma", "", ...record.periodontalExams.map(exam => `- Examen del ${day(exam.recordedAt)} (detalle completo en los datos estructurados).`), "");
   }
+
+  if (record.implants?.length) out.push("## Implantes", "", ...record.implants.map(item => {
+    const details = [implantSummary(item), item.placedOn && `instalado ${item.placedOn.split("-").reverse().join("-")}`, item.torque !== null && `torque ${item.torque} Ncm`, item.isq !== null && `ISQ ${item.isq}`,
+      item.images.length && `imágenes: ${item.images.map(image => `${image.view} (adjunto ${image.imageId})`).join(", ")}`, item.note.replace(/\n/g, " ")].filter(Boolean);
+    return `- **${item.tooth}** · ${phaseLabel(item.phase)}${details.length ? ` · ${details.join(" · ")}` : ""}`;
+  }), "");
 
   out.push("## Presupuestos", "");
   if (!record.budgets.length) out.push("Sin presupuestos.", "");

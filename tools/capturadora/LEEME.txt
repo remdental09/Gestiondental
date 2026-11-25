@@ -1,0 +1,28 @@
+﻿CAPTURADORA SPEAKDENT - versión de prueba (Windows 10 y 11)
+
+ABRIR
+1. Descomprime esta carpeta y haz doble clic en CapturadoraSpeakDent.exe. No se instala.
+2. Windows puede mostrar "Windows protegió su PC", porque el programa aún no está firmado.
+   Pulsa "Más información" y luego "Ejecutar de todas formas".
+
+USAR
+1. Abre Blue Sky Plan y ubica el corte.
+2. Presiona F8 (o F9, si el botón lo indica) o el botón "Capturar".
+3. Verás la miniatura. "Deshacer última" borra esa captura.
+Opcional: "Marcar recorte" una sola vez; se recuerda para ese programa.
+
+DÓNDE QUEDAN
+En Imágenes\SpeakDent, y la última queda copiada en el portapapeles.
+Todavía no se envían a la ficha. El programa no usa internet.
+Las imágenes pueden mostrar datos del paciente: trátalas como ficha clínica.
+Ojo: si tienes Imágenes sincronizada con OneDrive, ahí también se copiarán.
+
+MIENTRAS ESTÉ ABIERTA
+La tecla F8 queda reservada para la capturadora. Para cerrarla, usa la X.
+
+QUÉ PROBAR
+[ ] ¿Reconoce Blue Sky Plan sola? (si no, elígelo en la lista)
+[ ] ¿La imagen sale bien, sin zonas negras donde está el 3D?
+[ ] ¿Funciona la tecla mientras estás dentro de Blue Sky?
+[ ] ¿El recorte queda donde lo marcaste?
+[ ] Con dos pantallas o zoom de Windows, ¿captura el área correcta?
