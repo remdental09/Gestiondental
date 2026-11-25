@@ -1,9 +1,9 @@
 "use client";
 /**
- * Dicta lo hecho en esta etapa: graba, transcribe y aplica solo una rectificación cognitiva
- * (ortografía y términos dentales reconocidos), sin resumir ni redactar de nuevo lo dicho.
- * El profesional revisa el cambio palabra por palabra (tachado = como se dictó, verde =
- * corregido) y decide si lo agrega a la nota; nada se guarda sin su toque.
+ * Dicta lo hecho en esta etapa: graba, transcribe y la IA la redacta en lenguaje clínico
+ * ordenado (el dictado suele salir desordenado). Se ve también la rectificación palabra por
+ * palabra (tachado = como se dictó, verde = corregido) para revisar que se entendió bien.
+ * El profesional elige qué versión agregar a la nota; nada se guarda sin su toque.
  */
 import { useEffect, useRef, useState } from "react";
 import { Mic, MicOff } from "lucide-react";
@@ -46,8 +46,8 @@ export function StageDictation({ onInsert, disabled }: { onInsert: (text: string
   };
   const stop = () => { setTranscribing(true); setListening(false); engine.current.stop(); };
 
-  const insert = () => {
-    const text = (correction.result?.text || transcript).trim();
+  const insert = (text: string) => {
+    text = text.trim();
     if (text) onInsert(text);
     setOpen(false);
     setTranscript("");
@@ -71,12 +71,21 @@ export function StageDictation({ onInsert, disabled }: { onInsert: (text: string
       {(transcript || interim) && <p className="whitespace-pre-wrap rounded-lg border border-[#d8d5e4] bg-white p-2 text-sm" data-testid="stage-dictation-transcript">{interim ? `${transcript} ${interim}`.trim() : transcript}</p>}
       {correction.correcting && <div role="alert" aria-live="assertive" className="flex items-start gap-3 rounded-lg border-2 border-red-600 bg-red-600 p-3 text-white shadow-md" data-testid="stage-dictation-correcting">
         <span className="mt-0.5 size-5 shrink-0 animate-spin rounded-full border-2 border-white border-t-transparent motion-reduce:animate-none" aria-hidden="true"/>
-        <div><p className="font-bold uppercase tracking-wide">La IA está rectificando</p><p className="mt-0.5 text-sm">Corrige ortografía y términos dentales, sin resumir ni redactar de nuevo. Revisa antes de agregarlo.</p></div>
+        <div><p className="font-bold uppercase tracking-wide">La IA está rectificando</p><p className="mt-0.5 text-sm">Ordena el dictado en lenguaje clínico y corrige ortografía y términos dentales. Revisa antes de agregarlo.</p></div>
       </div>}
       {correction.error && <p role="alert" className="text-sm text-[#a43542]">{correction.error}</p>}
-      {correction.result && !correction.correcting && <WordDiffView before={correction.result.source} after={correction.result.text} testId="stage-dictation-diff"/>}
+      {correction.result && !correction.correcting && <>
+        <WordDiffView before={correction.result.source} after={correction.result.text} testId="stage-dictation-diff"/>
+        {correction.result.redraftedNote && <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3" data-testid="stage-dictation-redrafted">
+          <h4 className="text-sm font-semibold">Nota redactada</h4>
+          <p className="mt-2 whitespace-pre-wrap text-sm leading-6">{correction.result.redraftedNote}</p>
+        </div>}
+      </>}
       {!listening && !transcribing && transcript.trim().length >= 3 && <div className="flex flex-wrap gap-2">
-        <button type="button" disabled={disabled} className="min-h-11 flex-1 rounded-xl bg-[#473a6d] px-4 text-sm font-semibold text-white hover:bg-[#3a2f5a] disabled:opacity-50" onClick={insert} data-testid="stage-dictation-insert">Agregar a la nota</button>
+        {correction.result?.redraftedNote
+          ? <button type="button" disabled={disabled} className="min-h-11 flex-1 rounded-xl bg-[#473a6d] px-4 text-sm font-semibold text-white hover:bg-[#3a2f5a] disabled:opacity-50" onClick={() => insert(correction.result!.redraftedNote!)} data-testid="stage-dictation-insert">Agregar nota redactada</button>
+          : <button type="button" disabled={disabled} className="min-h-11 flex-1 rounded-xl bg-[#473a6d] px-4 text-sm font-semibold text-white hover:bg-[#3a2f5a] disabled:opacity-50" onClick={() => insert(correction.result?.text || transcript)} data-testid="stage-dictation-insert">Agregar a la nota</button>}
+        {correction.result?.redraftedNote && <button type="button" disabled={disabled} className="min-h-11 rounded-xl border border-[#473a6d] px-4 text-sm font-semibold text-[#473a6d]" onClick={() => insert(correction.result?.text || transcript)} data-testid="stage-dictation-insert-raw">Agregar transcripción corregida</button>}
         <button type="button" className="min-h-11 rounded-xl border border-[#473a6d] px-4 text-sm font-semibold text-[#473a6d]" onClick={discard} data-testid="stage-dictation-discard">Descartar</button>
       </div>}
     </div>}
