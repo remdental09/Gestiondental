@@ -9,12 +9,14 @@
  */
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type ReactNode, type TouchEvent } from "react";
 import { createPortal } from "react-dom";
-import { Camera, ChevronDown, ChevronLeft, ChevronRight, Circle, CircleCheck, CircleDot, ImagePlus, Trash2, X } from "lucide-react";
+import { Camera, ChevronLeft, ChevronRight, Circle, CircleCheck, CircleDot, ImagePlus, Trash2, X } from "lucide-react";
 import type { ClinicalImage } from "@/app/clinical-data";
 import { thumbUrl } from "@/lib/image-compress";
 import { pieceSummary, stagePieces, type Piece } from "@/lib/implant-pieces";
 import { StageDictation } from "@/components/stage-dictation";
-import { MAX_STAGE_NOTE, connectionText, implantSize, phaseLabel, stageMarks, stageOptions, type Implant, type RecordedPhase, type StageChange } from "@/lib/implants";
+import { EvolutionHistory, type EvolutionHistoryNote } from "@/components/evolution-history";
+import type { OdontogramData } from "@/app/clinical-data";
+import { addedStageNote, MAX_STAGE_NOTE, connectionText, implantSize, phaseLabel, stageMarks, stageOptions, type Implant, type RecordedPhase, type StageChange } from "@/lib/implants";
 
 const dayLabel = (iso: string) => iso ? iso.split("-").reverse().join("-") : "sin fecha";
 
@@ -81,7 +83,11 @@ function listedStages(item: Implant, pieces: readonly Piece[], marks: Partial<Re
     ...pieces.filter(piece => piece.implantId === item.id).map(piece => piece.stage)];
 }
 
-/** Lo que se está escribiendo en la pantalla de una etapa; null = sin tocar. */
+/**
+ * Lo que se está escribiendo en la pantalla de una etapa; null = sin tocar.
+ * `note`: no es la nota acumulada de la etapa (esa es evolución, fechada, y se ve abajo con `EvolutionHistory`) sino
+ * solo lo nuevo que se está por agregar ahora mismo; se guarda y se agrega como una evolución más, nunca reemplaza.
+ */
 export type StageEdit = {
   phase: RecordedPhase; date: string | null; note: string | null;
   /** Lo que estaba guardado cuando se empezó a escribir: si cambió en otro lado, se muestra y no se pisa solo. */
@@ -95,26 +101,36 @@ export function stageDate(item: Implant, edit: StageEdit, today: string): string
   return edit.date ?? stageMarks(item.history, item.phase, item.placedOn)[edit.phase] ?? (edit.phase === "cirugia" && item.placedOn ? item.placedOn : today);
 }
 
-/** ¿Queda una fecha escrita, una nota o una imagen pegada sin guardar? */
+/** ¿Queda una fecha escrita, algo sin agregar a la evolución o una imagen pegada sin guardar? */
 export function stagePending(item: Implant, edit: StageEdit | null, today: string): boolean {
   if (!edit) return false;
   const shown = stageMarks(item.history, item.phase, item.placedOn)[edit.phase] ?? stageDate(item, { ...edit, date: null }, today);
-  return !!edit.pasted?.length || (edit.note !== null && edit.note.trim() !== (item.stageNotes[edit.phase] ?? "")) || (edit.date !== null && edit.date !== shown);
+  return !!edit.pasted?.length || (edit.note !== null && edit.note.trim() !== "") || (edit.date !== null && edit.date !== shown);
 }
 
 /**
  * Pantalla de una etapa: su fecha, lo que se usó (lo pone quien la contiene), sus imágenes y su nota.
  * Nada es obligatorio; anotar algo nuevo marca la etapa.
  */
-export function StagePage({ item, edit, today, busy, images, onEdit, onBack, onChange, onNote, onImages, onOpenImage, onRemoveImage, children }: {
+export function StagePage({ item, edit, today, busy, images, evolutions, allEvolutions, odontogram, evolutionRail, onSyncOdontogram, onEditEvolution, onAnnulEvolution, onEdit, onBack, onChange, onNote, onImages, onOpenImage, onRemoveImage, children }: {
   item: Implant; edit: StageEdit; today: string; busy: boolean;
   images: ClinicalImage[];
+  /** Las evoluciones que esta etapa compiló hasta ahora (solo las de esta fase), para mostrarlas como su historia. */
+  evolutions: EvolutionHistoryNote[];
+  /** Las de todo el implante (todas sus fases), para resolver «reemplaza a» entre ellas. */
+  allEvolutions: EvolutionHistoryNote[];
+  odontogram: OdontogramData;
+  /** Misma barra de accesos directos que usa la evolución general. */
+  evolutionRail?: (note: EvolutionHistoryNote, latest: boolean) => ReactNode;
+  onSyncOdontogram: (note: EvolutionHistoryNote) => void | Promise<void>;
+  onEditEvolution?: (note: EvolutionHistoryNote, title: string, body: string) => Promise<void>;
+  onAnnulEvolution: (note: EvolutionHistoryNote) => void;
   onEdit: (change: Partial<StageEdit>) => void;
   onBack: () => void;
   /** Devuelve true si quedó guardado. */
   onChange: (change: StageChange) => Promise<boolean>;
-  /** `was`: la nota guardada que el profesional vio y decidió reemplazar. */
-  onNote: (was?: string) => void;
+  /** Agrega lo escrito en `edit.note` como una evolución más (nunca reemplaza lo ya guardado). */
+  onNote: () => void;
   onImages: (files: File[], view: "Radiografía" | "Foto clínica") => void;
   onOpenImage: (image: ClinicalImage) => void;
   onRemoveImage: (id: number) => void;
@@ -123,26 +139,19 @@ export function StagePage({ item, edit, today, busy, images, onEdit, onBack, onC
   const marks = stageMarks(item.history, item.phase, item.placedOn);
   const day = marks[edit.phase], marked = day !== undefined, label = phaseLabel(edit.phase);
   const date = stageDate(item, edit, today), installed = edit.phase === "cirugia" ? item.placedOn : "";
-  const note = edit.note ?? item.stageNotes[edit.phase] ?? "";
+  /** Lo que se está por agregar ahora (no la nota acumulada: esa se ve abajo, fechada, como evolución). */
+  const draftAddition = edit.note ?? "";
   const saved = item.stageNotes[edit.phase] ?? "";
-  const noteChanged = note.trim() !== saved;
-  const noteConflict = noteChanged && edit.note !== null && edit.noteFrom !== undefined && edit.noteFrom !== saved;
+  // Si mientras se escribía, se agregó algo en otro lado, lo guardado ya no coincide con lo que vio el profesional al empezar.
+  const noteStale = edit.note !== null && edit.noteFrom !== undefined && edit.noteFrom !== saved;
   const dateConflict = edit.date !== null && edit.dateFrom !== undefined && edit.dateFrom !== (day ?? null) && edit.date !== day;
   const mine = item.images.filter(image => image.stage === edit.phase);
   const radiograph = useRef<HTMLInputElement | null>(null);
   const clinical = useRef<HTMLInputElement | null>(null);
   const noteBox = useRef<HTMLTextAreaElement | null>(null);
-  /** La nota queda comprimida como una evolución; se abre a modo lienzo (misma animación que el resto de la pantalla) para leerla o escribirla grande. */
-  const [noteOpen, setNoteOpen] = useState(false);
-  const notePreview = (() => {
-    const line = note.split("\n").map(part => part.trim()).filter(Boolean).at(-1) ?? "";
-    return line.length > 72 ? `${line.slice(0, 72)}…` : line;
-  })();
-  /** Cada dictado queda fechado, como una evolución: se agrega, nunca reemplaza lo ya escrito. */
+  /** Cada dictado se suma a lo que se está por agregar; se guarda como una evolución más, nunca reemplaza lo ya escrito. */
   const insertDictation = (text: string) => {
-    const stamp = `— ${dayLabel(today)} —\n${text}`;
-    onEdit({ note: [note, stamp].filter(Boolean).join("\n\n"), ...(edit.note === null ? { noteFrom: saved } : {}) });
-    setNoteOpen(true);
+    onEdit({ note: [draftAddition, text].filter(Boolean).join("\n\n"), ...(edit.note === null ? { noteFrom: saved } : {}) });
     requestAnimationFrame(() => { if (noteBox.current) noteBox.current.scrollTop = noteBox.current.scrollHeight; });
   };
   const save = async (change: StageChange) => { if (await onChange(change)) onEdit({ date: null }); };
@@ -205,30 +214,25 @@ export function StagePage({ item, edit, today, busy, images, onEdit, onBack, onC
       </div>
     </section>
 
-    <div className="space-y-2">
+    <div className="space-y-2" data-testid="stage-note-compose">
+      <h4 className="font-semibold">Evolución de esta etapa</h4>
       <StageDictation disabled={busy} onInsert={insertDictation} />
-      {!noteOpen
-        ? <button type="button" onClick={() => setNoteOpen(true)} aria-expanded={false}
-            className="flex min-h-11 w-full items-center gap-2 rounded-lg px-1 py-1 text-left hover:bg-[#f3f1f7] focus-visible:outline-2 focus-visible:outline-[#473a6d]" data-testid="stage-note-row">
-            <ChevronRight className="size-4 shrink-0 text-[#473a6d]" aria-hidden="true"/>
-            <span className="shrink-0 text-sm font-semibold">Nota de esta etapa</span>
-            <span className="min-w-0 flex-1 truncate text-sm text-[#615f73]" data-testid="stage-note-preview">{notePreview || "Sin nota registrada"}</span>
-          </button>
-        : <div className="gd-implant-canvas space-y-2" data-testid="stage-note-canvas">
-            <button type="button" onClick={() => setNoteOpen(false)} aria-expanded={true}
-                className="flex min-h-11 w-full items-center gap-2 rounded-lg px-1 py-1 text-left hover:bg-[#f3f1f7] focus-visible:outline-2 focus-visible:outline-[#473a6d]" data-testid="stage-note-row">
-              <ChevronDown className="size-4 shrink-0 text-[#473a6d]" aria-hidden="true"/>
-              <span className="text-sm font-semibold">Nota de esta etapa</span>
-            </button>
-            <label htmlFor="stage-note-field" className="sr-only">Nota de esta etapa (opcional)</label>
-            <textarea id="stage-note-field" ref={noteBox} rows={14} value={note} maxLength={MAX_STAGE_NOTE} onChange={e => onEdit({ note: e.target.value, ...(edit.note === null ? { noteFrom: saved } : {}) })} className="block w-full rounded-lg border border-[#d8d5e4] bg-white px-3 py-2 text-base font-normal" data-testid="stage-note"/>
-            {noteConflict ? <div className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950" role="alert" data-testid="stage-note-conflict">
-              <p>Mientras escribías se guardó otra nota{saved ? ":" : " vacía (se borró)."}</p>
-              {saved && <p className="whitespace-pre-wrap break-words rounded bg-white p-2">{saved}</p>}
-              <button type="button" disabled={busy} className={`${action} w-full`} onClick={() => onNote(saved)}>Reemplazar con la mía</button>
-              <button type="button" disabled={busy} className={`${action} w-full`} onClick={() => onEdit({ note: null })}>Dejar la guardada</button>
-            </div> : noteChanged && <button type="button" disabled={busy} onClick={() => onNote()} className="min-h-11 w-full rounded-xl bg-[#473a6d] px-4 text-sm font-semibold text-white hover:bg-[#3a2f5a] disabled:opacity-50" data-testid="stage-note-save">Guardar nota</button>}
-          </div>}
+      <label htmlFor="stage-note-field" className="sr-only">Agregar a la evolución de esta etapa</label>
+      <textarea id="stage-note-field" ref={noteBox} rows={4} value={draftAddition} maxLength={MAX_STAGE_NOTE} placeholder="Escribe o dicta lo nuevo de esta etapa…"
+        onChange={e => onEdit({ note: e.target.value, ...(edit.note === null ? { noteFrom: saved } : {}) })} className="block w-full rounded-lg border border-[#d8d5e4] bg-white px-3 py-2 text-base font-normal" data-testid="stage-note"/>
+      {noteStale ? <div className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950" role="alert" data-testid="stage-note-conflict">
+        <p>Mientras escribías, se agregó esto a la evolución de esta etapa:</p>
+        <p className="whitespace-pre-wrap break-words rounded bg-white p-2">{addedStageNote(edit.noteFrom ?? "", saved)}</p>
+        <button type="button" disabled={busy} className={`${action} w-full`} onClick={() => onEdit({ noteFrom: saved })}>Agregar lo mío después de eso</button>
+        <button type="button" disabled={busy} className={`${action} w-full`} onClick={() => onEdit({ note: null, noteFrom: undefined })}>Descartar lo mío</button>
+      </div> : draftAddition.trim() !== "" && <button type="button" disabled={busy} onClick={onNote} className="min-h-11 w-full rounded-xl bg-[#473a6d] px-4 text-sm font-semibold text-white hover:bg-[#3a2f5a] disabled:opacity-50" data-testid="stage-note-save">Agregar a la evolución</button>}
+      {/* Lo anotado antes de que la etapa tuviera su propia evolución (no se migra: no hay fecha ni autor que inventarle). Solo lectura. */}
+      {!evolutions.length && saved.trim() !== "" && <div className="space-y-1 rounded-lg border border-[#d8d5e4] bg-[#f3f1f7] p-3 text-sm" data-testid="stage-legacy-note">
+        <p className="font-semibold text-[#473a6d]">Lo anotado antes de esta evolución fechada</p>
+        <p className="whitespace-pre-wrap break-words text-[#2b2540]">{saved}</p>
+        <p className="text-xs text-[#615f73]">Sin fecha propia: se escribió antes de este cambio.</p>
+      </div>}
+      <EvolutionHistory notes={evolutions} allNotes={allEvolutions} odontogram={odontogram} onSyncOdontogram={onSyncOdontogram} onAnnul={onAnnulEvolution} onEdit={onEditEvolution} rail={evolutionRail}/>
     </div>
     {marked && <button type="button" disabled={busy} onClick={remove} data-testid="implant-stage-remove" className="min-h-11 w-full text-sm font-semibold text-rose-800">Quitar marca de la etapa</button>}
     </div>

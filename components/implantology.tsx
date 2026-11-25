@@ -8,10 +8,12 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { ClipboardPaste, Download, ImagePlus, LoaderCircle, Trash2, X } from "lucide-react";
-import type { ClinicalImage } from "@/app/clinical-data";
+import type { ClinicalImage, OdontogramData } from "@/app/clinical-data";
+import { emptyOdontogram } from "@/app/clinical-data";
 import { BiomedicalProducts, type ProductTool, type ProductView } from "@/components/biomedical-products";
 import { CaptureLink } from "@/components/capture-link";
 import { CutOffer, type Offer } from "@/components/cut-offer";
+import type { EvolutionHistoryNote } from "@/components/evolution-history";
 import { ImplantIdBox, ImplantSheet, StageList, StagePage, StageStrip, stageDate, stagePending, type SheetTab, type StageEdit } from "@/components/implant-sheet";
 import type { CaptureView } from "@/lib/capture-bridge";
 import { cutViews } from "@/lib/capture-crop";
@@ -51,6 +53,9 @@ const primary = "inline-flex min-h-11 items-center justify-center gap-2 rounded-
 const secondary = "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#473a6d] bg-white px-4 text-sm font-semibold text-[#473a6d] hover:bg-[#f3f1f7] disabled:opacity-50";
 const chip = (on: boolean) => `min-h-11 rounded-full border px-3 text-sm font-medium ${on ? "border-[#473a6d] bg-[#473a6d] text-white" : "border-[#d8d5e4] bg-white text-[#473a6d]"}`;
 
+/** Una evolución compilada por una etapa: igual a la evolución general, pero con el implante y la fase de donde vino. */
+type StageEvolutionNote = EvolutionHistoryNote & { implantId: number | null; stagePhase: string | null };
+
 const usable = (file: File) => /^image\/(jpeg|png|webp)$/.test(file.type) && file.size <= 12 * 1024 * 1024;
 const UNUSABLE = "Usa imágenes JPG, PNG o WebP de hasta 12 MB. Los archivos DICOM no se cargan: captura el corte.";
 
@@ -70,7 +75,8 @@ function withLabel(draft: Draft, old: ImplantLabel | undefined, label: ImplantLa
     diameter: fill(draft.diameter, before && mm(before.diameter), mm(after.diameter)), length: fill(draft.length, before && mm(before.length), mm(after.length)) };
 }
 
-export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer, onUploadImage, onRemoveImage, onImageGone, onChanged }: {
+export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer, onUploadImage, onRemoveImage, onImageGone, onChanged,
+  evolutionRail, odontogram = emptyOdontogram(), onSyncOdontogram = async () => {}, onEditEvolution, onAnnulEvolution = () => {} }: {
   patient: { id: number; name: string };
   /** Estados del odontograma actual: de ahí salen las propuestas de fichas. */
   teeth: Record<number, string>;
@@ -83,11 +89,23 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
   /** La foto de una etiqueta se borró junto con su producto. */
   onImageGone: (id: number) => void;
   onChanged: () => void;
+  /**
+   * Lo que hace que la evolución de una etapa funcione igual que la evolución general (misma barra de accesos
+   * directos, mismo anular/editar, mismo odontograma). Todos opcionales, con valores por defecto que no hacen
+   * nada: así esta pantalla sigue funcionando sola (por ejemplo en el arnés de pruebas) sin toda la ficha detrás.
+   */
+  evolutionRail?: (note: EvolutionHistoryNote, latest: boolean) => ReactNode;
+  odontogram?: OdontogramData;
+  onSyncOdontogram?: (note: EvolutionHistoryNote) => void | Promise<void>;
+  onEditEvolution?: (note: EvolutionHistoryNote, title: string, body: string) => Promise<void>;
+  onAnnulEvolution?: (note: EvolutionHistoryNote) => void;
 }) {
   const [implants, setImplants] = useState<Implant[] | null>(null);
   const [labels, setLabels] = useState<ImplantLabel[]>([]);
   /** Conexiones ya confirmadas por marca y sistema, de la más reciente a la más antigua. */
   const [known, setKnown] = useState<KnownConnection[]>([]);
+  /** Evoluciones que compilaron las etapas de los implantes de este paciente (una por cada vez que se guardó algo). */
+  const [evolutions, setEvolutions] = useState<StageEvolutionNote[]>([]);
   /** La ficha de la ventana abierta; null = ventana cerrada. */
   const [draft, setDraft] = useState<Draft | null>(null);
   const [baseline, setBaseline] = useState("");
@@ -133,12 +151,12 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
   useEffect(() => { setWindows(/Windows/i.test(navigator.userAgent)); }, []);
   const load = useCallback(async () => {
     try {
-      let data: { implants: Implant[]; labels: ImplantLabel[]; connections?: KnownConnection[]; pieces?: Piece[]; kinds?: string[] }, before: number;
+      let data: { implants: Implant[]; labels: ImplantLabel[]; connections?: KnownConnection[]; pieces?: Piece[]; kinds?: string[]; evolutions?: StageEvolutionNote[] }, before: number;
       do {
         before = written.current;
         data = await call(`/api/implantes?patientId=${patient.id}`, { cache: "no-store" });
       } while (before !== written.current);
-      setImplants(data.implants); setLabels(data.labels); setKnown(data.connections ?? []); setPieces(data.pieces ?? []); setKinds(data.kinds ?? []); setError("");
+      setImplants(data.implants); setLabels(data.labels); setKnown(data.connections ?? []); setPieces(data.pieces ?? []); setKinds(data.kinds ?? []); setEvolutions(data.evolutions ?? []); setError("");
       return data;
     } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudieron cargar los implantes."); return null; }
   }, [patient.id]);
@@ -520,21 +538,36 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
     } catch (reason) { setError(reason instanceof Error ? `La pieza se guardó, pero no se pudo unir a la ficha del implante: ${reason.message}` : "La pieza se guardó, pero no se pudo unir a la ficha del implante."); }
   };
 
-  const saveNote = async (replacing?: string) => {
-    if (!current || !stage || stage.note === null || busy) return;
-    const { phase, note } = stage, date = stageDate(current, stage, today()), id = current.id;
-    const was = replacing ?? stage.noteFrom ?? current.stageNotes[phase] ?? "";
+  /**
+   * Edita una evolución compilada desde una etapa: además de lo que ya hace `onEditEvolution` (guardarla y
+   * corregir la evolución general del paciente), actualiza el estado propio de este panel para que, al cerrar
+   * el editor, la etapa muestre lo corregido y no lo viejo (este panel lee sus evoluciones de su propio `load()`,
+   * aparte de las del paciente en `app/page.tsx`).
+   */
+  const editEvolutionHere = onEditEvolution && (async (note: EvolutionHistoryNote, title: string, body: string) => {
+    await onEditEvolution(note, title, body);
+    setEvolutions(previous => previous.map(n => n.id === note.id ? { ...n, title, body } : n));
+  });
+
+  /** Agrega lo escrito o dictado en la etapa como una evolución más (nunca reemplaza lo ya guardado). */
+  const saveNote = async () => {
+    if (!current || !stage || stage.note === null || !stage.note.trim() || busy) return;
+    const { phase } = stage, date = stageDate(current, stage, today()), id = current.id;
+    const was = stage.noteFrom ?? current.stageNotes[phase] ?? "";
+    const note = was ? `${was}\n\n${stage.note.trim()}` : stage.note.trim();
     setBusy("saving"); setError(""); setNotice("");
     try {
+      // Primero se marca la etapa con la fecha elegida (si aún no tenía marca): así, si esta es la primera nota,
+      // el servidor ya encuentra esa fecha al compilar la evolución y no cae en «hoy» por falta de marca.
+      await ensureMarked(id, phase, date);
       const { implant } = await send<{ implant: Implant }>("PATCH", { id, stageNote: { phase, was, note } });
       apply(implant);
-      setStage(previous => previous?.phase !== phase ? previous : previous.note === note ? { ...previous, note: null, noteFrom: undefined } : { ...previous, noteFrom: implant.stageNotes[phase] ?? "" });
-      // Solo una nota nueva marca la etapa: corregirla no deshace una marca que se quitó.
-      if (!was && implant.stageNotes[phase]) await ensureMarked(id, phase, date);
-      setNotice(implant.stageNotes[phase] ? "Nota guardada." : "Nota borrada."); onChanged();
+      setStage(previous => previous?.phase !== phase ? previous : { ...previous, note: null, noteFrom: undefined });
+      await load();
+      setNotice("Agregado a la evolución de esta etapa."); onChanged();
     } catch (reason) {
       await load();
-      setError(reason instanceof Error ? reason.message : "No se pudo guardar la nota.");
+      setError(reason instanceof Error ? reason.message : "No se pudo agregar a la evolución.");
     } finally { setBusy(""); }
   };
 
@@ -643,7 +676,10 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
         {stage && <div key={`${current.id}-${stage.phase}`} className="gd-implant-canvas md:min-w-0 md:flex-1 md:overflow-y-auto md:overflow-x-hidden md:overscroll-contain md:border-l md:border-[#ebe9f2] md:pl-4" data-testid="implant-canvas">
         <StageStrip item={current} pieces={pieces} open={stage.phase} onOpen={openStage}/>
         <StagePage key={`${current.id}-${stage.phase}`} item={current} edit={stage} today={today()} busy={busy !== ""} images={images}
-          onEdit={change => setStage(previous => previous ? { ...previous, ...change } : previous)} onBack={closeStage} onChange={changeStage} onNote={was => void saveNote(was)}
+          evolutions={evolutions.filter(n => n.implantId === current.id && n.stagePhase === stage.phase)}
+          allEvolutions={evolutions.filter(n => n.implantId === current.id)}
+          odontogram={odontogram} evolutionRail={evolutionRail} onSyncOdontogram={onSyncOdontogram} onEditEvolution={editEvolutionHere} onAnnulEvolution={onAnnulEvolution}
+          onEdit={change => setStage(previous => previous ? { ...previous, ...change } : previous)} onBack={closeStage} onChange={changeStage} onNote={() => void saveNote()}
           onImages={(files, as) => void addStageImages(files, as)} onOpenImage={setOpen} onRemoveImage={id => void removeImage(id)}>
           <BiomedicalProducts key={`${visit}-${stage.phase}`} embedded compact tool={productTool} patient={patient} startTooth={current.tooth}
             slot={{ implant: current, implants: implants ?? [], phase: stage.phase, date: stageDate(current, stage, today()), kinds }}

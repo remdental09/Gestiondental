@@ -77,7 +77,14 @@ export const MAX_PHASE_HISTORY = 40;
 export type Implant = ImplantFields & { id: number; images: ImplantImage[]; history: PhaseEntry[]; stageNotes: StageNotes };
 /** Nota escrita en cada fase. */
 export type StageNotes = Partial<Record<RecordedPhase, string>>;
+/** Límite de lo que se escribe de una sola vez en el cuadro de «agregar» (cada entrada queda como una evolución propia). */
 export const MAX_STAGE_NOTE = 1000;
+/**
+ * Límite del acumulado interno de la fase (todo lo agregado alguna vez, para diferenciar lo nuevo y para el
+ * respaldo si la fase no tiene evoluciones propias). Ya no es un campo editable de una vez: cortarlo en
+ * MAX_STAGE_NOTE bloquearía agregar algo nuevo apenas la suma se acercara a eso.
+ */
+export const MAX_STAGE_NOTE_TOTAL = 20000;
 
 const text = (value: unknown, max: number): string =>
   typeof value === "string" ? value.normalize("NFC").replace(/[\u0000-\u001F\u007F]/g, " ").replace(/\s+/g, " ").trim().slice(0, max) : "";
@@ -141,7 +148,7 @@ export function parseImplantImages(raw: string): ImplantImage[] {
 
 /** Nota de varias líneas: se conservan los saltos; el resto de los caracteres de control se quita. */
 export const cleanStageNote = (value: unknown): string =>
-  typeof value === "string" ? value.normalize("NFC").replace(/\r\n?/g, "\n").replace(/[\u0000-\u0009\u000B-\u001F\u007F]/g, " ").trim().slice(0, MAX_STAGE_NOTE) : "";
+  typeof value === "string" ? value.normalize("NFC").replace(/\r\n?/g, "\n").replace(/[\u0000-\u0009\u000B-\u001F\u007F]/g, " ").trim().slice(0, MAX_STAGE_NOTE_TOTAL) : "";
 
 /** Lee las notas guardadas; lo dañado o de una fase desconocida se omite. */
 export function parseStageNotes(raw: unknown): StageNotes {
@@ -156,7 +163,7 @@ export function parseStageNotes(raw: unknown): StageNotes {
 export function setStageNote(raw: unknown, change: unknown): { notes: StageNotes } | { error: string; stale?: boolean } {
   const { phase, was, note } = (change ?? {}) as { phase?: unknown; was?: unknown; note?: unknown };
   if (!isPhase(phase) || typeof note !== "string") return { error: "Nota no válida." };
-  if (note.trim().length > MAX_STAGE_NOTE) return { error: `La nota de la fase admite hasta ${MAX_STAGE_NOTE} caracteres.` };
+  if (note.trim().length > MAX_STAGE_NOTE_TOTAL) return { error: `La fase ya acumuló demasiado: no se puede agregar más.` };
   const notes = parseStageNotes(raw);
   if ((notes[phase] ?? "") !== cleanStageNote(was)) return { error: "La nota de esta fase cambió en otro lado. Revísala y guarda otra vez.", stale: true };
   const next = cleanStageNote(note);
@@ -351,5 +358,8 @@ export function stageEvolutionEntry(input: {
   const connection = connectionText(input.connection);
   const pieces = pieceSummary(input.pieces);
   const body = [summary && `Implante: ${summary}`, connection, pieces && `Piezas: ${pieces}`, addedNote].filter(Boolean).join("\n");
-  return { title: `Implantología · ${input.tooth} · ${phaseLabel(input.phaseId)}`, body };
+  // «pieza <FDI con punto>» (no solo el número) para que el riel de evolución reconozca la pieza, igual que una evolución dictada.
+  // `cleanTooth` normaliza a FDI con punto aunque el dato guardado fuera, por alguna razón, el código compacto (12, 13…).
+  const tooth = cleanTooth(input.tooth) || input.tooth;
+  return { title: `Implantología · pieza ${tooth} · ${phaseLabel(input.phaseId)}`, body };
 }

@@ -1,8 +1,12 @@
-import { and, asc, desc, eq, ne } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, ne } from "drizzle-orm";
+import { env } from "cloudflare:workers";
 import { getChatGPTUser, personalIdOf } from "@/app/chatgpt-auth";
 import { loadProfile } from "@/app/clinician-profile-db";
 import { displayName } from "@/lib/clinician-profile";
 import { authorStatement } from "@/app/evolution-author";
+import { authorsOf, type TeamDb } from "@/app/clinic-team-db";
+import { evolutionAuthor } from "@/lib/clinic-team";
+import { annulView, displayDate } from "@/app/evolution-view";
 import { getDb } from "@/db";
 import { biomedicalProducts, clinicalImages, evolutions, implants, patients } from "@/db/schema";
 import { PRODUCT_IMAGE_KIND, santiagoToday } from "@/lib/biomedical-products";
@@ -47,15 +51,42 @@ async function ownLabel(ownerId: string, patientId: number, productId: number | 
   return found?.id ?? null;
 }
 
+const teamDb = () => (env as unknown as { DB?: TeamDb }).DB;
+
+/**
+ * Las evoluciones que un implante compiló (una por cada vez que se guardó algo en una de sus etapas), con la
+ * misma forma que usa la evolución general: así la pantalla de implantología puede mostrarlas con el mismo
+ * historial y la misma barra de accesos directos, en vez de una nota aparte.
+ */
+async function stageEvolutionsOf(ownerId: string, patientId: number, personalId: string) {
+  const db = getDb();
+  const authorDb = teamDb();
+  const [rows, authors] = await Promise.all([
+    db.select().from(evolutions).where(and(eq(evolutions.ownerId, ownerId), eq(evolutions.patientId, patientId), isNotNull(evolutions.implantId)))
+      .orderBy(desc(evolutions.clinicalDate), desc(evolutions.recordedAt)),
+    authorDb ? authorsOf(authorDb, ownerId).catch(() => new Map()) : Promise.resolve(new Map()),
+  ]);
+  return rows.map(n => {
+    const authorRow = authors.get(n.id);
+    const authorId = evolutionAuthor(authorRow?.author_id, ownerId);
+    return {
+      id: n.id, patientId: n.patientId, date: displayDate(n.clinicalDate), clinicalDate: n.clinicalDate, recordedAt: n.recordedAt,
+      title: n.title, body: n.body, backupStatus: n.backupStatus, implantId: n.implantId, stagePhase: n.stagePhase,
+      authorName: authorRow?.author_name || "", authorEmail: authorRow?.author_email || "", mine: authorId === personalId,
+      ...annulView(n),
+    };
+  });
+}
+
 export async function GET(request: Request) {
   const checked = await guard(request, false);
   if (checked.error) return checked.error;
   const patientId = positive(new URL(request.url).searchParams.get("patientId"));
   if (!patientId) return fail("Selecciona un paciente válido.");
   try {
-    const db = getDb(), ownerId = checked.user.userId;
+    const db = getDb(), ownerId = checked.user.userId, personalId = personalIdOf(checked.user);
     if (!await ownsPatient(ownerId, patientId)) return fail("Paciente no encontrado.", 404);
-    const [rows, products, images, connections, kinds] = await Promise.all([
+    const [rows, products, images, connections, kinds, stageEvolutions] = await Promise.all([
       db.select().from(implants).where(and(eq(implants.ownerId, ownerId), eq(implants.patientId, patientId))).orderBy(asc(implants.tooth), asc(implants.id)),
       db.select().from(biomedicalProducts).where(and(eq(biomedicalProducts.ownerId, ownerId), eq(biomedicalProducts.patientId, patientId))).orderBy(desc(biomedicalProducts.placedOn), desc(biomedicalProducts.id)),
       db.select({ id: clinicalImages.id }).from(clinicalImages).where(and(eq(clinicalImages.ownerId, ownerId), eq(clinicalImages.patientId, patientId))),
@@ -63,6 +94,7 @@ export async function GET(request: Request) {
       db.select({ brand: implants.brand, system: implants.system, connection: implants.connection }).from(implants).where(and(eq(implants.ownerId, ownerId), ne(implants.connection, ""), ne(implants.brand, ""))).orderBy(desc(implants.updatedAt), desc(implants.id)).limit(500),
       // Nombres de piezas que esta cuenta ya usó, para ofrecerlos. Solo el nombre del tipo, sin datos de pacientes.
       db.select({ kind: biomedicalProducts.kind }).from(biomedicalProducts).where(and(eq(biomedicalProducts.ownerId, ownerId), ne(biomedicalProducts.kind, ""))).orderBy(desc(biomedicalProducts.id)).limit(500),
+      stageEvolutionsOf(ownerId, patientId, personalId),
     ]);
     const available = new Set(images.map(image => image.id));
     return ok({
@@ -72,6 +104,8 @@ export async function GET(request: Request) {
       // Lo mínimo de cada producto para el resumen de las fases.
       pieces: products.map(p => ({ id: p.id, implantId: p.implantId, stage: p.stage, kind: p.kind, category: p.category, tooth: p.tooth, brand: p.brand, model: p.model, reference: p.reference, lot: p.lot, serial: p.serial, diameter: p.diameter, length: p.length })),
       labels: products.filter(p => p.category === "implante").map(p => ({ id: p.id, tooth: p.tooth, brand: p.brand, reference: p.reference, lot: p.lot, serial: p.serial, placedOn: p.placedOn, model: p.model, diameter: p.diameter, length: p.length })),
+      // Evoluciones compiladas por las etapas de estos implantes, para mostrarlas como la evolución general del módulo.
+      evolutions: stageEvolutions,
     });
   } catch { return fail("No se pudieron cargar los implantes.", 500); }
 }
@@ -173,12 +207,16 @@ export async function PATCH(request: Request) {
       if (row) await db.update(biomedicalProducts).set({ tooth: row.tooth }).where(and(eq(biomedicalProducts.ownerId, ownerId), eq(biomedicalProducts.implantId, row.id), ne(biomedicalProducts.tooth, row.tooth))).catch(() => undefined);
       // Se agrega a evolución general solo si la nota se guardó; el autor va en el mismo batch (si no se puede
       // registrar, tampoco se guarda la evolución). La nota de la fase ya quedó guardada igual: esto no la bloquea.
+      // Si este batch falla, no se traga el error: la nota de la fase ya persistió, pero decir éxito aquí haría
+      // creer que quedó en la evolución cuando no es así. Se deja que el catch de afuera responda 503 y el
+      // profesional reintente (al reintentar, la nota ya guardada hace que el servidor detecte el desfase y
+      // ofrezca el mismo flujo de «se agregó en otro lado» que ya existe para conflictos).
       if (row && pendingEvolution && pendingEvolutionPhase) {
         const clinicalDate = stageMarks(parseHistory(row.history), row.phase, row.placedOn)[pendingEvolutionPhase] || santiagoToday();
         await db.batch([
-          db.insert(evolutions).values({ ownerId, patientId: row.patientId, clinicalDate, recordedAt: row.updatedAt, title: pendingEvolution.title, body: pendingEvolution.body, backupStatus: "not_configured" }).returning(),
+          db.insert(evolutions).values({ ownerId, patientId: row.patientId, clinicalDate, recordedAt: row.updatedAt, title: pendingEvolution.title, body: pendingEvolution.body, backupStatus: "not_configured", implantId: row.id, stagePhase: pendingEvolutionPhase }).returning(),
           (await authorStatement(db, ownerId)).statement,
-        ]).catch(() => undefined);
+        ]);
       }
       if (row) return ok({ implant: view(row, available) });
     }

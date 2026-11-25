@@ -82,7 +82,8 @@ export function AnnulEvolutionDialog({ note, onClose, onConfirm }: { note: Comma
   };
   const ready = !!mode && (mode === "delete" || reason.trim().length >= 3) && (!replace || body.trim().length >= 3);
   return <Dialog open={!!note} onOpenChange={(next) => { if (!next && !saving) { reset(); onClose(); } }}>
-    <DialogContent className="max-h-[92vh] supports-[height:1dvh]:max-h-[92dvh] overflow-y-auto bg-white pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:max-w-xl" data-testid="annul-dialog">
+    {/* z-[90]: puede abrirse desde una evolución compilada dentro de la ficha de implante (z-[80]) y debe quedar encima, no debajo. */}
+    <DialogContent className="z-[90] max-h-[92vh] supports-[height:1dvh]:max-h-[92dvh] overflow-y-auto bg-white pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:max-w-xl" overlayClassName="z-[90]" data-testid="annul-dialog">
       <DialogHeader>
         <DialogTitle>Eliminar evolución</DialogTitle>
         <DialogDescription>Elige qué pasó con este registro.</DialogDescription>
