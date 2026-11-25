@@ -4,7 +4,7 @@ import { PERIO_TRANSCRIPTION_KEYWORDS, PERIO_TRANSCRIPTION_PROMPT } from "./peri
 import { voiceReviewApprovalPhrase } from "./voice-answer.ts";
 
 export const AUDIO_TRANSCRIPTION_MODEL = "gpt-transcribe";
-/** Compatibilidad para cuentas que aún no exponen el modelo nuevo. Configuración explícita prevalece. */
+/** Respaldo si la cuenta aún no expone gpt-transcribe. */
 export const AUDIO_COMPATIBILITY_MODEL = "gpt-4o-transcribe";
 export const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
 export const MAX_RECORDING_MS = 4 * 60 * 1000;
@@ -40,7 +40,7 @@ export async function transcribeDentalAudio(audio: Blob, apiKey: string, options
   });
   // No devolver cuerpos del proveedor, que podrían contener datos del dictado.
   if (!response.ok) {
-    if (response.status === 404 && !options.model?.trim()) {
+    if (response.status === 404 && model === AUDIO_TRANSCRIPTION_MODEL) {
       return transcribeDentalAudio(audio, apiKey, { ...options, model: AUDIO_COMPATIBILITY_MODEL });
     }
     if (response.status === 401 || response.status === 403) throw new Error("La clave de OpenAI no tiene acceso a la transcripción de audio.");
