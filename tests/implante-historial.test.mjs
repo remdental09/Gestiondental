@@ -132,9 +132,9 @@ test("API: una etapa solo se cambia desde lo que se veía, nada se pisa y la con
   assert.match(route, /setStage\(parseHistory\(current\.history\), current, body\.markStage, santiagoToday\(\)\)/);
   assert.match(route, /placedOn: edited\.placedOn/);
   assert.match(route, /mergeImplantEdit\(current, body\)/);
-  assert.match(route, /eq\(implants\.history, current\.history\), eq\(implants\.phase, current\.phase\), eq\(implants\.updatedAt, current\.updatedAt\)/);
+  assert.match(route, /eq\(implants\.history, current\.history\), eq\(implants\.phase, current\.phase\), eq\(implants\.stageNotes, current\.stageNotes\), eq\(implants\.updatedAt, current\.updatedAt\)/);
   const panel = read("components/implantology.tsx");
-  assert.equal(panel.match(/send<\{ implant: Implant \}>\("PATCH", \{ \.\.\.toDraft\(\w+\), id: \w+\.id, base: toDraft\(\w+\),/g).length, 2);
+  assert.equal(panel.match(/send<\{ implant: Implant \}>\("PATCH", \{ \.\.\.toDraft\(\w+\), id: \w+\.id, base: toDraft\(\w+\),/g).length, 3);
   assert.match(panel, /base: JSON\.parse\(baseline\)/);
   assert.match(panel, /event\.stopPropagation\(\); setOpen\(null\)/, "Escape cierra solo la imagen");
   // Las conexiones propuestas salen solo de la cuenta propia y sin datos de pacientes.
@@ -159,7 +159,8 @@ test("ventana: bajo el implantograma no queda nada; todo lo del implante está e
   const panel = read("components/implantology.tsx");
   const [below, inside] = panel.slice(panel.indexOf('data-testid="implantology"')).split("<ImplantSheet");
   assert.doesNotMatch(below, /BiomedicalProducts|CaptureLink|implant-form|implant-list|implant-capturer/);
-  for (const part of [/<StageList/, /<BiomedicalProducts key=\{visit\} embedded compact/, /data-testid="implant-images"/, /<CaptureLink key=\{current\.id\}/, /data-testid="implant-delete"/]) assert.match(inside, part);
+  for (const part of [/<StageList/, /<BiomedicalProducts key=\{visit\} embedded compact/, /data-testid="implant-images"/, /<CaptureLink key=\{current\.id\}/, /<StagePage/, /\{noteAndRemove\}/]) assert.match(inside, part);
+  assert.match(panel, /data-testid="implant-delete"/);
   assert.match(panel, /canClose=\{leave\}/);
   assert.match(panel, /if \(!next \|\| !leave\(\)\) return false;/, "pasar a otro implante también pregunta");
   assert.match(panel, /productTool\.current\?\.pending\(\)/);

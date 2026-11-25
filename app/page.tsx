@@ -616,7 +616,7 @@ export default function Home(){
     const day=new Date().toISOString().slice(0,10);
     await saveEndo({...base,cases:[...rest,...items.map(item=>priorCase(crypto.randomUUID(),item.tooth,day,item.year))]});
   };
-  const uploadOrthoImage=async(original:File,kind:"Foto ortodoncia"|"RX ortodoncia"|"RX endodoncia"|"Producto biomédico"|"Radiografía"|"Captura CBCT",note:string)=>{
+  const uploadOrthoImage=async(original:File,kind:"Foto ortodoncia"|"RX ortodoncia"|"RX endodoncia"|"Producto biomédico"|"Radiografía"|"Captura CBCT"|"Foto clínica",note:string)=>{
     const patientId=selectedId;
     const {prepareImageUpload}=await import("@/lib/image-compress");
     // La letra de una etiqueta es pequeña: su foto conserva más resolución para poder leerla.

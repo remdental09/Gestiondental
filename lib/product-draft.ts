@@ -6,7 +6,7 @@
 import type { LabelReading, ProductDetail } from "./biomedical-products.ts";
 import { codeHasFields, otherProduct, sameValue, type ProductCode } from "./product-code.ts";
 
-const READ_KEYS = ["brand", "model", "diameter", "length", "reference", "lot", "serial", "manufactured", "expiry", "manufacturer", "registration", "gtin"] as const;
+const READ_KEYS = ["kind", "brand", "model", "diameter", "length", "reference", "lot", "serial", "manufactured", "expiry", "manufacturer", "registration", "gtin"] as const;
 const CODE_KEYS = ["lot", "serial", "expiry", "manufactured", "reference", "gtin"] as const;
 export const CODE_KEY_LABEL: Record<string, string> = { lot: "lote", serial: "serie", expiry: "vencimiento", manufactured: "fabricación", reference: "referencia", gtin: "GTIN" };
 

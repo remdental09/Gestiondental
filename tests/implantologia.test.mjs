@@ -79,6 +79,8 @@ test("implantes: la migración 0027 solo agrega la tabla, la 0029 solo columnas,
   const added = read("drizzle/0029_implant_connection_history.sql");
   assert.doesNotMatch(added, /\b(DROP|DELETE|UPDATE)\s+(TABLE|FROM|`)/i);
   for (const statement of added.split("--> statement-breakpoint")) db.exec(statement);
+  db.exec("CREATE TABLE biomedical_products (id integer PRIMARY KEY)");
+  for (const statement of read("drizzle/0030_implant_stage_records.sql").split("--> statement-breakpoint")) db.exec(statement);
   // Un implante que ya existía queda con su etapa, sin conexión y sin historial inventado.
   assert.deepEqual({ ...db.prepare("SELECT phase, connection, history FROM implants").get() }, { phase: "cirugia", connection: "", history: "[]" });
   const columns = db.prepare("PRAGMA table_info(implants)").all().map(column => column.name);

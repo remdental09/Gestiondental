@@ -1,13 +1,17 @@
 "use client";
+/* eslint-disable @next/next/no-img-element -- Las imágenes clínicas son rutas autenticadas que se cargan con la sesión del navegador. */
 /**
- * Ventana de un implante (hoja que sube desde abajo en el teléfono): todo lo de ese implante está aquí, en tres secciones
- * (etapas, datos e imágenes). Se pasa de un implante a otro deslizando o con las flechas.
+ * Ventana de un implante (hoja que sube desde abajo en el teléfono): todo lo de ese implante está aquí, en dos secciones
+ * (etapas, cada una con lo que se usó en ella, e imágenes). Se pasa de un implante a otro deslizando o con las flechas.
  * Nada cambia sin un toque del profesional; quitar una marca y descartar lo escrito piden confirmación.
  */
-import { useCallback, useEffect, useRef, useState, type ReactNode, type TouchEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type ReactNode, type TouchEvent } from "react";
 import { createPortal } from "react-dom";
-import { ChevronLeft, ChevronRight, Circle, CircleCheck, CircleDot, X } from "lucide-react";
-import { connectionText, implantSize, phaseLabel, stageMarks, stageOptions, type Implant, type RecordedPhase, type StageChange } from "@/lib/implants";
+import { Camera, ChevronLeft, ChevronRight, Circle, CircleCheck, CircleDot, ImagePlus, Trash2, X } from "lucide-react";
+import type { ClinicalImage } from "@/app/clinical-data";
+import { thumbUrl } from "@/lib/image-compress";
+import { pieceSummary, stagePieces, type Piece } from "@/lib/implant-pieces";
+import { MAX_STAGE_NOTE, connectionText, implantSize, phaseLabel, stageMarks, stageOptions, type Implant, type RecordedPhase, type StageChange } from "@/lib/implants";
 
 const dayLabel = (iso: string) => iso ? iso.split("-").reverse().join("-") : "sin fecha";
 
@@ -21,52 +25,157 @@ export function ImplantIdBox({ item, extra = "" }: { item: Implant; extra?: stri
 }
 
 /**
- * Las seis etapas del implante, cada una con su fecha. Tocar una abre su fecha para marcarla o corregirla, en cualquier orden;
- * la actual es la más avanzada marcada. Se monta con una `key` por implante.
+ * Las etapas del implante, cada una con lo que se usó en ella y su fecha. Tocar una abre su pantalla;
+ * la actual es la más avanzada marcada.
  */
-export function StageList({ item, today, busy, onChange }: {
-  item: Implant; today: string; busy: boolean;
-  /** Devuelve true si quedó guardado. */
-  onChange: (change: StageChange) => Promise<boolean>;
-}) {
+export function StageList({ item, pieces, onOpen }: { item: Implant; pieces: readonly Piece[]; onOpen: (phase: RecordedPhase) => void }) {
   const marks = stageMarks(item.history, item.phase, item.placedOn);
-  const stages = stageOptions(Object.keys(marks));
-  const [open, setOpen] = useState<{ phase: RecordedPhase; date: string } | null>(null);
-  const save = async (change: StageChange) => { if (await onChange(change)) setOpen(null); };
-  const toggle = (phase: RecordedPhase) => setOpen(previous => previous?.phase === phase ? null
-    // Para una marca nueva se propone hoy (la cirugía, la fecha de instalación si ya está); una marcada muestra lo guardado.
-    : { phase, date: marks[phase] ?? (phase === "cirugia" && item.placedOn ? item.placedOn : today) });
-  const remove = (phase: RecordedPhase) => {
-    const rest = stages.filter(other => other.id !== phase && marks[other.id] !== undefined).at(-1);
-    const after = phase !== item.phase ? "" : rest ? ` La etapa actual quedará en «${rest.label}».` : " El implante quedará sin etapa registrada.";
-    const placed = phase === "cirugia" && item.placedOn ? ` También se borra la fecha de instalación (${dayLabel(item.placedOn)}).` : "";
-    if (window.confirm(`¿Desea eliminar la marca de «${phaseLabel(phase)}»?${after}${placed}`)) void save({ phase, was: marks[phase] ?? null, remove: true });
-  };
-
+  const stages = stageOptions(listedStages(item, pieces, marks));
   return <div data-testid="implant-stages">
-    <p className="text-sm text-[#615f73]">Toca una etapa para marcarla o cambiar su fecha.</p>
+    <p className="text-sm text-[#615f73]">Toca una etapa para anotar lo que usaste y su fecha.</p>
     <ol className="mt-1 divide-y divide-[#ebe9f2]">{stages.map(phase => {
-      const day = marks[phase.id], marked = day !== undefined, current = item.phase === phase.id, editing = open?.phase === phase.id ? open : null;
+      const day = marks[phase.id], marked = day !== undefined, current = item.phase === phase.id;
       const installed = phase.id === "cirugia" ? item.placedOn : "";
+      const images = item.images.filter(image => image.stage === phase.id).length;
+      const summary = [pieceSummary(stagePieces(pieces, item, phase.id)), images && (images === 1 ? "1 imagen" : `${images} imágenes`), item.stageNotes[phase.id] && "nota"].filter(Boolean).join(" · ");
       const Icon = current ? CircleDot : marked ? CircleCheck : Circle;
       return <li key={phase.id}>
-        <button type="button" aria-expanded={!!editing} onClick={() => toggle(phase.id)} data-testid={`implant-stage-${phase.id}`} data-state={current ? "actual" : marked ? "marcada" : "sin-marcar"}
-          className={`flex min-h-12 w-full items-center gap-3 rounded-lg px-1 text-left text-base ${current ? "font-semibold text-[#473a6d]" : "text-[#2b2540]"}`}>
+        <button type="button" onClick={() => onOpen(phase.id)} data-testid={`implant-stage-${phase.id}`} data-state={current ? "actual" : marked ? "marcada" : "sin-marcar"}
+          className={`flex min-h-14 w-full items-center gap-3 rounded-lg px-1 py-2 text-left text-base ${current ? "text-[#473a6d]" : "text-[#2b2540]"}`}>
           <Icon className={`size-5 shrink-0 ${marked ? "text-[#473a6d]" : "text-[#b4b0c4]"}`} aria-hidden="true"/>
-          <span className="flex-1">{phase.label}{current && " (actual)"}</span>
-          <span className={`text-right text-sm font-normal ${marked ? "text-[#615f73]" : "text-[#8a879b]"}`}>{marked ? dayLabel(day) : installed ? `instalado ${dayLabel(installed)}` : "marcar"}</span>
+          <span className="min-w-0 flex-1">
+            <span className={`block ${current ? "font-semibold" : ""}`}>{phase.label}{current && " (actual)"}</span>
+            {summary && <span className="block break-words text-sm text-[#615f73]" data-testid="implant-stage-summary">{summary}</span>}
+          </span>
+          <span className={`shrink-0 text-right text-sm ${marked ? "text-[#615f73]" : "text-[#8a879b]"}`}>{marked ? dayLabel(day) : installed ? `instalado ${dayLabel(installed)}` : ""}</span>
+          <ChevronRight className="size-4 shrink-0 text-[#8a879b]" aria-hidden="true"/>
         </button>
-        {editing && <div className="mb-2 space-y-2 rounded-xl bg-[#f3f1f7] p-3" data-testid="implant-stage-editor">
-          <label className="block text-sm font-semibold text-[#473a6d]">{phase.id === "cirugia" ? "Fecha de cirugía (instalación)" : `Fecha de ${phase.label.toLocaleLowerCase("es")}`}
-            <input type="date" max={today} value={editing.date} onChange={e => setOpen({ phase: phase.id, date: e.target.value })} className="mt-1 block min-h-11 w-full min-w-0 max-w-full appearance-none rounded-lg border border-[#d8d5e4] bg-white px-3 text-base font-normal text-[#2b2540]" data-testid="implant-stage-date"/></label>
-          {!editing.date && <p className="text-xs text-[#615f73]">Sin fecha: la etapa queda marcada sin día.</p>}
-          {installed && marked && installed !== day && <button type="button" disabled={busy} onClick={() => void save({ phase: phase.id, was: day, date: installed })} className="block min-h-11 text-left text-sm font-semibold text-[#473a6d] underline">La instalación dice {dayLabel(installed)}: usar esa fecha</button>}
-          <button type="button" disabled={busy || (marked && editing.date === day)} onClick={() => void save({ phase: phase.id, was: day ?? null, date: editing.date })} data-testid="implant-stage-save"
-            className="min-h-11 w-full rounded-xl bg-[#473a6d] px-4 text-sm font-semibold text-white hover:bg-[#3a2f5a] disabled:opacity-50">{marked ? "Guardar fecha" : "Marcar etapa"}</button>
-          {marked && <button type="button" disabled={busy} onClick={() => remove(phase.id)} data-testid="implant-stage-remove" className="min-h-11 w-full text-sm font-semibold text-rose-800">Quitar marca</button>}
-        </div>}
       </li>;
     })}</ol>
+  </div>;
+}
+
+/** Una etapa retirada se sigue mostrando si está marcada o tiene algo anotado. */
+function listedStages(item: Implant, pieces: readonly Piece[], marks: Partial<Record<RecordedPhase, string>>): string[] {
+  return [...Object.keys(marks), ...Object.keys(item.stageNotes), ...item.images.flatMap(image => image.stage ?? []),
+    ...pieces.filter(piece => piece.implantId === item.id).map(piece => piece.stage)];
+}
+
+/** Lo que se está escribiendo en la pantalla de una etapa; null = sin tocar. */
+export type StageEdit = {
+  phase: RecordedPhase; date: string | null; note: string | null;
+  /** Lo que estaba guardado cuando se empezó a escribir: si cambió en otro lado, se muestra y no se pisa solo. */
+  dateFrom?: string | null; noteFrom?: string;
+  /** Imágenes pegadas en esta etapa que esperan que se diga qué son. */
+  pasted?: File[];
+};
+
+/** Fecha que muestra una etapa: la escrita, la guardada o la que se propone (hoy; en cirugía, la de instalación si está). */
+export function stageDate(item: Implant, edit: StageEdit, today: string): string {
+  return edit.date ?? stageMarks(item.history, item.phase, item.placedOn)[edit.phase] ?? (edit.phase === "cirugia" && item.placedOn ? item.placedOn : today);
+}
+
+/** ¿Queda una fecha escrita, una nota o una imagen pegada sin guardar? */
+export function stagePending(item: Implant, edit: StageEdit | null, today: string): boolean {
+  if (!edit) return false;
+  const shown = stageMarks(item.history, item.phase, item.placedOn)[edit.phase] ?? stageDate(item, { ...edit, date: null }, today);
+  return !!edit.pasted?.length || (edit.note !== null && edit.note.trim() !== (item.stageNotes[edit.phase] ?? "")) || (edit.date !== null && edit.date !== shown);
+}
+
+/**
+ * Pantalla de una etapa: su fecha, lo que se usó (lo pone quien la contiene), sus imágenes y su nota.
+ * Nada es obligatorio; anotar algo nuevo marca la etapa.
+ */
+export function StagePage({ item, edit, today, busy, images, onEdit, onBack, onChange, onNote, onImages, onOpenImage, onRemoveImage, children }: {
+  item: Implant; edit: StageEdit; today: string; busy: boolean;
+  images: ClinicalImage[];
+  onEdit: (change: Partial<StageEdit>) => void;
+  onBack: () => void;
+  /** Devuelve true si quedó guardado. */
+  onChange: (change: StageChange) => Promise<boolean>;
+  /** `was`: la nota guardada que el profesional vio y decidió reemplazar. */
+  onNote: (was?: string) => void;
+  onImages: (files: File[], view: "Radiografía" | "Foto clínica") => void;
+  onOpenImage: (image: ClinicalImage) => void;
+  onRemoveImage: (id: number) => void;
+  children: ReactNode;
+}) {
+  const marks = stageMarks(item.history, item.phase, item.placedOn);
+  const day = marks[edit.phase], marked = day !== undefined, label = phaseLabel(edit.phase);
+  const date = stageDate(item, edit, today), installed = edit.phase === "cirugia" ? item.placedOn : "";
+  const note = edit.note ?? item.stageNotes[edit.phase] ?? "";
+  const saved = item.stageNotes[edit.phase] ?? "";
+  const noteChanged = note.trim() !== saved;
+  const noteConflict = noteChanged && edit.note !== null && edit.noteFrom !== undefined && edit.noteFrom !== saved;
+  const dateConflict = edit.date !== null && edit.dateFrom !== undefined && edit.dateFrom !== (day ?? null) && edit.date !== day;
+  const mine = item.images.filter(image => image.stage === edit.phase);
+  const radiograph = useRef<HTMLInputElement | null>(null);
+  const clinical = useRef<HTMLInputElement | null>(null);
+  const save = async (change: StageChange) => { if (await onChange(change)) onEdit({ date: null }); };
+  const remove = () => {
+    const rest = stageOptions(Object.keys(marks)).filter(other => other.id !== edit.phase && marks[other.id] !== undefined).at(-1);
+    const after = edit.phase !== item.phase ? "" : rest ? ` La etapa actual quedará en «${rest.label}».` : " El implante quedará sin etapa registrada.";
+    const placed = installed ? ` También se borra la fecha de instalación (${dayLabel(installed)}).` : "";
+    if (window.confirm(`¿Desea eliminar la marca de «${label}»?${after}${placed} Lo anotado en la etapa se conserva.`)) void save({ phase: edit.phase, was: day ?? null, remove: true });
+  };
+  const pick = (view: "Radiografía" | "Foto clínica") => (event: ChangeEvent<HTMLInputElement>) => { const files = [...(event.target.files ?? [])]; event.target.value = ""; if (files.length) onImages(files, view); };
+  const action = "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#473a6d] bg-white px-3 text-sm font-semibold text-[#473a6d] hover:bg-[#f3f1f7] disabled:opacity-50";
+
+  return <div className="space-y-4" data-testid="implant-stage-page" data-stage={edit.phase}>
+    <div>
+      <button type="button" onClick={onBack} className="-ml-1 inline-flex min-h-11 items-center gap-1 text-sm font-semibold text-[#473a6d]" data-testid="implant-stage-back"><ChevronLeft className="size-5" aria-hidden="true"/>Etapas</button>
+      <h3 className="text-lg font-bold text-[#2b2540]" data-testid="implant-stage-title">{label}{item.phase === edit.phase && <span className="ml-2 text-sm font-semibold text-[#473a6d]">etapa actual</span>}</h3>
+    </div>
+    <div className="space-y-2 rounded-xl bg-[#f3f1f7] p-3" data-testid="implant-stage-editor">
+      <label className="block text-sm font-semibold text-[#473a6d]">{edit.phase === "cirugia" ? "Fecha de cirugía (instalación)" : `Fecha de ${label.toLocaleLowerCase("es")}`}
+        <input type="date" max={today} value={date} onChange={e => onEdit({ date: e.target.value, ...(edit.date === null ? { dateFrom: day ?? null } : {}) })} className="mt-1 block min-h-11 w-full min-w-0 max-w-full appearance-none rounded-lg border border-[#d8d5e4] bg-white px-3 text-base font-normal text-[#2b2540]" data-testid="implant-stage-date"/></label>
+      {!date && <p className="text-xs text-[#615f73]">Sin fecha: la etapa queda marcada sin día.</p>}
+      {installed && marked && installed !== day && <button type="button" disabled={busy} onClick={() => void save({ phase: edit.phase, was: day, date: installed })} className="block min-h-11 text-left text-sm font-semibold text-[#473a6d] underline">La instalación dice {dayLabel(installed)}: usar esa fecha</button>}
+      {dateConflict ? <div className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950" role="alert" data-testid="stage-date-conflict">
+        <p>Mientras escribías, esta etapa quedó guardada {marked ? (day ? `con fecha ${dayLabel(day)}` : "sin fecha") : "sin marca"}.</p>
+        <button type="button" disabled={busy} className={`${action} w-full`} onClick={() => void save({ phase: edit.phase, was: day ?? null, date })}>Reemplazar con {date ? dayLabel(date) : "sin fecha"}</button>
+        <button type="button" disabled={busy} className={`${action} w-full`} onClick={() => onEdit({ date: null })}>Dejar lo guardado</button>
+      </div> : (!marked || date !== day) ? <button type="button" disabled={busy} onClick={() => void save({ phase: edit.phase, was: day ?? null, date })} data-testid="implant-stage-save"
+        className="min-h-11 w-full rounded-xl bg-[#473a6d] px-4 text-sm font-semibold text-white hover:bg-[#3a2f5a] disabled:opacity-50">{marked ? "Guardar fecha" : "Marcar etapa"}</button>
+        : <p className="text-xs text-[#615f73]">Etapa marcada.</p>}
+    </div>
+
+    {children}
+
+    <section className="space-y-2" data-testid="stage-images"><h4 className="font-semibold">Radiografías y fotos</h4>
+      {mine.length > 0 && <ul className="grid grid-cols-2 gap-2">{mine.map(entry => {
+        const image = images.find(found => found.id === entry.imageId);
+        return <li key={entry.imageId} className="overflow-hidden rounded-xl border border-[#e6e4ee] bg-white">
+          {image ? <button type="button" className="block h-24 w-full bg-[#1f1b30]" onClick={() => onOpenImage(image)} aria-label={`Abrir ${entry.view}`}><img src={thumbUrl(image.url)} loading="lazy" alt={`${entry.view}, ${label}, implante ${item.tooth}`} className="h-24 w-full object-contain"/></button> : <p className="flex h-24 items-center justify-center text-xs text-[#615f73]">Cargando…</p>}
+          <div className="flex items-center justify-between gap-1 pl-2"><span className="truncate text-xs">{entry.view}</span><button type="button" disabled={busy} className="rounded-lg p-3 text-rose-800 hover:bg-rose-50" aria-label={`Eliminar imagen ${entry.view}`} onClick={() => onRemoveImage(entry.imageId)}><Trash2 className="size-4" aria-hidden="true"/></button></div>
+        </li>;
+      })}</ul>}
+      {!!edit.pasted?.length && <div className="space-y-2 rounded-xl border border-[#473a6d] bg-[#f7f5fb] p-3" data-testid="stage-pasted" ref={node => node?.scrollIntoView({ block: "nearest" })}>
+        <p className="text-sm font-semibold">{edit.pasted.length === 1 ? "Imagen pegada. ¿Qué es?" : `${edit.pasted.length} imágenes pegadas. ¿Qué son?`}</p>
+        <div className="grid grid-cols-2 gap-2">
+          <button type="button" className={action} disabled={busy} onClick={() => onImages(edit.pasted!, "Radiografía")}>Radiografía</button>
+          <button type="button" className={action} disabled={busy} onClick={() => onImages(edit.pasted!, "Foto clínica")}>Foto clínica</button>
+        </div>
+        <button type="button" disabled={busy} className="min-h-11 w-full text-sm font-semibold text-rose-800" onClick={() => onEdit({ pasted: undefined })}>No guardar</button>
+      </div>}
+      <div className="grid grid-cols-2 gap-2">
+        <button type="button" className={action} disabled={busy} onClick={() => radiograph.current?.click()}><ImagePlus className="size-4" aria-hidden="true"/>Radiografía</button>
+        <button type="button" className={action} disabled={busy} onClick={() => clinical.current?.click()}><Camera className="size-4" aria-hidden="true"/>Foto clínica</button>
+        <input ref={radiograph} type="file" multiple accept="image/jpeg,image/png,image/webp" className="hidden" onChange={pick("Radiografía")} data-testid="stage-radiograph-input"/>
+        <input ref={clinical} type="file" multiple accept="image/jpeg,image/png,image/webp" className="hidden" onChange={pick("Foto clínica")} data-testid="stage-photo-input"/>
+      </div>
+    </section>
+
+    <div className="space-y-2">
+      <label className="block text-sm font-semibold">Nota de esta etapa (opcional)<textarea rows={3} value={note} maxLength={MAX_STAGE_NOTE} onChange={e => onEdit({ note: e.target.value, ...(edit.note === null ? { noteFrom: saved } : {}) })} className="mt-1 block w-full rounded-lg border border-[#d8d5e4] bg-white px-3 py-2 text-base font-normal" data-testid="stage-note"/></label>
+      {noteConflict ? <div className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950" role="alert" data-testid="stage-note-conflict">
+        <p>Mientras escribías se guardó otra nota{saved ? ":" : " vacía (se borró)."}</p>
+        {saved && <p className="whitespace-pre-wrap break-words rounded bg-white p-2">{saved}</p>}
+        <button type="button" disabled={busy} className={`${action} w-full`} onClick={() => onNote(saved)}>Reemplazar con la mía</button>
+        <button type="button" disabled={busy} className={`${action} w-full`} onClick={() => onEdit({ note: null })}>Dejar la guardada</button>
+      </div> : noteChanged && <button type="button" disabled={busy} onClick={() => onNote()} className="min-h-11 w-full rounded-xl bg-[#473a6d] px-4 text-sm font-semibold text-white hover:bg-[#3a2f5a] disabled:opacity-50" data-testid="stage-note-save">Guardar nota</button>}
+    </div>
+    {marked && <button type="button" disabled={busy} onClick={remove} data-testid="implant-stage-remove" className="min-h-11 w-full text-sm font-semibold text-rose-800">Quitar marca de la etapa</button>}
   </div>;
 }
 
@@ -77,9 +186,9 @@ export function ImplantSheet({ title, patientName, position, summary, tabs, tab,
   patientName: string;
   /** Lugar de este implante entre los del paciente; null en una ficha nueva. */
   position: { at: number; total: number } | null;
-  /** Recuadro de identificación: se ve en las tres secciones. */
+  /** Recuadro de identificación: se ve en todas las secciones. */
   summary?: ReactNode;
-  /** null en una ficha nueva: solo se muestran sus datos. */
+  /** null en una ficha nueva (solo sus datos) y dentro de una etapa (se vuelve con «Etapas»). */
   tabs: { id: SheetTab; label: string }[] | null;
   tab: SheetTab;
   onTab: (tab: SheetTab) => void;

@@ -39,7 +39,7 @@ test("etiqueta: medidas, registro, fechas y el resto quedan limpios; nada si no 
 });
 
 test("registro: los datos nuevos se guardan y se imprimen; un producto anterior queda igual en el respaldo", () => {
-  const fields = cleanProductFields({ category: "implante", placedOn: "2026-11-24", ...reading, details: reading.other, code: UDI }, "2026-11-24");
+  const fields = cleanProductFields({ category: "implante", kind: "Implante", placedOn: "2026-11-24", ...reading, details: reading.other, code: UDI }, "2026-11-24");
   assert.equal(fields.diameter, "3,3");
   assert.deepEqual(parseDetails(fields.details), reading.other);
   const lines = productFigureLines({ ...fields, placedOnLabel: "24 nov 2026" });
@@ -126,7 +126,8 @@ test("cableado: lector propio sin CDN, cámara que se cierra y migración que so
   assert.match(read("components/implantology.tsx"), /<BiomedicalProducts key=\{visit\} embedded compact/);
   assert.match(read("components/biomedical-products.tsx"), /"Escanear etiqueta"/);
   const sql = read("drizzle/0028_product_label_fields.sql");
-  assert.equal(sql.match(/ADD COLUMN/g).length, PRODUCT_EXTRA_FIELDS.length);
+  // El tipo de pieza (`kind`) llegó después, con la 0030.
+  assert.equal(sql.match(/ADD COLUMN/g).length, PRODUCT_EXTRA_FIELDS.filter(key => key !== "kind").length);
   assert.doesNotMatch(sql, /DROP|UPDATE|DELETE/);
   assert.ok(JSON.parse(read("drizzle/meta/_journal.json")).entries.some(entry => entry.tag === "0028_product_label_fields"));
   for (const key of PRODUCT_EXTRA_FIELDS) assert.match(read("app/api/productos/route.ts"), new RegExp(`${key}: (row\\.${key}|parseDetails\\(row\\.${key}\\))`));

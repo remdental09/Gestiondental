@@ -249,6 +249,12 @@ export const biomedicalProducts = sqliteTable("biomedical_products", {
   details: text("details").notNull().default("[]"),
   /** Contenido literal del código leído. */
   code: text("code").notNull().default(""),
+  /** Pieza o material anotado en una fase de un implante (ficha de Implantología). null = no está en ninguna. */
+  implantId: integer("implant_id"),
+  /** Fase del implante donde se usó («cirugia», «conexion»…); vacío si no está en ninguna. */
+  stage: text("stage").notNull().default(""),
+  /** Qué es, con las palabras del profesional («Pilar», «Scan body», «Material»…). */
+  kind: text("kind").notNull().default(""),
 }, table => [index("biomedical_products_patient_idx").on(table.ownerId, table.patientId)]);
 
 /** Ficha por implante (implantología). `images` es JSON: [{ imageId, view }] sobre clinical_images del mismo paciente. */
@@ -274,6 +280,8 @@ export const implants = sqliteTable("implants", {
   /** Etiqueta escaneada (biomedical_products, categoría implante). */
   productId: integer("product_id"),
   images: text("images").notNull().default("[]"),
+  /** JSON {fase: nota} con lo que el profesional anotó en cada fase. */
+  stageNotes: text("stage_notes").notNull().default("{}"),
   note: text("note").notNull().default(""),
   createdBy: text("created_by").notNull(),
   createdByName: text("created_by_name").notNull().default(""),

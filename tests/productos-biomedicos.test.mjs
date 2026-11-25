@@ -83,7 +83,7 @@ test("QR: texto con LOT/SN/REF/EXP se lee; un QR sin datos solo conserva el text
 test("códigos: el formulario los lee en el equipo, el código manda sobre la IA y la IA recibe su texto", () => {
   const form = read("components/biomedical-products.tsx");
   assert.match(form, /readCodes\(file\)/);
-  assert.match(form, /applyPhoto\(base, code, read\.fields\)/);
+  assert.match(form, /applyPhoto\(base, code, !read\.fields \|\| slot \? read\.fields : /);
   assert.match(form, /code: code\?\.raw/);
   assert.match(form, /products-scan/);
   assert.match(read("app/api/productos/leer/route.ts"), /body\?\.code/);

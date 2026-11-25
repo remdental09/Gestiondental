@@ -98,6 +98,8 @@ export async function getDriveSnapshot(ownerId: string, patientId: number, conne
       id: p.id, category: p.category, brand: p.brand, reference: p.reference, lot: p.lot, serial: p.serial, expiry: p.expiry,
       manufacturer: p.manufacturer, tooth: p.tooth, note: p.note, placedOn: p.placedOn, createdByName: p.createdByName, createdAt: p.createdAt,
       ...labelExtras(p),
+      // Solo las piezas anotadas en una fase llevan dónde: el resto queda igual que antes.
+      ...(p.implantId ? { implantId: p.implantId, stage: p.stage } : {}),
     })) } : {}),
     ...(implantRows.length ? { implants: implantRows.map(row => backupImplant(row, new Set(images.map(i => i.id)))) } : {}),
     // Las anuladas se respaldan igual (Ley 20.584), marcadas con motivo, fecha y autor.
