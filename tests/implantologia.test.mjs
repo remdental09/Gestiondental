@@ -104,7 +104,7 @@ test("implantes: permisos, pestaña, respaldo, descarga y capturadora conectados
   assert.match(route, /eq\(biomedicalProducts\.patientId, patientId\)/);
   const page = read("app/page.tsx");
   assert.match(page, /value:"implantologia"/);
-  assert.match(page, /showCapturer=\{isDeveloper\}/);
+  assert.match(page, /showCapturer=\{true\}/, "la capturadora ya no queda oculta tras el panel de desarrollador");
   assert.match(read("app/drive-backup.ts"), /implantRows\.length \?/);
   assert.match(read("app/api/clinical/export/route.ts"), /implantRows/);
   for (const file of ["app/drive-backup.ts", "app/api/clinical/export/route.ts"]) assert.doesNotMatch(read(file), /from\(implants\)[^\n]*\.catch|queries\.implants\)\.catch/, "los implantes no se omiten en silencio");
