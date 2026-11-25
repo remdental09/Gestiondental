@@ -3,13 +3,14 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
+import * as implantsLib from '../lib/implants.ts';
 
 const source = readFileSync(new URL('../app/drive-backup.ts', import.meta.url), 'utf8');
 const compiled = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText;
 const tables = Object.fromEntries(
-  ['patients', 'evolutions', 'budgets', 'appointments', 'periodontalExams', 'toothStatuses', 'clinicalImages', 'patientDocuments', 'consentSignatures', 'driveBackups', 'biomedicalProducts']
+  ['patients', 'evolutions', 'budgets', 'appointments', 'periodontalExams', 'toothStatuses', 'clinicalImages', 'patientDocuments', 'consentSignatures', 'driveBackups', 'biomedicalProducts', 'implants']
     .map(name => [name, Object.fromEntries(['id', 'ownerId', 'patientId', 'backupStatus'].map(key => [key, key]))]),
 );
 
@@ -25,7 +26,7 @@ function fixture() {
   };
   const rows = {
     patients: [patient], evolutions: [note], budgets: [], appointments: [], periodontalExams: [],
-    toothStatuses: [], clinicalImages: [], patientDocuments: [], consentSignatures: [], driveBackups: [], biomedicalProducts: [],
+    toothStatuses: [], clinicalImages: [], patientDocuments: [], consentSignatures: [], driveBackups: [], biomedicalProducts: [], implants: [],
   };
   const keyOf = table => Object.keys(tables).find(key => tables[key] === table);
   const eq = (column, value) => ({ column, value });
@@ -66,6 +67,7 @@ function fixture() {
       'drizzle-orm': { and, asc: value => value, eq, gt: () => null },
       '@/db': { getDb },
       '@/db/schema': tables,
+      '@/lib/implants': implantsLib,
       '@/lib/backup-markdown': { fichaMarkdown: (record) => `# Ficha clínica · ${record.patient.name}\n` },
       '@/lib/attachment-name': { attachmentFileName: (id, name) => 'Adjunto ' + id + ' - ' + name },
       '@/app/anamnesis-db': { loadAnamnesis: async () => null },
@@ -96,4 +98,19 @@ test('el respaldo detecta cambios de contacto y no considera copiados los binari
   assert.equal(changed.pending, true);
   assert.notEqual(changed.digest, original.digest);
   assert.equal(changed.previousDocumentId, 'documento12345');
+});
+
+test('el respaldo incluye los implantes y falla, en vez de omitirlos, si no puede leerlos', async () => {
+  const { getDriveSnapshot, rows } = fixture();
+  const sin = await getDriveSnapshot('owner', 4);
+  assert.equal(sin.documentText.includes('"implants"'), false);
+
+  rows.implants.push({ id: 1, ownerId: 'owner', patientId: 4, tooth: '3.6', phase: 'cirugia', brand: 'Marca A', system: '', diameter: 4.1, length: 10,
+    placedOn: '', torque: null, isq: null, productId: null, images: '[]', note: '', createdByName: 'Dr. Prueba', createdAt: '2026-11-24', updatedAt: '2026-11-24' });
+  const con = await getDriveSnapshot('owner', 4);
+  assert.equal(con.documentText.includes('"implants"'), true);
+  assert.notEqual(con.digest, sin.digest);
+
+  delete rows.implants; // la consulta falla
+  await assert.rejects(() => getDriveSnapshot('owner', 4));
 });

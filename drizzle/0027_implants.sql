@@ -1,0 +1,4 @@
+-- Implantología: una ficha por implante. Solo agrega una tabla.
+CREATE TABLE IF NOT EXISTS `implants` (`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL, `owner_id` text NOT NULL, `patient_id` integer NOT NULL, `tooth` text NOT NULL, `phase` text DEFAULT '' NOT NULL, `brand` text DEFAULT '' NOT NULL, `system` text DEFAULT '' NOT NULL, `diameter` real, `length` real, `placed_on` text DEFAULT '' NOT NULL, `torque` integer, `isq` integer, `product_id` integer, `images` text DEFAULT '[]' NOT NULL, `note` text DEFAULT '' NOT NULL, `created_by` text NOT NULL, `created_by_name` text DEFAULT '' NOT NULL, `created_at` text NOT NULL, `updated_at` text NOT NULL, FOREIGN KEY (`patient_id`) REFERENCES `patients`(`id`) ON UPDATE no action ON DELETE no action);
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `implants_patient_idx` ON `implants` (`owner_id`, `patient_id`);

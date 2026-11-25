@@ -6,10 +6,11 @@ import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { getDb } from "@/db";
 import { fichaMarkdown } from "@/lib/backup-markdown";
 import { chileDay } from "@/lib/chile-day";
+import { backupImplant } from "@/lib/implants";
 import { decodeBudgetData } from "@/lib/budget-plans";
 import { loadAddresses } from "@/app/patient-address-db";
 import { loadAnamnesis } from "@/app/anamnesis-db";
-import { appointments, budgets, clinicalImages, consentSignatures, driveBackups, evolutions, patientDocuments, patients, payments, periodontalExams, toothStatuses } from "@/db/schema";
+import { appointments, biomedicalProducts, budgets, clinicalImages, consentSignatures, driveBackups, evolutions, implants, patientDocuments, patients, payments, periodontalExams, toothStatuses } from "@/db/schema";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -31,7 +32,7 @@ export async function GET(request: Request) {
 
   try {
     const db = getDb();
-    const [patientRows, allEvolutionRows, budgetRows, appointmentRows, perioRows, toothRows, imageRows, backupRows, paymentRows, documentRows, signatureRows] = await Promise.all([
+    const [patientRows, allEvolutionRows, budgetRows, appointmentRows, perioRows, toothRows, imageRows, backupRows, paymentRows, documentRows, signatureRows, implantRows, productRows] = await Promise.all([
       db.select().from(patients).where(eq(patients.ownerId, ownerId)).orderBy(patients.name),
       db.select().from(evolutions).where(eq(evolutions.ownerId, ownerId)).orderBy(desc(evolutions.clinicalDate), desc(evolutions.recordedAt)),
       db.select().from(budgets).where(eq(budgets.ownerId, ownerId)).orderBy(desc(budgets.id)),
@@ -45,6 +46,9 @@ export async function GET(request: Request) {
       // Firmas del paciente en consentimientos (con la imagen de la firma; el código del enlace nunca sale de la base).
       ensureConsentSignatureTable().then(() => db.select().from(consentSignatures).where(and(eq(consentSignatures.ownerId, ownerId), eq(consentSignatures.status, "firmado"))))
         .then(rows => rows.map(({ tokenHash: _token, ...rest }) => rest)).catch(() => [] as Omit<typeof consentSignatures.$inferSelect, "tokenHash">[]),
+      // Sin «catch»: una descarga a la que le faltaran implantes o etiquetas no debe parecer completa.
+      db.select().from(implants).where(eq(implants.ownerId, ownerId)).orderBy(implants.id),
+      db.select().from(biomedicalProducts).where(eq(biomedicalProducts.ownerId, ownerId)).orderBy(biomedicalProducts.id),
     ]);
 
     // Las evoluciones anuladas no salen en la descarga; se conservan en la base y en el respaldo de Drive (marcadas).
@@ -68,6 +72,8 @@ export async function GET(request: Request) {
           odontogram: tooth ? JSON.parse(tooth.data) : null,
           imageMetadata: imageRows.filter((row) => row.patientId === patient.id),
           documents: documentRows.filter(row => row.patientId === patient.id),
+          biomedicalProducts: productRows.filter(row => row.patientId === patient.id),
+          implants: implantRows.filter(row => row.patientId === patient.id).map(row => backupImplant(row, new Set(imageRows.filter(image => image.patientId === patient.id).map(image => image.id)))),
         }, new Date().toISOString());
       }));
       const header = `# Fichas clínicas · Gestión Dental\n\n_${patientRows.length} ${patientRows.length === 1 ? "paciente" : "pacientes"} · descargado ${chileDay(new Date().toISOString()).split("-").reverse().join("-")}${annulledEvolutionsOmitted ? ` · ${annulledEvolutionsOmitted} evoluciones anuladas omitidas (se conservan en la app y en Drive)` : ""}_\n\n---\n\n`;
@@ -100,6 +106,8 @@ export async function GET(request: Request) {
         clinicalImages: images,
         patientDocuments: documentRows,
         ...(signatureRows.length ? { consentSignatures: signatureRows } : {}),
+        ...(productRows.length ? { biomedicalProducts: productRows } : {}),
+        ...(implantRows.length ? { implants: implantRows } : {}),
         driveBackups: backupRows,
       },
       counts: {
@@ -114,6 +122,8 @@ export async function GET(request: Request) {
         clinicalImages: images.length,
         patientDocuments: documentRows.length,
         ...(signatureRows.length ? { consentSignatures: signatureRows.length } : {}),
+        ...(productRows.length ? { biomedicalProducts: productRows.length } : {}),
+        ...(implantRows.length ? { implants: implantRows.length } : {}),
         unavailableImageFiles: images.filter((image) => !image.contentAvailable).length,
         driveBackups: backupRows.length,
       },
