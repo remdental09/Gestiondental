@@ -154,6 +154,8 @@ export function ImplantologyPanel({ patient, teeth, crowns, images, showCapturer
   };
   /** Antes de cerrar o cambiar de implante: si queda algo sin guardar, se pregunta. */
   const leave = (): boolean => {
+    // Con un guardado en curso se espera: un error no puede perderse junto con lo escrito.
+    if (busy === "saving" || productTool.current?.saving()) { setNotice("Se está guardando. Espera un momento."); return false; }
     const pending = [
       dirty && "los cambios sin guardar de este implante",
       productTool.current?.pending() && "el producto a medio registrar, con su foto",

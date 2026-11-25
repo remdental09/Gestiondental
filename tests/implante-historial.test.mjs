@@ -163,6 +163,7 @@ test("ventana: bajo el implantograma no queda nada; todo lo del implante está e
   assert.match(panel, /canClose=\{leave\}/);
   assert.match(panel, /if \(!next \|\| !leave\(\)\) return false;/, "pasar a otro implante también pregunta");
   assert.match(panel, /productTool\.current\?\.pending\(\)/);
+  assert.match(panel, /if \(busy === "saving" \|\| productTool\.current\?\.saving\(\)\) \{[^}]*return false; \}/, "con un guardado en curso no se sale");
   assert.match(read("components/biomedical-products.tsx"), /generation\.current !== started/, "una lectura tardía no reaparece");
   assert.match(read("components/implant-sheet.tsx"), /¿Desea eliminar la marca de/);
 });

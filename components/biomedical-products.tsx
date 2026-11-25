@@ -46,7 +46,7 @@ async function call<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 /** Lo que la ventana que la contiene necesita saber antes de cerrarse o pasar a otra ficha. */
-export type ProductTool = { pending: () => boolean; discard: () => void };
+export type ProductTool = { saving: () => boolean; pending: () => boolean; discard: () => void };
 
 export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, embedded = false, compact = false, tool, onSaved, onUploadImage, onRemoveImage, onImageGone, onChanged }: {
   patient: { id: number; name: string };
@@ -166,8 +166,9 @@ export function BiomedicalProducts({ patient, startTooth = "", startNonce = 0, e
   useEffect(() => {
     if (!tool) return;
     tool.current = {
-      // Lo que ya se está guardando termina solo: no se descarta ni se borra su foto.
-      pending: () => busy !== "saving" && (draft !== null || busy !== ""),
+      // Mientras se guarda no se sale: si fallara, el aviso y lo escrito tienen que seguir a la vista.
+      saving: () => busy === "saving",
+      pending: () => draft !== null || busy !== "",
       discard: () => {
         if (busy === "saving") return;
         generation.current++;
