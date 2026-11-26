@@ -54,6 +54,8 @@ test("la portada pide el correo primero, deja Google como opción, no refleja te
   assert.ok(html.indexOf('action="/auth/correo"') < html.indexOf('href="/auth/google?entrada=personal"'), "el correo va antes que Google");
   assert.match(html, /name="equipo" value="compartido"/);
   assert.match(html, /Santiago de Chile/);
+  assert.match(html, /GRATIS/);
+  assert.match(html, /500 MB/);
   assert.doesNotMatch(html, /role="alert"/);
   assert.match(portadaPage("cancelado"), /Se canceló/);
   assert.match(portadaPage("correo-invalido"), /correo válido/);
