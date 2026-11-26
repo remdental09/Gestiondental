@@ -221,9 +221,9 @@ function AnamnesisDialog({ patientId, patientName, initial, onClose, onSaved }: 
 
       <div className="space-y-3 rounded-xl border border-[#f0b7bd] bg-[#fff5f6] p-4 sm:space-y-2 sm:p-3">
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-          <p className="text-base font-semibold text-[#b81f2f] sm:text-sm">{mode === "interview" ? "Escuchar entrevista" : "Dictar anamnesis"}</p>
+          <p className="text-base font-semibold text-[#b81f2f] sm:text-sm">{mode === "interview" ? "Comenzar entrevista" : "Dictar anamnesis"}</p>
           <div role="radiogroup" aria-label="Modo de grabación" className="grid grid-cols-2 rounded-lg border border-[#f0b7bd] bg-white p-0.5 text-sm font-semibold sm:inline-flex sm:text-xs">
-            {([["dictate", "Dictar"], ["interview", "Escuchar entrevista"]] as const).map(([m, label]) => <button key={m} type="button" role="radio" aria-checked={mode === m} data-testid={`anamnesis-mode-${m}`}
+            {([["dictate", "Dictar"], ["interview", "Comenzar entrevista"]] as const).map(([m, label]) => <button key={m} type="button" role="radio" aria-checked={mode === m} data-testid={`anamnesis-mode-${m}`}
               disabled={status === "recording" || busy} onClick={() => { setMode(m); setError(""); }}
               className={`min-h-10 rounded-md px-3 py-1.5 text-center ${mode === m ? "bg-[#d62839] text-white" : "text-[#8f1a27]"}`}>{label}</button>)}
           </div>
@@ -237,7 +237,7 @@ function AnamnesisDialog({ patientId, patientName, initial, onClose, onSaved }: 
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
           <Button type="button" onClick={record} disabled={busy || organizing || (mode === "interview" && !consent && status !== "recording")} data-testid="anamnesis-dictate" className={`h-12 w-full text-base sm:h-9 sm:w-auto sm:text-sm ${status === "recording" ? "bg-[#d62839] text-white hover:bg-[#b81f2f]" : ""}`} variant={status === "recording" ? "default" : "outline"}>
             {status === "recording" ? <><Square className="mr-2 size-4" />Detener</> : busy ? <><Loader2 className="mr-2 size-4 animate-spin" />{status === "transcribing" ? "Transcribiendo…" : "Preparando…"}</>
-              : mode === "interview" ? <><Users className="mr-2 size-4" />Escuchar entrevista</> : <><Mic className="mr-2 size-4" />Dictar</>}
+              : mode === "interview" ? <><Users className="mr-2 size-4" />Comenzar entrevista</> : <><Mic className="mr-2 size-4" />Dictar</>}
           </Button>
           {status === "recording" && <span role="timer" aria-live="off" data-testid="anamnesis-timer" className={`self-center rounded-md px-2 py-1 font-mono text-sm tabular-nums ${MAX_DICTATION_MS - elapsed <= 30_000 ? "bg-[#fde8b0] text-[#7a5200]" : "bg-white text-[#3b3355]"}`}>
             <span className="mr-1 inline-block size-2 animate-pulse rounded-full bg-[#d62839]" />{clock(elapsed)} / {clock(MAX_DICTATION_MS)}</span>}
