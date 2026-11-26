@@ -27,11 +27,12 @@ export async function POST(request: Request) {
       const signature = new Uint8Array(await file.slice(0, 5).arrayBuffer());
       if (new TextDecoder().decode(signature) !== "%PDF-") return fail("El archivo no parece ser un PDF válido.");
     }
+    if (!env.DB) return fail("Base de datos no disponible.", 503);
     const db = getDb();
     const [patient] = await db.select({ id: patients.id }).from(patients).where(and(eq(patients.id, patientId), eq(patients.ownerId, ownerId)));
     if (!patient) return fail("Paciente no encontrado.", 404);
     // Verificar cuota de almacenamiento antes de subir al bucket.
-    const quotaError = await checkUploadQuota(db as unknown as Parameters<typeof checkUploadQuota>[0], ownerId, file.size);
+    const quotaError = await checkUploadQuota(env.DB, ownerId, file.size);
     if (quotaError) return fail(quotaError, 413);
     const key = ownerId + "/" + patientId + "/" + crypto.randomUUID();
     await env.BUCKET.put(key, await file.arrayBuffer(), { httpMetadata: { contentType: file.type } });
