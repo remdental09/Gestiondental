@@ -5,6 +5,7 @@ import { getDb } from "@/db";
 import { clinicalImages, patients } from "@/db/schema";
 import { MAX_THUMB_BYTES } from "@/lib/image-compress";
 import { thumbKey } from "@/lib/image-keys";
+import { checkUploadQuota } from "@/lib/space-quota";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -29,6 +30,9 @@ export async function POST(request: Request) {
     const db = getDb();
     const [patient] = await db.select({ id: patients.id }).from(patients).where(and(eq(patients.id, patientId), eq(patients.ownerId, ownerId)));
     if (!patient) return fail("Paciente no encontrado.", 404);
+    // Verificar cuota de almacenamiento antes de subir al bucket.
+    const quotaError = await checkUploadQuota(db as unknown as Parameters<typeof checkUploadQuota>[0], ownerId, file.size);
+    if (quotaError) return fail(quotaError, 413);
     const key = ownerId + "/" + patientId + "/" + crypto.randomUUID();
     await env.BUCKET.put(key, await file.arrayBuffer(), { httpMetadata: { contentType: file.type } });
     // Miniatura opcional (JPEG ≤ 300 KB, generada en el navegador) para las grillas; si no es válida, se omite.

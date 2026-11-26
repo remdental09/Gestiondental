@@ -325,6 +325,15 @@ export const calendarEvents = sqliteTable("calendar_events", {
   index("calendar_events_owner_start_idx").on(table.ownerId, table.startAt),
 ]);
 
+/** Cuota de almacenamiento R2 por espacio (owner_id). Ver lib/space-quota.ts. */
+export const spaceQuotas = sqliteTable("space_quotas", {
+  ownerId: text("owner_id").primaryKey(),
+  planName: text("plan_name").notNull().default("gratis"),
+  quotaBytes: integer("quota_bytes").notNull().default(524288000),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
 /** Aggregates diarios técnicos del dictado guiado; no contiene audio ni texto clínico. */
 export const dictationHealthDaily = sqliteTable("dictation_health_daily", {
   ownerId: text("owner_id").notNull(),
