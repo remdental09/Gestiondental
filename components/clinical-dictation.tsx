@@ -324,6 +324,7 @@ export function ClinicalDictation({
   // Al terminar un dictado (Detener, corte de Safari o error) se corrige solo con IA, una vez por dictado.
   const autoPending = useRef(false);
   const heard = useRef({ text: "", interim: "" });
+  const transcriptBoxRef = useRef<HTMLTextAreaElement | null>(null);
   const [lastStructured, setLastStructured] = useState("");
   const stopFallback = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Una orden dictada (anular/reemplazar una evolución) no se corrige como nota: se muestra su tarjeta.
@@ -1099,12 +1100,17 @@ export function ClinicalDictation({
   const shownClarifications = proposal ? proposal.clarifications.filter((question) => !(proposal.diagnosisPrompts ?? []).some((prompt) => prompt.question === question)) : [];
   const updateDx = (id: string, patch: Partial<ReviewDiagnosis>) => setDxItems((current) => current.map((entry) => entry.id === id ? { ...entry, ...patch } : entry));
 
+  useEffect(() => {
+    if (!listening || !transcriptBoxRef.current) return;
+    transcriptBoxRef.current.scrollTop = transcriptBoxRef.current.scrollHeight;
+  }, [listening, transcript, interim]);
+
   return <>
     {prominent
       ? <Button type="button" size="lg" className="h-auto min-h-12 shrink-0 whitespace-normal bg-[#473a6d] px-5 text-base hover:bg-[#3a2f5a]" onClick={() => setOpen(true)} data-testid="dictation-open" aria-label={`Dictar en la ficha de ${patientName}`}><Mic className="mr-2 size-5" />Dictar</Button>
       : <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)} data-testid="dictation-open"><Mic className="mr-2 size-4" />Dictar</Button>}
     <Dialog open={open} onOpenChange={(next) => { if (!next) close(); else setOpen(true); }}>
-      <DialogContent className="max-h-[92vh] supports-[height:1dvh]:max-h-[92dvh] overflow-y-auto overflow-x-hidden overscroll-contain bg-white pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:max-w-3xl">
+      <DialogContent className="w-[min(96vw,1120px)] max-h-[94vh] supports-[height:1dvh]:max-h-[94dvh] overflow-y-auto overflow-x-hidden overscroll-contain bg-white pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:max-w-5xl lg:max-w-6xl">
         <DialogHeader>
           <DialogTitle>Dictado de la ficha</DialogTitle>
           <DialogDescription>Paciente: {patientName}. Nada se guarda hasta que aceptes cada cambio. El ingreso manual sigue disponible.</DialogDescription>
@@ -1118,23 +1124,29 @@ export function ClinicalDictation({
             <Button type="button" variant="outline" onClick={() => { stopWithoutCorrecting(); setTranscript(EXAMPLE); setInterim(""); resetReview(); }} data-testid="dictation-example">Cargar ejemplo</Button>
             <Button type="button" className="bg-[#473a6d] hover:bg-[#3a2f5a]" disabled={transcribing || structuring || listening || transcript.trim().length < 3} onClick={() => void structure(transcript)} data-testid="dictation-structure"><Sparkles className="mr-2 size-4" aria-hidden="true" />{structuring ? "Corrigiendo texto…" : outcome ? "Volver a corregir texto" : "Corregir texto"}</Button>
           </div>
-          <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Corrección del dictado" data-testid="dictation-correction-options">
-            <span className="text-xs font-semibold uppercase tracking-wide text-[#473a6d]">Corrección</span>
-            <Button type="button" size="sm" variant="outline" className="bg-white" aria-pressed={speakAlerts} onClick={toggleSpeak} data-testid="dictation-voice-toggle">{speakAlerts ? "🔊 Con voz" : "🔇 Sin voz"}</Button>
-            <Button type="button" size="sm" variant="outline" className="bg-white" aria-pressed={reviewLevel === "full"} onClick={toggleReviewLevel} data-testid="dictation-review-toggle" title={reviewLevel === "basic" ? "Solo detecta diagnóstico, procedimientos y plan" : "Segunda opinión de la IA y todos los avisos"}>{reviewLevel === "basic" ? "Revisión básica" : "Revisión completa"}</Button>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Corrección del dictado" data-testid="dictation-correction-options">
+              <span className="text-xs font-semibold uppercase tracking-wide text-[#473a6d]">Corrección</span>
+              <Button type="button" size="sm" variant="outline" className="bg-white" aria-pressed={speakAlerts} onClick={toggleSpeak} data-testid="dictation-voice-toggle">{speakAlerts ? "🔊 Con voz" : "🔇 Sin voz"}</Button>
+              <Button type="button" size="sm" variant="outline" className="bg-white" aria-pressed={reviewLevel === "full"} onClick={toggleReviewLevel} data-testid="dictation-review-toggle" title={reviewLevel === "basic" ? "Solo detecta diagnóstico, procedimientos y plan" : "Segunda opinión de la IA y todos los avisos"}>{reviewLevel === "basic" ? "Revisión básica" : "Revisión completa"}</Button>
+            </div>
+            <details className="text-xs text-[#473a6d]">
+              <summary className="cursor-pointer font-medium hover:underline">¿Cómo funciona el dictado? (máx. 4 min por toma)</summary>
+              <p className="mt-2 max-w-xl rounded-lg bg-sky-50 p-3 leading-5 text-sky-950" role="note">{AUDIO_DICTATION_NOTICE} Dicta libre: «punto» o «punto aparte» separa frases.</p>
+            </details>
           </div>
-          {listening && <p role="status" className="font-medium text-[#473a6d]">Escuchando en español de Chile… Al detener, el texto se corrige solo con IA.</p>}
           {structuring && <div role="alert" aria-live="assertive" className="flex items-start gap-3 rounded-lg border-2 border-red-600 bg-red-600 p-3 text-white shadow-md" data-testid="dictation-correcting"><span className="mt-0.5 size-5 shrink-0 animate-spin rounded-full border-2 border-white border-t-transparent motion-reduce:animate-none" aria-hidden="true" /><div><p className="font-bold uppercase tracking-wide">La IA está corrigiendo</p><p className="mt-0.5 text-sm">Está rectificando y ordenando clínicamente tu dictado. No guardes todavía: espera a que termine y revisa la nota.</p></div></div>}
-          <p className="rounded-lg bg-sky-50 p-3 text-xs leading-5 text-sky-950" role="note">{AUDIO_DICTATION_NOTICE}</p>
-          {listening && <p role="status" className="text-[#473a6d]">Grabando el audio. Al detener, aparecerá la transcripción para revisar.</p>}
-          {transcribing && <p role="status" aria-live="polite" className="rounded-lg bg-sky-50 p-3 font-medium text-sky-950">Transcribiendo el audio con OpenAI… Espera que aparezca el texto antes de corregirlo.</p>}
+          {transcribing && <p role="status" aria-live="polite" className="rounded-lg bg-sky-50 p-3 text-base font-medium text-sky-950">Transcribiendo el audio con OpenAI… Espera que aparezca el texto definitivo antes de corregirlo.</p>}
           {audioRetry && <Button type="button" variant="outline" disabled={transcribing} onClick={() => { setSpeechError(""); (audioRetry === "answer" ? answerEngine.current : engine.current).retry?.(); }}>Reintentar la transcripción del audio</Button>}
           {speechError && <p role="alert" className="text-[#a43542]">{speechError}</p>}
-          <label className="block space-y-1.5 font-medium">Transcripción del dictado (editable; se usa como referencia y no se incorpora a la evolución clínica)
-            <Textarea data-testid="dictation-transcript" lang="es-CL" rows={5} className="min-h-32 field-sizing-fixed text-base sm:text-sm" autoCapitalize="sentences" autoCorrect="off" spellCheck={false} value={interim ? `${transcript} ${interim}`.trim() : transcript} onChange={(event) => { if (listening || transcribing) stopWithoutCorrecting(); setTranscript(event.target.value); setInterim(""); resetReview(); setCommandIgnored(false); }} placeholder="Habla o escribe el dictado. Revisa piezas y dosis antes de proponer cambios." />
-          </label>
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <label htmlFor="dictation-transcript-box" className="text-base font-semibold text-[#2a2540]">Transcripción del dictado <span className="text-xs font-normal text-[#615f73]">(editable; se usa como referencia y no se incorpora tal cual a la evolución)</span></label>
+              {listening && <span role="status" className="inline-flex items-center gap-2 rounded-full bg-[#efeef7] px-3 py-1 text-xs font-semibold text-[#473a6d]"><span className="size-2.5 animate-pulse rounded-full bg-[#ef895f]" aria-hidden="true" />Grabando · vista en vivo mientras hablas</span>}
+            </div>
+            <Textarea id="dictation-transcript-box" ref={transcriptBoxRef} data-testid="dictation-transcript" lang="es-CL" rows={7} className={`min-h-52 sm:min-h-64 max-h-[48vh] w-full min-w-0 max-w-full overflow-y-auto rounded-xl border-2 p-4 text-lg leading-relaxed font-medium text-[#1f1a33] shadow-xs md:text-xl ${listening ? "border-[#473a6d] bg-[#f8f7fc]" : "border-[#cbc5e2] bg-[#fcfbfe] focus-visible:border-[#473a6d] focus-visible:bg-white"}`} autoCapitalize="sentences" autoCorrect="off" spellCheck={false} value={interim ? `${transcript} ${interim}`.trim() : transcript} onChange={(event) => { if (listening || transcribing) stopWithoutCorrecting(); setTranscript(event.target.value); setInterim(""); resetReview(); setCommandIgnored(false); }} placeholder="Habla o escribe tu dictado aquí: verás tus palabras en letra grande mientras dictas y al detener OpenAI afinará los términos clínicos." />
+          </div>
           {command && onAnnul && !structuring && <VoiceCommandCard key={command.evidence} command={command} notes={notes} patientName={patientName} onConfirm={onAnnul} onDismiss={() => { setCommandIgnored(true); void structure(transcript); }} />}
-          <p className="text-xs leading-5 text-[#615f73]">Dicta libre: «punto» o «punto aparte» separa frases. La IA redacta la nota y propone los cambios con la frase dicha como respaldo; nada se aplica sin tu aceptación. La propuesta pasa por revisión y la ficha manual no cambia sola.</p>
           {formError && <div role="alert" className="rounded-lg bg-rose-50 p-3 text-rose-950" data-testid="dictation-error">
             <p>{formError}</p>
             {!outcome && !structuring && lastStructured.trim().length >= 3 && <Button type="button" size="sm" variant="outline" className="mt-2 bg-white" onClick={() => void structure(lastStructured)} data-testid="dictation-retry">Reintentar corrección</Button>}
@@ -1172,7 +1184,7 @@ export function ClinicalDictation({
                 <label className="mt-2 block text-xs text-[#6b6a7c]">Fecha de atención (opcional; vacío = hoy)
                   <Input className="mt-1 w-full min-w-0 max-w-full" type="date" aria-label="Fecha de atención" max={chileDay(new Date().toISOString())} value={attentionDate} onChange={(event) => setAttentionDate(event.target.value)} />
                 </label>
-                <Textarea className="mt-2 min-h-56 w-full min-w-0 max-w-full cursor-text border-2 border-emerald-300 bg-emerald-50 text-base leading-6 focus-visible:border-[#473a6d] focus-visible:bg-white sm:text-sm" aria-label="Cuerpo de la evolución (editable)" spellCheck lang="es" rows={10} value={evolutionBody} onChange={(event) => setEvolutionBody(event.target.value)} data-testid="dictation-evolution-body" />
+                <Textarea className="mt-2 min-h-56 w-full min-w-0 max-w-full cursor-text border-2 border-emerald-300 bg-emerald-50 p-4 text-base leading-relaxed focus-visible:border-[#473a6d] focus-visible:bg-white sm:min-h-64 md:text-lg" aria-label="Cuerpo de la evolución (editable)" spellCheck lang="es" rows={10} value={evolutionBody} onChange={(event) => setEvolutionBody(event.target.value)} data-testid="dictation-evolution-body" />
                 {(() => { const mismatch = toothMismatch(evolutionTitle, evolutionBody); return mismatch && <p role="alert" className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-sm text-amber-950" data-testid="dictation-tooth-mismatch">El título menciona la pieza {mismatch.title.join(", ")} pero el texto habla de la pieza {mismatch.body.join(", ")}. Corrige el que esté mal antes de guardar.</p>; })()}
                 {fidelity.length > 0 && <section role="status" className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950" data-testid="dictation-fidelity">
                   <p className="font-semibold">Revisa: {fidelity.length === 1 ? "1 dato de la nota no aparece" : `${fidelity.length} datos de la nota no aparecen`} en tu dictado</p>
