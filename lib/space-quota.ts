@@ -34,6 +34,7 @@ export type SpaceQuota = typeof spaceQuotasTable.$inferSelect;
 export type QuotaStatus = {
   usedBytes: number;
   quotaBytes: number;
+  availableBytes: number;
   planName: string;
   /** true si supera el tope (no se puede subir más). */
   exceeded: boolean;
@@ -43,7 +44,7 @@ export type QuotaStatus = {
   pct: number;
 };
 
-/** Interfaz mínima para acceder a D1 (compatible con el DB de Drizzle y con mocks de test). */
+/** Interfaz mínima compatible con D1Database (`env.DB`) y mocks de prueba. */
 export type QuotaDb = {
   prepare(sql: string): {
     bind(...args: unknown[]): { first<T = unknown>(): Promise<T | null> };
@@ -52,15 +53,17 @@ export type QuotaDb = {
 
 /** @internal Lógica pura: calcula el estado de cuota dado los valores medidos. */
 export function computeQuotaStatus(usedBytes: number, quotaBytes: number, planName: string): QuotaStatus {
-  const exceeded = usedBytes >= quotaBytes;
-  const warning = !exceeded && usedBytes / quotaBytes >= QUOTA_WARNING_RATIO;
-  const pct = Math.min(100, Math.round((usedBytes / quotaBytes) * 100));
-  return { usedBytes, quotaBytes, planName, exceeded, warning, pct };
+  const safeQuota = quotaBytes > 0 ? quotaBytes : QUOTA_GRATIS_BYTES;
+  const availableBytes = Math.max(0, safeQuota - usedBytes);
+  const exceeded = usedBytes >= safeQuota;
+  const warning = !exceeded && usedBytes / safeQuota >= QUOTA_WARNING_RATIO;
+  const pct = Math.min(100, Math.round((usedBytes / safeQuota) * 100));
+  return { usedBytes, quotaBytes: safeQuota, availableBytes, planName, exceeded, warning, pct };
 }
 
 /**
- * Consulta el uso actual y el límite del espacio.
- * Si no existe una fila en space_quotas, usa el límite gratuito por defecto.
+ * Consulta el uso actual y el límite del espacio sobre el binding D1 (`env.DB`).
+ * Si no existe una fila (o la tabla aún no existe en entorno local), usa el límite gratuito por defecto.
  */
 export async function getQuotaStatus(db: QuotaDb, ownerId: string): Promise<QuotaStatus> {
   const usedRow = await db
@@ -69,10 +72,15 @@ export async function getQuotaStatus(db: QuotaDb, ownerId: string): Promise<Quot
     .first<{ used: number }>();
   const usedBytes = Number(usedRow?.used ?? 0);
 
-  const quotaRow = await db
-    .prepare("SELECT quota_bytes, plan_name FROM space_quotas WHERE owner_id = ? LIMIT 1")
-    .bind(ownerId)
-    .first<{ quota_bytes: number; plan_name: string }>();
+  let quotaRow: { quota_bytes: number; plan_name: string } | null = null;
+  try {
+    quotaRow = await db
+      .prepare("SELECT quota_bytes, plan_name FROM space_quotas WHERE owner_id = ? LIMIT 1")
+      .bind(ownerId)
+      .first<{ quota_bytes: number; plan_name: string }>();
+  } catch {
+    quotaRow = null;
+  }
 
   const quotaBytes = quotaRow?.quota_bytes ?? QUOTA_GRATIS_BYTES;
   const planName = quotaRow?.plan_name ?? PLAN_GRATIS;
@@ -98,9 +106,10 @@ export async function checkUploadQuota(
   return null;
 }
 
-/** Formato legible para bytes (KB / MB). */
+/** Formato legible para bytes (KB / MB / GB). */
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
