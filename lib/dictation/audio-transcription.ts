@@ -1,11 +1,24 @@
-import type { DictationHandlers, TranscriptionEngine } from "./transcription.ts";
+import { IS_IOS, type DictationHandlers, type TranscriptionEngine } from "./transcription.ts";
 import { TOOTH_ANSWER_SILENCE_MS, updateVoiceSilence, VOICE_ACTIVITY_THRESHOLD } from "./voice-answer.ts";
+
+type PreviewResult = { isFinal: boolean; length: number; [index: number]: { transcript: string } };
+type PreviewEvent = { resultIndex: number; results: ArrayLike<PreviewResult> };
+type PreviewRecognizer = {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  onresult: ((event: PreviewEvent) => void) | null;
+  onerror: (() => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  abort: () => void;
+};
 
 type Session = {
   handlers: DictationHandlers; base: string; purpose?: "tooth_command"; cancelled: boolean; stream?: MediaStream;
   recorder?: MediaRecorder; chunks: Blob[]; bytes: number; audio?: Blob;
   controller: AbortController; timer?: ReturnType<typeof setTimeout>; silenceTimer?: ReturnType<typeof setTimeout>;
-  audioContext?: AudioContext; startedAt: number; uploading?: boolean; captureFailed?: boolean;
+  audioContext?: AudioContext; preview?: PreviewRecognizer; startedAt: number; uploading?: boolean; captureFailed?: boolean;
 };
 const LIMIT = 10 * 1024 * 1024;
 export const MAX_DICTATION_MS = 4 * 60 * 1000;
@@ -17,7 +30,60 @@ export function createAudioTranscription(): TranscriptionEngine {
   let current: Session | null = null;
   let configurationAvailable = false;
   const valid = (session: Session) => current === session && !session.cancelled;
+  const stopPreview = (session: Session) => {
+    const preview = session.preview;
+    session.preview = undefined;
+    if (!preview) return;
+    preview.onresult = null;
+    preview.onerror = null;
+    preview.onend = null;
+    try { preview.abort(); } catch { /* vista previa opcional */ }
+  };
+  const startLivePreview = (session: Session, recorder: MediaRecorder) => {
+    // En iPhone/iPad no se abre SpeechRecognition en paralelo con MediaRecorder para no disputar el micrófono.
+    if (IS_IOS || session.purpose || typeof window === "undefined") return;
+    const browser = window as Window & {
+      SpeechRecognition?: new () => PreviewRecognizer;
+      webkitSpeechRecognition?: new () => PreviewRecognizer;
+    };
+    const Recognition = browser.SpeechRecognition ?? browser.webkitSpeechRecognition;
+    if (!Recognition) return;
+    let committedPreview = "";
+    const launch = () => {
+      if (!valid(session) || session.uploading || recorder.state !== "recording") return;
+      try {
+        const recognizer = new Recognition();
+        session.preview = recognizer;
+        recognizer.lang = "es-CL";
+        recognizer.continuous = true;
+        recognizer.interimResults = true;
+        recognizer.onresult = (event) => {
+          if (!valid(session) || session.preview !== recognizer || session.uploading) return;
+          let finalPiece = "";
+          let interimPiece = "";
+          for (let index = event.resultIndex; index < event.results.length; index += 1) {
+            const piece = event.results[index]?.[0]?.transcript ?? "";
+            if (event.results[index]?.isFinal) finalPiece += piece;
+            else interimPiece += piece;
+          }
+          if (finalPiece.trim()) committedPreview = [committedPreview, finalPiece.trim()].filter(Boolean).join(" ");
+          const liveText = [committedPreview, interimPiece.trim()].filter(Boolean).join(" ");
+          if (liveText) session.handlers.onTranscript(session.base, liveText);
+        };
+        recognizer.onerror = () => { /* la grabación real sigue en MediaRecorder */ };
+        recognizer.onend = () => {
+          if (!valid(session) || session.preview !== recognizer || session.uploading || recorder.state !== "recording") return;
+          launch();
+        };
+        recognizer.start();
+      } catch {
+        session.preview = undefined;
+      }
+    };
+    launch();
+  };
   const cleanCapture = (session: Session) => {
+    stopPreview(session);
     if (session.timer) clearTimeout(session.timer);
     if (session.silenceTimer) clearTimeout(session.silenceTimer);
     const context = session.audioContext;
@@ -148,6 +214,7 @@ export function createAudioTranscription(): TranscriptionEngine {
           };
           session.startedAt = Date.now();
           recorder.start(1000);
+          startLivePreview(session, recorder);
           const requestedMaxMs = Number(options.maxDurationMs);
           const captureLimitMs = Number.isFinite(requestedMaxMs) && requestedMaxMs > 0
             ? Math.min(MAX_MS, Math.max(1_000, requestedMaxMs))

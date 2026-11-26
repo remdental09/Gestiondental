@@ -150,3 +150,29 @@ test('successive spoken commands reuse availability and send their narrow purpos
   assert.deepEqual(transcripts, ['Correcto.', 'ended', 'Correcto.', 'ended']);
   engine.abort();
 }));
+
+test('live preview emits spoken words while recording and OpenAI replaces them on stop', async () => environment(async () => {
+  const previews = [];
+  class FakePreview {
+    constructor() { previews.push(this); }
+    start() {}
+    abort() { this.aborted = true; }
+  }
+  globalThis.window = { SpeechRecognition: FakePreview };
+  const calls = [];
+  let release;
+  globalThis.fetch = async (_url, init) => !init.method ? Response.json({ available: true }) : new Promise(resolve => { release = resolve; });
+  const engine = createAudioTranscription();
+  engine.start('Previo.', { onTranscript: (text, interim) => calls.push([text, interim]), onError: () => {}, onEnd: () => calls.push(['ended', '']) });
+  await tick();
+  assert.equal(previews.length, 1);
+  previews[0].onresult?.({ resultIndex: 0, results: [{ isFinal: false, length: 1, 0: { transcript: 'cementación provisoria' } }] });
+  assert.deepEqual(calls.at(-1), ['Previo.', 'cementación provisoria']);
+  engine.stop();
+  await tick();
+  assert.equal(previews[0].aborted, true);
+  release(Response.json({ text: 'Cementación provisoria con vidrio ionómero.' }));
+  await tick();
+  assert.deepEqual(calls.slice(-2), [['Previo. Cementación provisoria con vidrio ionómero.', ''], ['ended', '']]);
+  engine.abort();
+}));
