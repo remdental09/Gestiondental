@@ -107,9 +107,7 @@ h1 em{font-style:normal;display:block;margin-top:2px;background:linear-gradient(
 .clinic-link:hover{color:#fff}
 .note{margin:12px 0 0;font-size:12.5px;color:#94a3b8}
 .error{margin:0 0 14px;padding:10px 14px;border-radius:12px;border:1px solid rgba(251,146,60,.55);background:rgba(124,45,18,.45);color:#fed7aa;font-size:13.5px}
-.bottombar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px 24px;padding:8px clamp(20px,5.5vw,84px) 20px;z-index:1;font-size:12px;color:#94a3b8}
-.city{margin:0;letter-spacing:.12em;text-transform:uppercase;color:#94a3b8}
-.city b{color:#fbbf24;font-weight:650}
+.bottombar{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:10px 24px;padding:8px clamp(20px,5.5vw,84px) 20px;z-index:1;font-size:12px;color:#94a3b8}
 footer a{color:#cbd5e1;text-decoration:none;transition:color .15s}
 footer a:hover{color:#5eead4;text-decoration:underline;text-underline-offset:3px}
 @media (max-width:760px){
@@ -186,7 +184,6 @@ ${error ? `<p class="error" role="alert">${escape(error)}</p>` : ""}
 </section>
 </div>
 <div class="bottombar">
-<p class="city">Hecho en <b>Santiago de Chile</b></p>
 <footer><a href="/acerca">Acerca</a> · <a href="/privacidad">Privacidad</a> · <a href="/terminos">Términos</a></footer>
 </div>
 </main></body></html>`;
