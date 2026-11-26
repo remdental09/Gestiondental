@@ -44,6 +44,12 @@ export const CLINIC_ABBREVIATIONS: ReadonlyArray<readonly [string, string]> = [
   ["An-Ab / Ab-An / AB-AN / ATB y AN", "analgésico y antibiótico: indicación farmacológica (no es un procedimiento, un material ni una pieza)"],
   ["PIT", "sigla de la clínica de significado por confirmar (se deja tal cual; no la interpretes)"],
   ["TiBase / TIBASE", "base de titanio: pilar sobre el que se cementa la corona CAD/CAM del implante"],
+  ["BQTO / Bqto", "blanqueamiento"],
+  ["Pola Office / Pola", "agente blanqueador en consulta (peróxido de hidrógeno, marca Pola Office); ciclos = aplicaciones"],
+  ["Miris / Miris2 (NR, WO, SR…)", "resina compuesta Miris (Coltene) y su color o translucidez; es material, no una pieza ni una cara"],
+  ["Rc / RS + caras con C (MC, CMV)", "C = cervical: «Rc MC» = restauración de resina compuesta mesial y cervical"],
+  ["Rc Poro + cara", "restauración de resina compuesta de un poro (defecto puntual) en esa cara"],
+  ["2 1/2 tubos / 21/2 tubos", "dos tubos y medio de anestesia"],
   ["Blqto / blqto", "blanqueamiento (intracameral o de pieza desvital, por sesiones)"],
   ["Tope cervical", "sellado cervical (habitualmente con vidrio ionómero) antes del blanqueamiento interno"],
   ["H de Ca", "hidróxido de calcio (medicación intraconducto)"],
@@ -56,7 +62,7 @@ export const CLINIC_ABBREVIATIONS: ReadonlyArray<readonly [string, string]> = [
 const KNOWN_ABBREVIATIONS = [
   "Rc", "RC", "Pza", "Pzas", "Pcte", "Pct", "Cdto", "PQM", "OBC", "IRM", "PFP", "IOS", "ROG", "CBCT", "CBTC", "JIG", "XPF",
   "SBU", "SB", "ANL", "ATB", "AINES", "An-Ab", "Ab-An", "An", "Ab", "PIT", "TiBase", "TIBASE", "Blqto", "Cap Hib", "Denticlean", "VI", "Guta",
-  "Totalfill", "RB25", "RB40", "RB50", "Z250", "Z350", "P60", "H de Ca", "B/W", "Cerec", "Duolink", "Ketac", "U200",
+  "Totalfill", "BQTO", "Pola", "Pola Office", "Miris", "RB25", "RB40", "RB50", "Z250", "Z350", "P60", "H de Ca", "B/W", "Cerec", "Duolink", "Ketac", "U200",
 ];
 const fold = (value: string) => value.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/[.\s]+/g, " ").trim();
 const KNOWN_FOLDED = new Set(KNOWN_ABBREVIATIONS.map(fold));
@@ -88,20 +94,22 @@ export function faceCodeWords(code: string): string | null {
   const c = code.toUpperCase();
   if (c === "CV" || c === "C") return "cervical vestibular";
   if (c === "CP" || c === "CL") return c === "CP" ? "cervical palatino" : "cervical lingual";
-  if (!/^[MODVPLI]{1,5}$/.test(c)) return null;
-  const words = [...new Set([...c].map((l) => FACE_WORD[l]))];
+  if (!/^[MODVPLIC]{1,5}$/.test(c)) return null;
+  // «MC», «CMV»: la C es cervical (vestibular si no se nombra otra cara libre).
+  const cervical = /C/.test(c) ? (/[VPL]/.test(c) ? "cervical" : "cervical vestibular") : null;
+  const words = [...new Set([...c].map((l) => (l === "C" ? cervical! : FACE_WORD[l])))];
   if (words.length === 1) return words[0];
   return `${words.slice(0, -1).join(", ")} y ${words[words.length - 1]}`;
 }
 
 const TOOTH = String.raw`[1-8]\.[1-8]`;
 const TEETH_LIST = String.raw`${TOOTH}(?:\s*(?:-|,|y|e)\s*${TOOTH})*`;
-const FACE = String.raw`(?:CV|CP|CL|[MODVPLI]{1,5})`;
+const FACE = String.raw`(?:CV|CP|CL|[MODVPLIC]{1,5})`;
 const FACES = String.raw`${FACE}(?:\s*-\s*${FACE})*`;
 // «Pza(s) 4.7-4.5-3.5 Rc O-MOV-DO-» (las caras van en el orden de las piezas).
 const PIECES_RC = new RegExp(String.raw`\b(Pzas?|PZAS?|Piezas?|piezas?)\.?\s+(${TEETH_LIST})\s+R[cC]\s*(?:clase\s+(?:I{1,3}|IV|V)\s*)?(${FACES})?(?=[\s\-/,.;:]|$)-?`, "g");
 // «Rc» suelto tras una pieza o antes de caras: «la 1.6 Rc O», «Rc MO».
-const LONE_RC = /(?<![\p{L}\d])R[cC](?=\s+(?:CV|CP|C|[MODVPLI]{1,5})(?:[\s\-/,.;:]|$))/gu;
+const LONE_RC = /(?<![\p{L}\d])R[cC](?=\s+(?:CV|CP|C|[MODVPLIC]{1,5})(?:[\s\-/,.;:]|$))/gu;
 
 const NEW_ACT = /^\s*(?:pulido|control\p{L}*|higiene|destartraje|detartraje|profilaxis|anestesia|se\s|paciente|pieza|piezas|indicaciones|indico|plan\b|rx\b|radiograf\p{L}*|ajuste|retiro|exodoncia|prox\p{L}*|pr[oó]xima|cone\s+beam|cbct|deriv\p{L}*|receto|instalo|toma|impresi[oó]n|escaneo|obturaci[oó]n\s+de\s+conductos|restauraci[oó]n|reconstrucci[oó]n|cementaci[oó]n|tallado|aplico|dejo|retira|hago|realizo)/iu;
 
@@ -115,6 +123,17 @@ export function expandClinicShorthand(input: string): { text: string; correction
     // «Pza 1.1Trepanación» → «Pza 1.1 Trepanación»; «18.5mm» es una longitud (coma decimal), nunca la pieza 1.8.
     .replace(/(?<![\d.,])([1-8]\.[1-8])(?=\p{L})/gu, "$1 ")
     .replace(/(?<![\d.,])(\d{1,2})\.(\d)\s*mm\b/g, "$1,$2 mm");
+  // 0) Formatos de ficha: «Pza 2,1» / «Pza-2-7» = FDI 2.1 / 2.7; «RS C» = «Rc C»; «Rc Poro I» = Rc I (poro);
+  //    «21/2 tubos» o «2 1/2 tubos» = dos tubos y medio.
+  text = text.replace(/\b(Pzas?|PZAS?|pzas?|[Pp]iezas?)(\.?\s*|\s*-\s*)([1-8])\s*[,-]\s*([1-8])(?![\d.,]?\d)((?:\s*(?:-|y|e)\s*[1-8]\s*,\s*[1-8](?!\d))*)/g, (all: string, word: string, _sep: string, a: string, b: string, rest: string) => {
+    const more = (rest ?? "").replace(/([1-8])\s*,\s*([1-8])/g, "$1.$2");
+    const value = `${word} ${a}.${b}${more}`;
+    note(all.trim(), value, "Pieza escrita con coma o guion: se lee como FDI.");
+    return value;
+  });
+  text = text.replace(/(?<![\p{L}\d])R[sS](?=\s+(?:CV|CP|C|[MODVPLIC]{1,5})(?:[\s\-/,.;:]|$))/gu, (all: string) => { note(all, "Rc", "RS = Rc (restauración de resina compuesta)."); return "Rc"; });
+  text = text.replace(/(?<![\p{L}\d])(R[cC])\s+[Pp]oro\s+((?:CV|CP|C|[MODVPLIC]{1,5}))(?=[\s\-/,.;:]|$)/gu, (all: string, rc: string, face: string) => { const v = `${rc} ${face} (poro)`; note(all, v, "Rc Poro + cara = restauración de un poro en esa cara."); return v; });
+  text = text.replace(/(?<![\d.,/])(\d)\s?1\/2\s*(tubos?)\b/g, (all: string, n: string, tubos: string) => { const v = `${n} ${tubos} y medio`; note(all, v, "«2 1/2 tubos» = dos tubos y medio."); return v; });
   // 1) Resina compuesta por pieza y cara. Si hay tantas caras como piezas, cada pieza lleva la suya.
   text = text.replace(PIECES_RC, (all: string, _word: string, list: string, faces: string | undefined) => {
     const teeth = list.match(new RegExp(TOOTH, "g")) ?? [];
@@ -134,7 +153,7 @@ export function expandClinicShorthand(input: string): { text: string; correction
   text = text.replace(/(?<![\p{L}\d])R[cC]\s+de\s+mu[ñn][oó]n/gu, (all: string) => { const v = "reconstrucción de muñón con resina compuesta"; note(all, v, "Rc de muñón = reconstrucción de muñón con resina compuesta."); return v; });
   text = text.replace(LONE_RC, (all: string) => { note(all, "restauración de resina compuesta", "Rc = restauración de resina compuesta (sigla de la clínica)."); return "restauración de resina compuesta"; });
   // Caras sueltas tras «resina compuesta» que quedaron en letras: «resina compuesta DO» → «distal y oclusal».
-  text = text.replace(/(resina compuesta)\s+(CV|CP|C|[MODVPLI]{1,5})(?=[\s\-/,.;:]|$)-?/g, (all: string, head: string, code: string) => {
+  text = text.replace(/(resina compuesta)\s+(CV|CP|C|[MODVPLIC]{1,5})(?=[\s\-/,.;:]|$)-?/g, (all: string, head: string, code: string) => {
     const words = faceCodeWords(code);
     if (!words) return all;
     note(all.trim(), `${head} ${words}`, "Caras escritas con letras.");
@@ -173,6 +192,7 @@ export function expandClinicShorthand(input: string): { text: string; correction
     // Error de tipeo frecuente en ficha («I,PLANTE»: la coma está junto a la m en el teclado).
     [/\b[iI],([pP][lL][aA][nN][tT][eE][sS]?)\b/g, (_m: string, rest: string) => `${/[A-Z]/.test(rest) ? "IM" : "im"}${rest}`, "«i,plante» = implante (error de tipeo)."],
     [/\b[Bb]lqto\b\.?/g, "blanqueamiento", "Blqto = blanqueamiento."],
+    [/\b(?:BQTO|Bqto|bqto)\b\.?/g, "blanqueamiento", "BQTO = blanqueamiento."],
     [/\bH\s+de\s+Ca\b/g, "hidróxido de calcio", "H de Ca = hidróxido de calcio."],
   ];
   for (const [pattern, replacement, reason] of simple) {

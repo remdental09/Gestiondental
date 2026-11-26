@@ -126,7 +126,7 @@ export function classifyEvolution(text: string, tooth?: string | null, implantIn
   if (/\b(?:endodoncia|conductometria|biopulpectomia|necropulpectomia|pulpectomia|pulpotomia|trepanacion|instrumentacion|obturacion\s+de\s+conductos?|conductos?\s+radicular|preparacion\s+quimico|gutapercha|totalfill|conductos?\s+(?:mv\d?|mb\d?|dv|db|ml|dl|mesial|distal|palatino|unico|u|p|v|l)\b)/.test(today) && !/\b(?:se\s+indica|planific|presupuest)\w*\s+(?:la\s+)?endodoncia\b/.test(today) && !(/\b(?:para\s+luego|luego)\s+(?:\w+\s+){0,2}endodoncias?\b/.test(today) && !/\b(?:conducto|trepanacion|gutapercha|obturacion\s+de\s+conductos)/.test(today))) return make("endodoncia");
   // Taquigrafía de ficha: «Pieza 1.1 restauración de resina compuesta palatino … / Pulido» (Rc) es una obturación hecha,
   // y «Corona Cerec … / Duolink-Futurabond» una corona cementada, aunque no haya verbo. El pulido es de esa restauración.
-  const shorthandRestoration = /\brestauracion\s+de\s+resina\s+compuesta\s+(?:mesial|distal|oclusal|vestibular|palatin[oa]|lingual|incisal|cervical)\b/.test(today) && !/\b(?:se\s+(?:planifica|indica|decide)|para\s+luego)\b[^.;\n]{0,40}\brestaura/.test(today);
+  const shorthandRestoration = /\brestauracion\s+de\s+resina\s+compuesta\s+(?:mesial|distal|oclusal|vestibular|palatin[oa]|lingual|incisal|cervical|reconstruccion|\(poro\))/.test(today) && !/\b(?:se\s+(?:planifica|indica|decide)|para\s+luego)\b[^.;\n]{0,40}\brestaura/.test(today);
   const shorthandCrown = /\bcoronas?\b[^.;\n]{0,60}\b(?:duolink|futurabond|ketac|u200|relyx|variolink|choi[cs]e|cementad[oa]s?)\b/.test(today);
   if (shorthandCrown) return make("protesis");
   if (shorthandRestoration) return make("obturacion");
