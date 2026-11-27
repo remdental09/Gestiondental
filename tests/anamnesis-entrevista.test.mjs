@@ -70,7 +70,8 @@ test("la ruta cae al orden local si OpenAI falla y la UI exige consentimiento y 
   assert.match(route, /catch \{ return json\(\{ \.\.\.localAnamnesisFromText\(transcript\)/);
   const ui = readFileSync(new URL("../components/anamnesis-dialog.tsx", import.meta.url), "utf8");
   assert.match(ui, /El paciente autorizó la grabación de la entrevista \(el audio no se guarda\)/);
-  assert.match(ui, /Escuchar entrevista/);
+  assert.match(ui, /Comenzar entrevista/);
+  assert.doesNotMatch(ui, /Escuchar entrevista/);
   assert.match(ui, /MAX_DICTATION_MS/);
   const engine = readFileSync(new URL("../lib/dictation/audio-transcription.ts", import.meta.url), "utf8");
   assert.match(engine, /MAX_DICTATION_MS = 4 \* 60 \* 1000/);
