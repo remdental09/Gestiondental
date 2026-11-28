@@ -39,6 +39,7 @@ const WRITES: Record<StaffRole, string[]> = {
     "POST /api/clinical", "POST /api/agenda-box", "PUT /api/asistencia", "PUT /api/appointment-confirmations",
     "POST /api/controles", "PATCH /api/controles", "DELETE /api/controles", "POST /api/presupuesto/enviar", "POST /api/presupuesto/pdf",
     "POST /api/equipo", "POST /api/lista-espera", "POST /api/appointment-mail", "POST /api/llamar",
+    "POST /api/ingreso-paciente/enlace",
     // Agenda semanal (editar/borrar/asignar paciente). Conectar o quitar calendarios sigue siendo solo del dueño (managesSpace en la ruta).
     "POST /api/calendar",
   ],

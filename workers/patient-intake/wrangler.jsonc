@@ -1,0 +1,15 @@
+{
+  "$schema": "https://developers.cloudflare.com/workers/wrangler/config-schema.json",
+  "name": "gestion-dental-ingreso",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-11-28",
+  "workers_dev": true,
+  "observability": { "enabled": false },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "gestion-dental-clinical",
+      "database_id": "ccc303d1-4550-4e31-a55a-816ccd5c81cc"
+    }
+  ]
+}

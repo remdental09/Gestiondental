@@ -681,8 +681,8 @@ const oauthProvider = new OAuthProvider<OAuthEnv>({
           headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "public, max-age=300", "X-Content-Type-Options": "nosniff" },
         });
       }
-      // Confirmación de cita desde el correo del paciente, verificación de documentos por QR y firma del consentimiento desde el enlace del paciente: públicas, sin sesión. Solo estas rutas; cada enlace lleva un código secreto.
-      if ((path === "/api/confirmar" && (request.method === "GET" || request.method === "HEAD" || request.method === "POST")) || (path === "/api/verificar" && (request.method === "GET" || request.method === "HEAD")) || (path === "/api/firmar" && (request.method === "GET" || request.method === "HEAD" || request.method === "POST"))) {
+      // Confirmación de cita, verificación documental, firma de consentimiento y formulario de ingreso de pacientes: públicos solo mediante rutas exactas y códigos secretos.
+      if ((path === "/api/confirmar" && (request.method === "GET" || request.method === "HEAD" || request.method === "POST")) || (path === "/api/verificar" && (request.method === "GET" || request.method === "HEAD")) || (path === "/api/firmar" && (request.method === "GET" || request.method === "HEAD" || request.method === "POST")) || (path === "/api/ingreso-paciente" && (request.method === "GET" || request.method === "HEAD" || request.method === "POST"))) {
         const headers = new Headers(request.headers);
         for (const name of [ACCESS_EMAIL_HEADER, ACCESS_OWNER_ID_HEADER, ACCESS_NAME_HEADER, PERSONAL_ID_HEADER, SPACE_ROLE_HEADER, USER_ID_HEADER, USER_EMAIL_HEADER, USER_FULL_NAME_HEADER, USER_FULL_NAME_ENCODING_HEADER]) headers.delete(name);
         return app.fetch(new Request(request, { headers }), env, context);

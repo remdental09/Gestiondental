@@ -22,7 +22,7 @@ import { syncInstalledImplants } from "@/app/sync-odontogram";
 import { cementedCrownFromEvolution } from "@/app/crown-evidence";
 import { fullNameRequiredMessage, hasFourNameParts } from "@/app/patient-identity";
 import { getDb } from "@/db";
-import { appointments, budgets, calendarEvents, clinicalImages, evolutionDiagnoses, evolutions, patients, payments, periodontalExams, toothStatuses } from "@/db/schema";
+import { appointments, budgets, calendarEvents, clinicalImages, evolutionDiagnoses, evolutions, patientIntakeLinks, patients, payments, periodontalExams, toothStatuses } from "@/db/schema";
 import { settlePerformed, type Settled } from "@/lib/tooth-performed";
 import { budgetTotals, decodeBudgetData, encodeBudgetData, ITEM_STATUSES, normalizeBudgetItems, validIsoDate, withItemStatus, type ItemStatus } from "@/lib/budget-plans";
 import { sanitizeDiagnosisTags } from "@/lib/evolution-diagnoses";
@@ -263,7 +263,7 @@ export async function GET() {
       const authorId = evolutionAuthor(row?.author_id, ownerId);
       return { authorName: row?.author_name || "", authorEmail: row?.author_email || "", mine: authorId === personalId };
     };
-    const [ps, ns, bs, as, pe, ts, imgs, ces, pays, dxs, profile, , authors, addresses, profiles, budgetAuthorMap, allocationRows, pieceRows, agendaSync] = await Promise.all([
+    const [ps, ns, bs, as, pe, ts, imgs, ces, pays, dxs, profile, , authors, addresses, profiles, budgetAuthorMap, allocationRows, pieceRows, agendaSync, intakeRows] = await Promise.all([
       db.select().from(patients).where(eq(patients.ownerId, ownerId)).orderBy(patients.name),
       db.select().from(evolutions).where(eq(evolutions.ownerId, ownerId)).orderBy(desc(evolutions.clinicalDate), desc(evolutions.recordedAt)),
       db.select().from(budgets).where(eq(budgets.ownerId, ownerId)).orderBy(desc(budgets.id)),
@@ -277,7 +277,9 @@ export async function GET() {
       // Igual con las etiquetas de diagnóstico (migración 0005).
       db.select().from(evolutionDiagnoses).where(eq(evolutionDiagnoses.ownerId, ownerId)).orderBy(evolutionDiagnoses.id).catch(() => [] as (typeof evolutionDiagnoses.$inferSelect)[]),
       profileP, touchP, authorsP, addressesP, profilesP, budgetAuthorsP, allocationRowsP, pieceRowsP, agendaSyncP,
+      db.select({ patientId: patientIntakeLinks.patientId }).from(patientIntakeLinks).where(and(eq(patientIntakeLinks.ownerId, ownerId), sql`${patientIntakeLinks.patientId} IS NOT NULL`)).catch(() => [] as { patientId: number | null }[]),
     ]);
+    const intakePatientIds = new Set(intakeRows.flatMap(row => row.patientId === null ? [] : [row.patientId]));
     // Resumen por pieza de cada evolución (tabla aditiva; si no existe aún, la ficha carga igual).
     const piecesByNote = new Map<number, PieceChip[]>();
     for (const row of pieceRows.results) { try { piecesByNote.set(row.evolution_id, sanitizeChips(JSON.parse(row.pieces))); } catch { /* fila dañada: se omite */ } }
@@ -311,7 +313,7 @@ export async function GET() {
       return [p.id, chart];
     }));
     return Response.json(filterClinicalLoad(spaceRole, {
-      patients: ps.map(p => ({ ...p, rut: p.rut || "", address: addresses.get(p.id) ?? emptyAddress(), profile: profiles.get(p.id) ?? emptyProfile() })),
+      patients: ps.map(p => ({ ...p, rut: p.rut || "", intakeCompleted: intakePatientIds.has(p.id), address: addresses.get(p.id) ?? emptyAddress(), profile: profiles.get(p.id) ?? emptyProfile() })),
       notes: ns.map(n => ({ id: n.id, patientId: n.patientId, date: displayDate(n.clinicalDate), clinicalDate: n.clinicalDate, recordedAt: n.recordedAt, title: n.title, body: n.body, sourceDocumentId: n.sourceDocumentId, backupStatus: n.backupStatus, diagnoses: diagnosesByNote.get(n.id) ?? [], pieces: piecesByNote.get(n.id) ?? [], ...annulView(n), ...authorView(n.id) })),
       budgets: await (async () => {
         // Quién armó cada presupuesto (en una clínica, el colega que lo estableció); los antiguos, del titular.

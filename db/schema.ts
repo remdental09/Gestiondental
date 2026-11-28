@@ -18,6 +18,21 @@ export const patients = sqliteTable("patients", {
   updatedAt: text("updated_at").notNull(),
 }, table => [uniqueIndex("patients_owner_rut_unique").on(table.ownerId, table.rut), index("patients_owner_name_idx").on(table.ownerId, table.name)]);
 
+/** Enlaces de admisión compartidos con pacientes: solo se almacena la huella del token. */
+export const patientIntakeLinks = sqliteTable("patient_intake_links", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  ownerId: text("owner_id").notNull(),
+  tokenHash: text("token_hash").notNull(),
+  expiresAt: text("expires_at").notNull(),
+  createdAt: text("created_at").notNull(),
+  usedAt: text("used_at"),
+  patientId: integer("patient_id").references(() => patients.id, { onDelete: "set null" }),
+}, table => [
+  uniqueIndex("patient_intake_links_token_idx").on(table.tokenHash),
+  index("patient_intake_links_owner_created_idx").on(table.ownerId, table.createdAt),
+  index("patient_intake_links_patient_idx").on(table.patientId),
+]);
+
 export const evolutions = sqliteTable("evolutions", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   ownerId: text("owner_id").notNull(),
