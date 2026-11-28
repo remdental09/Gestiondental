@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Download, RefreshCw, Search, ShieldCheck } from "lucide-react";
 import { PrestadoresReview } from "@/components/prestadores-review";
@@ -76,7 +75,7 @@ export default function PanelDesarrollador() {
       <header className="sticky top-0 z-10 border-b border-[#dddbe6] bg-white/90 backdrop-blur">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-3 px-4 md:px-8">
           <div className="flex min-w-0 items-center gap-2">
-            <Link href="/" className="flex min-h-10 items-center gap-1 rounded-lg px-2 text-sm font-medium text-[#473a6d] hover:bg-[#e6e4ee]"><ArrowLeft className="size-4" /><span className="hidden sm:inline">Volver a la app</span></Link>
+            <a href="/" aria-label="Volver a la aplicación" title="Volver a la aplicación" className="flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-1 rounded-lg px-3 text-sm font-medium text-[#473a6d] hover:bg-[#e6e4ee]"><ArrowLeft className="size-4" /><span>Volver</span></a>
             <span className="flex min-w-0 items-center gap-2 truncate text-sm font-semibold"><ShieldCheck className="size-4 shrink-0 text-[#473a6d]" />Panel del desarrollador</span>
           </div>
           <div className="flex items-center gap-2">
