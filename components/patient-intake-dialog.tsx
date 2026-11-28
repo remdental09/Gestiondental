@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 
-type CreatedLink = { url: string; expiresAt: string; emailStatus: "not_requested" | "sent" | "not_connected" | "failed" };
+type CreatedLink = { url: string; expiresAt: string; emailStatus: "not_requested" | "sent" | "failed" };
 
 const qrFor = (url: string) => {
   if (!url) return "";
@@ -66,7 +66,7 @@ export function PatientIntakeDialog({ open, onOpenChange }: { open: boolean; onO
         <label className="block space-y-1.5 text-sm font-medium" htmlFor="patient-intake-email">Correo del paciente (opcional)
           <Input id="patient-intake-email" type="email" inputMode="email" autoComplete="email" maxLength={254} placeholder="paciente@ejemplo.cl" value={email} onChange={event => setEmail(event.target.value)} />
         </label>
-        <p className="text-sm leading-5 text-[#615f73]">Si ingresas un correo y la cuenta de envío está conectada, enviaremos allí el enlace. También podrás copiarlo o compartirlo; si el paciente está en la clínica, puede escanear el QR.</p>
+        <p className="text-sm leading-5 text-[#615f73]">Si ingresas un correo, enviaremos allí el enlace desde ingreso@speakdent.cl. También podrás copiarlo o compartirlo; si el paciente está en la clínica, puede escanear el QR.</p>
         {error && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900">{error}</p>}
         <DialogFooter><Button variant="outline" onClick={() => handleOpenChange(false)}>Cancelar</Button><Button className="bg-[#473a6d] hover:bg-[#3a2f5a]" onClick={() => void create()} disabled={busy}>{busy ? "Preparando…" : "Crear formulario y QR"}</Button></DialogFooter>
       </div> : <div className="space-y-4">
@@ -87,7 +87,6 @@ export function PatientIntakeDialog({ open, onOpenChange }: { open: boolean; onO
           <p className="break-all text-sm text-[#35343f]">{created.url}</p>
         </div>
         {created.emailStatus === "sent" && <p role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900"><Mail className="mr-2 inline size-4"/>Enlace enviado por correo.</p>}
-        {created.emailStatus === "not_connected" && <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">No se envió por correo porque la cuenta de envío no está conectada. Puedes compartir el enlace o usar el QR.</p>}
         {created.emailStatus === "failed" && <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">No se pudo enviar el correo. El enlace sigue disponible para compartirlo o mostrar el QR.</p>}
         {error && <p role="alert" className="text-sm text-rose-800">{error}</p>}
         <DialogFooter><Button variant="outline" onClick={() => handleOpenChange(false)}><Check className="mr-2 size-4"/>Listo</Button></DialogFooter>

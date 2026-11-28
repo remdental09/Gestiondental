@@ -1,6 +1,5 @@
 import { getChatGPTUser } from "@/app/chatgpt-auth";
-import { getSender } from "@/app/appointment-mail-db";
-import { sendMailWithSender } from "@/app/drive-oauth";
+import { env } from "cloudflare:workers";
 import { loadProfile } from "@/app/clinician-profile-db";
 import { buildRawMessage, isValidEmail } from "@/lib/appointment-mail";
 import { newVerifyToken } from "@/lib/document-verification";
@@ -12,6 +11,7 @@ export const dynamic = "force-dynamic";
 
 const noStore = { "Cache-Control": "private, no-store" };
 const PUBLIC_INTAKE_URL = "https://speakdent.cl/api/ingreso-paciente";
+const INTAKE_EMAIL_FROM = "ingreso@speakdent.cl";
 const fail = (message: string, status = 400) => Response.json({ error: message }, { status, headers: noStore });
 const tokenHash = async (token: string) => {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
@@ -43,21 +43,25 @@ export async function POST(request: Request) {
     return fail("No se pudo preparar el formulario. Intenta de nuevo.", 503);
   }
 
-  let emailStatus: "not_requested" | "sent" | "not_connected" | "failed" = "not_requested";
+  let emailStatus: "not_requested" | "sent" | "failed" = "not_requested";
   const url = `${PUBLIC_INTAKE_URL}?t=${token}`;
   if (recipient) {
     try {
-      const sender = await getSender(user.userId);
-      if (!sender) emailStatus = "not_connected";
-      else {
-        const profile = await loadProfile(user.personalId || user.userId).catch(() => null);
-        const clinic = profile?.clinicName?.trim() || "la clínica";
-        const subject = "Completa tus datos para tu atención dental";
-        const text = `Hola. ${clinic} te invita a completar tus datos básicos antes de tu atención. El enlace es personal, se puede usar una vez y vence en 7 días:\n\n${url}\n\nEl formulario solo solicita datos de identificación y contacto; no contiene preguntas clínicas.`;
-        const html = `<!doctype html><html lang="es"><body style="font-family:Arial,Helvetica,sans-serif;color:#35343f"><div style="max-width:520px;margin:24px auto;padding:24px;border:1px solid #e6e4ee;border-radius:12px"><h1 style="font-size:20px">Completa tus datos de ingreso</h1><p>${esc(clinic)} te invita a completar tus datos básicos antes de tu atención dental.</p><p><a href="${esc(url)}" style="display:inline-block;background:#473a6d;color:#fff;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:bold">Completar formulario</a></p><p style="font-size:13px;color:#6b6a7c">El enlace es personal, se puede usar una vez y vence en 7 días. El formulario solo solicita datos de identificación y contacto; no contiene preguntas clínicas.</p></div></body></html>`;
-        await sendMailWithSender(sender, buildRawMessage({ from: sender.google_email, fromName: clinic, to: recipient, replyTo: sender.google_email, subject, text, html }));
-        emailStatus = "sent";
-      }
+      const binding = (env as unknown as Cloudflare.Env).EMAIL;
+      if (!binding) throw new Error("Cloudflare Email Service no está disponible.");
+      const profile = await loadProfile(user.personalId || user.userId).catch(() => null);
+      const clinic = profile?.clinicName?.trim() || "la clínica";
+      const subject = "Completa tus datos para tu atención dental";
+      const text = `Hola. ${clinic} te invita a completar tus datos básicos antes de tu atención. El enlace es personal, se puede usar una vez y vence en 7 días:\n\n${url}\n\nEl formulario solo solicita datos de identificación y contacto; no contiene preguntas clínicas.`;
+      const html = `<!doctype html><html lang="es"><body style="font-family:Arial,Helvetica,sans-serif;color:#35343f"><div style="max-width:520px;margin:24px auto;padding:24px;border:1px solid #e6e4ee;border-radius:12px"><h1 style="font-size:20px">Completa tus datos de ingreso</h1><p>${esc(clinic)} te invita a completar tus datos básicos antes de tu atención dental.</p><p><a href="${esc(url)}" style="display:inline-block;background:#473a6d;color:#fff;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:bold">Completar formulario</a></p><p style="font-size:13px;color:#6b6a7c">El enlace es personal, se puede usar una vez y vence en 7 días. El formulario solo solicita datos de identificación y contacto; no contiene preguntas clínicas.</p></div></body></html>`;
+      await binding.send({
+        from: { email: INTAKE_EMAIL_FROM, name: "SpeakDent" },
+        to: recipient,
+        subject,
+        text,
+        html,
+      });
+      emailStatus = "sent";
     } catch {
       emailStatus = "failed";
     }
