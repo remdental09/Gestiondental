@@ -539,8 +539,9 @@ export default function Home(){
     const intake=pendingPatientIntakes.find(item=>item.id===intakeId);
     if(!intake)return;
     setSelectedPatientIntakeId(intake.id);
-    setName(intake.name);setBirthDate(intake.birthDate);setRut(intake.rut);setDocType("rut");setPhone(intake.phone);setEmail(intake.email);
-    patientDraftRef.current={name:intake.name,birthDate:intake.birthDate,rut:intake.rut,docType:"rut",phone:intake.phone,email:intake.email,reason};
+    const rut=displayDocument(intake.rut,"rut");
+    setName(intake.name);setBirthDate(intake.birthDate);setRut(rut);setDocType("rut");setPhone(intake.phone);setEmail(intake.email);
+    patientDraftRef.current={name:intake.name,birthDate:intake.birthDate,rut,docType:"rut",phone:intake.phone,email:intake.email,reason};
     setPatientAttemptedSave(false);setPatientError("");
   };
   const refreshPendingPatientIntakes=async()=>{

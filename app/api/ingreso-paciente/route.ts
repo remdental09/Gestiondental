@@ -37,6 +37,9 @@ function validBirthDate(value: string) {
 function clean(value: unknown, max: number) {
   return typeof value === "string" ? value.normalize("NFC").replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, max) : "";
 }
+function capitalizeNamePart(value: string) {
+  return value.replace(/(^|[\s'-])(\p{L})/gu, (_, separator: string, letter: string) => separator + letter.toUpperCase());
+}
 async function activeLink(token: unknown) {
   if (!tokenOk(token)) return null;
   const [row] = await getDb().select().from(patientIntakeLinks)
@@ -59,19 +62,30 @@ function page(title: string, body: string, status = 200, script = "") {
 
 const invalidPage = () => page("Enlace no disponible", `<h1 style="font-size:21px;margin:0 0 8px">Este formulario ya no está disponible</h1><p style="margin:0;line-height:1.5">El enlace pudo vencer o ya fue utilizado. Solicita uno nuevo en la clínica.</p>`, 404);
 
-const FORM_SCRIPT = `(function(){
+const FORM_SCRIPT = String.raw`(function(){
 var form=document.getElementById('intake'),msg=document.getElementById('msg'),button=document.getElementById('submit'),token=new URLSearchParams(location.search).get('t')||'';
 function show(text){msg.textContent=text;msg.style.display='block';}
+function capitalizeWords(value){return value.replace(/(^|[\s'-])(\p{L})/gu,function(_,separator,letter){return separator+letter.toUpperCase();});}
+function capitalizeField(event){var field=event.target,start=field.selectionStart,end=field.selectionEnd,next=capitalizeWords(field.value);if(next!==field.value){field.value=next;if(start!==null)field.setSelectionRange(start,end);}}
+function formatRut(value){var compact=value.toUpperCase().replace(/[^0-9K]/g,'').slice(0,10);if(compact.length<2)return compact;var body=compact.slice(0,-1),dv=compact.slice(-1);return body.replace(/\B(?=(\d{3})+(?!\d))/g,'.')+'-'+dv;}
+function formatRutField(event){var field=event.target,old=field.value,start=field.selectionStart===null?old.length:field.selectionStart,before=old.slice(0,start).replace(/[^0-9K]/gi,'').length,next=formatRut(old);if(next!==old){field.value=next;var caret=0,seen=0;while(caret<next.length&&seen<before){if(/[0-9K]/i.test(next.charAt(caret)))seen++;caret++;}field.setSelectionRange(caret,caret);}}
+var email=document.getElementById('email'),emailConfirm=document.getElementById('email2'),emailCheck=document.getElementById('emailCheck');
+function emailsMatch(){var a=email.value.trim().toLowerCase(),b=emailConfirm.value.trim().toLowerCase(),started=!!a||!!b,match=!!a&&!!b&&a===b;emailConfirm.setCustomValidity(started&&!match?'Los correos electrónicos deben coincidir.':'');emailCheck.textContent=started&&!match?'Los correos no coinciden. Corrige ambos campos para continuar.':'Escribe el mismo correo en ambos campos.';emailCheck.style.color=started&&!match?'#a43542':'#6b6a7c';button.disabled=started&&!match;return match;}
+email.addEventListener('input',emailsMatch);emailConfirm.addEventListener('input',emailsMatch);
+['givenNames','firstSurname','secondSurname'].forEach(function(id){document.getElementById(id).addEventListener('input',capitalizeField);});
+document.getElementById('rut').addEventListener('input',formatRutField);
 function phoneValue(){
  var select=document.getElementById('phoneCountry'),raw=document.getElementById('phone').value.trim(),digits=raw.replace(/\D/g,''),international=/^(?:\+|00)/.test(raw);
  if(international){if(raw.startsWith('00'))digits=digits.slice(2);var options=Array.prototype.slice.call(select.options).sort(function(a,b){return b.getAttribute('data-dial-code').length-a.getAttribute('data-dial-code').length;});for(var i=0;i<options.length;i++){var dial=options[i].getAttribute('data-dial-code'),code=dial.replace(/\D/g,'');if(digits.startsWith(code)){select.value=options[i].value;var local=digits.slice(code.length);return dial+(local?' '+local:'');}}return '+'+digits;}
  var selected=select.options[select.selectedIndex],dial=selected.getAttribute('data-dial-code')||'+56',code=dial.replace(/\D/g,'');if(code&&digits.startsWith(code)&&digits.length>=code.length+8)digits=digits.slice(code.length);return dial+(digits?' '+digits:'');
 }
 form.addEventListener('submit',function(event){event.preventDefault();msg.style.display='none';
-var values={t:token,name:document.getElementById('name').value,rut:document.getElementById('rut').value,birthDate:document.getElementById('birth').value,email:document.getElementById('email').value,emailConfirm:document.getElementById('email2').value,phone:phoneValue(),website:document.getElementById('website').value};
- if(values.email.trim().toLowerCase()!==values.emailConfirm.trim().toLowerCase()){show('Los correos electrónicos no coinciden. Revísalos antes de enviar.');return;}
+if(!emailsMatch()){show('Los correos electrónicos deben ser iguales. Revísalos antes de enviar.');emailConfirm.focus();return;}
+var values={t:token,names:capitalizeWords(document.getElementById('givenNames').value),firstSurname:capitalizeWords(document.getElementById('firstSurname').value),secondSurname:capitalizeWords(document.getElementById('secondSurname').value),rut:document.getElementById('rut').value,birthDate:document.getElementById('birth').value,email:email.value,emailConfirm:emailConfirm.value,phone:phoneValue(),website:document.getElementById('website').value};
+values.name=[values.names,values.firstSurname,values.secondSurname].filter(Boolean).join(' ');
+if(!values.names||!values.firstSurname||!values.secondSurname){show('Completa nombres, primer apellido y segundo apellido.');return;}
  button.disabled=true;button.textContent='Enviando…';
-fetch(location.pathname,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(values)}).then(function(response){return response.json().then(function(data){return{ok:response.ok,data:data};});}).then(function(result){if(!result.ok){show(result.data.error||'No pudimos guardar tus datos. Revisa el formulario e intenta de nuevo.');button.disabled=false;button.textContent='Enviar mis datos';return;}document.getElementById('card').innerHTML='<h1 style="font-size:21px;margin:0 0 8px">Datos recibidos</h1><p style="margin:0;line-height:1.5">Gracias. Tus datos quedaron guardados como preingreso pendiente. La clínica los revisará y los agregará a tu ficha al preparar el ingreso. Este envío no crea la ficha clínica ni reemplaza la anamnesis.</p>';}).catch(function(){show('No hay conexión. Intenta de nuevo.');button.disabled=false;button.textContent='Enviar mis datos';});
+fetch(location.pathname,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(values)}).then(function(response){return response.json().then(function(data){return{ok:response.ok,data:data};});}).then(function(result){if(!result.ok){show(result.data.error||'No pudimos guardar tus datos. Revisa el formulario e intenta de nuevo.');button.textContent='Enviar mis datos';emailsMatch();return;}document.getElementById('card').innerHTML='<h1 style="font-size:21px;margin:0 0 8px">Datos recibidos</h1><p style="margin:0;line-height:1.5">Gracias. Tus datos quedaron guardados como preingreso pendiente. La clínica los revisará y los agregará a tu ficha al preparar el ingreso. Este envío no crea la ficha clínica ni reemplaza la anamnesis.</p>';}).catch(function(){show('No hay conexión. Intenta de nuevo.');button.textContent='Enviar mis datos';emailsMatch();});
 });})();`;
 
 export async function GET(request: Request) {
@@ -83,7 +97,7 @@ export async function GET(request: Request) {
   const phoneOptions = PHONE_COUNTRIES.map((country, index) => `<option value="${country.code}" data-dial-code="${country.dialCode}"${index === 0 ? " selected" : ""}>${esc(country.name)} (${country.dialCode})</option>`).join("");
   const phoneField = `<label for="phone" style="display:block;margin-top:14px;font-size:14px;font-weight:700">Número de teléfono *<span style="display:flex;gap:8px;margin-top:5px"><select id="phoneCountry" aria-label="País y código telefónico" autocomplete="tel-country-code" style="box-sizing:border-box;width:46%;max-width:220px;flex:0 0 46%;padding:10px;border:1px solid #cfcde0;border-radius:8px;font-size:14px;background:#fff;color:#35343f">${phoneOptions}</select><input id="phone" name="phone" type="tel" autocomplete="tel-national" maxlength="24" required inputmode="tel" placeholder="9 1234 5678" style="${input};flex:1;min-width:0;margin-top:0"></span></label><p style="font-size:12px;color:#6b6a7c;margin:5px 0 0">Chile (+56) aparece primero. Elige el país y escribe el número sin repetir el prefijo.</p>`;
   return page("Datos de ingreso del paciente",
-    `<div id="card"><p style="margin:0 0 4px;font-size:13px;color:#6b6a7c">Formulario de ingreso</p><h1 style="font-size:22px;margin:0 0 8px">Completa tus datos básicos</h1><p style="font-size:14px;line-height:1.5;margin:0 0 16px">Así podremos preparar tu ficha antes de la atención.</p><form id="intake">${label("name", "Nombre y apellidos *", "text", "name", "maxlength=180 required") }<p style="font-size:12px;color:#6b6a7c;margin:5px 0 0">Escribe tu nombre y tus dos apellidos.</p>${label("rut", "RUT / RUN", "text", "off", "maxlength=30 inputmode=text autocapitalize=characters") }<p style="font-size:12px;color:#6b6a7c;margin:5px 0 0">Si no tienes RUT chileno, deja este campo vacío.</p>${label("birth", "Fecha de nacimiento *", "date", "bday", "required")}${label("email", "Correo electrónico *", "email", "email", "maxlength=254 required inputmode=email autocapitalize=none")}${label("email2", "Repite tu correo electrónico *", "email", "email", "maxlength=254 required inputmode=email autocapitalize=none")}${phoneField}<label aria-hidden="true" style="position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden">Sitio web<input id="website" name="website" tabindex="-1" autocomplete="off"></label><p id="msg" role="alert" style="display:none;margin:14px 0 0;padding:10px;border-radius:8px;background:#fee2e2;color:#7f1d1d;font-size:14px"></p><button id="submit" type="submit" style="width:100%;margin-top:18px;padding:14px;border:0;border-radius:9px;background:#473a6d;color:#fff;font-size:16px;font-weight:700">Enviar mis datos</button></form></div>`,
+    `<div id="card"><p style="margin:0 0 4px;font-size:13px;color:#6b6a7c">Formulario de ingreso</p><h1 style="font-size:22px;margin:0 0 8px">Completa tus datos básicos</h1><p style="font-size:14px;line-height:1.5;margin:0 0 16px">Así podremos preparar tu ficha antes de la atención.</p><form id="intake">${label("givenNames", "Nombres *", "text", "given-name", "maxlength=100 required autocapitalize=words")}${label("firstSurname", "Primer apellido *", "text", "family-name", "maxlength=60 required autocapitalize=words")}${label("secondSurname", "Segundo apellido *", "text", "off", "maxlength=60 required autocapitalize=words")}<p style="font-size:12px;color:#6b6a7c;margin:5px 0 0">La primera letra de cada palabra se pondrá en mayúscula automáticamente.</p>${label("rut", "RUT / RUN", "text", "off", "maxlength=13 inputmode=text autocapitalize=characters") }<p style="font-size:12px;color:#6b6a7c;margin:5px 0 0">El guion y los puntos se agregan automáticamente. Si no tienes RUT chileno, deja este campo vacío.</p>${label("birth", "Fecha de nacimiento *", "date", "bday", "required")}${label("email", "Correo electrónico *", "email", "email", "maxlength=254 required inputmode=email autocapitalize=none")}${label("email2", "Repite tu correo electrónico *", "email", "email", "maxlength=254 required inputmode=email autocapitalize=none") }<p id="emailCheck" aria-live="polite" style="font-size:12px;color:#6b6a7c;margin:5px 0 0">Escribe el mismo correo en ambos campos.</p>${phoneField}<label aria-hidden="true" style="position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden">Sitio web<input id="website" name="website" tabindex="-1" autocomplete="off"></label><p id="msg" role="alert" style="display:none;margin:14px 0 0;padding:10px;border-radius:8px;background:#fee2e2;color:#7f1d1d;font-size:14px"></p><button id="submit" type="submit" style="width:100%;margin-top:18px;padding:14px;border:0;border-radius:9px;background:#473a6d;color:#fff;font-size:16px;font-weight:700">Enviar mis datos</button></form></div>`,
     200, FORM_SCRIPT);
 }
 
@@ -98,13 +112,17 @@ export async function POST(request: Request) {
   const found = await activeLink(token).catch(() => null);
   if (!found) return fail("Este enlace ya no está disponible. Solicita uno nuevo en la clínica.", 404);
 
-  const name = clean(body.name, 180);
+  const names = capitalizeNamePart(clean(body.names, 100));
+  const firstSurname = capitalizeNamePart(clean(body.firstSurname, 60));
+  const secondSurname = capitalizeNamePart(clean(body.secondSurname, 60));
+  const separatedName = [names, firstSurname, secondSurname].filter(Boolean).join(" ");
+  const name = capitalizeNamePart(clean(separatedName || body.name, 180));
   const birthDate = clean(body.birthDate, 10);
   const rutInput = clean(body.rut, 30);
   const email = clean(body.email, 254).toLowerCase();
   const emailConfirm = clean(body.emailConfirm, 254).toLowerCase();
   const phone = clean(body.phone, 24);
-  if (!hasFourNameParts(name)) return fail("Escribe tu nombre y tus dos apellidos.");
+  if (!hasFourNameParts(name) || (separatedName && (!names || !firstSurname || !secondSurname))) return fail("Completa nombres, primer apellido y segundo apellido.");
   if (!validBirthDate(birthDate)) return fail("Revisa la fecha de nacimiento.");
   if (rutInput && !isValidChileanRut(rutInput)) return fail("El RUT no es válido. Revísalo o deja el campo vacío si no tienes RUT chileno.");
   if (!isValidEmail(email)) return fail("Revisa el correo electrónico.");
