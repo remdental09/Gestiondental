@@ -38,6 +38,15 @@ export const patientIntakeLinks = sqliteTable("patient_intake_links", {
   index("patient_intake_links_patient_idx").on(table.patientId),
 ]);
 
+/** QR público reutilizable por espacio: solo permite enviar preingresos, nunca consultarlos. */
+export const patientIntakePublicLinks = sqliteTable("patient_intake_public_links", {
+  ownerId: text("owner_id").primaryKey(),
+  /** Código público del QR; no es una credencial para leer fichas o preingresos. */
+  publicToken: text("public_token").notNull(),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, table => [uniqueIndex("patient_intake_public_links_token_idx").on(table.publicToken)]);
+
 export const evolutions = sqliteTable("evolutions", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   ownerId: text("owner_id").notNull(),

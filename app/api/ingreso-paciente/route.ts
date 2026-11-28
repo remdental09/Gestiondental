@@ -1,9 +1,10 @@
 import { and, eq, gt, isNotNull, isNull } from "drizzle-orm";
-import { patientIntakeLinks, patients } from "@/db/schema";
+import { patientIntakeLinks, patientIntakePublicLinks, patients } from "@/db/schema";
 import { getDb } from "@/db";
 import { hasFourNameParts } from "@/app/patient-identity";
 import { isValidChileanRut, storedDocument } from "@/lib/patient-document";
 import { isValidEmail } from "@/lib/appointment-mail";
+import { newVerifyToken } from "@/lib/document-verification";
 import { PHONE_COUNTRIES } from "@/lib/phone-countries";
 
 export const runtime = "edge";
@@ -48,6 +49,14 @@ async function activeLink(token: unknown) {
   return row ?? null;
 }
 
+async function activePublicLink(token: unknown) {
+  if (!tokenOk(token)) return null;
+  const [row] = await getDb().select().from(patientIntakePublicLinks)
+    .where(eq(patientIntakePublicLinks.publicToken, token))
+    .limit(1);
+  return row ?? null;
+}
+
 function page(title: string, body: string, status = 200, script = "") {
   const bytes = crypto.getRandomValues(new Uint8Array(16));
   let binary = "";
@@ -63,7 +72,7 @@ function page(title: string, body: string, status = 200, script = "") {
 const invalidPage = () => page("Enlace no disponible", `<h1 style="font-size:21px;margin:0 0 8px">Este formulario ya no está disponible</h1><p style="margin:0;line-height:1.5">El enlace pudo vencer o ya fue utilizado. Solicita uno nuevo en la clínica.</p>`, 404);
 
 const FORM_SCRIPT = String.raw`(function(){
-var form=document.getElementById('intake'),msg=document.getElementById('msg'),button=document.getElementById('submit'),token=new URLSearchParams(location.search).get('t')||'';
+var form=document.getElementById('intake'),msg=document.getElementById('msg'),button=document.getElementById('submit'),params=new URLSearchParams(location.search),token=params.get('t')||'',publicToken=params.get('c')||'';
 function show(text){msg.textContent=text;msg.style.display='block';}
 function capitalizeWords(value){return value.replace(/(^|[\s'-])(\p{L})/gu,function(_,separator,letter){return separator+letter.toUpperCase();});}
 function capitalizeField(event){var field=event.target,start=field.selectionStart,end=field.selectionEnd,next=capitalizeWords(field.value);if(next!==field.value){field.value=next;if(start!==null)field.setSelectionRange(start,end);}}
@@ -81,7 +90,7 @@ function phoneValue(){
 }
 form.addEventListener('submit',function(event){event.preventDefault();msg.style.display='none';
 if(!emailsMatch()){show('Los correos electrónicos deben ser iguales. Revísalos antes de enviar.');emailConfirm.focus();return;}
-var values={t:token,names:capitalizeWords(document.getElementById('givenNames').value),firstSurname:capitalizeWords(document.getElementById('firstSurname').value),secondSurname:capitalizeWords(document.getElementById('secondSurname').value),rut:document.getElementById('rut').value,birthDate:document.getElementById('birth').value,email:email.value,emailConfirm:emailConfirm.value,phone:phoneValue(),website:document.getElementById('website').value};
+var values={t:token,c:publicToken,names:capitalizeWords(document.getElementById('givenNames').value),firstSurname:capitalizeWords(document.getElementById('firstSurname').value),secondSurname:capitalizeWords(document.getElementById('secondSurname').value),rut:document.getElementById('rut').value,birthDate:document.getElementById('birth').value,email:email.value,emailConfirm:emailConfirm.value,phone:phoneValue(),website:document.getElementById('website').value};
 values.name=[values.names,values.firstSurname,values.secondSurname].filter(Boolean).join(' ');
 if(!values.names||!values.firstSurname||!values.secondSurname){show('Completa nombres, primer apellido y segundo apellido.');return;}
  button.disabled=true;button.textContent='Enviando…';
@@ -89,9 +98,12 @@ fetch(location.pathname,{method:'POST',headers:{'Content-Type':'application/json
 });})();`;
 
 export async function GET(request: Request) {
-  const token = new URL(request.url).searchParams.get("t") ?? "";
-  const found = await activeLink(token).catch(() => null);
-  if (!found) return invalidPage();
+  const params = new URL(request.url).searchParams;
+  const token = params.get("t") ?? "";
+  const publicToken = params.get("c") ?? "";
+  const found = token ? await activeLink(token).catch(() => null) : null;
+  const publicLink = token ? null : await activePublicLink(publicToken).catch(() => null);
+  if ((token && !found) || (!token && !publicLink)) return invalidPage();
   const input = "display:block;width:100%;box-sizing:border-box;margin-top:5px;padding:12px;border:1px solid #cfcde0;border-radius:8px;font-size:16px;background:#fff;color:#35343f";
   const label = (id: string, title: string, type: string, auto: string, extra = "") => `<label for="${id}" style="display:block;margin-top:14px;font-size:14px;font-weight:700">${title}<input id="${id}" name="${id}" type="${type}" autocomplete="${auto}" ${extra} style="${input}"></label>`;
   const phoneOptions = PHONE_COUNTRIES.map((country, index) => `<option value="${country.code}" data-dial-code="${country.dialCode}"${index === 0 ? " selected" : ""}>${esc(country.name)} (${country.dialCode})</option>`).join("");
@@ -109,8 +121,12 @@ export async function POST(request: Request) {
   if (!body || typeof body !== "object") return fail("Revisa el formulario.");
   if (clean(body.website, 120)) return fail("No se pudo enviar el formulario.");
   const token = body.t;
-  const found = await activeLink(token).catch(() => null);
-  if (!found) return fail("Este enlace ya no está disponible. Solicita uno nuevo en la clínica.", 404);
+  const hasPersonalToken = typeof token === "string" && token.length > 0;
+  const found = hasPersonalToken ? await activeLink(token).catch(() => null) : null;
+  const publicLink = hasPersonalToken ? null : await activePublicLink(body.c).catch(() => null);
+  if (!found && !publicLink) return fail("Este enlace ya no está disponible. Solicita uno nuevo en la clínica.", 404);
+  const ownerId = found?.ownerId ?? publicLink?.ownerId;
+  if (!ownerId) return fail("Este enlace ya no está disponible. Solicita uno nuevo en la clínica.", 404);
 
   const names = capitalizeNamePart(clean(body.names, 100));
   const firstSurname = capitalizeNamePart(clean(body.firstSurname, 60));
@@ -134,30 +150,47 @@ export async function POST(request: Request) {
   const db = getDb();
   if (rut) {
     const [duplicate] = await db.select({ id: patients.id }).from(patients)
-      .where(and(eq(patients.ownerId, found.ownerId), eq(patients.rut, rut))).limit(1);
+      .where(and(eq(patients.ownerId, ownerId), eq(patients.rut, rut))).limit(1);
     if (duplicate) return fail("Ya hay una ficha asociada a ese RUT. Comunícate con la clínica para actualizar tus datos.", 409);
     const [pending] = await db.select({ id: patientIntakeLinks.id }).from(patientIntakeLinks)
-      .where(and(eq(patientIntakeLinks.ownerId, found.ownerId), eq(patientIntakeLinks.submittedRut, rut), isNull(patientIntakeLinks.patientId), isNotNull(patientIntakeLinks.usedAt))).limit(1);
+      .where(and(eq(patientIntakeLinks.ownerId, ownerId), eq(patientIntakeLinks.submittedRut, rut), isNull(patientIntakeLinks.patientId), isNotNull(patientIntakeLinks.usedAt))).limit(1);
     if (pending) return fail("Ya recibimos un preingreso con ese RUT. La clínica lo encontrará en «Nuevo paciente».", 409);
   }
 
   const usedAt = new Date().toISOString();
   let claimed: { id: number } | undefined;
   try {
-    [claimed] = await db.update(patientIntakeLinks).set({
-      usedAt,
-      submittedName: name,
-      submittedBirthDate: birthDate,
-      submittedRut: rut,
-      submittedPhone: phone,
-      submittedEmail: email,
-    })
-      .where(and(eq(patientIntakeLinks.id, found.id), isNull(patientIntakeLinks.usedAt), gt(patientIntakeLinks.expiresAt, usedAt)))
-      .returning({ id: patientIntakeLinks.id });
+    if (found) {
+      [claimed] = await db.update(patientIntakeLinks).set({
+        usedAt,
+        submittedName: name,
+        submittedBirthDate: birthDate,
+        submittedRut: rut,
+        submittedPhone: phone,
+        submittedEmail: email,
+      })
+        .where(and(eq(patientIntakeLinks.id, found.id), isNull(patientIntakeLinks.usedAt), gt(patientIntakeLinks.expiresAt, usedAt)))
+        .returning({ id: patientIntakeLinks.id });
+    } else {
+      const intakeToken = newVerifyToken();
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      [claimed] = await db.insert(patientIntakeLinks).values({
+        ownerId,
+        tokenHash: await hashToken(intakeToken),
+        expiresAt,
+        createdAt: usedAt,
+        usedAt,
+        submittedName: name,
+        submittedBirthDate: birthDate,
+        submittedRut: rut,
+        submittedPhone: phone,
+        submittedEmail: email,
+      }).returning({ id: patientIntakeLinks.id });
+    }
   } catch {
     return fail("No pudimos guardar tus datos. Intenta de nuevo.", 503);
   }
-  if (!claimed) return fail("Este enlace ya fue utilizado. Solicita uno nuevo en la clínica.", 409);
+  if (!claimed && found) return fail("Este enlace ya fue utilizado. Solicita uno nuevo en la clínica.", 409);
   // El paciente solo deja un preingreso pendiente. La ficha clínica se crea después,
   // cuando el equipo lo selecciona y completa el ingreso desde «Nuevo paciente».
   return json({ ok: true });
