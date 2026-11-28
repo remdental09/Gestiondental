@@ -59,8 +59,8 @@ export function PatientIntakeDialog({ open, onOpenChange }: { open: boolean; onO
   return <Dialog open={open} onOpenChange={handleOpenChange}>
     <DialogContent className="max-h-[90vh] overflow-y-auto bg-white sm:max-w-xl">
       <DialogHeader>
-        <DialogTitle className="flex items-center gap-2"><QrCode className="size-5 text-[#473a6d]"/>Formulario de datos del paciente</DialogTitle>
-        <DialogDescription>Comparte un enlace individual o muestra el código QR para que lo escanee en la sala de espera. Vence en 7 días y se puede enviar una sola vez.</DialogDescription>
+        <DialogTitle className="flex items-center gap-2"><QrCode className="size-5 text-[#473a6d]"/>Prellenado de datos del paciente</DialogTitle>
+        <DialogDescription>Es un prellenado administrativo: el paciente completa antes de la atención, desde casa o la sala de espera, su nombre, RUT (si tiene), fecha de nacimiento, correo y teléfono. Al enviarlo, SpeakDent crea su ficha y marca estos datos como informados por el paciente para que los revises y confirmes durante el ingreso. Así evitas pedir y registrar datos básicos en el sillón, y puedes enfocarte en la anamnesis y la atención clínica. No pregunta antecedentes médicos ni reemplaza la entrevista. El enlace personal vence en 7 días y se usa una vez.</DialogDescription>
       </DialogHeader>
       {!created ? <div className="space-y-4">
         <label className="block space-y-1.5 text-sm font-medium" htmlFor="patient-intake-email">Correo del paciente (opcional)
@@ -68,13 +68,14 @@ export function PatientIntakeDialog({ open, onOpenChange }: { open: boolean; onO
         </label>
         <p className="text-sm leading-5 text-[#615f73]">Si ingresas un correo, enviaremos allí el enlace desde ingreso@speakdent.cl. También podrás copiarlo o compartirlo; si el paciente está en la clínica, puede escanear el QR.</p>
         {error && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900">{error}</p>}
-        <DialogFooter><Button variant="outline" onClick={() => handleOpenChange(false)}>Cancelar</Button><Button className="bg-[#473a6d] hover:bg-[#3a2f5a]" onClick={() => void create()} disabled={busy}>{busy ? "Preparando…" : "Crear formulario y QR"}</Button></DialogFooter>
+        <DialogFooter><Button variant="outline" onClick={() => handleOpenChange(false)}>Cancelar</Button><Button className="bg-[#473a6d] hover:bg-[#3a2f5a]" onClick={() => void create()} disabled={busy}>{busy ? "Preparando…" : "Preparar formulario y QR"}</Button></DialogFooter>
       </div> : <div className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-[190px_minmax(0,1fr)] sm:items-center">
           <div className="mx-auto w-full max-w-[190px] rounded-xl border border-[#e6e4ee] bg-white p-3" role="img" aria-label="Código QR para abrir el formulario" dangerouslySetInnerHTML={{ __html: qr }} />
           <div className="space-y-3 text-sm">
             <p className="font-semibold text-[#35343f]">Escanea el código para abrir el formulario.</p>
             <p className="text-[#615f73]">Este enlace vence el {expiry} y deja de funcionar después de que se envían los datos.</p>
+            <p className="text-[#615f73]">Cuando el paciente lo complete, su ficha aparecerá en Pacientes con el aviso «Datos informados por paciente · confirmar». Revisa y confirma esos datos durante el ingreso; luego continúa con la anamnesis.</p>
             <div className="flex flex-wrap gap-2">
               <Button type="button" variant="outline" size="sm" onClick={() => void copy()}><Copy className="mr-2 size-4"/>{copied ? "Enlace copiado" : "Copiar enlace"}</Button>
               {typeof navigator !== "undefined" && "share" in navigator && <Button type="button" variant="outline" size="sm" onClick={() => void share()}><Share2 className="mr-2 size-4"/>Compartir</Button>}
