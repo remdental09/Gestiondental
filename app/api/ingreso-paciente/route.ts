@@ -1,4 +1,4 @@
-import { and, eq, gt, isNull } from "drizzle-orm";
+import { and, eq, gt, isNotNull, isNull } from "drizzle-orm";
 import { patientIntakeLinks, patients } from "@/db/schema";
 import { getDb } from "@/db";
 import { hasFourNameParts } from "@/app/patient-identity";
@@ -62,10 +62,10 @@ const FORM_SCRIPT = `(function(){
 var form=document.getElementById('intake'),msg=document.getElementById('msg'),button=document.getElementById('submit'),token=new URLSearchParams(location.search).get('t')||'';
 function show(text){msg.textContent=text;msg.style.display='block';}
 form.addEventListener('submit',function(event){event.preventDefault();msg.style.display='none';
- var values={t:token,name:document.getElementById('name').value,rut:document.getElementById('rut').value,birthDate:document.getElementById('birth').value,email:document.getElementById('email').value,emailConfirm:document.getElementById('email2').value,phone:document.getElementById('phone').value,website:document.getElementById('website').value};
+var values={t:token,name:document.getElementById('name').value,rut:document.getElementById('rut').value,birthDate:document.getElementById('birth').value,email:document.getElementById('email').value,emailConfirm:document.getElementById('email2').value,phone:document.getElementById('phone').value,website:document.getElementById('website').value};
  if(values.email.trim().toLowerCase()!==values.emailConfirm.trim().toLowerCase()){show('Los correos electrónicos no coinciden. Revísalos antes de enviar.');return;}
  button.disabled=true;button.textContent='Enviando…';
- fetch(location.pathname,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(values)}).then(function(response){return response.json().then(function(data){return{ok:response.ok,data:data};});}).then(function(result){if(!result.ok){show(result.data.error||'No pudimos guardar tus datos. Revisa el formulario e intenta de nuevo.');button.disabled=false;button.textContent='Enviar mis datos';return;}document.getElementById('card').innerHTML='<h1 style="font-size:21px;margin:0 0 8px">Datos recibidos</h1><p style="margin:0;line-height:1.5">Gracias. Tus datos básicos quedaron registrados para preparar tu ficha. En la consulta podrás confirmar que estén correctos.</p>';}).catch(function(){show('No hay conexión. Intenta de nuevo.');button.disabled=false;button.textContent='Enviar mis datos';});
+fetch(location.pathname,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(values)}).then(function(response){return response.json().then(function(data){return{ok:response.ok,data:data};});}).then(function(result){if(!result.ok){show(result.data.error||'No pudimos guardar tus datos. Revisa el formulario e intenta de nuevo.');button.disabled=false;button.textContent='Enviar mis datos';return;}document.getElementById('card').innerHTML='<h1 style="font-size:21px;margin:0 0 8px">Datos recibidos</h1><p style="margin:0;line-height:1.5">Gracias. Tus datos quedaron guardados como preingreso pendiente. La clínica los revisará y los agregará a tu ficha al preparar el ingreso. Este envío no crea la ficha clínica ni reemplaza la anamnesis.</p>';}).catch(function(){show('No hay conexión. Intenta de nuevo.');button.disabled=false;button.textContent='Enviar mis datos';});
 });})();`;
 
 export async function GET(request: Request) {
@@ -109,33 +109,29 @@ export async function POST(request: Request) {
     const [duplicate] = await db.select({ id: patients.id }).from(patients)
       .where(and(eq(patients.ownerId, found.ownerId), eq(patients.rut, rut))).limit(1);
     if (duplicate) return fail("Ya hay una ficha asociada a ese RUT. Comunícate con la clínica para actualizar tus datos.", 409);
+    const [pending] = await db.select({ id: patientIntakeLinks.id }).from(patientIntakeLinks)
+      .where(and(eq(patientIntakeLinks.ownerId, found.ownerId), eq(patientIntakeLinks.submittedRut, rut), isNull(patientIntakeLinks.patientId), isNotNull(patientIntakeLinks.usedAt))).limit(1);
+    if (pending) return fail("Ya recibimos un preingreso con ese RUT. La clínica lo encontrará en «Nuevo paciente».", 409);
   }
 
   const usedAt = new Date().toISOString();
-  const [claimed] = await db.update(patientIntakeLinks).set({ usedAt })
-    .where(and(eq(patientIntakeLinks.id, found.id), isNull(patientIntakeLinks.usedAt), gt(patientIntakeLinks.expiresAt, usedAt)))
-    .returning({ id: patientIntakeLinks.id });
-  if (!claimed) return fail("Este enlace ya fue utilizado. Solicita uno nuevo en la clínica.", 409);
+  let claimed: { id: number } | undefined;
   try {
-    const [patient] = await db.insert(patients).values({
-      ownerId: found.ownerId,
-      name,
-      birthDate,
-      rut,
-      phone,
-      email,
-      reason: "Evaluación",
-      status: "Evaluación",
-      allergies: "Sin registrar",
-      history: "Sin registrar",
-      createdAt: usedAt,
-      updatedAt: usedAt,
-    }).returning({ id: patients.id });
-    await db.update(patientIntakeLinks).set({ patientId: patient.id }).where(eq(patientIntakeLinks.id, found.id)).catch(() => undefined);
-  } catch (error) {
-    await db.update(patientIntakeLinks).set({ usedAt: null }).where(and(eq(patientIntakeLinks.id, found.id), eq(patientIntakeLinks.usedAt, usedAt))).catch(() => undefined);
-    if (error instanceof Error && /UNIQUE/i.test(error.message)) return fail("Ya hay una ficha asociada a ese RUT. Comunícate con la clínica para actualizar tus datos.", 409);
+    [claimed] = await db.update(patientIntakeLinks).set({
+      usedAt,
+      submittedName: name,
+      submittedBirthDate: birthDate,
+      submittedRut: rut,
+      submittedPhone: phone,
+      submittedEmail: email,
+    })
+      .where(and(eq(patientIntakeLinks.id, found.id), isNull(patientIntakeLinks.usedAt), gt(patientIntakeLinks.expiresAt, usedAt)))
+      .returning({ id: patientIntakeLinks.id });
+  } catch {
     return fail("No pudimos guardar tus datos. Intenta de nuevo.", 503);
   }
+  if (!claimed) return fail("Este enlace ya fue utilizado. Solicita uno nuevo en la clínica.", 409);
+  // El paciente solo deja un preingreso pendiente. La ficha clínica se crea después,
+  // cuando el equipo lo selecciona y completa el ingreso desde «Nuevo paciente».
   return json({ ok: true });
 }

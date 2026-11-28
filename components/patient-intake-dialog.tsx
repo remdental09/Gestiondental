@@ -60,7 +60,7 @@ export function PatientIntakeDialog({ open, onOpenChange }: { open: boolean; onO
     <DialogContent className="max-h-[90vh] overflow-y-auto bg-white sm:max-w-xl">
       <DialogHeader>
         <DialogTitle className="flex items-center gap-2"><QrCode className="size-5 text-[#473a6d]"/>Prellenado de datos del paciente</DialogTitle>
-        <DialogDescription>Es un prellenado administrativo: el paciente completa antes de la atención, desde casa o la sala de espera, su nombre, RUT (si tiene), fecha de nacimiento, correo y teléfono. Al enviarlo, SpeakDent crea su ficha y marca estos datos como informados por el paciente para que los revises y confirmes durante el ingreso. Así evitas pedir y registrar datos básicos en el sillón, y puedes enfocarte en la anamnesis y la atención clínica. No pregunta antecedentes médicos ni reemplaza la entrevista. El enlace personal vence en 7 días y se usa una vez.</DialogDescription>
+        <DialogDescription>Es un prellenado administrativo: el paciente completa antes de la atención, desde casa o la sala de espera, su nombre, RUT (si tiene), fecha de nacimiento, correo y teléfono. Al enviarlo, queda como preingreso pendiente; todavía no crea una ficha clínica. Lo encontrarás en «Nuevo paciente»: sus datos se copiarán al formulario para revisarlos y completar el ingreso. Así reduces las preguntas administrativas en el sillón y puedes enfocarte en la anamnesis. No solicita antecedentes médicos ni reemplaza la entrevista clínica. El enlace personal vence en 7 días y se usa una vez.</DialogDescription>
       </DialogHeader>
       {!created ? <div className="space-y-4">
         <label className="block space-y-1.5 text-sm font-medium" htmlFor="patient-intake-email">Correo del paciente (opcional)
@@ -75,7 +75,7 @@ export function PatientIntakeDialog({ open, onOpenChange }: { open: boolean; onO
           <div className="space-y-3 text-sm">
             <p className="font-semibold text-[#35343f]">Escanea el código para abrir el formulario.</p>
             <p className="text-[#615f73]">Este enlace vence el {expiry} y deja de funcionar después de que se envían los datos.</p>
-            <p className="text-[#615f73]">Cuando el paciente lo complete, su ficha aparecerá en Pacientes con el aviso «Datos informados por paciente · confirmar». Revisa y confirma esos datos durante el ingreso; luego continúa con la anamnesis.</p>
+            <p className="text-[#615f73]">Cuando el paciente lo complete, el preingreso aparecerá en el selector de «Nuevo paciente». Al elegirlo, sus datos se copiarán al formulario y podrás revisar, corregir y completar la ficha antes de guardarla. La anamnesis se realiza después en la consulta.</p>
             <div className="flex flex-wrap gap-2">
               <Button type="button" variant="outline" size="sm" onClick={() => void copy()}><Copy className="mr-2 size-4"/>{copied ? "Enlace copiado" : "Copiar enlace"}</Button>
               {typeof navigator !== "undefined" && "share" in navigator && <Button type="button" variant="outline" size="sm" onClick={() => void share()}><Share2 className="mr-2 size-4"/>Compartir</Button>}

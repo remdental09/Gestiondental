@@ -1,4 +1,4 @@
-import { and, desc, eq, ne, sql } from "drizzle-orm";
+import { and, desc, eq, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { ALL_TOOTH_STATUSES, applyStatusToChart, isLesionStatus, pruneChartExtras, removeLesionFromChart } from "@/lib/tooth-status";
 import { isCariesDepth } from "@/lib/caries";
 import { env } from "cloudflare:workers";
@@ -263,7 +263,7 @@ export async function GET() {
       const authorId = evolutionAuthor(row?.author_id, ownerId);
       return { authorName: row?.author_name || "", authorEmail: row?.author_email || "", mine: authorId === personalId };
     };
-    const [ps, ns, bs, as, pe, ts, imgs, ces, pays, dxs, profile, , authors, addresses, profiles, budgetAuthorMap, allocationRows, pieceRows, agendaSync, intakeRows] = await Promise.all([
+    const [ps, ns, bs, as, pe, ts, imgs, ces, pays, dxs, profile, , authors, addresses, profiles, budgetAuthorMap, allocationRows, pieceRows, agendaSync, intakeRows, pendingIntakes] = await Promise.all([
       db.select().from(patients).where(eq(patients.ownerId, ownerId)).orderBy(patients.name),
       db.select().from(evolutions).where(eq(evolutions.ownerId, ownerId)).orderBy(desc(evolutions.clinicalDate), desc(evolutions.recordedAt)),
       db.select().from(budgets).where(eq(budgets.ownerId, ownerId)).orderBy(desc(budgets.id)),
@@ -278,6 +278,11 @@ export async function GET() {
       db.select().from(evolutionDiagnoses).where(eq(evolutionDiagnoses.ownerId, ownerId)).orderBy(evolutionDiagnoses.id).catch(() => [] as (typeof evolutionDiagnoses.$inferSelect)[]),
       profileP, touchP, authorsP, addressesP, profilesP, budgetAuthorsP, allocationRowsP, pieceRowsP, agendaSyncP,
       db.select({ patientId: patientIntakeLinks.patientId }).from(patientIntakeLinks).where(and(eq(patientIntakeLinks.ownerId, ownerId), sql`${patientIntakeLinks.patientId} IS NOT NULL`)).catch(() => [] as { patientId: number | null }[]),
+      db.select({ id: patientIntakeLinks.id, name: patientIntakeLinks.submittedName, birthDate: patientIntakeLinks.submittedBirthDate, rut: patientIntakeLinks.submittedRut, phone: patientIntakeLinks.submittedPhone, email: patientIntakeLinks.submittedEmail, receivedAt: patientIntakeLinks.usedAt })
+        .from(patientIntakeLinks)
+        .where(and(eq(patientIntakeLinks.ownerId, ownerId), isNull(patientIntakeLinks.patientId), isNotNull(patientIntakeLinks.usedAt), isNotNull(patientIntakeLinks.submittedName)))
+        .orderBy(desc(patientIntakeLinks.usedAt))
+        .catch(() => [] as { id: number; name: string | null; birthDate: string | null; rut: string | null; phone: string | null; email: string | null; receivedAt: string | null }[]),
     ]);
     const intakePatientIds = new Set(intakeRows.flatMap(row => row.patientId === null ? [] : [row.patientId]));
     // Resumen por pieza de cada evolución (tabla aditiva; si no existe aún, la ficha carga igual).
@@ -314,6 +319,7 @@ export async function GET() {
     }));
     return Response.json(filterClinicalLoad(spaceRole, {
       patients: ps.map(p => ({ ...p, rut: p.rut || "", intakeCompleted: intakePatientIds.has(p.id), address: addresses.get(p.id) ?? emptyAddress(), profile: profiles.get(p.id) ?? emptyProfile() })),
+      pendingPatientIntakes: pendingIntakes.map(row => ({ id: row.id, name: row.name || "", birthDate: row.birthDate || "", rut: row.rut || "", phone: row.phone || "", email: row.email || "", receivedAt: row.receivedAt || "" })),
       notes: ns.map(n => ({ id: n.id, patientId: n.patientId, date: displayDate(n.clinicalDate), clinicalDate: n.clinicalDate, recordedAt: n.recordedAt, title: n.title, body: n.body, sourceDocumentId: n.sourceDocumentId, backupStatus: n.backupStatus, diagnoses: diagnosesByNote.get(n.id) ?? [], pieces: piecesByNote.get(n.id) ?? [], ...annulView(n), ...authorView(n.id) })),
       budgets: await (async () => {
         // Quién armó cada presupuesto (en una clínica, el colega que lo estableció); los antiguos, del titular.
@@ -402,11 +408,27 @@ async function handlePost(request: Request) {
       if (birthDateInput.length > 10 || !birthDate || !validDate(birthDate) || birthDate > dateInChile() || Number(birthDate.slice(0, 4)) < Number(dateInChile().slice(0, 4)) - 125 || (rutRaw && !isValidDocument(rutRaw, documentType))) return error("Revisa el nombre, fecha de nacimiento y documento de identidad. La fecha de nacimiento es obligatoria.");
       const rut = rutRaw ? storedDocument(rutRaw, documentType) : null;
       if (rut && (await db.select({ id: patients.id }).from(patients).where(and(eq(patients.ownerId, ownerId), eq(patients.rut, rut)))).length) return error("Ya existe un paciente con ese documento de identidad.", 409);
+      const intakeId = input.intakeId === undefined || input.intakeId === null ? null : Number(input.intakeId);
+      if (intakeId !== null && (!Number.isSafeInteger(intakeId) || intakeId <= 0)) return error("El preingreso seleccionado ya no está disponible.", 409);
+      if (intakeId !== null) {
+        const [pending] = await db.select({ id: patientIntakeLinks.id }).from(patientIntakeLinks)
+          .where(and(eq(patientIntakeLinks.id, intakeId), eq(patientIntakeLinks.ownerId, ownerId), sql`${patientIntakeLinks.patientId} IS NULL`, sql`${patientIntakeLinks.usedAt} IS NOT NULL`, sql`${patientIntakeLinks.submittedName} IS NOT NULL`)).limit(1);
+        if (!pending) return error("Este preingreso ya fue utilizado o no pertenece a tu clínica. Actualiza la lista y vuelve a elegirlo.", 409);
+      }
       const t = now();
       const [p] = await db.insert(patients).values({ ownerId, name, birthDate, rut, phone, email, reason: string(input.reason, 240) || "Evaluación", status: "Evaluación", allergies: "Sin registrar", history: "Sin registrar", createdAt: t, updatedAt: t }).returning();
+      if (intakeId !== null) {
+        const [linked] = await db.update(patientIntakeLinks).set({ patientId: p.id })
+          .where(and(eq(patientIntakeLinks.id, intakeId), eq(patientIntakeLinks.ownerId, ownerId), sql`${patientIntakeLinks.patientId} IS NULL`, sql`${patientIntakeLinks.usedAt} IS NOT NULL`))
+          .returning({ id: patientIntakeLinks.id });
+        if (!linked) {
+          await db.delete(patients).where(and(eq(patients.id, p.id), eq(patients.ownerId, ownerId))).catch(() => undefined);
+          return error("Este preingreso acaba de ser utilizado. Actualiza la lista y vuelve a intentarlo.", 409);
+        }
+      }
       const address = await saveAddress(ownerId, p.id, input.address).catch(() => emptyAddress());
       const profile = await saveProfile(ownerId, p.id, input.profile).catch(() => emptyProfile());
-      return Response.json({ patient: { ...p, rut: documentType === "extranjero" ? (rut ?? "") : rutRaw || "", address, profile } }, { status: 201 });
+      return Response.json({ patient: { ...p, rut: documentType === "extranjero" ? (rut ?? "") : rutRaw || "", intakeCompleted: intakeId !== null, address, profile } }, { status: 201 });
     }
     if (action === "previewDriveRecords" || action === "importDriveRecords") {
       const importer = await getChatGPTUser();

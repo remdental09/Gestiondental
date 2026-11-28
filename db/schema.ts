@@ -27,6 +27,11 @@ export const patientIntakeLinks = sqliteTable("patient_intake_links", {
   createdAt: text("created_at").notNull(),
   usedAt: text("used_at"),
   patientId: integer("patient_id").references(() => patients.id, { onDelete: "set null" }),
+  submittedName: text("submitted_name"),
+  submittedBirthDate: text("submitted_birth_date"),
+  submittedRut: text("submitted_rut"),
+  submittedPhone: text("submitted_phone"),
+  submittedEmail: text("submitted_email"),
 }, table => [
   uniqueIndex("patient_intake_links_token_idx").on(table.tokenHash),
   index("patient_intake_links_owner_created_idx").on(table.ownerId, table.createdAt),
